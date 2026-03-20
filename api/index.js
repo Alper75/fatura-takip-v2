@@ -49,53 +49,54 @@ app.post('/api/gib/create-draft', async (req, res) => {
 
     const faturaLib = require('fatura');
     
-    // Ürün listesi (Hem Snake hem Camel anahtarlarla)
+    // Ürün listesi (Her üç isimlendirme stilini de kapsıyoruz)
     const items = [
       {
-        // CamelCase
+        // 1. Türkçe CamelCase/SnakeCase
         malHizmet: String(invoice.aciklama || 'Hizmet Bedeli'),
+        mal_hizmet: String(invoice.aciklama || 'Hizmet Bedeli'),
         miktar: 1,
         birim: 'ADET',
         birimFiyat: tutar,
+        birim_fiyat: tutar,
         fiyat: tutar,
         iskontoOrani: 0,
-        iskontoTutari: 0,
-        kdvOrani: kdvOrani,
-        kdvTutari: kdvTutari,
-        malHizmetTutari: tutar,
-        
-        // Snake_case (Kütüphanenin içindeki toFixed() hatalarını önlemek için)
-        mal_hizmet: String(invoice.aciklama || 'Hizmet Bedeli'),
-        birim_fiyat: tutar,
         iskonto_orani: 0,
         iskonto_tutari: 0,
+        kdvOrani: kdvOrani,
         kdv_orani: kdvOrani,
+        kdvTutari: kdvTutari,
         kdv_tutari: kdvTutari,
+        malHizmetTutari: tutar,
         mal_hizmet_tutari: tutar,
-
-        // İngilizce varyasyonlar
+        
+        // 2. İngilizce Industry-Standard
         name: String(invoice.aciklama || 'Hizmet Bedeli'),
+        description: String(invoice.aciklama || 'Hizmet Bedeli'),
         quantity: 1,
         unit: 'ADET',
         unitPrice: tutar,
-        totalAmount: tutar,
-        base: tutar,
-        price: tutar,
-        totalPrice: tutar,
+        taxAmount: kdvTutari,
         taxRate: kdvOrani,
-        taxAmount: kdvTutari
+        totalAmount: tutar,
+        grandTotal: toplamTutar
       }
     ];
 
     const invoiceData = {
-      // CamelCase
+      // 1. Türkçe İsimlendirme (Camel + Snake)
       faturaTarihi: invoice.faturaTarihi || new Date().toLocaleDateString('tr-TR'),
+      fatura_tarihi: invoice.faturaTarihi || new Date().toLocaleDateString('tr-TR'),
       saat: new Date().toLocaleTimeString('tr-TR'),
       paraBirimi: 'TRY',
       faturaTipi: 'SATIS',
+      fatura_tipi: 'SATIS',
       vknTckn: String(invoice.vknTckn || '11111111111'),
+      vkn_tckn: String(invoice.vknTckn || '11111111111'),
       aliciAdi: String(invoice.ad || invoice.unvan || 'İsimsiz'),
+      alici_adi: String(invoice.ad || invoice.unvan || 'İsimsiz'),
       aliciSoyadi: String(invoice.soyad || ''),
+      alici_soyadi: String(invoice.soyad || ''),
       aliciUnvan: String(invoice.unvan || invoice.ad || 'İsimsiz'),
       vergiDairesi: String(invoice.vergiDairesi || ''),
       ulke: 'Türkiye',
@@ -105,43 +106,41 @@ app.post('/api/gib/create-draft', async (req, res) => {
       matrah: tutar,
       malhizmetToplamTutari: tutar,
       toplamIskonto: 0,
+      toplam_iskonto: 0,
       hesaplanankdv: kdvTutari,
       vergilerToplami: kdvTutari,
+      vergiler_toplami: kdvTutari,
       vergilerDahilToplamTutar: toplamTutar,
       odenecekTutar: toplamTutar,
+      odenecek_tutar: toplamTutar,
       not: String(invoice.aciklama || ''),
       
-      // Snake_case
-      fatura_tarihi: invoice.faturaTarihi || new Date().toLocaleDateString('tr-TR'),
-      fatura_tipi: 'SATIS',
-      vkn_tckn: String(invoice.vknTckn || '11111111111'),
-      alici_adi: String(invoice.ad || invoice.unvan || 'İsimsiz'),
-      alici_soyadi: String(invoice.soyad || ''),
-      vergi_dairesi: String(invoice.vergiDairesi || ''),
-      bulvar_cadde_sokak: String(invoice.adres || 'Türkiye'),
-      toplam_iskonto: 0,
-      vergiler_toplami: kdvTutari,
-      odenecek_tutar: toplamTutar,
-
-      // Evrensel Anahtarlar
-      paymentPrice: toplamTutar,
-      payableAmount: toplamTutar,
-      productsTotalPrice: tutar,
+      // 2. İngilizce Industry-Standard (Senin belirttiğin kritik alanlar)
+      date: invoice.faturaTarihi || new Date().toLocaleDateString('tr-TR'),
+      taxIDOrTRID: String(invoice.vknTckn || '11111111111'),
+      name: String(invoice.ad || 'İsimsiz'),
+      surname: String(invoice.soyad || ''),
+      title: String(invoice.unvan || invoice.ad || 'İsimsiz'),
+      totalVAT: kdvTutari,
+      grandTotalInclVAT: toplamTutar,
+      paymentTotal: toplamTutar,
+      
+      // Diğer olası İngilizce anahtarlar
+      currency: 'TRY',
+      invoiceType: 'SATIS',
       taxExclusiveAmount: tutar,
-      taxTotalPrice: kdvTutari,
-      includedTaxesTotalPrice: toplamTutar,
-      itemOrServiceTotalPrice: tutar,
-      orderData: [],
+      payableAmount: toplamTutar,
+      paymentPrice: toplamTutar,
 
-      // Liste varyasyonları
+      // 3. Liste Varyasyonları
       malHizmetListe: items,
       mal_hizmet_liste: items,
-      malHizmetTable: items,
+      items: items,
       products: items,
-      items: items
+      itemOrServiceList: items
     };
 
-    console.log('STEP 2: Creating Invoice with fatura.js (Ultra-Safe Mode)...');
+    console.log('STEP 2: Creating Invoice with fatura.js (Pro Mapping Mode)...');
     const result = await faturaLib.createInvoiceAndGetHTML(
         credentials.username, 
         credentials.password, 
