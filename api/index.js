@@ -49,119 +49,112 @@ app.post('/api/gib/create-draft', async (req, res) => {
       });
     }
 
-    const { EInvoiceApi, EInvoice } = require('e-fatura');
-    
-    // Kütüphanenin içindeki 'anonymous' kontrolünün patlamaması için 
-    // her türlü konfigürasyon anahtarını sağlıyoruz.
-    const config = { 
-        username: credentials.username, 
-        password: credentials.password,
-        user: credentials.username,
-        pass: credentials.password,
-        testMode: false
-    };
-
-    let api = new EInvoiceApi(config);
-    
-    // Bazı versiyonlarda constructor veriyi içe aktarmıyorsa manuel ekle
-    if (!api.config) api.config = config;
-    if (api.setCredentials) api.setCredentials(credentials.username, credentials.password);
-
-    console.log('STEP 2: Connecting to GİB (EInvoiceApi)...');
-    // 'anonymous' hatasını önlemek için boş bir obje geçiyoruz
-    const connectOptions = { anonymous: false };
-    if (api.connect) {
-        await api.connect(connectOptions);
-    } else if (api.login) {
-        await api.login(connectOptions);
-    }
-
-    console.log('STEP 3: Preparing Invoice (Ultra-Defensive)...');
-    const invoiceData = {
-      faturaTarihi: invoice.faturaTarihi || new Date().toLocaleDateString('tr-TR'),
-      saat: new Date().toLocaleTimeString('tr-TR'),
-      paraBirimi: 'TRY',
-      faturaTipi: 'SATIS',
-      vknTckn: String(invoice.vknTckn || '11111111111'),
-      aliciAdi: String(invoice.ad || 'İsimsiz'),
-      aliciSoyadi: String(invoice.soyad || ''),
-      vergiDairesi: String(invoice.vergiDairesi || ''),
-      ulke: 'Türkiye',
-      bulvarcaddesokak: String(invoice.adres || 'Türkiye'),
-      sehir: String(invoice.il || 'Ankara'),
-      mahalleSemtIlce: String(invoice.ilce || 'Merkez'),
-      
-      // GİB'in kesin beklediği 'base' (matrah) ve 'price' alanları
-      base: tutar,
-      matrah: tutar,
-      malhizmetToplamTutari: tutar,
-      toplamIskonto: 0,
-      hesaplanankdv: kdvTutari,
-      vergilerToplami: kdvTutari,
-      vergilerDahilToplamTutar: toplamTutar,
-      odenecekTutar: toplamTutar,
-      
-      // İngilizce eşleşmeler için eklenen kritik alanlar
-      paymentPrice: toplamTutar,
-      itemOrServiceTotalPrice: tutar,
-      orderData: [],
-      
-      not: String(invoice.aciklama || ''),
-      malHizmetTable: [
-        {
-          malHizmet: String(invoice.aciklama || 'Hizmet Bedeli'),
-          miktar: 1,
-          birim: 'ADET',
-          birimFiyat: tutar,
-          fiyat: tutar,
-          base: tutar, // Satır bazlı matrah
-          iskontoOrani: 0,
-          iskontoTutari: 0,
-          kdvOrani: kdvOrani,
-          kdvTutari: kdvTutari,
-          malHizmetTutari: tutar,
-          ozelMatrahTutari: 0
-        }
-      ]
-    };
-
-    // Fatura nesnesini akıllıca oluştur
-    let finalInvoice;
+    let api;
     try {
-      if (typeof EInvoice === 'function') {
-        finalInvoice = new EInvoice();
-        if (finalInvoice.mapWithTurkishKeys) {
-          finalInvoice.mapWithTurkishKeys(invoiceData);
-        } else {
-          Object.assign(finalInvoice, invoiceData);
+        const { EInvoiceApi, EInvoice } = require('e-fatura');
+        
+        // Konfigürasyon
+        const config = { 
+            username: credentials.username, 
+            password: credentials.password,
+            user: credentials.username,
+            pass: credentials.password,
+            testMode: false
+        };
+
+        api = new EInvoiceApi(config);
+        if (!api.config) api.config = config;
+        if (api.setCredentials) api.setCredentials(credentials.username, credentials.password);
+
+        console.log('STEP 2: Connecting to GİB...');
+        const connectOptions = { anonymous: false };
+        if (api.connect) await api.connect(connectOptions);
+        else if (api.login) await api.login(connectOptions);
+
+        console.log('STEP 3: Submission...');
+        const invoiceData = {
+          faturaTarihi: invoice.faturaTarihi || new Date().toLocaleDateString('tr-TR'),
+          saat: new Date().toLocaleTimeString('tr-TR'),
+          paraBirimi: 'TRY',
+          faturaTipi: 'SATIS',
+          vknTckn: String(invoice.vknTckn || '11111111111'),
+          aliciAdi: String(invoice.ad || 'İsimsiz'),
+          aliciSoyadi: String(invoice.soyad || ''),
+          vergiDairesi: String(invoice.vergiDairesi || ''),
+          ulke: 'Türkiye',
+          bulvarcaddesokak: String(invoice.adres || 'Türkiye'),
+          sehir: String(invoice.il || 'Ankara'),
+          mahalleSemtIlce: String(invoice.ilce || 'Merkez'),
+          
+          base: tutar,
+          matrah: tutar,
+          malhizmetToplamTutari: tutar,
+          toplamIskonto: 0,
+          hesaplanankdv: kdvTutari,
+          vergilerToplami: kdvTutari,
+          vergilerDahilToplamTutar: toplamTutar,
+          odenecekTutar: toplamTutar,
+          
+          paymentPrice: toplamTutar,
+          productsTotalPrice: tutar, // Satırların vergisiz toplamı
+          taxTotalPrice: kdvTutari,    // Vergilerin toplamı
+          itemOrServiceTotalPrice: tutar,
+          orderData: [],
+          
+          not: String(invoice.aciklama || ''),
+          malHizmetTable: [
+            {
+              malHizmet: String(invoice.aciklama || 'Hizmet Bedeli'),
+              miktar: 1,
+              birim: 'ADET',
+              birimFiyat: tutar,
+              fiyat: tutar,
+              base: tutar,
+              price: tutar,
+              totalPrice: tutar,
+              iskontoOrani: 0,
+              iskontoTutari: 0,
+              kdvOrani: kdvOrani,
+              taxRate: kdvOrani,
+              kdvTutari: kdvTutari,
+              taxAmount: kdvTutari,
+              malHizmetTutari: tutar,
+              ozelMatrahTutari: 0
+            }
+          ]
+        };
+
+        let finalInvoice;
+        try {
+          if (typeof EInvoice === 'function') {
+            finalInvoice = new EInvoice();
+            if (finalInvoice.mapWithTurkishKeys) finalInvoice.mapWithTurkishKeys(invoiceData);
+            else Object.assign(finalInvoice, invoiceData);
+          } else {
+            finalInvoice = invoiceData;
+          }
+        } catch (e) {
+          finalInvoice = invoiceData;
         }
-      } else {
-        finalInvoice = invoiceData;
-      }
-    } catch (e) {
-      console.log('EInvoice class failed, using raw data');
-      finalInvoice = invoiceData;
-    }
 
-    // Metod tespiti ve gönderim
-    let result;
-    if (api.createDraftInvoice) {
-        result = await api.createDraftInvoice(finalInvoice);
-    } else if (api.createDraftBasicInvoice) {
-        result = await api.createDraftBasicInvoice(finalInvoice);
-    } else if (api.createInvoice) {
-        result = await api.createInvoice(finalInvoice);
-    } else {
-        throw new Error('Fatura oluşturma metodu (createDraftInvoice) bulunamadı.');
-    }
-    
-    if (api.logout) await api.logout();
+        let result;
+        if (api.createDraftInvoice) result = await api.createDraftInvoice(finalInvoice);
+        else if (api.createDraftBasicInvoice) result = await api.createDraftBasicInvoice(finalInvoice);
+        else if (api.createInvoice) result = await api.createInvoice(finalInvoice);
+        else throw new Error('Metod bulunamadı.');
 
-    res.json({ 
-      success: true, 
-      message: 'Taslak fatura portala başarıyla gönderildi.',
-      uuid: (result && result.uuid) ? result.uuid : (typeof result === 'string' ? result : 'OK')
-    });
+        res.json({ 
+          success: true, 
+          message: 'Taslak fatura portala başarıyla gönderildi.',
+          uuid: (result && result.uuid) ? result.uuid : (typeof result === 'string' ? result : 'OK')
+        });
+
+    } finally {
+        if (api && api.logout) {
+            console.log('STEP 4: Safe Logout...');
+            await api.logout().catch(e => console.error('Logout failed:', e));
+        }
+    }
   } catch (error) {
     console.error('SERVER ERROR:', error);
     res.status(500).json({ 
