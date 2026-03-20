@@ -49,25 +49,24 @@ app.post('/api/gib/create-draft', async (req, res) => {
 
     const { EInvoiceApi, EInvoice } = require('e-fatura');
     
-    // En güvenli başlatma yöntemi: Hem constructor hem setCredentials dene
-    let api;
-    try {
-        // Yöntem 1: Nesne olarak gönder
-        api = new EInvoiceApi({ 
-            username: credentials.username, 
-            password: credentials.password 
-        });
-    } catch (e) {
-        // Yöntem 2: Tekil argümanlar olarak gönder
-        api = new EInvoiceApi(credentials.username, credentials.password);
-    }
+    // Kütüphanenin içindeki 'anonymous' kontrolünün patlamaması için 
+    // her türlü konfigürasyon anahtarını sağlıyoruz.
+    const config = { 
+        username: credentials.username, 
+        password: credentials.password,
+        user: credentials.username,
+        pass: credentials.password,
+        testMode: false
+    };
 
-    // Ekstra güvence: setCredentials varsa kullan
-    if (api.setCredentials) {
-        api.setCredentials(credentials.username, credentials.password);
-    }
+    let api = new EInvoiceApi(config);
+    
+    // Bazı versiyonlarda constructor veriyi içe aktarmıyorsa manuel ekle
+    if (!api.config) api.config = config;
+    if (api.setCredentials) api.setCredentials(credentials.username, credentials.password);
 
     console.log('STEP 2: Connecting to GİB (EInvoiceApi)...');
+    // connect() metodu PHP standartından gelmektedir
     if (api.connect) {
         await api.connect();
     } else if (api.login) {
