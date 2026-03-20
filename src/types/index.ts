@@ -217,12 +217,18 @@ export interface KesilecekFatura {
   ad: string;
   soyad?: string;
   vknTckn: string;
+  vergiDairesi?: string;
   adres: string;
+  il?: string;
+  ilce?: string;
   tutar: number;
   kdvDahil: boolean;
+  kdvOrani?: number;
+  faturaTarihi?: string;
   aciklama?: string;
   olusturmaTarihi: string;
   durum: 'bekliyor' | 'kesildi';
+  cariId?: string;
 }
 
 // ==================== VIEW TYPES ====================

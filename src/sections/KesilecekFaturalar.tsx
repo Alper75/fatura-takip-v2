@@ -37,6 +37,13 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { cn } from '@/lib/utils';
 import * as XLSX from 'xlsx';
 import type { KesilecekFatura } from '@/types';
@@ -47,7 +54,8 @@ export function KesilecekFaturalar() {
     addKesilecekFatura, 
     updateKesilecekFatura, 
     deleteKesilecekFatura,
-    openSatisDrawer
+    openSatisDrawer,
+    cariler
   } = useApp();
 
   const [searchTerm, setSearchTerm] = useState('');
@@ -57,10 +65,16 @@ export function KesilecekFaturalar() {
     ad: '',
     soyad: '',
     vknTckn: '',
+    vergiDairesi: '',
     adres: '',
+    il: '',
+    ilce: '',
     tutar: '',
+    kdvOrani: '20',
+    faturaTarihi: new Date().toISOString().split('T')[0],
     aciklama: '',
-    kdvDahil: true
+    kdvDahil: true,
+    cariId: ''
   });
 
   // GİB States
@@ -79,6 +93,25 @@ export function KesilecekFaturalar() {
       .sort((a, b) => new Date(b.olusturmaTarihi).getTime() - new Date(a.olusturmaTarihi).getTime());
   }, [kesilecekFaturalar, searchTerm]);
 
+  const handleCariChange = (cariId: string) => {
+    if (!cariId) {
+      setForm(prev => ({ ...prev, cariId: '', ad: '', soyad: '', vknTckn: '', vergiDairesi: '', adres: '' }));
+      return;
+    }
+    const cari = cariler.find(c => c.id === cariId);
+    if (cari) {
+      setForm(prev => ({
+        ...prev,
+        cariId: cari.id,
+        ad: cari.unvan,
+        soyad: '', // Ünvan genelde tam isimdir
+        vknTckn: cari.vknTckn,
+        vergiDairesi: cari.vergiDairesi || '',
+        adres: cari.adres || '',
+      }));
+    }
+  };
+
   const handleAdd = (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.ad || !form.vknTckn || !form.tutar) {
@@ -90,20 +123,32 @@ export function KesilecekFaturalar() {
       ad: form.ad,
       soyad: form.soyad,
       vknTckn: form.vknTckn,
+      vergiDairesi: form.vergiDairesi,
       adres: form.adres,
+      il: form.il,
+      ilce: form.ilce,
       tutar: parseFloat(form.tutar),
+      kdvOrani: parseInt(form.kdvOrani),
+      faturaTarihi: form.faturaTarihi,
       aciklama: form.aciklama,
-      kdvDahil: form.kdvDahil
+      kdvDahil: form.kdvDahil,
+      cariId: form.cariId || undefined
     });
 
     setForm({
       ad: '',
       soyad: '',
       vknTckn: '',
+      vergiDairesi: '',
       adres: '',
+      il: '',
+      ilce: '',
       tutar: '',
+      kdvOrani: '20',
+      faturaTarihi: new Date().toISOString().split('T')[0],
       aciklama: '',
-      kdvDahil: true
+      kdvDahil: true,
+      cariId: ''
     });
     toast.success('Kayıt listeye eklendi.');
   };
@@ -114,8 +159,13 @@ export function KesilecekFaturalar() {
         'Ad (veya Firma)': 'Örnek A.Ş.',
         'Soyad (Şahıs ise)': '',
         'VKN / TCKN': '1234567890',
-        'Adres': 'Ankara / Türkiye',
+        'Vergi Dairesi': 'Kadıköy',
+        'Adres': 'Kadıköy / İstanbul',
+        'İl': 'İstanbul',
+        'İlçe': 'Kadıköy',
+        'Fatura Tarihi (GG.AA.YYYY)': new Date().toLocaleDateString('tr-TR'),
         'Tutar': '1500.50',
+        'KDV Oranı': '20',
         'KDV Dahil mi? (E/H)': 'E',
         'Açıklama': 'Sistem Bakım Ücreti'
       }
@@ -145,8 +195,13 @@ export function KesilecekFaturalar() {
             ad: row['Ad (veya Firma)'] || '',
             soyad: row['Soyad (Şahıs ise)'] || '',
             vknTckn: String(row['VKN / TCKN'] || ''),
+            vergiDairesi: row['Vergi Dairesi'] || '',
             adres: row['Adres'] || '',
+            il: row['İl'] || '',
+            ilce: row['İlçe'] || '',
             tutar: parseFloat(String(row['Tutar'] || '0').replace(',', '.')),
+            kdvOrani: parseInt(row['KDV Oranı'] || '20'),
+            faturaTarihi: row['Fatura Tarihi (GG.AA.YYYY)'] || new Date().toISOString().split('T')[0],
             aciklama: row['Açıklama'] || '',
             kdvDahil: (row['KDV Dahil mi? (E/H)'] || 'E').toUpperCase() === 'E'
           });
@@ -195,12 +250,12 @@ export function KesilecekFaturalar() {
           credentials: gibCredentials,
           invoice: {
             ...selectedInvoiceForGib,
-            tarih: new Date().toLocaleDateString('tr-TR'),
+            tarih: selectedInvoiceForGib.faturaTarihi || new Date().toLocaleDateString('tr-TR'),
             // Portal genellikle KDV hariç matrah ve oran bekler
             tutar: selectedInvoiceForGib.kdvDahil 
-              ? selectedInvoiceForGib.tutar / (1 + 0.20) // Örn: %20 KDV varsayımı (basitleştirme)
+              ? selectedInvoiceForGib.tutar / (1 + (selectedInvoiceForGib.kdvOrani || 20) / 100)
               : selectedInvoiceForGib.tutar,
-            kdvOrani: 20
+            kdvOrani: selectedInvoiceForGib.kdvOrani || 20
           }
         }),
       });
@@ -215,7 +270,7 @@ export function KesilecekFaturalar() {
         toast.error(result.message || 'GİB Gönderim hatası');
       }
     } catch (error) {
-      toast.error('Sunucuya bağlanılamadı. Lütfen backend sunucusunun (Port 5000) çalıştığından emin olun.');
+      toast.error('Sunucuya bağlanılamadı. Lütfen backend sunucusunun çalıştığından emin olun.');
     } finally {
       setIsGibSending(false);
     }
@@ -269,55 +324,93 @@ export function KesilecekFaturalar() {
           <CardContent>
             <form onSubmit={handleAdd} className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="ad">Firma Ünvanı / Ad</Label>
-                <Input id="ad" value={form.ad} onChange={e => setForm({...form, ad: e.target.value})} placeholder="Örn: ABC Teknoloji Ltd" className="h-10" />
+                <Label htmlFor="cari">Cari Karttan Seç (Opsiyonel)</Label>
+                <Select value={form.cariId} onValueChange={handleCariChange}>
+                  <SelectTrigger className="h-10">
+                    <SelectValue placeholder="Cari kart seçin..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="">-- Manuel Giriş --</SelectItem>
+                    {cariler.map(c => (
+                      <SelectItem key={c.id} value={c.id}>{c.unvan}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="soyad">Soyad (Şahıslar için)</Label>
-                <Input id="soyad" value={form.soyad} onChange={e => setForm({...form, soyad: e.target.value})} placeholder="(İsteğe bağlı)" className="h-10" />
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="ad">Firma Ünvanı / Ad</Label>
+                  <Input id="ad" value={form.ad} onChange={e => setForm({...form, ad: e.target.value})} placeholder="Ad" className="h-10" />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="soyad">Soyad</Label>
+                  <Input id="soyad" value={form.soyad} onChange={e => setForm({...form, soyad: e.target.value})} placeholder="Soyad" className="h-10" />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="vkn">VKN / TCKN</Label>
+                  <Input id="vkn" value={form.vknTckn} onChange={e => setForm({...form, vknTckn: e.target.value})} placeholder="10-11 hane" className="h-10" />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="vd">Vergi Dairesi</Label>
+                  <Input id="vd" value={form.vergiDairesi} onChange={e => setForm({...form, vergiDairesi: e.target.value})} placeholder="Daire adı" className="h-10" />
+                </div>
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="vkn">VKN / TCKN</Label>
-                <Input id="vkn" value={form.vknTckn} onChange={e => setForm({...form, vknTckn: e.target.value})} placeholder="10 haneli VKN veya 11 haneli TCKN" className="h-10" />
+                <Label htmlFor="faturaTarihi">Fatura Tarihi</Label>
+                <Input id="faturaTarihi" type="date" value={form.faturaTarihi} onChange={e => setForm({...form, faturaTarihi: e.target.value})} className="h-10" />
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="adres">Adres</Label>
-                <Input id="adres" value={form.adres} onChange={e => setForm({...form, adres: e.target.value})} placeholder="Şehir, İlçe, Mahalle..." className="h-10" />
+                <Label htmlFor="adres">Tam Adres</Label>
+                <Input id="adres" value={form.adres} onChange={e => setForm({...form, adres: e.target.value})} placeholder="Cadde, sokak, no..." className="h-10" />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="il">İl</Label>
+                  <Input id="il" value={form.il} onChange={e => setForm({...form, il: e.target.value})} placeholder="İstanbul" className="h-10" />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="ilce">İlçe</Label>
+                  <Input id="ilce" value={form.ilce} onChange={e => setForm({...form, ilce: e.target.value})} placeholder="Kadıköy" className="h-10" />
+                </div>
               </div>
               
               <div className="space-y-2">
-                <Label htmlFor="aciklama">Açıklama / Not</Label>
-                <Textarea id="aciklama" value={form.aciklama} onChange={e => setForm({...form, aciklama: e.target.value})} placeholder="Fatura içeriği hakkında kısa not..." className="resize-none h-20" />
+                <Label htmlFor="aciklama">Fatura Açıklaması</Label>
+                <Textarea id="aciklama" value={form.aciklama} onChange={e => setForm({...form, aciklama: e.target.value})} placeholder="Hizmet bedeli vb..." className="resize-none h-16" />
               </div>
 
               <div className="space-y-2 pt-2">
-                <Label htmlFor="tutar">Tutar ve KDV Durumu</Label>
+                <Label>Tutar ve KDV</Label>
                 <div className="flex gap-2">
                   <div className="relative flex-1">
-                    <Input 
-                      id="tutar" 
-                      type="number" 
-                      step="0.01" 
-                      value={form.tutar} 
-                      onChange={e => setForm({...form, tutar: e.target.value})} 
-                      placeholder="0.00" 
-                      className="h-10 pr-10" 
-                    />
+                    <Input id="tutar" type="number" step="0.01" value={form.tutar} onChange={e => setForm({...form, tutar: e.target.value})} placeholder="0.00" className="h-10 pr-10" />
                     <div className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs font-bold">₺</div>
                   </div>
+                  <Select value={form.kdvOrani} onValueChange={val => setForm({...form, kdvOrani: val})}>
+                    <SelectTrigger className="w-24 h-10 font-bold">% {form.kdvOrani}</SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="20">% 20</SelectItem>
+                      <SelectItem value="10">% 10</SelectItem>
+                      <SelectItem value="1">% 1</SelectItem>
+                      <SelectItem value="0">% 0</SelectItem>
+                    </SelectContent>
+                  </Select>
                   <div className="flex items-center gap-2 border rounded-md px-3 bg-slate-50/50">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase w-8 leading-tight">
-                      KDV {form.kdvDahil ? 'Dahil' : 'Hariç'}
-                    </span>
+                    <span className="text-[10px] font-bold text-slate-400 uppercase w-8 leading-tight">{form.kdvDahil ? 'Dahil' : 'Hariç'}</span>
                     <Switch checked={form.kdvDahil} onCheckedChange={val => setForm({...form, kdvDahil: val})} />
                   </div>
                 </div>
               </div>
 
               <Button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 h-11 gap-2 mt-4 shadow-sm shadow-blue-100 font-semibold">
-                <Plus className="w-4 h-4" /> Listeye Kaydet
+                <Plus className="w-4 h-4" /> Planla ve Listeye Ekle
               </Button>
             </form>
           </CardContent>
@@ -366,7 +459,16 @@ export function KesilecekFaturalar() {
                         <TableCell>
                           <div className="flex flex-col">
                             <span className="font-bold text-slate-900 leading-tight">{f.ad} {f.soyad}</span>
-                            <span className="text-[11px] text-slate-500 font-medium mt-0.5">{f.vknTckn} • {f.adres || 'Adres Belirtilmedi'}</span>
+                            <div className="flex items-center gap-2 mt-0.5">
+                              <span className="text-[11px] text-slate-500 font-medium">{f.vknTckn}</span>
+                              {f.faturaTarihi && (
+                                <span className="text-[11px] text-blue-600 font-bold bg-blue-50 px-1.5 rounded">{f.faturaTarihi}</span>
+                              )}
+                            </div>
+                            <span className="text-[10px] text-slate-500 mt-0.5">
+                              {f.vergiDairesi && `${f.vergiDairesi} VD. • `} 
+                              {f.adres || (f.il ? `${f.ilce}/${f.il}` : 'Adres Belirtilmedi')}
+                            </span>
                             {f.aciklama && (
                               <p className="text-[10px] text-slate-400 mt-1 italic leading-tight">
                                 "{f.aciklama}"
