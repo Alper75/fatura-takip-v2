@@ -100,11 +100,12 @@ app.post('/api/gib/create-draft', async (req, res) => {
           productsTotalPrice: tutar,
           taxExclusiveAmount: tutar,
           taxTotalPrice: kdvTutari,
-          includedTaxesTotalPrice: toplamTutar, // Vergiler dahil toplam tutar
+          includedTaxesTotalPrice: toplamTutar, // Vergiler dahil toplam tura
           itemOrServiceTotalPrice: tutar,
           orderData: [],
           
-          not: String(invoice.aciklama || ''),
+          // 'reading map of undefined' hatasını %100 önlemek için 
+          // tüm olası liste anahtarlarını besliyoruz
           malHizmetTable: [
             {
               malHizmet: String(invoice.aciklama || 'Hizmet Bedeli'),
@@ -126,6 +127,12 @@ app.post('/api/gib/create-draft', async (req, res) => {
             }
           ]
         };
+
+        // Kütüphanenin farklı versiyonları için listeyi kopyalayalım
+        invoiceData.malHizmetListe = invoiceData.malHizmetTable;
+        invoiceData.products = invoiceData.malHizmetTable;
+        invoiceData.items = invoiceData.malHizmetTable;
+        invoiceData.itemOrServiceList = invoiceData.malHizmetTable;
 
         let finalInvoice;
         try {
