@@ -48,9 +48,10 @@ app.post('/api/gib/create-draft', async (req, res) => {
     }
 
     const EFaturaLib = require('e-fatura');
+    const libKeys = Object.keys(EFaturaLib);
     
     // PHP dokümanına göre sınıf adı InvoiceManager olmalı
-    const PortalClass = EFaturaLib.InvoiceManager || EFaturaLib.EArshivPortal || EFaturaLib;
+    const PortalClass = EFaturaLib.InvoiceManager || EFaturaLib.EArshivPortal || EFaturaLib.EFatura || EFaturaLib;
     let portal;
 
     if (typeof PortalClass === 'function') {
@@ -58,7 +59,7 @@ app.post('/api/gib/create-draft', async (req, res) => {
     } else if (PortalClass.default && typeof PortalClass.default === 'function') {
       portal = new PortalClass.default();
     } else {
-      throw new Error('Kütüphane içinde geçerli bir sınıf (Constructor) bulunamadı.');
+      throw new Error(`Kütüphane içinde geçerli bir sınıf bulunamadı. Bulunan anahtarlar: ${libKeys.join(', ')}`);
     }
 
     // Giriş bilgilerini sına
