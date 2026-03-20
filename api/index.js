@@ -46,43 +46,8 @@ app.post('/api/gib/create-draft', async (req, res) => {
     const toplamTutar = Number((tutar + kdvTutari).toFixed(2));
 
     console.log('STEP 1: Data preparation starting...');
-
-    const gibInvoice = {
-      vknTckn: String(invoice.vknTckn || '11111111111'),
-      ad: String(invoice.ad || 'İsimsiz'),
-      soyad: String(invoice.soyad || ''),
-      adres: String(invoice.adres || 'Türkiye'),
-      ulke: 'Türkiye',
-      sehir: String(invoice.il || ''),
-      ilce: String(invoice.ilce || ''),
-      vergiDairesi: String(invoice.vergiDairesi || ''),
-      tarih: invoice.faturaTarihi || new Date().toLocaleDateString('tr-TR'),
-      saat: new Date().toLocaleTimeString('tr-TR'),
-      paraBirimi: 'TRY',
-      dovizKuru: 1,
-      faturaTipi: 'SATIS',
-      notlar: [],
-      fisBilgileri: [],
-      irsaliyeBilgileri: [],
-      siparisBilgileri: [],
-      vergiBilgileri: [],
-      malHizmetListe: [
-        {
-          name: String(invoice.aciklama || 'Hizmet Bedeli'),
-          quantity: 1,
-          unit: 'ADET',
-          unitPrice: tutar,
-          price: tutar,
-          vatRate: kdvOrani,
-          vatAmount: kdvTutari,
-          totalAmount: toplamTutar
-        }
-      ]
-    };
-
-    console.log('STEP 2: GİB API call starting...');
     
-    // Eğer şifre "simule" ise portalı atla (Hata ayıklama için)
+    // Simülasyon Kontrolü
     if (credentials.password === 'simule') {
       return res.json({ 
         success: true, 
@@ -91,39 +56,53 @@ app.post('/api/gib/create-draft', async (req, res) => {
       });
     }
 
-    const { createInvoiceAndGetHTML } = require('fatura');
+    const { GibFatura, Invoice, InvoiceItem, Currency, InvoiceType, Unit } = require('gib-fatura');
     
-    console.log('STEP 3: Library call executing...');
-    const result = await createInvoiceAndGetHTML(
-      credentials.username, 
-      credentials.password, 
-      gibInvoice, 
-      { sign: false }
-    ).catch(err => {
-      console.error('Library internal catch:', err);
-      throw err;
+    // 1. Yeni Fatura Nesnesi
+    const gibInvoice = new Invoice({
+      vknTckn: String(invoice.vknTckn || '11111111111'),
+      aliciAdi: String(invoice.ad || 'İsimsiz'),
+      aliciSoyadi: String(invoice.soyad || ''),
+      adres: String(invoice.adres || 'Türkiye'),
+      sehir: String(invoice.il || 'Ankara'),
+      ilce: String(invoice.ilce || 'Merkez'),
+      vergiDairesi: String(invoice.vergiDairesi || ''),
+      tarih: invoice.faturaTarihi || new Date().toLocaleDateString('tr-TR'),
+      saat: new Date().toLocaleTimeString('tr-TR'),
+      paraBirimi: Currency.TRY,
+      faturaTipi: InvoiceType.Satis
     });
 
-    console.log('STEP 4: Success, returning response.');
+    // 2. Kalem Ekle
+    gibInvoice.addItem(new InvoiceItem({
+      malHizmet: String(invoice.aciklama || 'Hizmet Bedeli'),
+      miktar: 1,
+      birim: Unit.Adet,
+      birimFiyat: tutar,
+      kdvOrani: kdvOrani
+    }));
+
+    console.log('STEP 2: GİB Login starting...');
+    const gib = new GibFatura();
+    await gib.login(credentials.username, credentials.password);
+
+    console.log('STEP 3: Creating Draft...');
+    const result = await gib.createDraft(gibInvoice);
+    
+    await gib.logout();
+
+    console.log('STEP 4: Success!');
     res.json({ 
       success: true, 
       message: 'Taslak fatura portala başarıyla gönderildi.',
-      data: result
+      uuid: result
     });
   } catch (error) {
-    console.error('FINAL ERROR CATCH:', error);
-    
-    let detailMsg = error.message || 'Hata Detayı Yok';
-    if (error.stack) {
-        // Stack trace'deki 'map' kelimesini ara
-        const stackLines = error.stack.split('\n');
-        detailMsg += ' | Yer: ' + stackLines[1];
-    }
-
+    console.error('SERVER ERROR:', error);
     res.status(500).json({ 
       success: false, 
-      message: 'GİB Hata Raporu: ' + detailMsg,
-      error_type: error.name
+      message: 'GİB Hatası: ' + (error.message || 'Bilinmeyen Hata'),
+      detail: error.stack
     });
   }
 });
