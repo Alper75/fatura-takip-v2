@@ -49,7 +49,7 @@ app.post('/api/gib/create-draft', async (req, res) => {
 
     const faturaLib = require('fatura');
     
-    // fatura kütüphanesinin beklediği tam yapı
+    // fatura kütüphanesinin beklediği tam yapı + GİB'in sevdiği ek alanlar
     const invoiceData = {
       faturaTarihi: invoice.faturaTarihi || new Date().toLocaleDateString('tr-TR'),
       saat: new Date().toLocaleTimeString('tr-TR'),
@@ -58,13 +58,15 @@ app.post('/api/gib/create-draft', async (req, res) => {
       vknTckn: String(invoice.vknTckn || '11111111111'),
       aliciAdi: String(invoice.ad || invoice.unvan || 'İsimsiz'),
       aliciSoyadi: String(invoice.soyad || ''),
+      aliciUnvan: String(invoice.unvan || invoice.ad || 'İsimsiz'),
       vergiDairesi: String(invoice.vergiDairesi || ''),
       ulke: 'Türkiye',
       bulvarcaddesokak: String(invoice.adres || 'Türkiye'),
       sehir: String(invoice.il || 'Ankara'),
       mahalleSemtIlce: String(invoice.ilce || 'Merkez'),
       
-      // Toplamlar
+      // Toplamlar (GİB her iki ismi de arayabilir)
+      base: tutar,
       matrah: tutar,
       malhizmetToplamTutari: tutar,
       toplamIskonto: 0,
@@ -72,6 +74,16 @@ app.post('/api/gib/create-draft', async (req, res) => {
       vergilerToplami: kdvTutari,
       vergilerDahilToplamTutar: toplamTutar,
       odenecekTutar: toplamTutar,
+      
+      // Evrensel Anahtarlar
+      paymentPrice: toplamTutar,
+      payableAmount: toplamTutar,
+      productsTotalPrice: tutar,
+      taxExclusiveAmount: tutar,
+      taxTotalPrice: kdvTutari,
+      includedTaxesTotalPrice: toplamTutar,
+      itemOrServiceTotalPrice: tutar,
+      orderData: [],
       not: String(invoice.aciklama || ''),
       
       // KRİTİK: fatura kütüphanesi BU İSMİ bekler (map hatasının çözümü)
@@ -85,7 +97,19 @@ app.post('/api/gib/create-draft', async (req, res) => {
           iskontoOrani: 0,
           kdvOrani: kdvOrani,
           kdvTutari: kdvTutari,
-          malHizmetTutari: tutar
+          malHizmetTutari: tutar,
+          
+          // Satır bazlı ek alanlar
+          name: String(invoice.aciklama || 'Hizmet Bedeli'),
+          quantity: 1,
+          unit: 'ADET',
+          unitPrice: tutar,
+          totalAmount: tutar,
+          base: tutar,
+          price: tutar,
+          totalPrice: tutar,
+          taxRate: kdvOrani,
+          taxAmount: kdvTutari
         }
       ]
     };
