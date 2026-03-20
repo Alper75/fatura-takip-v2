@@ -108,11 +108,21 @@ app.post('/api/gib/create-draft', async (req, res) => {
           // tüm olası liste anahtarlarını besliyoruz
           malHizmetTable: [
             {
+              // Türkçe Anahtarlar
               malHizmet: String(invoice.aciklama || 'Hizmet Bedeli'),
               miktar: 1,
               birim: 'ADET',
               birimFiyat: tutar,
               fiyat: tutar,
+              malHizmetTutari: tutar,
+              
+              // İngilizce ve Alternatif Anahtarlar 
+              name: String(invoice.aciklama || 'Hizmet Bedeli'),
+              quantity: 1,
+              unit: 'ADET',
+              unitPrice: tutar,
+              totalAmount: tutar,
+              
               base: tutar,
               price: tutar,
               totalPrice: tutar,
@@ -122,7 +132,6 @@ app.post('/api/gib/create-draft', async (req, res) => {
               taxRate: kdvOrani,
               kdvTutari: kdvTutari,
               taxAmount: kdvTutari,
-              malHizmetTutari: tutar,
               ozelMatrahTutari: 0
             }
           ]
