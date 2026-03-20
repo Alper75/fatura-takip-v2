@@ -49,7 +49,35 @@ app.post('/api/gib/create-draft', async (req, res) => {
 
     const faturaLib = require('fatura');
     
-    // fatura kütüphanesinin beklediği tam yapı + GİB'in sevdiği ek alanlar
+    // Ürün listesini bir değişkene alıp her yere kopyalayacağız (garanti çözüm)
+    const items = [
+      {
+        // Türkçe Anahtarlar
+        malHizmet: String(invoice.aciklama || 'Hizmet Bedeli'),
+        miktar: 1,
+        birim: 'ADET',
+        birimFiyat: tutar,
+        fiyat: tutar,
+        iskontoOrani: 0,
+        iskontoTutari: 0,
+        kdvOrani: kdvOrani,
+        kdvTutari: kdvTutari,
+        malHizmetTutari: tutar,
+        
+        // İngilizce ve Alternatif Anahtarlar 
+        name: String(invoice.aciklama || 'Hizmet Bedeli'),
+        quantity: 1,
+        unit: 'ADET',
+        unitPrice: tutar,
+        totalAmount: tutar,
+        base: tutar,
+        price: tutar,
+        totalPrice: tutar,
+        taxRate: kdvOrani,
+        taxAmount: kdvTutari
+      }
+    ];
+
     const invoiceData = {
       faturaTarihi: invoice.faturaTarihi || new Date().toLocaleDateString('tr-TR'),
       saat: new Date().toLocaleTimeString('tr-TR'),
@@ -86,32 +114,12 @@ app.post('/api/gib/create-draft', async (req, res) => {
       orderData: [],
       not: String(invoice.aciklama || ''),
       
-      // KRİTİK: fatura kütüphanesi BU İSMİ bekler (map hatasının çözümü)
-      malHizmetListe: [
-        {
-          malHizmet: String(invoice.aciklama || 'Hizmet Bedeli'),
-          miktar: 1,
-          birim: 'ADET',
-          birimFiyat: tutar,
-          fiyat: tutar,
-          iskontoOrani: 0,
-          kdvOrani: kdvOrani,
-          kdvTutari: kdvTutari,
-          malHizmetTutari: tutar,
-          
-          // Satır bazlı ek alanlar
-          name: String(invoice.aciklama || 'Hizmet Bedeli'),
-          quantity: 1,
-          unit: 'ADET',
-          unitPrice: tutar,
-          totalAmount: tutar,
-          base: tutar,
-          price: tutar,
-          totalPrice: tutar,
-          taxRate: kdvOrani,
-          taxAmount: kdvTutari
-        }
-      ]
+      // Liste ismini her türlü varyasyona kopyalıyoruz (map hatasının çözümü)
+      malHizmetListe: items,
+      malHizmetTable: items,
+      products: items,
+      items: items,
+      itemOrServiceList: items
     };
 
     console.log('STEP 2: Creating Invoice with fatura.js...');
