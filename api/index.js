@@ -45,19 +45,15 @@ app.post('/api/gib/create-draft', async (req, res) => {
     const kdvTutari = Number(((tutar * kdvOrani) / 100).toFixed(2));
     const toplamTutar = Number((tutar + kdvTutari).toFixed(2));
 
-    const fullAdres = String(invoice.adres || 'Merkez');
-    // Adreste ilçe/il ayrımı yapmaya çalış
-    const adresParcalari = fullAdres.split(',');
-    const mahalle = adresParcalari[0] || 'Merkez';
-
+    // Orijinal çalışan yapıya sadık kalalım
     const gibInvoice = {
       vknTckn: String(invoice.vknTckn || '11111111111'),
       ad: String(invoice.ad || 'İsimsiz'),
       soyad: String(invoice.soyad || ''),
-      adres: fullAdres,
+      adres: String(invoice.adres || 'Türkiye'),
       ulke: 'Türkiye',
-      sehir: String(invoice.il || 'Ankara'),
-      ilce: String(invoice.ilce || 'Merkez'),
+      sehir: String(invoice.il || ''),
+      ilce: String(invoice.ilce || ''),
       vergiDairesi: String(invoice.vergiDairesi || ''),
       tarih: invoice.faturaTarihi || new Date().toLocaleDateString('tr-TR'),
       saat: new Date().toLocaleTimeString('tr-TR'),
@@ -88,22 +84,16 @@ app.post('/api/gib/create-draft', async (req, res) => {
       ]
     };
 
-    console.log('Sending to GİB (TR Mapping):', JSON.stringify({
-      vkn: gibInvoice.vknTckn,
-      ad: gibInvoice.ad,
-      toplam: toplamTutar
-    }, null, 2));
+    console.log('Final Attempt Data:', JSON.stringify({ vkn: gibInvoice.vknTckn, total: toplamTutar }));
 
-    const result = await createInvoiceAndGetHTML(
-      String(credentials.username), 
-      String(credentials.password), 
+    // Orijinal require ve çağırma şekli
+    const faturaLib = require('fatura');
+    const result = await faturaLib.createInvoiceAndGetHTML(
+      credentials.username, 
+      credentials.password, 
       gibInvoice, 
       { sign: false }
     );
-
-    if (!result) {
-      throw new Error('GİB portalından boş yanıt döndü.');
-    }
 
     res.json({ 
       success: true, 
@@ -111,20 +101,10 @@ app.post('/api/gib/create-draft', async (req, res) => {
       data: result
     });
   } catch (error) {
-    console.error('CRITICAL GİB ERROR:', error);
-    
-    let errorMsg = error.message || 'Bilinmeyen Hata';
-    
-    // Axios or library specific error details
-    if (error.response) {
-      errorMsg += ` - Portal Yanıtı: ${JSON.stringify(error.response.data || 'Veri Yok')}`;
-    } else if (error.request) {
-      errorMsg += ' - Portala ulaşılamadı (Network Error)';
-    }
-
+    console.error('Final Check Error:', error);
     res.status(500).json({ 
       success: false, 
-      message: 'GİB Entegrasyon Hatası: ' + errorMsg,
+      message: 'Fatura oluşturma hatası: ' + (error.message || 'Bilinmeyen Hata'),
       detail: error.stack
     });
   }
