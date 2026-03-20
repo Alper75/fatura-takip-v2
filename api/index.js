@@ -56,7 +56,11 @@ app.post('/api/gib/create-draft', async (req, res) => {
     });
 
     console.log('STEP 2: Connecting to GİB (EInvoiceApi)...');
-    await api.login();
+    if (api.connect) {
+        await api.connect();
+    } else if (api.login) {
+        await api.login();
+    }
 
     console.log('STEP 3: Creating Invoice (EInvoice)...');
     
