@@ -49,10 +49,10 @@ app.post('/api/gib/create-draft', async (req, res) => {
 
     const faturaLib = require('fatura');
     
-    // Ürün listesini bir değişkene alıp her yere kopyalayacağız (garanti çözüm)
+    // Ürün listesi (Hem Snake hem Camel anahtarlarla)
     const items = [
       {
-        // Türkçe Anahtarlar
+        // CamelCase
         malHizmet: String(invoice.aciklama || 'Hizmet Bedeli'),
         miktar: 1,
         birim: 'ADET',
@@ -64,7 +64,16 @@ app.post('/api/gib/create-draft', async (req, res) => {
         kdvTutari: kdvTutari,
         malHizmetTutari: tutar,
         
-        // İngilizce ve Alternatif Anahtarlar 
+        // Snake_case (Kütüphanenin içindeki toFixed() hatalarını önlemek için)
+        mal_hizmet: String(invoice.aciklama || 'Hizmet Bedeli'),
+        birim_fiyat: tutar,
+        iskonto_orani: 0,
+        iskonto_tutari: 0,
+        kdv_orani: kdvOrani,
+        kdv_tutari: kdvTutari,
+        mal_hizmet_tutari: tutar,
+
+        // İngilizce varyasyonlar
         name: String(invoice.aciklama || 'Hizmet Bedeli'),
         quantity: 1,
         unit: 'ADET',
@@ -79,6 +88,7 @@ app.post('/api/gib/create-draft', async (req, res) => {
     ];
 
     const invoiceData = {
+      // CamelCase
       faturaTarihi: invoice.faturaTarihi || new Date().toLocaleDateString('tr-TR'),
       saat: new Date().toLocaleTimeString('tr-TR'),
       paraBirimi: 'TRY',
@@ -92,9 +102,6 @@ app.post('/api/gib/create-draft', async (req, res) => {
       bulvarcaddesokak: String(invoice.adres || 'Türkiye'),
       sehir: String(invoice.il || 'Ankara'),
       mahalleSemtIlce: String(invoice.ilce || 'Merkez'),
-      
-      // Toplamlar (GİB her iki ismi de arayabilir)
-      base: tutar,
       matrah: tutar,
       malhizmetToplamTutari: tutar,
       toplamIskonto: 0,
@@ -102,7 +109,20 @@ app.post('/api/gib/create-draft', async (req, res) => {
       vergilerToplami: kdvTutari,
       vergilerDahilToplamTutar: toplamTutar,
       odenecekTutar: toplamTutar,
+      not: String(invoice.aciklama || ''),
       
+      // Snake_case
+      fatura_tarihi: invoice.faturaTarihi || new Date().toLocaleDateString('tr-TR'),
+      fatura_tipi: 'SATIS',
+      vkn_tckn: String(invoice.vknTckn || '11111111111'),
+      alici_adi: String(invoice.ad || invoice.unvan || 'İsimsiz'),
+      alici_soyadi: String(invoice.soyad || ''),
+      vergi_dairesi: String(invoice.vergiDairesi || ''),
+      bulvar_cadde_sokak: String(invoice.adres || 'Türkiye'),
+      toplam_iskonto: 0,
+      vergiler_toplami: kdvTutari,
+      odenecek_tutar: toplamTutar,
+
       // Evrensel Anahtarlar
       paymentPrice: toplamTutar,
       payableAmount: toplamTutar,
@@ -112,17 +132,16 @@ app.post('/api/gib/create-draft', async (req, res) => {
       includedTaxesTotalPrice: toplamTutar,
       itemOrServiceTotalPrice: tutar,
       orderData: [],
-      not: String(invoice.aciklama || ''),
-      
-      // Liste ismini her türlü varyasyona kopyalıyoruz (map hatasının çözümü)
+
+      // Liste varyasyonları
       malHizmetListe: items,
+      mal_hizmet_liste: items,
       malHizmetTable: items,
       products: items,
-      items: items,
-      itemOrServiceList: items
+      items: items
     };
 
-    console.log('STEP 2: Creating Invoice with fatura.js...');
+    console.log('STEP 2: Creating Invoice with fatura.js (Ultra-Safe Mode)...');
     const result = await faturaLib.createInvoiceAndGetHTML(
         credentials.username, 
         credentials.password, 
