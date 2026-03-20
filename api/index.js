@@ -51,42 +51,47 @@ app.post('/api/gib/create-draft', async (req, res) => {
     const mahalle = adresParcalari[0] || 'Merkez';
 
     const gibInvoice = {
-      taxIDOrTRID: String(invoice.vknTckn || '11111111111'),
-      title: (String(invoice.ad || '') + (invoice.soyad ? ' ' + invoice.soyad : '')).trim(),
-      name: String(invoice.ad || 'İsimsiz'),
-      surname: String(invoice.soyad || 'Soyisimsiz'),
-      fullAddress: fullAdres,
-      neighborhood: mahalle,
-      district: String(invoice.ilce || 'Merkez'),
-      city: String(invoice.il || 'Ankara'),
-      country: 'Türkiye',
-      taxOffice: String(invoice.vergiDairesi || ''),
-      date: invoice.faturaTarihi || new Date().toLocaleDateString('tr-TR'),
-      time: new Date().toLocaleTimeString('tr-TR'),
-      currency: 'TRY',
-      currencyRate: 1,
-      invoiceType: 'SATIS',
-      items: [
+      vknTckn: String(invoice.vknTckn || '11111111111'),
+      ad: String(invoice.ad || 'İsimsiz'),
+      soyad: String(invoice.soyad || ''),
+      adres: fullAdres,
+      ulke: 'Türkiye',
+      sehir: String(invoice.il || 'Ankara'),
+      ilce: String(invoice.ilce || 'Merkez'),
+      vergiDairesi: String(invoice.vergiDairesi || ''),
+      tarih: invoice.faturaTarihi || new Date().toLocaleDateString('tr-TR'),
+      saat: new Date().toLocaleTimeString('tr-TR'),
+      paraBirimi: 'TRY',
+      dovizKuru: 1,
+      faturaTipi: 'SATIS',
+      siparisNo: '',
+      siparisTarihi: '',
+      irsaliyeNo: '',
+      irsaliyeTarihi: '',
+      fisNo: '',
+      fisTarihi: '',
+      fisSaati: '',
+      fisTipi: '',
+      zNo: '',
+      okcSeriNo: '',
+      malHizmetListe: [
         {
           name: String(invoice.aciklama || 'Hizmet Bedeli'),
           quantity: 1,
-          unitType: 'C62',
+          unit: 'ADET',
           unitPrice: tutar,
           price: tutar,
-          VATRate: kdvOrani,
-          VATAmount: kdvTutari
+          vatRate: kdvOrani,
+          vatAmount: kdvTutari,
+          totalAmount: toplamTutar
         }
-      ],
-      totalVAT: kdvTutari,
-      grandTotal: tutar,
-      grandTotalInclVAT: toplamTutar,
-      paymentTotal: toplamTutar
+      ]
     };
 
-    console.log('Sending to GİB with data:', JSON.stringify({
-      vkn: gibInvoice.taxIDOrTRID,
-      title: gibInvoice.title,
-      total: gibInvoice.grandTotalInclVAT
+    console.log('Sending to GİB (TR Mapping):', JSON.stringify({
+      vkn: gibInvoice.vknTckn,
+      ad: gibInvoice.ad,
+      toplam: toplamTutar
     }, null, 2));
 
     const result = await createInvoiceAndGetHTML(
