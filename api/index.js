@@ -14,8 +14,8 @@ app.use(bodyParser.json());
 const USE_TEST_MODE = false;
 
 /**
- * GIB E-Arşiv API (Direct Axios Implementation)
- * Hiçbir kütüphaneye bağımlı kalmadan doğrudan GİB servisleriyle konuşur.
+ * GIB E-Arşiv API (Direct Axios Implementation) 
+ * V3: Gelişmiş Loglama ve Üretim Ortamı Desteği
  */
 class GIBEArchiveAPI {
     constructor(testMode = true) {
@@ -25,12 +25,11 @@ class GIBEArchiveAPI {
         this.token = null;
     }
     
-    // Login ve Token alma (Assos Login Yöntemi)
+    // Login ve Token alma
     async login(username, password) {
         try {
-            console.log(`GİB Login Denemesi: ${username} (Mod: ${USE_TEST_MODE ? 'TEST' : 'PROD'})`);
+            console.log(`=== GİB LOGIN BAŞLIYOR (${USE_TEST_MODE ? 'TEST' : 'CANLI'}) ===`);
             
-            // GİB Portal genellikle assos-login ve URLSearchParams bekler
             const params = new URLSearchParams();
             params.append('assosUser', username);
             params.append('assosPass', password);
@@ -46,32 +45,39 @@ class GIBEArchiveAPI {
                 }
             });
             
-            // Token genellikle response.data.token içinde döner
-            this.token = response.data.token || response.data.data?.token;
+            // Hata tespiti için ham yanıtı logluyoruz (Vercel loglarında görünecek)
+            console.log('GİB HAM YANIT:', JSON.stringify(response.data));
+
+            // Farklı kütüphane versiyonlarında token'ın yeri değişebiliyor
+            this.token = response.data.token || 
+                         response.data.data?.token || 
+                         (typeof response.data === 'string' && response.data.length > 30 ? response.data : null);
             
             if (!this.token) {
-                // Eğer token hala yoksa hata fırlat
-                if (response.data.mesaj) throw new Error(response.data.mesaj);
-                throw new Error('Giriş yapıldı ama token alınamadı. Lütfen kullanıcı adı ve şifreyi kontrol edin.');
+                // Eğer token yoksa ama bir mesaj varsa onu fırlat
+                const errorMsg = response.data.mesaj || 
+                                 response.data.error || 
+                                 response.data.data?.mesaj || 
+                                 'Kullanıcı adı/şifre hatalı veya GİB sunucusu geçici olarak yanıt vermiyor.';
+                throw new Error(errorMsg);
             }
             
-            console.log('Token Başarıyla Alındı.');
+            console.log('TOKEN GÜVENLE ALINDI ✅');
             return this.token;
         } catch (error) {
             const msg = error.response?.data?.mesaj || error.message;
-            console.error('Login Detaylı Hata:', error.response?.data || error.message);
+            console.error('LOGIN HATAYLA SONUÇLANDI ❌:', msg);
             throw new Error(`Login Hatası: ${msg}`);
         }
     }
     
     // Taslak Fatura Oluşturma
     async createDraftInvoice(invoiceData) {
-        if (!this.token) throw new Error('Önce login yapmalısınız');
+        if (!this.token) throw new Error('Oturum açılmamış.');
         
-        // GİB'in beklediği ham JSON yapısı
         const payload = {
             belgeTipi: 'EARSIVFATURA',
-            faturaNo: '', // GİB atayacak
+            faturaNo: '',
             uuid: invoiceData.uuid || uuidv4(),
             faturaTarihi: invoiceData.date || new Date().toLocaleDateString('tr-TR'),
             saat: invoiceData.time || new Date().toLocaleTimeString('tr-TR'),
@@ -103,7 +109,7 @@ class GIBEArchiveAPI {
         };
         
         try {
-            // dispatch üzerinden komut gönderme (Çoğu kütüphanenin kullandığı stabil yöntem)
+            console.log('FATURA TASLAĞI GÖNDERİLİYOR...');
             const response = await axios.post(
                 `${this.baseURL}/dispatch`,
                 new URLSearchParams({
@@ -119,6 +125,7 @@ class GIBEArchiveAPI {
                 }
             );
             
+            console.log('GİB YANIT (Fatura):', JSON.stringify(response.data));
             return {
                 uuid: payload.uuid,
                 result: response.data
@@ -131,7 +138,7 @@ class GIBEArchiveAPI {
     
     // Fatura HTML'ini alma
     async getInvoiceHTML(uuid) {
-        if (!this.token) throw new Error('Önce login yapmalısınız');
+        if (!this.token) throw new Error('Oturum açılmamış.');
         
         try {
             const response = await axios.post(
@@ -146,33 +153,32 @@ class GIBEArchiveAPI {
                 }
             );
             
-            return response.data.html || response.data.data?.html || 'HTML alınamadı.';
+            return response.data.html || response.data.data?.html || 'HTML önizleme alınamadı.';
         } catch (error) {
-            return `HTML Hatası: ${error.message}`;
+            return `Önizleme Hatası: ${error.message}`;
         }
     }
 }
 
-// Sunucu durum testi
+// Sağlık kontrolü
 app.get('/api/health', (req, res) => res.json({
   status: 'ok',
-  engine: 'axios-native-v2',
+  engine: 'axios-native-v3',
   testMode: USE_TEST_MODE
 }));
 
-// Taslak Fatura Oluşturma - NATIVE AXIOS (V2)
+// Taslak Fatura Oluşturma Endpoint
 app.post('/api/gib/create-draft', async (req, res) => {
   const { credentials, invoice } = req.body;
 
   if (!credentials || !invoice) {
-    return res.status(400).json({ success: false, message: 'Eksik veri.' });
+    return res.status(400).json({ success: false, message: 'Eksik veri gönderildi.' });
   }
 
   try {
     const api = new GIBEArchiveAPI(USE_TEST_MODE);
     await api.login(credentials.username, credentials.password);
     
-    console.log('Fatura oluşturuluyor...');
     const result = await api.createDraftInvoice(invoice);
     const html = await api.getInvoiceHTML(result.uuid);
     
@@ -181,8 +187,8 @@ app.post('/api/gib/create-draft', async (req, res) => {
       uuid: result.uuid,
       html: html,
       message: USE_TEST_MODE 
-        ? 'TEST BAŞARILI: Taslak fatura oluşturuldu.' 
-        : 'Fatura GİB portala başarıyla (Taslak) olarak gönderildi.'
+        ? 'TEST: Taslak fatura oluşturuldu.' 
+        : 'Fatura başarıyla taslaklara eklendi.'
     });
 
   } catch (error) {
@@ -197,7 +203,7 @@ app.post('/api/gib/create-draft', async (req, res) => {
 if (process.env.NODE_ENV !== 'production') {
   app.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`);
-    console.log(`Test modu: ${USE_TEST_MODE ? 'AÇIK' : 'KAPALI'}`);
+    console.log(`Mod: ${USE_TEST_MODE ? 'TEST' : 'CANLI'}`);
   });
 }
 
