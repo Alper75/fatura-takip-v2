@@ -9,7 +9,7 @@ app.use(cors());
 app.use(bodyParser.json());
 
 // Sunucu durum testi
-app.get('/api/health', (req, res) => res.json({ status: 'ok', engine: 'e-fatura-v2' }));
+app.get('/api/health', (req, res) => res.json({ status: 'ok', engine: 'fatura-v1' }));
 
 // GİB Portal Test ve Login
 app.post('/api/gib/test-login', async (req, res) => {
@@ -32,8 +32,6 @@ app.post('/api/gib/create-draft', async (req, res) => {
   }
 
   try {
-    // Frontend'den gelen tutarı KDV HARİÇ (Matrah) olarak kabul ediyoruz.
-    // Kuruş hassasiyeti için 2 basamağa yuvarlıyoruz.
     const tutar = Number(parseFloat(invoice.tutar || 0).toFixed(2));
     const kdvOrani = parseInt(invoice.kdvOrani || 20);
     const kdvTutari = Number(((tutar * kdvOrani) / 100).toFixed(2));
@@ -49,149 +47,68 @@ app.post('/api/gib/create-draft', async (req, res) => {
       });
     }
 
-    let api;
-    try {
-        const { EInvoiceApi, EInvoice } = require('e-fatura');
-        
-        // Konfigürasyon
-        const config = { 
-            username: credentials.username, 
-            password: credentials.password,
-            user: credentials.username,
-            pass: credentials.password,
-            testMode: false
-        };
-
-        api = new EInvoiceApi(config);
-        if (!api.config) api.config = config;
-        if (api.setCredentials) api.setCredentials(credentials.username, credentials.password);
-
-        console.log('STEP 2: Connecting to GİB...');
-        const connectOptions = { anonymous: false };
-        if (api.connect) await api.connect(connectOptions);
-        else if (api.login) await api.login(connectOptions);
-
-        console.log('STEP 3: Submission...');
-        
-        // GİB portalı sayıları genellikle 2 ondalıklı STRING olarak bekler
-        const sTutar = tutar.toFixed(2);
-        const sKdvTutari = kdvTutari.toFixed(2);
-        const sToplamTutar = toplamTutar.toFixed(2);
-
-        const invoiceData = {
-          faturaTarihi: invoice.faturaTarihi || new Date().toLocaleDateString('tr-TR'),
-          saat: new Date().toLocaleTimeString('tr-TR'),
-          paraBirimi: 'TRY',
-          faturaTipi: 'SATIS',
-          vknTckn: String(invoice.vknTckn || '11111111111'),
-          aliciAdi: String(invoice.ad || invoice.unvan || 'İsimsiz'),
-          aliciSoyadi: String(invoice.soyad || ''),
-          aliciUnvan: String(invoice.unvan || invoice.ad || 'İsimsiz'),
-          vergiDairesi: String(invoice.vergiDairesi || ''),
-          ulke: 'Türkiye',
-          bulvarcaddesokak: String(invoice.adres || 'Türkiye'),
-          cadde: String(invoice.adres || 'Türkiye'),
-          sehir: String(invoice.il || 'Ankara'),
-          mahalleSemtIlce: String(invoice.ilce || 'Merkez'),
-          
-          base: sTutar,
-          matrah: sTutar,
-          malhizmetToplamTutari: sTutar,
-          toplamIskonto: "0.00",
-          hesaplanankdv: sKdvTutari,
-          vergilerToplami: sKdvTutari,
-          vergilerDahilToplamTutar: sToplamTutar,
-          odenecekTutar: sToplamTutar,
-          
-          paymentPrice: sToplamTutar,
-          payableAmount: sToplamTutar,
-          productsTotalPrice: sTutar,
-          taxExclusiveAmount: sTutar,
-          taxTotalPrice: sKdvTutari,
-          includedTaxesTotalPrice: sToplamTutar,
-          itemOrServiceTotalPrice: sTutar,
-          orderData: [],
-          
-          not: String(invoice.aciklama || ''),
-          malHizmetTable: [
-            {
-              malHizmet: String(invoice.aciklama || 'Hizmet Bedeli'),
-              miktar: "1",
-              birim: 'ADET',
-              birimFiyat: sTutar,
-              fiyat: sTutar,
-              malHizmetTutari: sTutar,
-              
-              name: String(invoice.aciklama || 'Hizmet Bedeli'),
-              quantity: "1",
-              unit: 'ADET',
-              unitPrice: sTutar,
-              totalAmount: sTutar,
-              
-              base: sTutar,
-              price: sTutar,
-              totalPrice: sTutar,
-              iskontoOrani: "0",
-              iskontoTutari: "0.00",
-              kdvOrani: String(kdvOrani),
-              taxRate: String(kdvOrani),
-              kdvTutari: sKdvTutari,
-              taxAmount: sKdvTutari,
-              ozelMatrahTutari: "0.00"
-            }
-          ]
-        };
-
-        // Evrensel liste kopyalaması
-        invoiceData.malHizmetListe = invoiceData.malHizmetTable;
-        invoiceData.products = invoiceData.malHizmetTable;
-        invoiceData.items = invoiceData.malHizmetTable;
-        invoiceData.itemOrServiceList = invoiceData.malHizmetTable;
-
-        let finalInvoice;
-        try {
-          if (typeof EInvoice === 'function') {
-            finalInvoice = new EInvoice();
-            if (finalInvoice.mapWithTurkishKeys) finalInvoice.mapWithTurkishKeys(invoiceData);
-            else Object.assign(finalInvoice, invoiceData);
-          } else {
-            finalInvoice = invoiceData;
-          }
-        } catch (e) {
-          finalInvoice = invoiceData;
+    const faturaLib = require('fatura');
+    
+    // fatura kütüphanesinin beklediği tam yapı
+    const invoiceData = {
+      faturaTarihi: invoice.faturaTarihi || new Date().toLocaleDateString('tr-TR'),
+      saat: new Date().toLocaleTimeString('tr-TR'),
+      paraBirimi: 'TRY',
+      faturaTipi: 'SATIS',
+      vknTckn: String(invoice.vknTckn || '11111111111'),
+      aliciAdi: String(invoice.ad || invoice.unvan || 'İsimsiz'),
+      aliciSoyadi: String(invoice.soyad || ''),
+      vergiDairesi: String(invoice.vergiDairesi || ''),
+      ulke: 'Türkiye',
+      bulvarcaddesokak: String(invoice.adres || 'Türkiye'),
+      sehir: String(invoice.il || 'Ankara'),
+      mahalleSemtIlce: String(invoice.ilce || 'Merkez'),
+      
+      // Toplamlar
+      matrah: tutar,
+      malhizmetToplamTutari: tutar,
+      toplamIskonto: 0,
+      hesaplanankdv: kdvTutari,
+      vergilerToplami: kdvTutari,
+      vergilerDahilToplamTutar: toplamTutar,
+      odenecekTutar: toplamTutar,
+      not: String(invoice.aciklama || ''),
+      
+      // KRİTİK: fatura kütüphanesi BU İSMİ bekler (map hatasının çözümü)
+      malHizmetListe: [
+        {
+          malHizmet: String(invoice.aciklama || 'Hizmet Bedeli'),
+          miktar: 1,
+          birim: 'ADET',
+          birimFiyat: tutar,
+          fiyat: tutar,
+          iskontoOrani: 0,
+          kdvOrani: kdvOrani,
+          kdvTutari: kdvTutari,
+          malHizmetTutari: tutar
         }
+      ]
+    };
 
-        let result;
-        if (api.createDraftInvoice) result = await api.createDraftInvoice(finalInvoice);
-        else if (api.createDraftBasicInvoice) result = await api.createDraftBasicInvoice(finalInvoice);
-        else if (api.createInvoice) result = await api.createInvoice(finalInvoice);
-        else throw new Error('Metod bulunamadı.');
+    console.log('STEP 2: Creating Invoice with fatura.js...');
+    const result = await faturaLib.createInvoiceAndGetHTML(
+        credentials.username, 
+        credentials.password, 
+        invoiceData
+    );
 
-        res.json({ 
-          success: true, 
-          message: 'Taslak fatura portala başarıyla gönderildi.',
-          uuid: (result && result.uuid) ? result.uuid : (typeof result === 'string' ? result : 'OK')
-        });
+    res.json({ 
+      success: true, 
+      message: 'Taslak fatura portala başarıyla gönderildi.',
+      uuid: (result && result.uuid) ? result.uuid : 'OK'
+    });
 
-    } finally {
-        if (api && api.logout) {
-            console.log('STEP 4: Safe Logout...');
-            await api.logout().catch(e => console.error('Logout failed:', e));
-        }
-    }
   } catch (error) {
     console.error('SERVER ERROR:', error);
-    
-    // Kütüphane hatasından detaylı bilgi ayıklama
-    const errorDetail = error.response ? 
-        (error.response.data || error.response.statusText) : 
-        (error.message || 'Bilinmeyen Hata');
-
     res.status(500).json({ 
       success: false, 
       message: 'GİB Hatası: ' + (error.message || 'Bilinmeyen Hata'),
-      detail: errorDetail,
-      stack: error.stack
+      detail: error.stack
     });
   }
 });
