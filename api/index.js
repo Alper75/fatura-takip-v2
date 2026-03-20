@@ -32,12 +32,14 @@ app.post('/api/gib/create-draft', async (req, res) => {
   }
 
   try {
-    const tutar = parseFloat(invoice.tutar || 0);
+    // Frontend'den gelen tutarı KDV HARİÇ (Matrah) olarak kabul ediyoruz.
+    // Kuruş hassasiyeti için 2 basamağa yuvarlıyoruz.
+    const tutar = Number(parseFloat(invoice.tutar || 0).toFixed(2));
     const kdvOrani = parseInt(invoice.kdvOrani || 20);
     const kdvTutari = Number(((tutar * kdvOrani) / 100).toFixed(2));
     const toplamTutar = Number((tutar + kdvTutari).toFixed(2));
 
-    console.log('STEP 1: Data preparation starting...');
+    console.log(`STEP 1: Tax calculations (Ex-VAT: ${tutar}, VAT: ${kdvTutari}, Total: ${toplamTutar})`);
     
     if (credentials.password === 'simule') {
       return res.json({ 
@@ -88,6 +90,9 @@ app.post('/api/gib/create-draft', async (req, res) => {
       bulvarcaddesokak: String(invoice.adres || 'Türkiye'),
       sehir: String(invoice.il || 'Ankara'),
       mahalleSemtIlce: String(invoice.ilce || 'Merkez'),
+      
+      // GİB'in kesin beklediği 'base' (matrah) alanları
+      base: tutar,
       matrah: tutar,
       malhizmetToplamTutari: tutar,
       toplamIskonto: 0,
@@ -103,6 +108,7 @@ app.post('/api/gib/create-draft', async (req, res) => {
           birim: 'ADET',
           birimFiyat: tutar,
           fiyat: tutar,
+          base: tutar, // Satır bazlı matrah
           iskontoOrani: 0,
           iskontoTutari: 0,
           kdvOrani: kdvOrani,
