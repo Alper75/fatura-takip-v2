@@ -72,72 +72,77 @@ app.post('/api/gib/create-draft', async (req, res) => {
         else if (api.login) await api.login(connectOptions);
 
         console.log('STEP 3: Submission...');
+        
+        // GİB portalı sayıları genellikle 2 ondalıklı STRING olarak bekler
+        const sTutar = tutar.toFixed(2);
+        const sKdvTutari = kdvTutari.toFixed(2);
+        const sToplamTutar = toplamTutar.toFixed(2);
+
         const invoiceData = {
           faturaTarihi: invoice.faturaTarihi || new Date().toLocaleDateString('tr-TR'),
           saat: new Date().toLocaleTimeString('tr-TR'),
           paraBirimi: 'TRY',
           faturaTipi: 'SATIS',
           vknTckn: String(invoice.vknTckn || '11111111111'),
-          aliciAdi: String(invoice.ad || 'İsimsiz'),
+          aliciAdi: String(invoice.ad || invoice.unvan || 'İsimsiz'),
           aliciSoyadi: String(invoice.soyad || ''),
+          aliciUnvan: String(invoice.unvan || invoice.ad || 'İsimsiz'),
           vergiDairesi: String(invoice.vergiDairesi || ''),
           ulke: 'Türkiye',
           bulvarcaddesokak: String(invoice.adres || 'Türkiye'),
+          cadde: String(invoice.adres || 'Türkiye'),
           sehir: String(invoice.il || 'Ankara'),
           mahalleSemtIlce: String(invoice.ilce || 'Merkez'),
           
-          base: tutar,
-          matrah: tutar,
-          malhizmetToplamTutari: tutar,
-          toplamIskonto: 0,
-          hesaplanankdv: kdvTutari,
-          vergilerToplami: kdvTutari,
-          vergilerDahilToplamTutar: toplamTutar,
-          odenecekTutar: toplamTutar,
+          base: sTutar,
+          matrah: sTutar,
+          malhizmetToplamTutari: sTutar,
+          toplamIskonto: "0.00",
+          hesaplanankdv: sKdvTutari,
+          vergilerToplami: sKdvTutari,
+          vergilerDahilToplamTutar: sToplamTutar,
+          odenecekTutar: sToplamTutar,
           
-          paymentPrice: toplamTutar,
-          payableAmount: toplamTutar,
-          productsTotalPrice: tutar,
-          taxExclusiveAmount: tutar,
-          taxTotalPrice: kdvTutari,
-          includedTaxesTotalPrice: toplamTutar, // Vergiler dahil toplam tura
-          itemOrServiceTotalPrice: tutar,
+          paymentPrice: sToplamTutar,
+          payableAmount: sToplamTutar,
+          productsTotalPrice: sTutar,
+          taxExclusiveAmount: sTutar,
+          taxTotalPrice: sKdvTutari,
+          includedTaxesTotalPrice: sToplamTutar,
+          itemOrServiceTotalPrice: sTutar,
           orderData: [],
           
-          // 'reading map of undefined' hatasını %100 önlemek için 
-          // tüm olası liste anahtarlarını besliyoruz
+          not: String(invoice.aciklama || ''),
           malHizmetTable: [
             {
-              // Türkçe Anahtarlar
               malHizmet: String(invoice.aciklama || 'Hizmet Bedeli'),
-              miktar: 1,
+              miktar: "1",
               birim: 'ADET',
-              birimFiyat: tutar,
-              fiyat: tutar,
-              malHizmetTutari: tutar,
+              birimFiyat: sTutar,
+              fiyat: sTutar,
+              malHizmetTutari: sTutar,
               
-              // İngilizce ve Alternatif Anahtarlar 
               name: String(invoice.aciklama || 'Hizmet Bedeli'),
-              quantity: 1,
+              quantity: "1",
               unit: 'ADET',
-              unitPrice: tutar,
-              totalAmount: tutar,
+              unitPrice: sTutar,
+              totalAmount: sTutar,
               
-              base: tutar,
-              price: tutar,
-              totalPrice: tutar,
-              iskontoOrani: 0,
-              iskontoTutari: 0,
-              kdvOrani: kdvOrani,
-              taxRate: kdvOrani,
-              kdvTutari: kdvTutari,
-              taxAmount: kdvTutari,
-              ozelMatrahTutari: 0
+              base: sTutar,
+              price: sTutar,
+              totalPrice: sTutar,
+              iskontoOrani: "0",
+              iskontoTutari: "0.00",
+              kdvOrani: String(kdvOrani),
+              taxRate: String(kdvOrani),
+              kdvTutari: sKdvTutari,
+              taxAmount: sKdvTutari,
+              ozelMatrahTutari: "0.00"
             }
           ]
         };
 
-        // Kütüphanenin farklı versiyonları için listeyi kopyalayalım
+        // Evrensel liste kopyalaması
         invoiceData.malHizmetListe = invoiceData.malHizmetTable;
         invoiceData.products = invoiceData.malHizmetTable;
         invoiceData.items = invoiceData.malHizmetTable;
