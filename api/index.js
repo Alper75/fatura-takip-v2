@@ -1,7 +1,8 @@
 const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
-const EInvoice = require('e-fatura').default;
+const axios = require('axios');
+const { v4: uuidv4 } = require('uuid');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -12,42 +13,137 @@ app.use(bodyParser.json());
 // Test modu ayarı (GERÇEK FATURA KESMEYECEKSEN true YAP)
 const USE_TEST_MODE = true;
 
+/**
+ * GIB E-Arşiv API (Direct Axios Implementation)
+ * Hiçbir kütüphaneye bağımlı kalmadan doğrudan GİB servisleriyle konuşur.
+ */
+class GIBEArchiveAPI {
+    constructor(testMode = true) {
+        this.baseURL = testMode 
+            ? 'https://earsivportaltest.efatura.gov.tr/earsiv-services'
+            : 'https://earsivportal.efatura.gov.tr/earsiv-services';
+        this.token = null;
+    }
+    
+    // Login ve Token alma
+    async login(username, password) {
+        try {
+            console.log(`GİB Login: ${username} (Mod: ${USE_TEST_MODE ? 'TEST' : 'PROD'})`);
+            const response = await axios.post(`${this.baseURL}/login`, {
+                rmk: username,
+                sifre: password
+            });
+            
+            // Not: GİB response yapısına göre token lokasyonunu kontrol edin
+            this.token = response.data.token || response.data.data?.token;
+            
+            if (!this.token) {
+                throw new Error('Giriş yapıldı ama token alınamadı. Kullanıcı adı veya şifre hatalı olabilir.');
+            }
+            
+            return this.token;
+        } catch (error) {
+            const msg = error.response?.data?.mesaj || error.message;
+            throw new Error(`Login Hatası: ${msg}`);
+        }
+    }
+    
+    // Taslak Fatura Oluşturma
+    async createDraftInvoice(invoiceData) {
+        if (!this.token) throw new Error('Önce login yapmalısınız');
+        
+        // GİB'in beklediği ham JSON yapısı
+        const payload = {
+            belgeTipi: 'EARSIVFATURA',
+            faturaNo: '', // GİB atayacak
+            uuid: invoiceData.uuid || uuidv4(),
+            faturaTarihi: invoiceData.date || new Date().toLocaleDateString('tr-TR'),
+            saat: invoiceData.time || new Date().toLocaleTimeString('tr-TR'),
+            paraBirimi: 'TRY',
+            dovizKuru: 0,
+            vknTckn: invoiceData.vknTckn || '11111111111',
+            aliciAdi: invoiceData.ad || '',
+            aliciSoyadi: invoiceData.soyad || '',
+            aliciUnvan: invoiceData.unvan || '',
+            adres: invoiceData.adres || 'Türkiye',
+            il: invoiceData.il || 'Ankara',
+            ilce: invoiceData.ilce || 'Merkez',
+            ulke: 'Türkiye',
+            
+            // Mal Hizmet Listesi
+            malHizmetListesi: [{
+                malHizmet: invoiceData.aciklama || 'Hizmet Bedeli',
+                miktar: 1,
+                birimFiyat: invoiceData.tutar,
+                tutar: invoiceData.tutar,
+                kdvOrani: invoiceData.kdvOrani || 20,
+                kdvTutari: Number(((invoiceData.tutar * (invoiceData.kdvOrani || 20)) / 100).toFixed(2)),
+                malHizmetTutari: invoiceData.tutar
+            }],
+            
+            // Toplamlar
+            toplamTutar: invoiceData.tutar,
+            toplamKdv: Number(((invoiceData.tutar * (invoiceData.kdvOrani || 20)) / 100).toFixed(2)),
+            genelToplam: Number((invoiceData.tutar + (invoiceData.tutar * (invoiceData.kdvOrani || 20)) / 100).toFixed(2)),
+            odenecekTutar: Number((invoiceData.tutar + (invoiceData.tutar * (invoiceData.kdvOrani || 20)) / 100).toFixed(2))
+        };
+        
+        try {
+            const response = await axios.post(
+                `${this.baseURL}/dispatch`,
+                {
+                    cmd: 'EARSIV_PORTAL_FATURA_OLUSTUR',
+                    data: payload
+                },
+                { 
+                    headers: { 
+                        'Authorization': `Bearer ${this.token}`,
+                        'Content-Type': 'application/json'
+                    } 
+                }
+            );
+            
+            return {
+                uuid: payload.uuid,
+                result: response.data
+            };
+        } catch (error) {
+            const msg = error.response?.data?.mesaj || error.message;
+            throw new Error(`Fatura Oluşturma Hatası: ${msg}`);
+        }
+    }
+    
+    // Fatura HTML'ini alma
+    async getInvoiceHTML(uuid) {
+        if (!this.token) throw new Error('Önce login yapmalısınız');
+        
+        try {
+            const response = await axios.post(
+                `${this.baseURL}/dispatch`,
+                {
+                    cmd: 'EARSIV_PORTAL_FATURA_GETIR',
+                    data: { uuid: uuid }
+                },
+                { 
+                    headers: { 
+                        'Authorization': `Bearer ${this.token}`
+                    } 
+                }
+            );
+            
+            return response.data.html || response.data.data?.html || 'HTML alınamadı.';
+        } catch (error) {
+            return `HTML Hatası: ${error.message}`;
+        }
+    }
+}
+
 // Sunucu durum testi
 app.get('/api/health', (req, res) => res.json({
   status: 'ok',
-  engine: 'e-fatura-v2',
+  engine: 'axios-native-v1',
   testMode: USE_TEST_MODE
 }));
-
-// GİB Portal Test ve Login
-app.post('/api/gib/test-login', async (req, res) => {
-  const { username, password } = req.body;
-  if (!username || !password) {
-    return res.status(400).json({ success: false, message: 'Eksik bilgi.' });
-  }
-
-  try {
-    // Test modunda login testi
-    EInvoice.setTestMode(true);
-    await EInvoice.login(username, password);
-    const userInfo = await EInvoice.getUserInformation();
-
-    res.json({
-      success: true,
-      message: 'Giriş başarılı.',
-      userInfo: {
-        title: userInfo.title,
-        name: userInfo.name
-      }
-    });
-  } catch (error) {
-    console.error('Login hatası:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Giriş başarısız: ' + error.message
-    });
-  }
-});
 
 // DEBUG: Gelen veriyi görmek için
 app.post('/api/gib/debug-invoice', (req, res) => {
@@ -56,129 +152,37 @@ app.post('/api/gib/debug-invoice', (req, res) => {
   res.json({ received: req.body });
 });
 
-// Taslak Fatura Oluşturma - e-fatura paketi ile
+// Taslak Fatura Oluşturma - NATIVE AXIOS
 app.post('/api/gib/create-draft', async (req, res) => {
   const { credentials, invoice } = req.body;
 
-  // Validasyon
-  if (!credentials?.username || !credentials?.password) {
-    return res.status(400).json({
-      success: false,
-      message: 'Eksik bilgi: username ve password zorunlu.'
-    });
-  }
-
-  if (!invoice?.tutar || !invoice?.vknTckn) {
-    return res.status(400).json({
-      success: false,
-      message: 'Eksik alanlar: tutar ve vknTckn zorunlu.'
-    });
+  if (!credentials || !invoice) {
+    return res.status(400).json({ success: false, message: 'Eksik veri.' });
   }
 
   try {
-    // Test modu ayarı
-    EInvoice.setTestMode(USE_TEST_MODE);
-
-    // Giriş yap
-    console.log('GİB portalına giriş yapılıyor...');
-    await EInvoice.login(credentials.username, credentials.password);
-
-    // Sayısal hesaplamalar
-    const tutar = parseFloat(invoice.tutar);
-    const kdvOrani = parseInt(invoice.kdvOrani) || 20;
-    const kdvTutari = parseFloat(((tutar * kdvOrani) / 100).toFixed(2));
-    const toplamTutar = parseFloat((tutar + kdvTutari).toFixed(2));
-
-    console.log('Hesaplamalar:', { tutar, kdvOrani, kdvTutari, toplamTutar });
-
-    // Fatura verisi hazırlama (e-fatura paketi formatı)
-    const invoiceData = {
-      // Alıcı bilgileri
-      taxIDOrTRID: String(invoice.vknTckn).trim(),
-      title: String(invoice.unvan || `${invoice.ad || ''} ${invoice.soyad || ''}`.trim() || 'İsimsiz'),
-      name: String(invoice.ad || ''),
-      surname: String(invoice.soyad || ''),
-      fullAddress: String(invoice.adres || 'Türkiye'),
-      taxOffice: String(invoice.vergiDairesi || ''),
-
-      // Fatura kalemleri
-      items: [
-        {
-          name: String(invoice.aciklama || 'Hizmet Bedeli'),
-          quantity: 1,
-          unitPrice: tutar,
-          price: tutar,
-          VATRate: kdvOrani,
-          VATAmount: kdvTutari
-        }
-      ],
-
-      // Toplamlar
-      totalVAT: kdvTutari,
-      grandTotal: tutar,
-      grandTotalInclVAT: toplamTutar,
-      paymentTotal: toplamTutar,
-
-      // Opsiyonel alanlar
-      date: invoice.faturaTarihi || new Date().toLocaleDateString('tr-TR'),
-      time: new Date().toLocaleTimeString('tr-TR'),
-      currency: 'TRY'
-    };
-
-    console.log('Fatura oluşturuluyor...', invoiceData);
-
-    // Fatura oluştur ve HTML al
-    const result = await EInvoice.createInvoiceAndGetHTML(invoiceData);
-
-    // Fatura detaylarını al (UUID için)
-    const invoices = await EInvoice.getAllInvoices();
-    const createdInvoice = invoices[0]; // En son oluşturulan
-
-    console.log('Fatura başarıyla oluşturuldu');
-
+    const api = new GIBEArchiveAPI(USE_TEST_MODE);
+    await api.login(credentials.username, credentials.password);
+    
+    const result = await api.createDraftInvoice(invoice);
+    const html = await api.getInvoiceHTML(result.uuid);
+    
     res.json({
       success: true,
-      message: USE_TEST_MODE ? 'TEST: Fatura oluşturuldu (Gerçek GİB\'e gönderilmedi)' : 'Fatura GİB\'e gönderildi.',
-      uuid: createdInvoice?.uuid || 'TEST-MODE',
-      htmlPreview: result?.substring(0, 300) + '...' || null,
-      testMode: USE_TEST_MODE
+      uuid: result.uuid,
+      html: html,
+      message: USE_TEST_MODE 
+        ? 'TEST BAŞARILI: Taslak (Sanal) fatura oluşturuldu.' 
+        : 'Fatura GİB portala başarıyla (Taslak) olarak gönderildi.'
     });
 
   } catch (error) {
-    console.error('=== FATURA HATASI ===');
-    console.error('Mesaj:', error.message);
-    console.error('Tip:', error.constructor.name);
-
-    // e-fatura paketi özel hata tipleri
-    if (error.name === 'EInvoiceApiError') {
-      console.error('API Hata Kodu:', error.errorCode);
-    }
-
-    res.status(500).json({
-      success: false,
-      message: 'Fatura Hatası: ' + error.message,
-      errorType: error.constructor.name,
-      detail: process.env.NODE_ENV !== 'production' ? error.stack : undefined
+    console.error('SERVER ERROR (Native):', error.message);
+    res.status(500).json({ 
+      success: false, 
+      message: 'GİB Hatası: ' + error.message,
+      detail: error.stack
     });
-  }
-});
-
-// Yeni endpoint: Fatura listesi alma
-app.get('/api/gib/invoices', async (req, res) => {
-  const { username, password } = req.query;
-
-  if (!username || !password) {
-    return res.status(400).json({ success: false, message: 'Username ve password gerekli' });
-  }
-
-  try {
-    EInvoice.setTestMode(true);
-    await EInvoice.login(username, password);
-    const invoices = await EInvoice.getAllInvoices();
-
-    res.json({ success: true, invoices });
-  } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
   }
 });
 
@@ -186,7 +190,6 @@ if (process.env.NODE_ENV !== 'production') {
   app.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`);
     console.log(`Test modu: ${USE_TEST_MODE ? 'AÇIK' : 'KAPALI'}`);
-    console.log(`ÖNEMLI: Gerçek fatura kesmek için USE_TEST_MODE = false yapın`);
   });
 }
 
