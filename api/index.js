@@ -15,7 +15,7 @@ const USE_TEST_MODE = false;
 
 /**
  * GIB E-Arşiv API (Direct Axios Implementation) 
- * V3: Gelişmiş Loglama ve Üretim Ortamı Desteği
+ * V4: Hata Mesajlarını Kullanıcıya Yansıtma Özelliği
  */
 class GIBEArchiveAPI {
     constructor(testMode = true) {
@@ -27,6 +27,7 @@ class GIBEArchiveAPI {
     
     // Login ve Token alma
     async login(username, password) {
+        let rawGibResponse = null;
         try {
             console.log(`=== GİB LOGIN BAŞLIYOR (${USE_TEST_MODE ? 'TEST' : 'CANLI'}) ===`);
             
@@ -45,29 +46,22 @@ class GIBEArchiveAPI {
                 }
             });
             
-            // Hata tespiti için ham yanıtı logluyoruz (Vercel loglarında görünecek)
-            console.log('GİB HAM YANIT:', JSON.stringify(response.data));
+            rawGibResponse = response.data;
+            console.log('GİB HAM YANIT:', JSON.stringify(rawGibResponse));
 
-            // Farklı kütüphane versiyonlarında token'ın yeri değişebiliyor
-            this.token = response.data.token || 
-                         response.data.data?.token || 
-                         (typeof response.data === 'string' && response.data.length > 30 ? response.data : null);
+            this.token = response.data.token || response.data.data?.token;
             
             if (!this.token) {
-                // Eğer token yoksa ama bir mesaj varsa onu fırlat
-                const errorMsg = response.data.mesaj || 
-                                 response.data.error || 
-                                 response.data.data?.mesaj || 
-                                 'Kullanıcı adı/şifre hatalı veya GİB sunucusu geçici olarak yanıt vermiyor.';
-                throw new Error(errorMsg);
+                // GİB'den dönen gerçek hatayı string olarak yakala
+                const gibMsg = response.data.mesaj || response.data.error || JSON.stringify(response.data);
+                throw new Error(`${gibMsg}`);
             }
             
-            console.log('TOKEN GÜVENLE ALINDI ✅');
             return this.token;
         } catch (error) {
-            const msg = error.response?.data?.mesaj || error.message;
-            console.error('LOGIN HATAYLA SONUÇLANDI ❌:', msg);
-            throw new Error(`Login Hatası: ${msg}`);
+            // Hata mesajına GİB'den dönen cevabı da ekliyoruz (Senin görebilmen için)
+            const detail = rawGibResponse ? ` | GİB Yanıtı: ${JSON.stringify(rawGibResponse)}` : '';
+            throw new Error(`${error.message}${detail}`);
         }
     }
     
@@ -109,7 +103,6 @@ class GIBEArchiveAPI {
         };
         
         try {
-            console.log('FATURA TASLAĞI GÖNDERİLİYOR...');
             const response = await axios.post(
                 `${this.baseURL}/dispatch`,
                 new URLSearchParams({
@@ -124,22 +117,15 @@ class GIBEArchiveAPI {
                     } 
                 }
             );
-            
-            console.log('GİB YANIT (Fatura):', JSON.stringify(response.data));
-            return {
-                uuid: payload.uuid,
-                result: response.data
-            };
+            return { uuid: payload.uuid, result: response.data };
         } catch (error) {
-            const msg = error.response?.data?.mesaj || error.message;
-            throw new Error(`Fatura Oluşturma Hatası: ${msg}`);
+            throw new Error(`Fatura Hatası: ${error.message}`);
         }
     }
     
     // Fatura HTML'ini alma
     async getInvoiceHTML(uuid) {
         if (!this.token) throw new Error('Oturum açılmamış.');
-        
         try {
             const response = await axios.post(
                 `${this.baseURL}/dispatch`,
@@ -148,11 +134,8 @@ class GIBEArchiveAPI {
                     token: this.token,
                     data: JSON.stringify({ uuid: uuid })
                 }),
-                { 
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' } 
-                }
+                { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
             );
-            
             return response.data.html || response.data.data?.html || 'HTML önizleme alınamadı.';
         } catch (error) {
             return `Önizleme Hatası: ${error.message}`;
@@ -161,19 +144,12 @@ class GIBEArchiveAPI {
 }
 
 // Sağlık kontrolü
-app.get('/api/health', (req, res) => res.json({
-  status: 'ok',
-  engine: 'axios-native-v3',
-  testMode: USE_TEST_MODE
-}));
+app.get('/api/health', (req, res) => res.json({ status: 'ok', testMode: USE_TEST_MODE }));
 
-// Taslak Fatura Oluşturma Endpoint
+// Taslak Fatura Oluşturma
 app.post('/api/gib/create-draft', async (req, res) => {
   const { credentials, invoice } = req.body;
-
-  if (!credentials || !invoice) {
-    return res.status(400).json({ success: false, message: 'Eksik veri gönderildi.' });
-  }
+  if (!credentials || !invoice) return res.status(400).json({ success: false, message: 'Eksik veri.' });
 
   try {
     const api = new GIBEArchiveAPI(USE_TEST_MODE);
@@ -182,29 +158,15 @@ app.post('/api/gib/create-draft', async (req, res) => {
     const result = await api.createDraftInvoice(invoice);
     const html = await api.getInvoiceHTML(result.uuid);
     
-    res.json({
-      success: true,
-      uuid: result.uuid,
-      html: html,
-      message: USE_TEST_MODE 
-        ? 'TEST: Taslak fatura oluşturuldu.' 
-        : 'Fatura başarıyla taslaklara eklendi.'
-    });
-
+    res.json({ success: true, uuid: result.uuid, html: html });
   } catch (error) {
-    console.error('GİB NATIVE ERROR:', error.message);
-    res.status(500).json({ 
-      success: false, 
-      message: 'GİB Hatası: ' + error.message
-    });
+    console.error('SERVER ERROR:', error.message);
+    res.status(500).json({ success: false, message: 'GİB Hatası: ' + error.message });
   }
 });
 
 if (process.env.NODE_ENV !== 'production') {
-  app.listen(PORT, () => {
-    console.log(`Server is running on port ${PORT}`);
-    console.log(`Mod: ${USE_TEST_MODE ? 'TEST' : 'CANLI'}`);
-  });
+  app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
 }
 
 module.exports = app;
