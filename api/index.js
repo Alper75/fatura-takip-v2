@@ -91,7 +91,7 @@ app.post('/api/gib/create-draft', async (req, res) => {
       sehir: String(invoice.il || 'Ankara'),
       mahalleSemtIlce: String(invoice.ilce || 'Merkez'),
       
-      // GİB'in kesin beklediği 'base' (matrah) alanları
+      // GİB'in kesin beklediği 'base' (matrah) ve 'price' alanları
       base: tutar,
       matrah: tutar,
       malhizmetToplamTutari: tutar,
@@ -100,6 +100,12 @@ app.post('/api/gib/create-draft', async (req, res) => {
       vergilerToplami: kdvTutari,
       vergilerDahilToplamTutar: toplamTutar,
       odenecekTutar: toplamTutar,
+      
+      // İngilizce eşleşmeler için eklenen kritik alanlar
+      paymentPrice: toplamTutar,
+      itemOrServiceTotalPrice: tutar,
+      orderData: [],
+      
       not: String(invoice.aciklama || ''),
       malHizmetTable: [
         {
