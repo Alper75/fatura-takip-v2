@@ -66,11 +66,12 @@ app.post('/api/gib/create-draft', async (req, res) => {
     if (api.setCredentials) api.setCredentials(credentials.username, credentials.password);
 
     console.log('STEP 2: Connecting to GİB (EInvoiceApi)...');
-    // connect() metodu PHP standartından gelmektedir
+    // 'anonymous' hatasını önlemek için boş bir obje geçiyoruz
+    const connectOptions = { anonymous: false };
     if (api.connect) {
-        await api.connect();
+        await api.connect(connectOptions);
     } else if (api.login) {
-        await api.login();
+        await api.login(connectOptions);
     }
 
     console.log('STEP 3: Preparing Invoice...');
