@@ -96,8 +96,11 @@ app.post('/api/gib/create-draft', async (req, res) => {
           odenecekTutar: toplamTutar,
           
           paymentPrice: toplamTutar,
-          productsTotalPrice: tutar, // Satırların vergisiz toplamı
-          taxTotalPrice: kdvTutari,    // Vergilerin toplamı
+          payableAmount: toplamTutar,
+          productsTotalPrice: tutar,
+          taxExclusiveAmount: tutar,
+          taxTotalPrice: kdvTutari,
+          includedTaxesTotalPrice: toplamTutar, // Vergiler dahil toplam tutar
           itemOrServiceTotalPrice: tutar,
           orderData: [],
           
