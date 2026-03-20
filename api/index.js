@@ -40,21 +40,27 @@ app.post('/api/gib/create-draft', async (req, res) => {
   }
 
   try {
-    const tutar = parseFloat(invoice.tutar);
-    const kdvOrani = parseInt(invoice.kdvOrani) || 20;
-    const kdvTutari = (tutar * kdvOrani) / 100;
-    const toplamTutar = tutar + kdvTutari;
+    const tutar = parseFloat(invoice.tutar || 0);
+    const kdvOrani = parseInt(invoice.kdvOrani || 20);
+    const kdvTutari = Number(((tutar * kdvOrani) / 100).toFixed(2));
+    const toplamTutar = Number((tutar + kdvTutari).toFixed(2));
+
+    console.log('Sending Invoice to GİB:', {
+      vknTckn: invoice.vknTckn,
+      title: invoice.ad,
+      total: toplamTutar
+    });
 
     // fatura.js kütüphanesinin beklediği format
     const gibInvoice = {
-      taxIDOrTRID: invoice.vknTckn || '11111111111',
-      title: (invoice.ad + ' ' + (invoice.soyad || '')).trim(),
-      name: invoice.ad,
-      surname: invoice.soyad || '',
-      fullAddress: invoice.adres || 'Türkiye',
-      vergiDairesi: invoice.vergiDairesi || '',
-      city: invoice.il || '',
-      district: invoice.ilce || '',
+      taxIDOrTRID: String(invoice.vknTckn || '11111111111'),
+      title: String(invoice.ad || '') + (invoice.soyad ? ' ' + invoice.soyad : ''),
+      name: String(invoice.ad || ''),
+      surname: String(invoice.soyad || ''),
+      fullAddress: String(invoice.adres || 'Türkiye'),
+      vergiDairesi: String(invoice.vergiDairesi || ''),
+      city: String(invoice.il || ''),
+      district: String(invoice.ilce || ''),
       country: 'Türkiye',
       date: invoice.faturaTarihi || new Date().toLocaleDateString('tr-TR'),
       time: new Date().toLocaleTimeString('tr-TR'),
@@ -62,7 +68,7 @@ app.post('/api/gib/create-draft', async (req, res) => {
       invoiceType: 'SATIS',
       items: [
         {
-          name: invoice.aciklama || 'Hizmet Bedeli',
+          name: String(invoice.aciklama || 'Hizmet Bedeli'),
           quantity: 1,
           unitType: 'C62', // ADET
           unitPrice: tutar,
@@ -77,8 +83,7 @@ app.post('/api/gib/create-draft', async (req, res) => {
       paymentTotal: toplamTutar
     };
 
-    // Not: fatura kütüphanesi sign: true (varsayılan) ise SMS onayı bekleyebilir.
-    // Sadece TASLAK oluşturmak için sign: false gönderiyoruz.
+    // Not: fatura kütüphanesi her çağrıda login/logout yapar.
     const result = await createInvoiceAndGetHTML(
       credentials.username, 
       credentials.password, 
@@ -92,8 +97,19 @@ app.post('/api/gib/create-draft', async (req, res) => {
       data: result
     });
   } catch (error) {
-    console.error('GİB Error:', error);
-    res.status(500).json({ success: false, message: 'Fatura oluşturma hatası: ' + error.message });
+    console.error('Detailed GİB Error:', error);
+    
+    let errorMsg = error.message;
+    // Kütüphane hatasında response.data varsa onu ekle
+    if (error.response && error.response.data) {
+      errorMsg += ' - ' + JSON.stringify(error.response.data);
+    }
+
+    res.status(500).json({ 
+      success: false, 
+      message: 'GİB Hatası: ' + errorMsg,
+      detail: error.stack
+    });
   }
 });
 
