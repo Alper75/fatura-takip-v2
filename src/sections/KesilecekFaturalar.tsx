@@ -396,7 +396,9 @@ export function KesilecekFaturalar() {
                     <div className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs font-bold">₺</div>
                   </div>
                   <Select value={form.kdvOrani} onValueChange={val => setForm({...form, kdvOrani: val})}>
-                    <SelectTrigger className="w-24 h-10 font-bold">% {form.kdvOrani}</SelectTrigger>
+                    <SelectTrigger className="w-24 h-10 font-bold">
+                      <SelectValue placeholder={`% ${form.kdvOrani}`} />
+                    </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="20">% 20</SelectItem>
                       <SelectItem value="10">% 10</SelectItem>
