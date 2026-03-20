@@ -40,47 +40,42 @@ app.post('/api/gib/create-draft', async (req, res) => {
   }
 
   try {
-    // fatura.js formatına dönüştürme
+    const tutar = parseFloat(invoice.tutar);
+    const kdvOrani = parseInt(invoice.kdvOrani) || 20;
+    const kdvTutari = (tutar * kdvOrani) / 100;
+    const toplamTutar = tutar + kdvTutari;
+
+    // fatura.js kütüphanesinin beklediği format
     const gibInvoice = {
-      vknTckn: invoice.vknTckn,
-      ad: invoice.ad,
-      soyad: invoice.soyad || '',
-      adres: invoice.adres || '',
-      ulke: 'Türkiye',
-      sehir: '', // Opsiyonel
-      ilce: '', // Opsiyonel
-      vergiDairesi: '',
-      tarih: invoice.tarih || new Date().toLocaleDateString('tr-TR'),
-      saat: new Date().toLocaleTimeString('tr-TR'),
-      paraBirimi: 'TRY',
-      dovizKuru: 1,
-      faturaTipi: 'SATIS',
-      siparisNo: '',
-      siparisTarihi: '',
-      irsaliyeNo: '',
-      irsaliyeTarihi: '',
-      fisNo: '',
-      fisTarihi: '',
-      fisSaati: '',
-      fisTipi: '',
-      zNo: '',
-      okcSeriNo: '',
-      malHizmetListe: [
+      taxIDOrTRID: invoice.vknTckn || '11111111111',
+      title: (invoice.ad + ' ' + (invoice.soyad || '')).trim(),
+      name: invoice.ad,
+      surname: invoice.soyad || '',
+      fullAddress: invoice.adres || 'Türkiye',
+      country: 'Türkiye',
+      date: invoice.tarih || new Date().toLocaleDateString('tr-TR'),
+      time: new Date().toLocaleTimeString('tr-TR'),
+      currency: 'TRY',
+      invoiceType: 'SATIS',
+      items: [
         {
           name: invoice.aciklama || 'Hizmet Bedeli',
           quantity: 1,
-          unit: 'ADET',
-          unitPrice: invoice.tutar,
-          price: invoice.tutar,
-          vatRate: invoice.kdvOrani || 20,
-          vatAmount: (invoice.tutar * (invoice.kdvOrani || 20)) / 100,
-          totalAmount: invoice.tutar + (invoice.tutar * (invoice.kdvOrani || 20)) / 100
+          unitType: 'C62', // ADET
+          unitPrice: tutar,
+          price: tutar,
+          VATRate: kdvOrani,
+          VATAmount: kdvTutari
         }
-      ]
+      ],
+      grandTotal: tutar,
+      totalVAT: kdvTutari,
+      grandTotalInclVAT: toplamTutar,
+      paymentTotal: toplamTutar
     };
 
-    // Not: fatura kütüphanesi sign: true (varsayılan) ise SMS onayı bekleyebilir veya hata verebilir.
-    // Biz sadece TASLAK oluşturmak istediğimiz için sign: false gönderiyoruz.
+    // Not: fatura kütüphanesi sign: true (varsayılan) ise SMS onayı bekleyebilir.
+    // Sadece TASLAK oluşturmak için sign: false gönderiyoruz.
     const result = await createInvoiceAndGetHTML(
       credentials.username, 
       credentials.password, 
@@ -91,7 +86,7 @@ app.post('/api/gib/create-draft', async (req, res) => {
     res.json({ 
       success: true, 
       message: 'Taslak fatura portala başarıyla gönderildi.',
-      data: result // Genellikle HTML içeriği döner
+      data: result
     });
   } catch (error) {
     console.error('GİB Error:', error);
