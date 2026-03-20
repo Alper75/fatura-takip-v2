@@ -8,23 +8,23 @@ const PORT = process.env.PORT || 5000;
 app.use(cors());
 app.use(bodyParser.json());
 
+// Sunucu durum testi
+app.get('/api/health', (req, res) => res.json({ status: 'ok', engine: 'e-fatura-v2' }));
+
 // GİB Portal Test ve Login
-app.post('/gib/test-login', async (req, res) => {
+app.post('/api/gib/test-login', async (req, res) => {
   const { username, password } = req.body;
-  
-  if (!username || !password) {
-    return res.status(400).json({ success: false, message: 'Kullanıcı adı ve şifre gereklidir.' });
-  }
+  if (!username || !password) return res.status(400).json({ success: false, message: 'Eksik bilgi.' });
 
   try {
     res.json({ success: true, message: 'Bağlantı parametreleri hazır.' });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'GİB bağlantı hatası: ' + error.message });
+    res.status(500).json({ success: false, message: 'Hata: ' + error.message });
   }
 });
 
 // Taslak Fatura Oluşturma
-app.post('/gib/create-draft', async (req, res) => {
+app.post('/api/gib/create-draft', async (req, res) => {
   const { credentials, invoice } = req.body;
 
   if (!credentials || !invoice) {
@@ -39,7 +39,6 @@ app.post('/gib/create-draft', async (req, res) => {
 
     console.log('STEP 1: Data preparation starting...');
     
-    // Simülasyon Kontrolü
     if (credentials.password === 'simule') {
       return res.json({ 
         success: true, 
@@ -48,43 +47,57 @@ app.post('/gib/create-draft', async (req, res) => {
       });
     }
 
-    console.log('STEP 2: GİB Login starting (e-fatura)...');
     const { EArshivPortal } = require('e-fatura');
     const portal = new EArshivPortal(credentials.username, credentials.password);
     
     await portal.login();
 
-    console.log('STEP 3: Creating Draft (e-fatura)...');
+    console.log('STEP 3: Creating Draft (Furkan Kadıoğlu Standards)...');
+    
+    // PHP Örneğindeki (Furkan Kadıoğlu) yapıya %100 uyum sağla
     const result = await portal.createInvoice({
-      vknTckn: String(invoice.vknTckn || '11111111111'),
-      ad: String(invoice.ad || 'İsimsiz'),
-      soyad: String(invoice.soyad || ''),
-      adres: String(invoice.adres || 'Türkiye'),
-      ulke: 'Türkiye',
-      il: String(invoice.il || 'Ankara'),
-      ilce: String(invoice.ilce || 'Merkez'),
-      vergiDairesi: String(invoice.vergiDairesi || ''),
-      tarih: invoice.faturaTarihi || new Date().toLocaleDateString('tr-TR'),
+      faturaTarihi: invoice.faturaTarihi || new Date().toLocaleDateString('tr-TR'),
       saat: new Date().toLocaleTimeString('tr-TR'),
       paraBirimi: 'TRY',
       faturaTipi: 'SATIS',
-      malHizmetListe: [
+      vknTckn: String(invoice.vknTckn || '11111111111'),
+      aliciAdi: String(invoice.ad || 'İsimsiz'),
+      aliciSoyadi: String(invoice.soyad || ''),
+      vergiDairesi: String(invoice.vergiDairesi || ''),
+      ulke: 'Türkiye',
+      bulvarcaddesokak: String(invoice.adres || 'Türkiye'),
+      sehir: String(invoice.il || 'Ankara'),
+      mahalleSemtIlce: String(invoice.ilce || 'Merkez'),
+      
+      // Hesaplanan alanlar (Library'nin içten içe beklediği anahtarlar)
+      matrah: tutar,
+      malhizmetToplamTutari: tutar,
+      toplamIskonto: "0",
+      hesaplanankdv: kdvTutari,
+      vergilerToplami: kdvTutari,
+      vergilerDahilToplamTutar: toplamTutar,
+      odenecekTutar: toplamTutar,
+      not: String(invoice.aciklama || ''),
+
+      malHizmetTable: [
         {
-          ne: String(invoice.aciklama || 'Hizmet Bedeli'),
+          malHizmet: String(invoice.aciklama || 'Hizmet Bedeli'),
           miktar: 1,
           birim: 'ADET',
           birimFiyat: tutar,
           fiyat: tutar,
+          iskontoOrani: 0,
+          iskontoTutari: "0",
           kdvOrani: kdvOrani,
           kdvTutari: kdvTutari,
-          toplamTutar: toplamTutar
+          malHizmetTutari: tutar,
+          ozelMatrahTutari: "0"
         }
       ]
     });
     
     await portal.logout();
 
-    console.log('STEP 4: Success, returning UUID.');
     res.json({ 
       success: true, 
       message: 'Taslak fatura portala başarıyla gönderildi.',
