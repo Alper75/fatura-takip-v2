@@ -56,46 +56,47 @@ app.post('/api/gib/create-draft', async (req, res) => {
       });
     }
 
-    const { GibFatura, Invoice, InvoiceItem, Currency, InvoiceType, Unit } = require('gib-fatura');
+    console.log('STEP 2: GİB Login starting (e-fatura)...');
+    const { EArshivPortal } = require('e-fatura');
+    const portal = new EArshivPortal(credentials.username, credentials.password);
     
-    // 1. Yeni Fatura Nesnesi
-    const gibInvoice = new Invoice({
+    await portal.login();
+
+    console.log('STEP 3: Creating Draft (e-fatura)...');
+    const result = await portal.createInvoice({
       vknTckn: String(invoice.vknTckn || '11111111111'),
-      aliciAdi: String(invoice.ad || 'İsimsiz'),
-      aliciSoyadi: String(invoice.soyad || ''),
+      ad: String(invoice.ad || 'İsimsiz'),
+      soyad: String(invoice.soyad || ''),
       adres: String(invoice.adres || 'Türkiye'),
-      sehir: String(invoice.il || 'Ankara'),
+      ulke: 'Türkiye',
+      il: String(invoice.il || 'Ankara'),
       ilce: String(invoice.ilce || 'Merkez'),
       vergiDairesi: String(invoice.vergiDairesi || ''),
       tarih: invoice.faturaTarihi || new Date().toLocaleDateString('tr-TR'),
       saat: new Date().toLocaleTimeString('tr-TR'),
-      paraBirimi: Currency.TRY,
-      faturaTipi: InvoiceType.Satis
+      paraBirimi: 'TRY',
+      faturaTipi: 'SATIS',
+      malHizmetListe: [
+        {
+          ne: String(invoice.aciklama || 'Hizmet Bedeli'),
+          miktar: 1,
+          birim: 'ADET',
+          birimFiyat: tutar,
+          fiyat: tutar,
+          kdvOrani: kdvOrani,
+          kdvTutari: kdvTutari,
+          toplamTutar: toplamTutar
+        }
+      ]
     });
-
-    // 2. Kalem Ekle
-    gibInvoice.addItem(new InvoiceItem({
-      malHizmet: String(invoice.aciklama || 'Hizmet Bedeli'),
-      miktar: 1,
-      birim: Unit.Adet,
-      birimFiyat: tutar,
-      kdvOrani: kdvOrani
-    }));
-
-    console.log('STEP 2: GİB Login starting...');
-    const gib = new GibFatura();
-    await gib.login(credentials.username, credentials.password);
-
-    console.log('STEP 3: Creating Draft...');
-    const result = await gib.createDraft(gibInvoice);
     
-    await gib.logout();
+    await portal.logout();
 
-    console.log('STEP 4: Success!');
+    console.log('STEP 4: Success, returning UUID.');
     res.json({ 
       success: true, 
       message: 'Taslak fatura portala başarıyla gönderildi.',
-      uuid: result
+      uuid: result.uuid || result
     });
   } catch (error) {
     console.error('SERVER ERROR:', error);
