@@ -47,47 +47,62 @@ app.post('/api/gib/create-draft', async (req, res) => {
 
     const { createInvoiceAndGetHTML } = require('fatura');
 
+    // Müşteri verileri
+    const ad = String(invoice.ad || 'İsimsiz');
+    const soyad = String(invoice.soyad || '');
+    const il = String(invoice.il || 'Ankara');
+    const ilce = String(invoice.ilce || 'Merkez');
+    const tamAdres = String(invoice.adres || 'Türkiye');
+
     const gibInvoice = {
+      // Orijinal keys
       vknTckn: String(invoice.vknTckn || '11111111111'),
-      ad: String(invoice.ad || 'İsimsiz'),
-      soyad: String(invoice.soyad || ''),
-      adres: String(invoice.adres || 'Türkiye'),
+      ad: ad,
+      soyad: soyad,
+      adres: tamAdres,
       ulke: 'Türkiye',
-      sehir: String(invoice.il || ''),
-      ilce: String(invoice.ilce || ''),
+      sehir: il,
+      ilce: ilce,
       vergiDairesi: String(invoice.vergiDairesi || ''),
+      
+      // Mlevent/PHP tarzı alternatif keys (Kütüphane bunları bekliyor olabilir)
+      aliciAdi: ad,
+      aliciSoyadi: soyad,
+      aliciUnvan: ad,
+      mahalleSemtIlce: ilce,
+      
       tarih: invoice.faturaTarihi || new Date().toLocaleDateString('tr-TR'),
       saat: new Date().toLocaleTimeString('tr-TR'),
       paraBirimi: 'TRY',
       dovizKuru: 1,
       faturaTipi: 'SATIS',
-      siparisNo: '',
-      siparisTarihi: '',
-      irsaliyeNo: '',
-      irsaliyeTarihi: '',
-      fisNo: '',
-      fisTarihi: '',
-      fisSaati: '',
-      fisTipi: '',
-      zNo: '',
-      okcSeriNo: '',
-      notlar: [], // Map hatası için eklendi
-      vergiBilgileri: [], // Map hatası için eklendi
+      
+      notlar: [],
+      vergiBilgileri: [],
+      
       malHizmetListe: [
         {
           name: String(invoice.aciklama || 'Hizmet Bedeli'),
+          malHizmet: String(invoice.aciklama || 'Hizmet Bedeli'), // Alternatif key
           quantity: 1,
+          miktar: 1, // Alternatif key
           unit: 'ADET',
+          birim: 'ADET', // Alternatif key
           unitPrice: tutar,
+          birimFiyat: tutar, // Alternatif key
           price: tutar,
+          fiyat: tutar, // Alternatif key
           vatRate: kdvOrani,
+          kdvOrani: kdvOrani, // Alternatif key
           vatAmount: kdvTutari,
-          totalAmount: toplamTutar
+          kdvTutari: kdvTutari, // Alternatif key
+          totalAmount: toplamTutar,
+          toplamTutar: toplamTutar // Alternatif key
         }
       ]
     };
 
-    console.log('Final Attempt Data (with Arrays):', JSON.stringify({ vkn: gibInvoice.vknTckn, total: toplamTutar }));
+    console.log('Final GİB Dispatch Data:', JSON.stringify({ vkn: gibInvoice.vknTckn, total: toplamTutar }));
 
     const result = await createInvoiceAndGetHTML(
       credentials.username, 
@@ -102,7 +117,7 @@ app.post('/api/gib/create-draft', async (req, res) => {
       data: result
     });
   } catch (error) {
-    console.error('Final Check Error:', error);
+    console.error('Final GİB Error:', error);
     res.status(500).json({ 
       success: false, 
       message: 'Fatura oluşturma hatası: ' + (error.message || 'Bilinmeyen Hata'),
