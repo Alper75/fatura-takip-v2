@@ -74,7 +74,7 @@ export function KesilecekFaturalar() {
     faturaTarihi: new Date().toISOString().split('T')[0],
     aciklama: '',
     kdvDahil: true,
-    cariId: ''
+    cariId: 'none'
   });
 
   // GİB States
@@ -84,21 +84,23 @@ export function KesilecekFaturalar() {
   const [isGibSending, setIsGibSending] = useState(false);
 
   const filteredInvoices = useMemo(() => {
+    if (!kesilecekFaturalar || !Array.isArray(kesilecekFaturalar)) return [];
+    
     return kesilecekFaturalar
       .filter(f => 
-        f.ad.toLowerCase().includes(searchTerm.toLowerCase()) || 
+        (f.ad || "").toLowerCase().includes(searchTerm.toLowerCase()) || 
         (f.soyad && f.soyad.toLowerCase().includes(searchTerm.toLowerCase())) ||
-        f.vknTckn.includes(searchTerm)
+        (f.vknTckn || "").includes(searchTerm)
       )
-      .sort((a, b) => new Date(b.olusturmaTarihi).getTime() - new Date(a.olusturmaTarihi).getTime());
+      .sort((a, b) => new Date(b.olusturmaTarihi || 0).getTime() - new Date(a.olusturmaTarihi || 0).getTime());
   }, [kesilecekFaturalar, searchTerm]);
 
   const handleCariChange = (cariId: string) => {
-    if (!cariId) {
-      setForm(prev => ({ ...prev, cariId: '', ad: '', soyad: '', vknTckn: '', vergiDairesi: '', adres: '' }));
+    if (!cariId || cariId === 'none') {
+      setForm(prev => ({ ...prev, cariId: 'none', ad: '', soyad: '', vknTckn: '', vergiDairesi: '', adres: '', il: '', ilce: '' }));
       return;
     }
-    const cari = cariler.find(c => c.id === cariId);
+    const cari = cariler?.find(c => c.id === cariId);
     if (cari) {
       setForm(prev => ({
         ...prev,
@@ -148,7 +150,7 @@ export function KesilecekFaturalar() {
       faturaTarihi: new Date().toISOString().split('T')[0],
       aciklama: '',
       kdvDahil: true,
-      cariId: ''
+      cariId: 'none'
     });
     toast.success('Kayıt listeye eklendi.');
   };
@@ -330,8 +332,8 @@ export function KesilecekFaturalar() {
                     <SelectValue placeholder="Cari kart seçin..." />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">-- Manuel Giriş --</SelectItem>
-                    {cariler.map(c => (
+                    <SelectItem value="none">-- Manuel Giriş --</SelectItem>
+                    {cariler?.map(c => (
                       <SelectItem key={c.id} value={c.id}>{c.unvan}</SelectItem>
                     ))}
                   </SelectContent>
