@@ -61,6 +61,11 @@ app.post('/api/gib/create-draft', async (req, res) => {
       paraBirimi: 'TRY',
       dovizKuru: 1,
       faturaTipi: 'SATIS',
+      notlar: [],
+      fisBilgileri: [],
+      irsaliyeBilgileri: [],
+      siparisBilgileri: [],
+      vergiBilgileri: [],
       malHizmetListe: [
         {
           name: String(invoice.aciklama || 'Hizmet Bedeli'),
