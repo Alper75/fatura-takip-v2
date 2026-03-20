@@ -25,25 +25,41 @@ class GIBEArchiveAPI {
         this.token = null;
     }
     
-    // Login ve Token alma
+    // Login ve Token alma (Assos Login Yöntemi)
     async login(username, password) {
         try {
-            console.log(`GİB Login: ${username} (Mod: ${USE_TEST_MODE ? 'TEST' : 'PROD'})`);
-            const response = await axios.post(`${this.baseURL}/login`, {
-                rmk: username,
-                sifre: password
+            console.log(`GİB Login Denemesi: ${username} (Mod: ${USE_TEST_MODE ? 'TEST' : 'PROD'})`);
+            
+            // GİB Portal genellikle assos-login ve URLSearchParams bekler
+            const params = new URLSearchParams();
+            params.append('assosUser', username);
+            params.append('assosPass', password);
+            params.append('userid', username);
+            params.append('password', password);
+            params.append('serviceName', 'Assos1');
+
+            const response = await axios.post(`${this.baseURL}/assos-login`, params, {
+                headers: { 
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'Referer': `${this.baseURL}/login.jsp`,
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                }
             });
             
-            // Not: GİB response yapısına göre token lokasyonunu kontrol edin
+            // Token genellikle response.data.token içinde döner
             this.token = response.data.token || response.data.data?.token;
             
             if (!this.token) {
-                throw new Error('Giriş yapıldı ama token alınamadı. Kullanıcı adı veya şifre hatalı olabilir.');
+                // Eğer token hala yoksa hata fırlat
+                if (response.data.mesaj) throw new Error(response.data.mesaj);
+                throw new Error('Giriş yapıldı ama token alınamadı. Lütfen kullanıcı adı ve şifreyi kontrol edin.');
             }
             
+            console.log('Token Başarıyla Alındı.');
             return this.token;
         } catch (error) {
             const msg = error.response?.data?.mesaj || error.message;
+            console.error('Login Detaylı Hata:', error.response?.data || error.message);
             throw new Error(`Login Hatası: ${msg}`);
         }
     }
@@ -70,7 +86,6 @@ class GIBEArchiveAPI {
             ilce: invoiceData.ilce || 'Merkez',
             ulke: 'Türkiye',
             
-            // Mal Hizmet Listesi
             malHizmetListesi: [{
                 malHizmet: invoiceData.aciklama || 'Hizmet Bedeli',
                 miktar: 1,
@@ -81,7 +96,6 @@ class GIBEArchiveAPI {
                 malHizmetTutari: invoiceData.tutar
             }],
             
-            // Toplamlar
             toplamTutar: invoiceData.tutar,
             toplamKdv: Number(((invoiceData.tutar * (invoiceData.kdvOrani || 20)) / 100).toFixed(2)),
             genelToplam: Number((invoiceData.tutar + (invoiceData.tutar * (invoiceData.kdvOrani || 20)) / 100).toFixed(2)),
@@ -89,16 +103,18 @@ class GIBEArchiveAPI {
         };
         
         try {
+            // dispatch üzerinden komut gönderme (Çoğu kütüphanenin kullandığı stabil yöntem)
             const response = await axios.post(
                 `${this.baseURL}/dispatch`,
-                {
+                new URLSearchParams({
                     cmd: 'EARSIV_PORTAL_FATURA_OLUSTUR',
-                    data: payload
-                },
+                    token: this.token,
+                    data: JSON.stringify(payload)
+                }),
                 { 
                     headers: { 
-                        'Authorization': `Bearer ${this.token}`,
-                        'Content-Type': 'application/json'
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                        'Authorization': `Bearer ${this.token}`
                     } 
                 }
             );
@@ -120,14 +136,13 @@ class GIBEArchiveAPI {
         try {
             const response = await axios.post(
                 `${this.baseURL}/dispatch`,
-                {
+                new URLSearchParams({
                     cmd: 'EARSIV_PORTAL_FATURA_GETIR',
-                    data: { uuid: uuid }
-                },
+                    token: this.token,
+                    data: JSON.stringify({ uuid: uuid })
+                }),
                 { 
-                    headers: { 
-                        'Authorization': `Bearer ${this.token}`
-                    } 
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' } 
                 }
             );
             
@@ -141,18 +156,11 @@ class GIBEArchiveAPI {
 // Sunucu durum testi
 app.get('/api/health', (req, res) => res.json({
   status: 'ok',
-  engine: 'axios-native-v1',
+  engine: 'axios-native-v2',
   testMode: USE_TEST_MODE
 }));
 
-// DEBUG: Gelen veriyi görmek için
-app.post('/api/gib/debug-invoice', (req, res) => {
-  console.log('=== DEBUG: Gelen Invoice Verisi ===');
-  console.log(JSON.stringify(req.body, null, 2));
-  res.json({ received: req.body });
-});
-
-// Taslak Fatura Oluşturma - NATIVE AXIOS
+// Taslak Fatura Oluşturma - NATIVE AXIOS (V2)
 app.post('/api/gib/create-draft', async (req, res) => {
   const { credentials, invoice } = req.body;
 
@@ -164,6 +172,7 @@ app.post('/api/gib/create-draft', async (req, res) => {
     const api = new GIBEArchiveAPI(USE_TEST_MODE);
     await api.login(credentials.username, credentials.password);
     
+    console.log('Fatura oluşturuluyor...');
     const result = await api.createDraftInvoice(invoice);
     const html = await api.getInvoiceHTML(result.uuid);
     
@@ -172,16 +181,15 @@ app.post('/api/gib/create-draft', async (req, res) => {
       uuid: result.uuid,
       html: html,
       message: USE_TEST_MODE 
-        ? 'TEST BAŞARILI: Taslak (Sanal) fatura oluşturuldu.' 
+        ? 'TEST BAŞARILI: Taslak fatura oluşturuldu.' 
         : 'Fatura GİB portala başarıyla (Taslak) olarak gönderildi.'
     });
 
   } catch (error) {
-    console.error('SERVER ERROR (Native):', error.message);
+    console.error('GİB NATIVE ERROR:', error.message);
     res.status(500).json({ 
       success: false, 
-      message: 'GİB Hatası: ' + error.message,
-      detail: error.stack
+      message: 'GİB Hatası: ' + error.message
     });
   }
 });
