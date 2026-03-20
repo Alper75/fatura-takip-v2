@@ -47,13 +47,25 @@ app.post('/api/gib/create-draft', async (req, res) => {
       });
     }
 
-    const { EInvoiceApi, EInvoice, InvoiceType, EInvoiceCurrencyType, EInvoiceUnitType } = require('e-fatura');
+    const { EInvoiceApi, EInvoice } = require('e-fatura');
     
-    // 1. API Bağlantı Nesnesi
-    const api = new EInvoiceApi({ 
-        username: credentials.username, 
-        password: credentials.password 
-    });
+    // En güvenli başlatma yöntemi: Hem constructor hem setCredentials dene
+    let api;
+    try {
+        // Yöntem 1: Nesne olarak gönder
+        api = new EInvoiceApi({ 
+            username: credentials.username, 
+            password: credentials.password 
+        });
+    } catch (e) {
+        // Yöntem 2: Tekil argümanlar olarak gönder
+        api = new EInvoiceApi(credentials.username, credentials.password);
+    }
+
+    // Ekstra güvence: setCredentials varsa kullan
+    if (api.setCredentials) {
+        api.setCredentials(credentials.username, credentials.password);
+    }
 
     console.log('STEP 2: Connecting to GİB (EInvoiceApi)...');
     if (api.connect) {
@@ -62,7 +74,7 @@ app.post('/api/gib/create-draft', async (req, res) => {
         await api.login();
     }
 
-    console.log('STEP 3: Creating Invoice (EInvoice)...');
+    console.log('STEP 3: Preparing Invoice...');
     
     // Kütüphanenin beklediği anahtar isimlerini (mappingBasicInvoiceKeys) baz alarak hazırla
     const invoiceData = {
