@@ -45,7 +45,8 @@ app.post('/api/gib/create-draft', async (req, res) => {
     const kdvTutari = Number(((tutar * kdvOrani) / 100).toFixed(2));
     const toplamTutar = Number((tutar + kdvTutari).toFixed(2));
 
-    // Orijinal çalışan yapıya sadık kalalım
+    const { createInvoiceAndGetHTML } = require('fatura');
+
     const gibInvoice = {
       vknTckn: String(invoice.vknTckn || '11111111111'),
       ad: String(invoice.ad || 'İsimsiz'),
@@ -70,6 +71,8 @@ app.post('/api/gib/create-draft', async (req, res) => {
       fisTipi: '',
       zNo: '',
       okcSeriNo: '',
+      notlar: [], // Map hatası için eklendi
+      vergiBilgileri: [], // Map hatası için eklendi
       malHizmetListe: [
         {
           name: String(invoice.aciklama || 'Hizmet Bedeli'),
@@ -84,11 +87,9 @@ app.post('/api/gib/create-draft', async (req, res) => {
       ]
     };
 
-    console.log('Final Attempt Data:', JSON.stringify({ vkn: gibInvoice.vknTckn, total: toplamTutar }));
+    console.log('Final Attempt Data (with Arrays):', JSON.stringify({ vkn: gibInvoice.vknTckn, total: toplamTutar }));
 
-    // Orijinal require ve çağırma şekli
-    const faturaLib = require('fatura');
-    const result = await faturaLib.createInvoiceAndGetHTML(
+    const result = await createInvoiceAndGetHTML(
       credentials.username, 
       credentials.password, 
       gibInvoice, 
