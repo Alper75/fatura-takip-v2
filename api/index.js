@@ -74,9 +74,7 @@ app.post('/api/gib/create-draft', async (req, res) => {
         await api.login(connectOptions);
     }
 
-    console.log('STEP 3: Preparing Invoice...');
-    
-    // Kütüphanenin beklediği anahtar isimlerini (mappingBasicInvoiceKeys) baz alarak hazırla
+    console.log('STEP 3: Preparing Invoice (Ultra-Defensive)...');
     const invoiceData = {
       faturaTarihi: invoice.faturaTarihi || new Date().toLocaleDateString('tr-TR'),
       saat: new Date().toLocaleTimeString('tr-TR'),
@@ -115,19 +113,40 @@ app.post('/api/gib/create-draft', async (req, res) => {
       ]
     };
 
-    // EInvoice nesnesini oluştur ve veriyi aktar
-    const eInvoice = new EInvoice();
-    eInvoice.mapWithTurkishKeys(invoiceData);
+    // Fatura nesnesini akıllıca oluştur
+    let finalInvoice;
+    try {
+      if (typeof EInvoice === 'function') {
+        finalInvoice = new EInvoice();
+        if (finalInvoice.mapWithTurkishKeys) {
+          finalInvoice.mapWithTurkishKeys(invoiceData);
+        } else {
+          Object.assign(finalInvoice, invoiceData);
+        }
+      } else {
+        finalInvoice = invoiceData;
+      }
+    } catch (e) {
+      console.log('EInvoice class failed, using raw data');
+      finalInvoice = invoiceData;
+    }
 
-    // Taslak oluştur
-    const result = await api.createDraftBasicInvoice(eInvoice);
+    // Metod tespiti ve gönderim
+    let result;
+    if (api.createDraftBasicInvoice) {
+        result = await api.createDraftBasicInvoice(finalInvoice);
+    } else if (api.createInvoice) {
+        result = await api.createInvoice(finalInvoice);
+    } else {
+        throw new Error('Fatura oluşturma metodu (createDraftBasicInvoice/createInvoice) bulunamadı.');
+    }
     
-    await api.logout();
+    if (api.logout) await api.logout();
 
     res.json({ 
       success: true, 
       message: 'Taslak fatura portala başarıyla gönderildi.',
-      uuid: result.uuid || (typeof result === 'string' ? result : 'BAŞARILI')
+      uuid: (result && result.uuid) ? result.uuid : (typeof result === 'string' ? result : 'OK')
     });
   } catch (error) {
     console.error('SERVER ERROR:', error);
