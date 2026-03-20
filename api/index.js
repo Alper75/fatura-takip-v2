@@ -10,8 +10,8 @@ const PORT = process.env.PORT || 5000;
 app.use(cors());
 app.use(bodyParser.json());
 
-// Test modu ayarı (GERÇEK FATURA KESMEYECEKSEN true YAP)
-const USE_TEST_MODE = true;
+// Test modu ayarı (GERÇEK FATURA KESİLECEĞİ İÇİN false YAPILDI)
+const USE_TEST_MODE = false;
 
 /**
  * GIB E-Arşiv API (Direct Axios Implementation)
