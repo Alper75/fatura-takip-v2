@@ -45,51 +45,60 @@ app.post('/api/gib/create-draft', async (req, res) => {
     const kdvTutari = Number(((tutar * kdvOrani) / 100).toFixed(2));
     const toplamTutar = Number((tutar + kdvTutari).toFixed(2));
 
-    console.log('Sending Invoice to GİB:', {
-      vknTckn: invoice.vknTckn,
-      title: invoice.ad,
-      total: toplamTutar
-    });
+    const fullAdres = String(invoice.adres || 'Merkez');
+    // Adreste ilçe/il ayrımı yapmaya çalış
+    const adresParcalari = fullAdres.split(',');
+    const mahalle = adresParcalari[0] || 'Merkez';
 
-    // fatura.js kütüphanesinin beklediği format
     const gibInvoice = {
       taxIDOrTRID: String(invoice.vknTckn || '11111111111'),
-      title: String(invoice.ad || '') + (invoice.soyad ? ' ' + invoice.soyad : ''),
-      name: String(invoice.ad || ''),
-      surname: String(invoice.soyad || ''),
-      fullAddress: String(invoice.adres || 'Türkiye'),
-      vergiDairesi: String(invoice.vergiDairesi || ''),
-      city: String(invoice.il || ''),
-      district: String(invoice.ilce || ''),
+      title: (String(invoice.ad || '') + (invoice.soyad ? ' ' + invoice.soyad : '')).trim(),
+      name: String(invoice.ad || 'İsimsiz'),
+      surname: String(invoice.soyad || 'Soyisimsiz'),
+      fullAddress: fullAdres,
+      neighborhood: mahalle,
+      district: String(invoice.ilce || 'Merkez'),
+      city: String(invoice.il || 'Ankara'),
       country: 'Türkiye',
+      taxOffice: String(invoice.vergiDairesi || ''),
       date: invoice.faturaTarihi || new Date().toLocaleDateString('tr-TR'),
       time: new Date().toLocaleTimeString('tr-TR'),
       currency: 'TRY',
+      currencyRate: 1,
       invoiceType: 'SATIS',
       items: [
         {
           name: String(invoice.aciklama || 'Hizmet Bedeli'),
           quantity: 1,
-          unitType: 'C62', // ADET
+          unitType: 'C62',
           unitPrice: tutar,
           price: tutar,
           VATRate: kdvOrani,
           VATAmount: kdvTutari
         }
       ],
-      grandTotal: tutar,
       totalVAT: kdvTutari,
+      grandTotal: tutar,
       grandTotalInclVAT: toplamTutar,
       paymentTotal: toplamTutar
     };
 
-    // Not: fatura kütüphanesi her çağrıda login/logout yapar.
+    console.log('Sending to GİB with data:', JSON.stringify({
+      vkn: gibInvoice.taxIDOrTRID,
+      title: gibInvoice.title,
+      total: gibInvoice.grandTotalInclVAT
+    }, null, 2));
+
     const result = await createInvoiceAndGetHTML(
-      credentials.username, 
-      credentials.password, 
+      String(credentials.username), 
+      String(credentials.password), 
       gibInvoice, 
       { sign: false }
     );
+
+    if (!result) {
+      throw new Error('GİB portalından boş yanıt döndü.');
+    }
 
     res.json({ 
       success: true, 
@@ -97,17 +106,20 @@ app.post('/api/gib/create-draft', async (req, res) => {
       data: result
     });
   } catch (error) {
-    console.error('Detailed GİB Error:', error);
+    console.error('CRITICAL GİB ERROR:', error);
     
-    let errorMsg = error.message;
-    // Kütüphane hatasında response.data varsa onu ekle
-    if (error.response && error.response.data) {
-      errorMsg += ' - ' + JSON.stringify(error.response.data);
+    let errorMsg = error.message || 'Bilinmeyen Hata';
+    
+    // Axios or library specific error details
+    if (error.response) {
+      errorMsg += ` - Portal Yanıtı: ${JSON.stringify(error.response.data || 'Veri Yok')}`;
+    } else if (error.request) {
+      errorMsg += ' - Portala ulaşılamadı (Network Error)';
     }
 
     res.status(500).json({ 
       success: false, 
-      message: 'GİB Hatası: ' + errorMsg,
+      message: 'GİB Entegrasyon Hatası: ' + errorMsg,
       detail: error.stack
     });
   }
