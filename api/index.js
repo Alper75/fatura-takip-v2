@@ -8,6 +8,9 @@ const PORT = process.env.PORT || 5000;
 app.use(cors());
 app.use(bodyParser.json());
 
+// fatura.js kütüphanesini global olarak yükle (performans için)
+const faturaLib = require('fatura');
+
 // Sunucu durum testi
 app.get('/api/health', (req, res) => res.json({ status: 'ok', engine: 'fatura-v1' }));
 
@@ -17,148 +20,183 @@ app.post('/api/gib/test-login', async (req, res) => {
   if (!username || !password) return res.status(400).json({ success: false, message: 'Eksik bilgi.' });
 
   try {
-    res.json({ success: true, message: 'Bağlantı parametreleri hazır.' });
+    // Gerçek bağlantı testi için fatura.js'in bir metodunu çağırabilirsin
+    // Şimdilik sadece parametre kontrolü yapıyoruz
+    res.json({ success: true, message: 'Bağlantı parametreleri hazır.', username });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Hata: ' + error.message });
   }
 });
 
-// Taslak Fatura Oluşturma
+// DEBUG: Gelen veriyi görmek için geçici endpoint
+app.post('/api/gib/debug-invoice', (req, res) => {
+  console.log('=== DEBUG: Gelen Invoice Verisi ===');
+  console.log(JSON.stringify(req.body, null, 2));
+  res.json({ received: req.body });
+});
+
+// Taslak Fatura Oluşturma - DÜZELTİLMİŞ VERSİYON
 app.post('/api/gib/create-draft', async (req, res) => {
   const { credentials, invoice } = req.body;
 
+  // DETAYLI VALIDASYON
   if (!credentials || !invoice) {
-    return res.status(400).json({ success: false, message: 'Eksik veri.' });
+    return res.status(400).json({
+      success: false,
+      message: 'Eksik veri: credentials veya invoice gönderilmemiş.'
+    });
+  }
+
+  if (!credentials.username || !credentials.password) {
+    return res.status(400).json({
+      success: false,
+      message: 'Eksik bilgi: username ve password zorunlu.'
+    });
+  }
+
+  // ZORUNLU ALAN KONTROLÜ
+  const requiredFields = ['tutar', 'vknTckn', 'ad'];
+  const missingFields = requiredFields.filter(field => !invoice[field]);
+
+  if (missingFields.length > 0) {
+    return res.status(400).json({
+      success: false,
+      message: `Eksik alanlar: ${missingFields.join(', ')}`
+    });
   }
 
   try {
-    const tutar = Number(parseFloat(invoice.tutar || 0).toFixed(2));
-    const kdvOrani = parseInt(invoice.kdvOrani || 20);
-    const kdvTutari = Number(((tutar * kdvOrani) / 100).toFixed(2));
-    const toplamTutar = Number((tutar + kdvTutari).toFixed(2));
+    // SAYISAL DEĞERLERİN GÜVENLİ HESAPLAMASI
+    const tutar = parseFloat(invoice.tutar);
+    if (isNaN(tutar) || tutar <= 0) {
+      throw new Error(`Geçersiz tutar değeri: ${invoice.tutar}`);
+    }
 
-    console.log(`STEP 1: Tax calculations (Ex-VAT: ${tutar}, VAT: ${kdvTutari}, Total: ${toplamTutar})`);
-    
+    const kdvOrani = parseInt(invoice.kdvOrani) || 20;
+    if (isNaN(kdvOrani) || kdvOrani < 0 || kdvOrani > 35) {
+      throw new Error(`Geçersiz KDV oranı: ${invoice.kdvOrani}`);
+    }
+
+    const kdvTutari = parseFloat(((tutar * kdvOrani) / 100).toFixed(2));
+    const toplamTutar = parseFloat((tutar + kdvTutari).toFixed(2));
+
+    console.log('=== HESAPLAMA SONUÇLARI ===');
+    console.log(`Matrah (Tutar): ${tutar} (tip: ${typeof tutar})`);
+    console.log(`KDV Oranı: ${kdvOrani}%`);
+    console.log(`KDV Tutarı: ${kdvTutari} (tip: ${typeof kdvTutari})`);
+    console.log(`Toplam Tutar: ${toplamTutar} (tip: ${typeof toplamTutar})`);
+
+    // SİMÜLASYON MODU (Test için)
     if (credentials.password === 'simule') {
-      return res.json({ 
-        success: true, 
-        message: 'SİMUEL TEST BAŞARILI. (Kodun kendisi düzgün çalışıyor)',
-        data: '<h1>Simule Fatura</h1>'
+      return res.json({
+        success: true,
+        message: 'SİMÜLASYON TEST BAŞARILI. Kod düzgün çalışıyor.',
+        debug: {
+          tutar,
+          kdvTutari,
+          toplamTutar,
+          items: [{
+            name: invoice.aciklama || 'Hizmet Bedeli',
+            quantity: 1,
+            unitPrice: tutar,
+            price: tutar,
+            VATRate: kdvOrani,
+            VATAmount: kdvTutari
+          }]
+        }
       });
     }
 
-    const faturaLib = require('fatura');
-    
-    // Ürün listesi (Her üç isimlendirme stilini de kapsıyoruz)
-    const items = [
-      {
-        // 1. Türkçe CamelCase/SnakeCase
-        malHizmet: String(invoice.aciklama || 'Hizmet Bedeli'),
-        mal_hizmet: String(invoice.aciklama || 'Hizmet Bedeli'),
-        miktar: 1,
-        birim: 'ADET',
-        birimFiyat: tutar,
-        birim_fiyat: tutar,
-        fiyat: tutar,
-        iskontoOrani: 0,
-        iskonto_orani: 0,
-        iskonto_tutari: 0,
-        kdvOrani: kdvOrani,
-        kdv_orani: kdvOrani,
-        kdvTutari: kdvTutari,
-        kdv_tutari: kdvTutari,
-        malHizmetTutari: tutar,
-        mal_hizmet_tutari: tutar,
-        
-        // 2. İngilizce Industry-Standard
-        name: String(invoice.aciklama || 'Hizmet Bedeli'),
-        description: String(invoice.aciklama || 'Hizmet Bedeli'),
-        quantity: 1,
-        unit: 'ADET',
-        unitPrice: tutar,
-        taxAmount: kdvTutari,
-        taxRate: kdvOrani,
-        totalAmount: tutar,
-        grandTotal: toplamTutar
-      }
-    ];
-
+    // Fatura.js kütüphanesinin beklediği formatta veri hazırlama
+    // GitHub: https://github.com/ahmetozlu/fatura.js
     const invoiceData = {
-      // 1. Türkçe İsimlendirme (Camel + Snake)
-      faturaTarihi: invoice.faturaTarihi || new Date().toLocaleDateString('tr-TR'),
-      fatura_tarihi: invoice.faturaTarihi || new Date().toLocaleDateString('tr-TR'),
-      saat: new Date().toLocaleTimeString('tr-TR'),
-      paraBirimi: 'TRY',
-      faturaTipi: 'SATIS',
-      fatura_tipi: 'SATIS',
-      vknTckn: String(invoice.vknTckn || '11111111111'),
-      vkn_tckn: String(invoice.vknTckn || '11111111111'),
-      aliciAdi: String(invoice.ad || invoice.unvan || 'İsimsiz'),
-      alici_adi: String(invoice.ad || invoice.unvan || 'İsimsiz'),
-      aliciSoyadi: String(invoice.soyad || ''),
-      alici_soyadi: String(invoice.soyad || ''),
-      aliciUnvan: String(invoice.unvan || invoice.ad || 'İsimsiz'),
-      vergiDairesi: String(invoice.vergiDairesi || ''),
-      ulke: 'Türkiye',
-      bulvarcaddesokak: String(invoice.adres || 'Türkiye'),
-      sehir: String(invoice.il || 'Ankara'),
-      mahalleSemtIlce: String(invoice.ilce || 'Merkez'),
-      matrah: tutar,
-      malhizmetToplamTutari: tutar,
-      toplamIskonto: 0,
-      toplam_iskonto: 0,
-      hesaplanankdv: kdvTutari,
-      vergilerToplami: kdvTutari,
-      vergiler_toplami: kdvTutari,
-      vergilerDahilToplamTutar: toplamTutar,
-      odenecekTutar: toplamTutar,
-      odenecek_tutar: toplamTutar,
-      not: String(invoice.aciklama || ''),
-      
-      // 2. İngilizce Industry-Standard (Senin belirttiğin kritik alanlar)
+      // Zorunlu Temel Alanlar
       date: invoice.faturaTarihi || new Date().toLocaleDateString('tr-TR'),
-      taxIDOrTRID: String(invoice.vknTckn || '11111111111'),
-      name: String(invoice.ad || 'İsimsiz'),
-      surname: String(invoice.soyad || ''),
-      title: String(invoice.unvan || invoice.ad || 'İsimsiz'),
-      totalVAT: kdvTutari,
-      grandTotalInclVAT: toplamTutar,
-      paymentTotal: toplamTutar,
-      
-      // Diğer olası İngilizce anahtarlar
-      currency: 'TRY',
-      invoiceType: 'SATIS',
-      taxExclusiveAmount: tutar,
-      payableAmount: toplamTutar,
-      paymentPrice: toplamTutar,
+      time: new Date().toLocaleTimeString('tr-TR'),
 
-      // 3. Liste Varyasyonları
-      malHizmetListe: items,
-      mal_hizmet_liste: items,
-      items: items,
-      products: items,
-      itemOrServiceList: items
+      // Alıcı Bilgileri (Kütüphane formatı)
+      taxIDOrTRID: String(invoice.vknTckn || '11111111111'),
+      taxOffice: String(invoice.vergiDairesi || ''),
+      title: String(invoice.unvan || `${invoice.ad} ${invoice.soyad || ''}`.trim() || 'İsimsiz'),
+      name: String(invoice.ad || ''),
+      surname: String(invoice.soyad || ''),
+      fullAddress: String(invoice.adres || 'Türkiye'),
+
+      // Ürün/Hizmet Listesi - KÜTÜPHANE "items" BEKLİYOR!
+      items: [
+        {
+          name: String(invoice.aciklama || 'Hizmet Bedeli'),
+          quantity: 1,
+          unitPrice: Number(tutar.toFixed(2)),
+          price: Number(tutar.toFixed(2)),
+          VATRate: Number(kdvOrani),
+          VATAmount: Number(kdvTutari.toFixed(2))
+        }
+      ],
+
+      // Toplamlar - Sayısal değerler ve number tipi zorunlu!
+      totalVAT: Number(kdvTutari.toFixed(2)),
+      grandTotal: Number(tutar.toFixed(2)),
+      grandTotalInclVAT: Number(toplamTutar.toFixed(2)),
+      paymentTotal: Number(toplamTutar.toFixed(2))
     };
 
-    console.log('STEP 2: Creating Invoice with fatura.js (Pro Mapping Mode)...');
+    // DEBUG: Gönderilecek veriyi logla
+    console.log('=== GÖNDERİLEN INVOICE DATA ===');
+    console.log(JSON.stringify(invoiceData, null, 2));
+
+    // Tüm değerlerin number olduğunu teyit et
+    const numberChecks = [
+      { name: 'items[0].unitPrice', value: invoiceData.items[0].unitPrice },
+      { name: 'items[0].price', value: invoiceData.items[0].price },
+      { name: 'items[0].VATRate', value: invoiceData.items[0].VATRate },
+      { name: 'items[0].VATAmount', value: invoiceData.items[0].VATAmount },
+      { name: 'totalVAT', value: invoiceData.totalVAT },
+      { name: 'grandTotal', value: invoiceData.grandTotal },
+      { name: 'grandTotalInclVAT', value: invoiceData.grandTotalInclVAT },
+      { name: 'paymentTotal', value: invoiceData.paymentTotal }
+    ];
+
+    for (const check of numberChecks) {
+      if (typeof check.value !== 'number' || isNaN(check.value)) {
+        throw new Error(`Veri tipi hatası: ${check.name} = ${check.value} (tip: ${typeof check.value})`);
+      }
+    }
+
+    console.log('STEP: fatura.js çağrılıyor...');
+
+    // Kütüphane çağrısı - 4. parametre { sign: boolean } opsiyonel
     const result = await faturaLib.createInvoiceAndGetHTML(
-        credentials.username, 
-        credentials.password, 
-        invoiceData
+      credentials.username,
+      credentials.password,
+      invoiceData,
+      { sign: true } // veya false - imzalama istemiyorsan false yap
     );
 
-    res.json({ 
-      success: true, 
+    console.log('STEP: Başarılı yanıt alındı');
+
+    res.json({
+      success: true,
       message: 'Taslak fatura portala başarıyla gönderildi.',
-      uuid: (result && result.uuid) ? result.uuid : 'OK'
+      uuid: (result && result.uuid) ? result.uuid : 'OK',
+      htmlPreview: result && result.html ? result.html.substring(0, 200) + '...' : null
     });
 
   } catch (error) {
-    console.error('SERVER ERROR:', error);
-    res.status(500).json({ 
-      success: false, 
+    console.error('=== SERVER ERROR ===');
+    console.error('Hata Mesajı:', error.message);
+    console.error('Hata Stack:', error.stack);
+
+    res.status(500).json({
+      success: false,
       message: 'GİB Hatası: ' + (error.message || 'Bilinmeyen Hata'),
-      detail: error.stack
+      detail: error.stack,
+      // Geliştirme aşamasında gönderilen veriyi de döndür (güvenlik için prod'da kaldır)
+      sentData: process.env.NODE_ENV !== 'production' ? {
+        tutar: invoice?.tutar,
+        kdvOrani: invoice?.kdvOrani,
+        vknTckn: invoice?.vknTckn
+      } : undefined
     });
   }
 });
@@ -166,6 +204,9 @@ app.post('/api/gib/create-draft', async (req, res) => {
 if (process.env.NODE_ENV !== 'production') {
   app.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`);
+    console.log(`Test endpoint: http://localhost:${PORT}/api/gib/test-login`);
+    console.log(`Debug endpoint: POST http://localhost:${PORT}/api/gib/debug-invoice`);
+    console.log(`Create draft: POST http://localhost:${PORT}/api/gib/create-draft`);
   });
 }
 
