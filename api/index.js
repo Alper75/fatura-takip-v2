@@ -45,83 +45,80 @@ app.post('/api/gib/create-draft', async (req, res) => {
     const kdvTutari = Number(((tutar * kdvOrani) / 100).toFixed(2));
     const toplamTutar = Number((tutar + kdvTutari).toFixed(2));
 
-    const { createInvoiceAndGetHTML } = require('fatura');
-
-    // Müşteri verileri
-    const ad = String(invoice.ad || 'İsimsiz');
-    const soyad = String(invoice.soyad || '');
-    const il = String(invoice.il || 'Ankara');
-    const ilce = String(invoice.ilce || 'Merkez');
-    const tamAdres = String(invoice.adres || 'Türkiye');
+    console.log('STEP 1: Data preparation starting...');
 
     const gibInvoice = {
-      // Orijinal keys
       vknTckn: String(invoice.vknTckn || '11111111111'),
-      ad: ad,
-      soyad: soyad,
-      adres: tamAdres,
+      ad: String(invoice.ad || 'İsimsiz'),
+      soyad: String(invoice.soyad || ''),
+      adres: String(invoice.adres || 'Türkiye'),
       ulke: 'Türkiye',
-      sehir: il,
-      ilce: ilce,
+      sehir: String(invoice.il || ''),
+      ilce: String(invoice.ilce || ''),
       vergiDairesi: String(invoice.vergiDairesi || ''),
-      
-      // Mlevent/PHP tarzı alternatif keys (Kütüphane bunları bekliyor olabilir)
-      aliciAdi: ad,
-      aliciSoyadi: soyad,
-      aliciUnvan: ad,
-      mahalleSemtIlce: ilce,
-      
       tarih: invoice.faturaTarihi || new Date().toLocaleDateString('tr-TR'),
       saat: new Date().toLocaleTimeString('tr-TR'),
       paraBirimi: 'TRY',
       dovizKuru: 1,
       faturaTipi: 'SATIS',
-      
-      notlar: [],
-      vergiBilgileri: [],
-      
       malHizmetListe: [
         {
           name: String(invoice.aciklama || 'Hizmet Bedeli'),
-          malHizmet: String(invoice.aciklama || 'Hizmet Bedeli'), // Alternatif key
           quantity: 1,
-          miktar: 1, // Alternatif key
           unit: 'ADET',
-          birim: 'ADET', // Alternatif key
           unitPrice: tutar,
-          birimFiyat: tutar, // Alternatif key
           price: tutar,
-          fiyat: tutar, // Alternatif key
           vatRate: kdvOrani,
-          kdvOrani: kdvOrani, // Alternatif key
           vatAmount: kdvTutari,
-          kdvTutari: kdvTutari, // Alternatif key
-          totalAmount: toplamTutar,
-          toplamTutar: toplamTutar // Alternatif key
+          totalAmount: toplamTutar
         }
       ]
     };
 
-    console.log('Final GİB Dispatch Data:', JSON.stringify({ vkn: gibInvoice.vknTckn, total: toplamTutar }));
+    console.log('STEP 2: GİB API call starting...');
+    
+    // Eğer şifre "simule" ise portalı atla (Hata ayıklama için)
+    if (credentials.password === 'simule') {
+      return res.json({ 
+        success: true, 
+        message: 'SİMUEL TEST BAŞARILI. (Kodun kendisi düzgün çalışıyor)',
+        data: '<h1>Simule Fatura</h1>'
+      });
+    }
 
+    const { createInvoiceAndGetHTML } = require('fatura');
+    
+    console.log('STEP 3: Library call executing...');
     const result = await createInvoiceAndGetHTML(
       credentials.username, 
       credentials.password, 
       gibInvoice, 
       { sign: false }
-    );
+    ).catch(err => {
+      console.error('Library internal catch:', err);
+      throw err;
+    });
 
+    console.log('STEP 4: Success, returning response.');
     res.json({ 
       success: true, 
       message: 'Taslak fatura portala başarıyla gönderildi.',
       data: result
     });
   } catch (error) {
-    console.error('Final GİB Error:', error);
+    console.error('FINAL ERROR CATCH:', error);
+    
+    let detailMsg = error.message || 'Hata Detayı Yok';
+    if (error.stack) {
+        // Stack trace'deki 'map' kelimesini ara
+        const stackLines = error.stack.split('\n');
+        detailMsg += ' | Yer: ' + stackLines[1];
+    }
+
     res.status(500).json({ 
       success: false, 
-      message: 'Fatura oluşturma hatası: ' + (error.message || 'Bilinmeyen Hata'),
-      detail: error.stack
+      message: 'GİB Hata Raporu: ' + detailMsg,
+      error_type: error.name
     });
   }
 });
