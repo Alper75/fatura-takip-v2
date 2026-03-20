@@ -15,7 +15,7 @@ const USE_TEST_MODE = false;
 
 /**
  * GIB E-Arşiv API (Direct Axios Implementation) 
- * V4: Hata Mesajlarını Kullanıcıya Yansıtma Özelliği
+ * V5: 'assoscmd=login|logout' Sorununun Çözümü
  */
 class GIBEArchiveAPI {
     constructor(testMode = true) {
@@ -31,35 +31,39 @@ class GIBEArchiveAPI {
         try {
             console.log(`=== GİB LOGIN BAŞLIYOR (${USE_TEST_MODE ? 'TEST' : 'CANLI'}) ===`);
             
+            // 'assoscmd=login|logout' hatası almamak için parametreleri güçlendiriyoruz
             const params = new URLSearchParams();
             params.append('assosUser', username);
             params.append('assosPass', password);
             params.append('userid', username);
             params.append('password', password);
             params.append('serviceName', 'Assos1');
+            params.append('assoscmd', 'login'); // KRİTİK EKLENTİ
+            params.append('genelislem', 'login'); // GİB'in bazı versiyonları bunu bekler
 
             const response = await axios.post(`${this.baseURL}/assos-login`, params, {
                 headers: { 
                     'Content-Type': 'application/x-www-form-urlencoded',
                     'Referer': `${this.baseURL}/login.jsp`,
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    'Accept': 'application/json, text/plain, */*',
+                    'Origin': 'https://earsivportal.efatura.gov.tr'
                 }
             });
             
             rawGibResponse = response.data;
             console.log('GİB HAM YANIT:', JSON.stringify(rawGibResponse));
 
+            // Token yakalama (Farklı yapılara karşı esnek)
             this.token = response.data.token || response.data.data?.token;
             
             if (!this.token) {
-                // GİB'den dönen gerçek hatayı string olarak yakala
                 const gibMsg = response.data.mesaj || response.data.error || JSON.stringify(response.data);
                 throw new Error(`${gibMsg}`);
             }
             
             return this.token;
         } catch (error) {
-            // Hata mesajına GİB'den dönen cevabı da ekliyoruz (Senin görebilmen için)
             const detail = rawGibResponse ? ` | GİB Yanıtı: ${JSON.stringify(rawGibResponse)}` : '';
             throw new Error(`${error.message}${detail}`);
         }
@@ -113,7 +117,8 @@ class GIBEArchiveAPI {
                 { 
                     headers: { 
                         'Content-Type': 'application/x-www-form-urlencoded',
-                        'Authorization': `Bearer ${this.token}`
+                        'Authorization': `Bearer ${this.token}`,
+                        'Referer': `${this.baseURL}/index.jsp`
                     } 
                 }
             );
@@ -134,7 +139,12 @@ class GIBEArchiveAPI {
                     token: this.token,
                     data: JSON.stringify({ uuid: uuid })
                 }),
-                { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
+                { 
+                    headers: { 
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                        'Referer': `${this.baseURL}/index.jsp`
+                    } 
+                }
             );
             return response.data.html || response.data.data?.html || 'HTML önizleme alınamadı.';
         } catch (error) {
