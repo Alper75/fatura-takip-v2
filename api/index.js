@@ -176,10 +176,17 @@ app.post('/api/gib/create-draft', async (req, res) => {
     }
   } catch (error) {
     console.error('SERVER ERROR:', error);
+    
+    // Kütüphane hatasından detaylı bilgi ayıklama
+    const errorDetail = error.response ? 
+        (error.response.data || error.response.statusText) : 
+        (error.message || 'Bilinmeyen Hata');
+
     res.status(500).json({ 
       success: false, 
       message: 'GİB Hatası: ' + (error.message || 'Bilinmeyen Hata'),
-      detail: error.stack
+      detail: errorDetail,
+      stack: error.stack
     });
   }
 });
