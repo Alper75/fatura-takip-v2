@@ -131,14 +131,16 @@ app.post('/api/gib/create-draft', async (req, res) => {
       finalInvoice = invoiceData;
     }
 
-    // Metod tespiti ve gönderim
+    // Metod tespiti ve detaylı hata raporlama
+    const apiMethods = Object.getOwnPropertyNames(Object.getPrototypeOf(api)).filter(m => typeof api[m] === 'function');
     let result;
+    
     if (api.createDraftBasicInvoice) {
         result = await api.createDraftBasicInvoice(finalInvoice);
     } else if (api.createInvoice) {
         result = await api.createInvoice(finalInvoice);
     } else {
-        throw new Error('Fatura oluşturma metodu (createDraftBasicInvoice/createInvoice) bulunamadı.');
+        throw new Error(`Fatura oluşturma metodu bulunamadı. Mevcut metodlar: ${apiMethods.join(', ')}`);
     }
     
     if (api.logout) await api.logout();
