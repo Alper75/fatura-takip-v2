@@ -37,13 +37,6 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { cn } from '@/lib/utils';
 import * as XLSX from 'xlsx';
 import type { KesilecekFatura } from '@/types';
@@ -327,17 +320,17 @@ export function KesilecekFaturalar() {
             <form onSubmit={handleAdd} className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="cari">Cari Karttan Seç (Opsiyonel)</Label>
-                <Select value={form.cariId} onValueChange={handleCariChange}>
-                  <SelectTrigger className="h-10">
-                    <SelectValue placeholder="Cari kart seçin..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">-- Manuel Giriş --</SelectItem>
-                    {cariler?.map(c => (
-                      <SelectItem key={c.id} value={c.id}>{c.unvan}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <select 
+                  id="cari"
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                  value={form.cariId} 
+                  onChange={e => handleCariChange(e.target.value)}
+                >
+                  <option value="none">-- Manuel Giriş --</option>
+                  {cariler?.map(c => (
+                    <option key={c.id} value={c.id}>{c.unvan}</option>
+                  ))}
+                </select>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
@@ -395,17 +388,16 @@ export function KesilecekFaturalar() {
                     <Input id="tutar" type="number" step="0.01" value={form.tutar} onChange={e => setForm({...form, tutar: e.target.value})} placeholder="0.00" className="h-10 pr-10" />
                     <div className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs font-bold">₺</div>
                   </div>
-                  <Select value={form.kdvOrani} onValueChange={val => setForm({...form, kdvOrani: val})}>
-                    <SelectTrigger className="w-24 h-10 font-bold">
-                      <SelectValue placeholder={`% ${form.kdvOrani}`} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="20">% 20</SelectItem>
-                      <SelectItem value="10">% 10</SelectItem>
-                      <SelectItem value="1">% 1</SelectItem>
-                      <SelectItem value="0">% 0</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  <select 
+                    className="w-28 h-10 rounded-md border border-input bg-background px-3 py-2 text-sm font-bold shadow-sm"
+                    value={form.kdvOrani} 
+                    onChange={e => setForm({...form, kdvOrani: e.target.value})}
+                  >
+                    <option value="20">% 20</option>
+                    <option value="10">% 10</option>
+                    <option value="1">% 1</option>
+                    <option value="0">% 0</option>
+                  </select>
                   <div className="flex items-center gap-2 border rounded-md px-3 bg-slate-50/50">
                     <span className="text-[10px] font-bold text-slate-400 uppercase w-8 leading-tight">{form.kdvDahil ? 'Dahil' : 'Hariç'}</span>
                     <Switch checked={form.kdvDahil} onCheckedChange={val => setForm({...form, kdvDahil: val})} />
