@@ -47,15 +47,37 @@ app.post('/api/gib/create-draft', async (req, res) => {
       });
     }
 
-    const { EArshivPortal } = require('e-fatura');
-    const portal = new EArshivPortal(credentials.username, credentials.password);
+    const EFaturaLib = require('e-fatura');
     
-    await portal.login();
+    // PHP dokümanına göre sınıf adı InvoiceManager olmalı
+    const PortalClass = EFaturaLib.InvoiceManager || EFaturaLib.EArshivPortal || EFaturaLib;
+    let portal;
+
+    if (typeof PortalClass === 'function') {
+      portal = new PortalClass();
+    } else if (PortalClass.default && typeof PortalClass.default === 'function') {
+      portal = new PortalClass.default();
+    } else {
+      throw new Error('Kütüphane içinde geçerli bir sınıf (Constructor) bulunamadı.');
+    }
+
+    // Giriş bilgilerini sına
+    if (portal.setCredentials) {
+      portal.setCredentials(credentials.username, credentials.password);
+    } else {
+      // Bazı versiyonlar constructor'da bekler
+      portal = new PortalClass(credentials.username, credentials.password);
+    }
+
+    console.log('STEP 2: Connecting to GİB...');
+    if (portal.connect) {
+      await portal.connect();
+    } else if (portal.login) {
+      await portal.login();
+    }
 
     console.log('STEP 3: Creating Draft (Furkan Kadıoğlu Standards)...');
-    
-    // PHP Örneğindeki (Furkan Kadıoğlu) yapıya %100 uyum sağla
-    const result = await portal.createInvoice({
+    const invoiceData = {
       faturaTarihi: invoice.faturaTarihi || new Date().toLocaleDateString('tr-TR'),
       saat: new Date().toLocaleTimeString('tr-TR'),
       paraBirimi: 'TRY',
@@ -68,8 +90,6 @@ app.post('/api/gib/create-draft', async (req, res) => {
       bulvarcaddesokak: String(invoice.adres || 'Türkiye'),
       sehir: String(invoice.il || 'Ankara'),
       mahalleSemtIlce: String(invoice.ilce || 'Merkez'),
-      
-      // Hesaplanan alanlar (Library'nin içten içe beklediği anahtarlar)
       matrah: tutar,
       malhizmetToplamTutari: tutar,
       toplamIskonto: "0",
@@ -78,7 +98,6 @@ app.post('/api/gib/create-draft', async (req, res) => {
       vergilerDahilToplamTutar: toplamTutar,
       odenecekTutar: toplamTutar,
       not: String(invoice.aciklama || ''),
-
       malHizmetTable: [
         {
           malHizmet: String(invoice.aciklama || 'Hizmet Bedeli'),
@@ -94,14 +113,18 @@ app.post('/api/gib/create-draft', async (req, res) => {
           ozelMatrahTutari: "0"
         }
       ]
-    });
+    };
+
+    const result = portal.createDraftBasicInvoice 
+      ? await portal.createDraftBasicInvoice(invoiceData) 
+      : (portal.createInvoice ? await portal.createInvoice(invoiceData) : null);
     
-    await portal.logout();
+    if (portal.logout) await portal.logout();
 
     res.json({ 
       success: true, 
       message: 'Taslak fatura portala başarıyla gönderildi.',
-      uuid: result.uuid || result
+      uuid: (result && result.uuid) ? result.uuid : (typeof result === 'string' ? result : 'OK')
     });
   } catch (error) {
     console.error('SERVER ERROR:', error);
