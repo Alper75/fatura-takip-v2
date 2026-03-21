@@ -15,7 +15,7 @@ const USE_TEST_MODE = false;
 
 /**
  * GIB E-Arşiv API (Direct Axios Implementation) 
- * V6: 'Eksik bilgi verildi' Hatasının Giderilmesi
+ * V7: 'assoscmd=login|logout' ve 'Eksik bilgi' hatalarının nihai çözümü
  */
 class GIBEArchiveAPI {
     constructor(testMode = true) {
@@ -25,17 +25,19 @@ class GIBEArchiveAPI {
         this.token = null;
     }
     
-    // Login ve Token alma (Üretim Ortamı İçin Sadeleştirilmiş)
+    // Login ve Token alma (Multi-Flag Assos Flow)
     async login(username, password) {
         let rawGibResponse = null;
         try {
             console.log(`=== GİB LOGIN BAŞLIYOR (${USE_TEST_MODE ? 'TEST' : 'CANLI'}) ===`);
             
-            // Parametreleri en temiz haline getiriyoruz (Sadece üretim ortamının kesin bekledikleri)
+            // Parametreleri GİB'in tam olarak beklediği (Kütüphanelerin kullandığı) formatta hazırlıyoruz
             const params = new URLSearchParams();
             params.append('assosUser', username);
             params.append('assosPass', password);
-            params.append('genelislem', 'login'); 
+            params.append('assoscmd', 'login');
+            params.append('genelislem', 'login');
+            params.append('genteknik', 'false'); // Bazı sistemlerde bu zorunludur
 
             const response = await axios.post(`${this.baseURL}/assos-login`, params, {
                 headers: { 
@@ -43,19 +45,21 @@ class GIBEArchiveAPI {
                     'Referer': `${this.baseURL}/login.jsp`,
                     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                     'Accept': 'application/json, text/plain, */*',
-                    'Origin': USE_TEST_MODE ? 'https://earsivportaltest.efatura.gov.tr' : 'https://earsivportal.efatura.gov.tr'
                 }
             });
             
             rawGibResponse = response.data;
             console.log('GİB HAM YANIT:', JSON.stringify(rawGibResponse));
 
+            // Eğer yanıt 'assoscmd=login|logout' ise kütüphaneler genellikle ikinci bir istek atar
+            // Ancak doğru parametrelerle (assoscmd=login) bu ekranın aşılması gerekir
+            
             this.token = response.data.token || response.data.data?.token;
             
             if (!this.token) {
-                // Hata mesajını daha detaylı yakalayalım
-                const gibMsg = response.data.mesaj || 
-                               (response.data.messages && response.data.messages[0]?.text) || 
+                // Hata mesajını yakalayalım
+                const gibMsg = (response.data.messages && response.data.messages[0]?.text) || 
+                               response.data.mesaj || 
                                JSON.stringify(response.data);
                 throw new Error(`${gibMsg}`);
             }
@@ -105,6 +109,7 @@ class GIBEArchiveAPI {
         };
         
         try {
+            // dispatch üzerinden komut gönderme
             const response = await axios.post(
                 `${this.baseURL}/dispatch`,
                 new URLSearchParams({
