@@ -15,7 +15,7 @@ const USE_TEST_MODE = false;
 
 /**
  * GIB E-Arşiv API (Direct Axios Implementation) 
- * V5: 'assoscmd=login|logout' Sorununun Çözümü
+ * V6: 'Eksik bilgi verildi' Hatasının Giderilmesi
  */
 class GIBEArchiveAPI {
     constructor(testMode = true) {
@@ -25,21 +25,17 @@ class GIBEArchiveAPI {
         this.token = null;
     }
     
-    // Login ve Token alma
+    // Login ve Token alma (Üretim Ortamı İçin Sadeleştirilmiş)
     async login(username, password) {
         let rawGibResponse = null;
         try {
             console.log(`=== GİB LOGIN BAŞLIYOR (${USE_TEST_MODE ? 'TEST' : 'CANLI'}) ===`);
             
-            // 'assoscmd=login|logout' hatası almamak için parametreleri güçlendiriyoruz
+            // Parametreleri en temiz haline getiriyoruz (Sadece üretim ortamının kesin bekledikleri)
             const params = new URLSearchParams();
             params.append('assosUser', username);
             params.append('assosPass', password);
-            params.append('userid', username);
-            params.append('password', password);
-            params.append('serviceName', 'Assos1');
-            params.append('assoscmd', 'login'); // KRİTİK EKLENTİ
-            params.append('genelislem', 'login'); // GİB'in bazı versiyonları bunu bekler
+            params.append('genelislem', 'login'); 
 
             const response = await axios.post(`${this.baseURL}/assos-login`, params, {
                 headers: { 
@@ -47,18 +43,20 @@ class GIBEArchiveAPI {
                     'Referer': `${this.baseURL}/login.jsp`,
                     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                     'Accept': 'application/json, text/plain, */*',
-                    'Origin': 'https://earsivportal.efatura.gov.tr'
+                    'Origin': USE_TEST_MODE ? 'https://earsivportaltest.efatura.gov.tr' : 'https://earsivportal.efatura.gov.tr'
                 }
             });
             
             rawGibResponse = response.data;
             console.log('GİB HAM YANIT:', JSON.stringify(rawGibResponse));
 
-            // Token yakalama (Farklı yapılara karşı esnek)
             this.token = response.data.token || response.data.data?.token;
             
             if (!this.token) {
-                const gibMsg = response.data.mesaj || response.data.error || JSON.stringify(response.data);
+                // Hata mesajını daha detaylı yakalayalım
+                const gibMsg = response.data.mesaj || 
+                               (response.data.messages && response.data.messages[0]?.text) || 
+                               JSON.stringify(response.data);
                 throw new Error(`${gibMsg}`);
             }
             
