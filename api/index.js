@@ -15,7 +15,7 @@ const USE_TEST_MODE = false;
 
 /**
  * GIB E-Arşiv API (Direct Axios Implementation) 
- * V7: 'assoscmd=login|logout' ve 'Eksik bilgi' hatalarının nihai çözümü
+ * V8: İki Aşamalı (Smart Follower) Giriş Mekanizması
  */
 class GIBEArchiveAPI {
     constructor(testMode = true) {
@@ -25,45 +25,60 @@ class GIBEArchiveAPI {
         this.token = null;
     }
     
-    // Login ve Token alma (Multi-Flag Assos Flow)
+    // Login ve Token alma (İki Aşamalı Akıllı Akış)
     async login(username, password) {
         let rawGibResponse = null;
         try {
-            console.log(`=== GİB LOGIN BAŞLIYOR (${USE_TEST_MODE ? 'TEST' : 'CANLI'}) ===`);
+            console.log(`=== GİB LOGIN ADIM 1 (${USE_TEST_MODE ? 'TEST' : 'CANLI'}) ===`);
             
-            // Parametreleri GİB'in tam olarak beklediği (Kütüphanelerin kullandığı) formatta hazırlıyoruz
-            const params = new URLSearchParams();
-            params.append('assosUser', username);
-            params.append('assosPass', password);
-            params.append('assoscmd', 'login');
-            params.append('genelislem', 'login');
-            params.append('genteknik', 'false'); // Bazı sistemlerde bu zorunludur
+            // ADIM 1: Standart Giriş Denemesi
+            const params1 = new URLSearchParams();
+            params1.append('assosUser', username);
+            params1.append('assosPass', password);
+            params1.append('genelislem', 'login');
 
-            const response = await axios.post(`${this.baseURL}/assos-login`, params, {
+            let response = await axios.post(`${this.baseURL}/assos-login`, params1, {
                 headers: { 
                     'Content-Type': 'application/x-www-form-urlencoded',
                     'Referer': `${this.baseURL}/login.jsp`,
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                    'Accept': 'application/json, text/plain, */*',
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
                 }
             });
             
             rawGibResponse = response.data;
-            console.log('GİB HAM YANIT:', JSON.stringify(rawGibResponse));
+            console.log('GİB ADIM 1 YANIT:', JSON.stringify(rawGibResponse));
 
-            // Eğer yanıt 'assoscmd=login|logout' ise kütüphaneler genellikle ikinci bir istek atar
-            // Ancak doğru parametrelerle (assoscmd=login) bu ekranın aşılması gerekir
-            
+            // ADIM 2: Eğer GİB seçim ekranı (prompt) döndürdüyse onay veriyoruz
+            if (typeof rawGibResponse === 'string' && rawGibResponse.includes('assoscmd=login|logout')) {
+                console.log('=== GİB LOGIN ADIM 2 (Seçim Onaylanıyor) ===');
+                const params2 = new URLSearchParams();
+                params2.append('assosUser', username);
+                params2.append('assosPass', password);
+                params2.append('assoscmd', 'login'); // İşte burada onay veriyoruz
+                params2.append('genelislem', 'login');
+
+                response = await axios.post(`${this.baseURL}/assos-login`, params2, {
+                    headers: { 
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                        'Referer': `${this.baseURL}/login.jsp`,
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                    }
+                });
+                rawGibResponse = response.data;
+                console.log('GİB ADIM 2 YANIT:', JSON.stringify(rawGibResponse));
+            }
+
+            // Token Ayıklama
             this.token = response.data.token || response.data.data?.token;
             
             if (!this.token) {
-                // Hata mesajını yakalayalım
                 const gibMsg = (response.data.messages && response.data.messages[0]?.text) || 
                                response.data.mesaj || 
                                JSON.stringify(response.data);
                 throw new Error(`${gibMsg}`);
             }
             
+            console.log('GİRİŞ BAŞARILI ✅');
             return this.token;
         } catch (error) {
             const detail = rawGibResponse ? ` | GİB Yanıtı: ${JSON.stringify(rawGibResponse)}` : '';
@@ -109,7 +124,6 @@ class GIBEArchiveAPI {
         };
         
         try {
-            // dispatch üzerinden komut gönderme
             const response = await axios.post(
                 `${this.baseURL}/dispatch`,
                 new URLSearchParams({
