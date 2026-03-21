@@ -15,7 +15,7 @@ const USE_TEST_MODE = false;
 
 /**
  * GIB E-Arşiv API (Direct Axios Implementation) 
- * V10: Kullanıcı Örneği (RMK/Sifre) Öncelikli Giriş
+ * V11: Full-Spectrum Login Strategy (Version Flags & Multi-Key)
  */
 class GIBEArchiveAPI {
     constructor(testMode = true) {
@@ -31,16 +31,25 @@ class GIBEArchiveAPI {
         let lastError = null;
 
         try {
-            console.log(`=== GİB LOGIN START (Native V10) ===`);
+            console.log(`=== GİB UNIVERSAL LOGIN V11 START ===`);
 
-            // STRATEJİ 1: Senin paylaştığın 'Yol 2' (RMK/SIFRE) - En muhtemel çözüm
-            console.log('DENEME 1: RMK/SIFRE (JSON)...');
+            // STRATEJİ 1: Full-Spectrum JSON Login
+            // 'Eksik bilgi' hatasını aşmak için tüm olası anahtarları ve sürüm bilgisini ekliyoruz.
+            console.log('STRATEJİ 1: Full-Spectrum JSON...');
             try {
                 const response1 = await axios.post(`${this.baseURL}/login`, {
                     rmk: username,
-                    sifre: password
+                    sifre: password,
+                    userid: username,
+                    password: password,
+                    serviceName: 'Assos1',
+                    is_surum: 1 // Bazı sistemlerde bu versiyon bilgisi zorunludur
                 }, {
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        'User-Agent': 'Mozilla/5.0'
+                    },
                     timeout: 10000
                 });
                 
@@ -48,21 +57,22 @@ class GIBEArchiveAPI {
                 this.token = response1.data.token || response1.data.data?.token;
                 
                 if (this.token) {
-                    console.log('DENEME 1 BAŞARILI ✅');
+                    console.log('STRATEJİ 1 BAŞARILI ✅');
                     return this.token;
                 }
             } catch (e1) {
-                console.log('DENEME 1 HATA:', e1.message);
+                console.log('STRATEJİ 1 ATLANDI (405 veya Bağlantı):', e1.message);
                 lastError = e1;
             }
 
-            // STRATEJİ 2: Assos Login (Gelişmiş Klasik)
-            console.log('DENEME 2: Assos Login (Form Data)...');
+            // STRATEJİ 2: Gelişmiş Assos Login (İki Aşamalı)
+            console.log('STRATEJİ 2: Assos Login (Form Data)...');
             const params = new URLSearchParams();
             params.set('assosUser', username);
             params.set('assosPass', password);
             params.set('genelislem', 'login');
             params.set('serviceName', 'Assos1');
+            params.set('jp', '');
 
             let response2 = await axios.post(`${this.baseURL}/assos-login`, params, {
                 headers: { 
@@ -74,9 +84,9 @@ class GIBEArchiveAPI {
 
             rawGibResponse = response2.data;
 
-            // Eğer 'assoscmd=login|logout' dönerse onay adımına geç
+            // 'assoscmd=login|logout' promptu yakalanırsa onay verilir
             if (typeof rawGibResponse === 'string' && rawGibResponse.includes('assoscmd=login|logout')) {
-                console.log('DENEME 2 - ADIM 2 (Onay)');
+                console.log('STRATEJİ 2 - ADIM 2 (Onay)');
                 params.set('assoscmd', 'login');
                 response2 = await axios.post(`${this.baseURL}/assos-login`, params, {
                     headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
@@ -86,15 +96,15 @@ class GIBEArchiveAPI {
 
             this.token = response2.data.token || response2.data.data?.token;
             if (this.token) {
-                console.log('DENEME 2 BAŞARILI ✅');
+                console.log('STRATEJİ 2 BAŞARILI ✅');
                 return this.token;
             }
 
-            // Hata tespiti
-            const gibMsg = (response2.data.messages && response2.data.messages[0]?.text) || 
-                           response2.data.mesaj || 
-                           JSON.stringify(response2.data);
-            throw new Error(`${gibMsg}`);
+            // Nihai Hata Analizi
+            const finalMsg = (response2.data.messages && response2.data.messages[0]?.text) || 
+                             response2.data.mesaj || 
+                             JSON.stringify(response2.data);
+            throw new Error(`${finalMsg}`);
 
         } catch (error) {
             const detail = rawGibResponse ? ` | GİB Yanıtı: ${JSON.stringify(rawGibResponse)}` : '';
