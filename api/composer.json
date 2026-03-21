@@ -1,0 +1,10 @@
+{
+    "require": {
+        "furkankadioglu/efatura": "dev-master"
+    },
+    "config": {
+        "allow-plugins": {
+            "php-http/discovery": true
+        }
+    }
+}
