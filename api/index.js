@@ -129,6 +129,89 @@ app.post('/api/admin/personnel/bulk-upload', authMiddleware, adminMiddleware, up
   }
 });
 
+// Update personnel (admin)
+app.put('/api/admin/personnel/:id', authMiddleware, adminMiddleware, (req, res) => {
+  const { id } = req.params;
+  const { first_name, last_name, email, phone, position, department, salary, annual_leave_days } = req.body;
+  try {
+    db.prepare(`
+      UPDATE personnel SET 
+        first_name = ?, last_name = ?, email = ?, phone = ?, 
+        position = ?, department = ?, salary = ?, annual_leave_days = ?
+      WHERE id = ?
+    `).run(first_name, last_name, email, phone, position, department, salary, annual_leave_days, id);
+    res.json({ success: true, message: 'Personel güncellendi.' });
+  } catch (error) { res.status(500).json({ success: false, message: error.message }); }
+});
+
+// Delete personnel (admin)
+app.delete('/api/admin/personnel/:id', authMiddleware, adminMiddleware, (req, res) => {
+  const { id } = req.params;
+  try {
+    const p = db.prepare('SELECT user_id FROM personnel WHERE id = ?').get(id);
+    if (p && p.user_id) {
+      db.prepare('DELETE FROM users WHERE id = ?').run(p.user_id);
+    }
+    db.prepare('DELETE FROM personnel WHERE id = ?').run(id);
+    res.json({ success: true, message: 'Personel silindi.' });
+  } catch (error) { res.status(500).json({ success: false, message: error.message }); }
+});
+
+// --- LEAVES ---
+app.get('/api/admin/leaves', authMiddleware, adminMiddleware, (req, res) => {
+  try {
+    const list = db.prepare(`
+      SELECT l.*, p.first_name, p.last_name 
+      FROM leaves l 
+      JOIN personnel p ON l.personnel_id = p.id
+      ORDER BY l.created_at DESC
+    `).all();
+    res.json({ success: true, data: list });
+  } catch (error) { res.status(500).json({ success: false, message: error.message }); }
+});
+
+app.post('/api/personnel/leaves', authMiddleware, (req, res) => {
+  const { type, start_date, end_date, description } = req.body;
+  try {
+    const p = db.prepare('SELECT id FROM personnel WHERE user_id = ?').get(req.user.id);
+    db.prepare('INSERT INTO leaves (personnel_id, type, start_date, end_date, description) VALUES (?, ?, ?, ?, ?)').run(
+      p.id, type, start_date, end_date, description
+    );
+    res.json({ success: true, message: 'İzin talebi iletildi.' });
+  } catch (error) { res.status(500).json({ success: false, message: error.message }); }
+});
+
+app.put('/api/admin/leaves/:id', authMiddleware, adminMiddleware, (req, res) => {
+  const { id } = req.params;
+  const { status } = req.body;
+  try {
+    db.prepare('UPDATE leaves SET status = ? WHERE id = ?').run(status, id);
+    res.json({ success: true, message: 'Talep güncellendi.' });
+  } catch (error) { res.status(500).json({ success: false, message: error.message }); }
+});
+
+// --- REQUESTS (Expenses/Advances) ---
+app.get('/api/admin/requests', authMiddleware, adminMiddleware, (req, res) => {
+  try {
+    const list = db.prepare(`
+      SELECT r.*, p.first_name, p.last_name 
+      FROM requests r 
+      JOIN personnel p ON r.personnel_id = p.id
+      ORDER BY r.created_at DESC
+    `).all();
+    res.json({ success: true, data: list });
+  } catch (error) { res.status(500).json({ success: false, message: error.message }); }
+});
+
+app.put('/api/admin/requests/:id', authMiddleware, adminMiddleware, (req, res) => {
+  const { id } = req.params;
+  const { status } = req.body;
+  try {
+    db.prepare('UPDATE requests SET status = ? WHERE id = ?').run(status, id);
+    res.json({ success: true, message: 'Talep güncellendi.' });
+  } catch (error) { res.status(500).json({ success: false, message: error.message }); }
+});
+
 app.post('/api/admin/personnel', authMiddleware, adminMiddleware, async (req, res) => {
   const { tc, first_name, last_name, email, phone, position, department, salary } = req.body;
   if (!tc || !first_name || !last_name) {

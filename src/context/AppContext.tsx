@@ -127,6 +127,19 @@ interface AppContextType {
   fetchMyPersonnel: () => Promise<void>;
   bulkUploadPersonnel: (file: File) => Promise<{ success: boolean; message?: string }>;
   addPersonnel: (data: any) => Promise<{ success: boolean; message?: string }>;
+  updatePersonnel: (id: number, data: any) => Promise<{ success: boolean; message?: string }>;
+  deletePersonnel: (id: number) => Promise<{ success: boolean; message?: string }>;
+  
+  leaves: any[];
+  fetchLeaves: () => Promise<void>;
+  submitLeaveRequest: (data: any) => Promise<{ success: boolean; message?: string }>;
+  updateLeaveStatus: (id: number, status: string) => Promise<{ success: boolean; message?: string }>;
+
+  requests: any[];
+  fetchRequests: () => Promise<void>;
+  updateRequestStatus: (id: number, status: string) => Promise<{ success: boolean; message?: string }>;
+  submitExpenseRequest: (data: any) => Promise<{ success: boolean; message?: string }>;
+  uploadPersonnelDocument: (file: File, type: string) => Promise<{ success: boolean; message?: string }>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -754,6 +767,137 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, [fetchPersonnel]);
 
+  const updatePersonnel = useCallback(async (id: number, data: any) => {
+    try {
+      const response = await fetch(`/api/admin/personnel/${id}`, {
+        method: 'PUT',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}` 
+        },
+        body: JSON.stringify(data)
+      });
+      const result = await response.json();
+      if (result.success) {
+        fetchPersonnel();
+        return { success: true, message: result.message };
+      }
+      return { success: false, message: result.message };
+    } catch (error: any) { return { success: false, message: error.message }; }
+  }, [fetchPersonnel]);
+
+  const deletePersonnel = useCallback(async (id: number) => {
+    try {
+      const response = await fetch(`/api/admin/personnel/${id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+      });
+      const result = await response.json();
+      if (result.success) {
+        fetchPersonnel();
+        return { success: true, message: result.message };
+      }
+      return { success: false, message: result.message };
+    } catch (error: any) { return { success: false, message: error.message }; }
+  }, [fetchPersonnel]);
+
+  const [leaves, setLeaves] = useState<any[]>([]);
+  const fetchLeaves = useCallback(async () => {
+    try {
+      const resp = await fetch('/api/admin/leaves', {
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+      });
+      const data = await resp.json();
+      if (data.success) setLeaves(data.data);
+    } catch (error) { console.error('Fetch leaves error:', error); }
+  }, []);
+
+  const submitLeaveRequest = useCallback(async (data: any) => {
+    try {
+      const response = await fetch('/api/personnel/leaves', {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}` 
+        },
+        body: JSON.stringify(data)
+      });
+      const result = await response.json();
+      return result;
+    } catch (error: any) { return { success: false, message: error.message }; }
+  }, []);
+
+  const updateLeaveStatus = useCallback(async (id: number, status: string) => {
+    try {
+      const response = await fetch(`/api/admin/leaves/${id}`, {
+        method: 'PUT',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}` 
+        },
+        body: JSON.stringify({ status })
+      });
+      const result = await response.json();
+      if (result.success) fetchLeaves();
+      return result;
+    } catch (error: any) { return { success: false, message: error.message }; }
+  }, [fetchLeaves]);
+
+  const [requests, setRequests] = useState<any[]>([]);
+  const fetchRequests = useCallback(async () => {
+    try {
+      const resp = await fetch('/api/admin/requests', {
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+      });
+      const data = await resp.json();
+      if (data.success) setRequests(data.data);
+    } catch (error) { console.error('Fetch requests error:', error); }
+  }, []);
+
+  const updateRequestStatus = useCallback(async (id: number, status: string) => {
+    try {
+      const response = await fetch(`/api/admin/requests/${id}`, {
+        method: 'PUT',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}` 
+        },
+        body: JSON.stringify({ status })
+      });
+      const result = await response.json();
+      if (result.success) fetchRequests();
+      return result;
+    } catch (error: any) { return { success: false, message: error.message }; }
+  }, [fetchRequests]);
+
+  const submitExpenseRequest = useCallback(async (data: any) => {
+    try {
+      const response = await fetch('/api/personnel/requests', {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}` 
+        },
+        body: JSON.stringify(data)
+      });
+      return await response.json();
+    } catch (error: any) { return { success: false, message: error.message }; }
+  }, []);
+
+  const uploadPersonnelDocument = useCallback(async (file: File, type: string) => {
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('type', type);
+      const response = await fetch('/api/personnel/documents', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` },
+        body: formData
+      });
+      return await response.json();
+    } catch (error: any) { return { success: false, message: error.message }; }
+  }, []);
+
   // ==================== DRAWER FUNCTIONS ====================
   const openSatisDrawer = useCallback((initialData?: Partial<SatisFaturaFormData>) => {
     setSatisInitialData(initialData || null);
@@ -1272,7 +1416,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         fetchPersonnel,
         fetchMyPersonnel,
         bulkUploadPersonnel,
-        addPersonnel
+        addPersonnel,
+        updatePersonnel,
+        deletePersonnel,
+        leaves,
+        fetchLeaves,
+        submitLeaveRequest,
+        updateLeaveStatus,
+        requests,
+        fetchRequests,
+        updateRequestStatus,
+        submitExpenseRequest,
+        uploadPersonnelDocument
       }}
     >
       {children}

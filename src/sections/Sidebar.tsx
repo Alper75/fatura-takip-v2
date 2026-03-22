@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { 
   LayoutDashboard, 
@@ -10,108 +11,130 @@ import {
   ChevronRight,
   Users,
   CreditCard,
-  Landmark
+  Landmark,
+  ChevronDown,
+  ChevronUp,
+  Briefcase
 } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
 import { cn } from '@/lib/utils';
+import type { ViewType } from '@/types';
 
 export function Sidebar() {
   const { user, currentPersonnel, currentView, setCurrentView, openSatisDrawer, openAlisDrawer, logout } = useApp();
+  const [isPersonnelOpen, setIsPersonnelOpen] = useState(false);
+
+  const isAdmin = user?.role === 'admin';
 
   const menuItems = [
     {
       id: 'dashboard',
       label: 'Dashboard',
       icon: LayoutDashboard,
-      onClick: () => setCurrentView(user?.role === 'admin' ? 'dashboard' : 'personel-dashboard'),
-      view: user?.role === 'admin' ? 'dashboard' : 'personel-dashboard'
+      onClick: () => setCurrentView(isAdmin ? 'dashboard' : 'personel-dashboard'),
+      view: isAdmin ? 'dashboard' : 'personel-dashboard'
     },
+    // Accounting Items (Admin Only)
     {
       id: 'satis-giris',
       label: 'Satış Faturası Giriş',
       icon: FilePlus,
       onClick: () => openSatisDrawer(),
-      view: null
+      view: null,
+      adminOnly: true
     },
     {
       id: 'satis-liste',
       label: 'Satış Fatura Listesi',
       icon: Receipt,
       onClick: () => setCurrentView('satis-liste'),
-      view: 'satis-liste'
+      view: 'satis-liste',
+      adminOnly: true
     },
     {
       id: 'alis-giris',
       label: 'Alış Faturası Giriş',
       icon: ShoppingCart,
       onClick: () => openAlisDrawer(),
-      view: null
+      view: null,
+      adminOnly: true
     },
     {
       id: 'alis-liste',
       label: 'Alış Fatura Listesi',
       icon: Receipt,
       onClick: () => setCurrentView('alis-liste'),
-      view: 'alis-liste'
+      view: 'alis-liste',
+      adminOnly: true
     },
     {
       id: 'vergi-raporu',
       label: 'Vergi Raporu',
       icon: Calculator,
       onClick: () => setCurrentView('vergi-raporu'),
-      view: 'vergi-raporu'
+      view: 'vergi-raporu',
+      adminOnly: true
     },
     {
       id: 'cari-liste',
       label: 'Cari Kartlar',
       icon: Users,
       onClick: () => setCurrentView('cari-liste'),
-      view: 'cari-liste'
+      view: 'cari-liste',
+      adminOnly: true
     },
     {
       id: 'cek-senet-liste',
       label: 'Çek / Senet',
       icon: CreditCard,
       onClick: () => setCurrentView('cek-senet-liste'),
-      view: 'cek-senet-liste'
+      view: 'cek-senet-liste',
+      adminOnly: true
     },
     {
       id: 'banka-liste',
       label: 'Banka Hesapları',
       icon: Landmark,
       onClick: () => setCurrentView('banka-liste'),
-      view: 'banka-liste'
+      view: 'banka-liste',
+      adminOnly: true
     },
     {
       id: 'banka-ekstre-liste',
       label: 'Banka Ekstresi',
       icon: FileText,
       onClick: () => setCurrentView('banka-ekstre-liste'),
-      view: 'banka-ekstre-liste'
+      view: 'banka-ekstre-liste',
+      adminOnly: true
     },
     {
       id: 'expense-liste',
       label: 'Genel Giderler',
       icon: Receipt,
       onClick: () => setCurrentView('expense-liste'),
-      view: 'expense-liste'
+      view: 'expense-liste',
+      adminOnly: true
     },
     {
       id: 'kesilecek-fatura-liste',
       label: 'Kesilecek Faturalar',
       icon: FilePlus,
       onClick: () => setCurrentView('kesilecek-fatura-liste'),
-      view: 'kesilecek-fatura-liste'
-    },
-    {
-      id: 'personel-liste',
-      label: 'Personel Yönetimi',
-      icon: Users,
-      onClick: () => setCurrentView('personel-liste'),
-      view: 'personel-liste',
+      view: 'kesilecek-fatura-liste',
       adminOnly: true
     }
-  ].filter(item => !item.adminOnly || user?.role === 'admin');
+  ].filter(item => !item.adminOnly || isAdmin);
+
+  const personnelSubItems: { id: string; label: string; view: ViewType }[] = isAdmin ? [
+    { id: 'personel-liste', label: 'Personel Listesi', view: 'personel-liste' },
+    { id: 'izin-yonetimi', label: 'İzin Talepleri', view: 'izin-yonetimi' },
+    { id: 'talep-yonetimi', label: 'Masraf Talepleri', view: 'talep-yonetimi' },
+    { id: 'puantaj-cetveli', label: 'Puantaj Cetveli', view: 'puantaj-cetveli' }
+  ] : [
+    { id: 'personel-dashboard', label: 'Benim Dashboard', view: 'personel-dashboard' },
+    { id: 'personel-izinlerim', label: 'İzinlerim', view: 'personel-izinlerim' },
+    { id: 'personel-masraflarim', label: 'Masraflarım', view: 'personel-masraflarim' }
+  ];
 
   return (
     <aside className="w-64 bg-white border-r border-slate-200 flex flex-col h-screen sticky top-0">
@@ -159,6 +182,41 @@ export function Sidebar() {
               </li>
             );
           })}
+
+          {/* Personnel Collapsible Section */}
+          <li>
+            <Button
+              variant="ghost"
+              onClick={() => setIsPersonnelOpen(!isPersonnelOpen)}
+              className={cn(
+                "w-full justify-start gap-3 h-11 font-medium transition-all",
+                isPersonnelOpen ? "text-slate-900" : "text-slate-600"
+              )}
+            >
+              <Briefcase className="w-4 h-4 text-slate-500" />
+              <span className="flex-1 text-left">Personel Modülü</span>
+              {isPersonnelOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+            </Button>
+            {isPersonnelOpen && (
+              <ul className="mt-1 ml-9 space-y-1">
+                {personnelSubItems.map((sub) => (
+                  <li key={sub.id}>
+                    <button
+                      onClick={() => setCurrentView(sub.view)}
+                      className={cn(
+                        "w-full text-left py-2 px-3 text-sm rounded-md transition-all",
+                        currentView === sub.view 
+                          ? "bg-slate-100 text-primary font-semibold" 
+                          : "text-slate-500 hover:bg-slate-50 hover:text-slate-900"
+                      )}
+                    >
+                      {sub.label}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </li>
         </ul>
       </nav>
 

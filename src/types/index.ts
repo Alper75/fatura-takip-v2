@@ -350,7 +350,12 @@ export type ViewType =
   | 'expense-liste'
   | 'kesilecek-fatura-liste'
   | 'personel-liste'
-  | 'personel-dashboard';
+  | 'personel-dashboard'
+  | 'izin-yonetimi'
+  | 'talep-yonetimi'
+  | 'puantaj-cetveli'
+  | 'personel-izinlerim'
+  | 'personel-masraflarim';
 
 // ==================== FATURA DURUMU ====================
 export type OdemeDurumu = 'odenmedi' | 'odendi' | 'bekliyor';

@@ -31,9 +31,10 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { toast } from 'sonner';
 
 export default function PersonelListe() {
-  const { personnel, fetchPersonnel, bulkUploadPersonnel, addPersonnel } = useApp();
+  const { personnel, fetchPersonnel, bulkUploadPersonnel, addPersonnel, updatePersonnel, deletePersonnel } = useApp();
   const [searchTerm, setSearchTerm] = useState('');
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [newPerson, setNewPerson] = useState({
     tc: '',
     first_name: '',
@@ -42,8 +43,11 @@ export default function PersonelListe() {
     phone: '',
     position: '',
     department: '',
-    salary: ''
+    salary: '',
+    annual_leave_days: 14
   });
+
+  const [editPerson, setEditPerson] = useState<any>(null);
 
   useEffect(() => {
     fetchPersonnel();
@@ -74,8 +78,31 @@ export default function PersonelListe() {
         phone: '',
         position: '',
         department: '',
-        salary: ''
+        salary: '',
+        annual_leave_days: 14
       });
+    } else {
+      toast.error(result.message);
+    }
+  };
+
+  const handleEditPersonnel = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editPerson) return;
+    const result = await updatePersonnel(editPerson.id, editPerson);
+    if (result.success) {
+      toast.success(result.message);
+      setIsEditDialogOpen(false);
+    } else {
+      toast.error(result.message);
+    }
+  };
+
+  const handleDeletePersonnel = async (id: number) => {
+    if (!confirm('Bu personeli silmek istediğinizden emin misiniz?')) return;
+    const result = await deletePersonnel(id);
+    if (result.success) {
+      toast.success(result.message);
     } else {
       toast.error(result.message);
     }
@@ -208,6 +235,95 @@ export default function PersonelListe() {
         </div>
       </div>
 
+      {/* Edit Dialog */}
+      <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>Personel Düzenle</DialogTitle>
+          </DialogHeader>
+          {editPerson && (
+            <form onSubmit={handleEditPersonnel} className="space-y-4 py-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>TC Kimlik No (Değiştirilemez)</Label>
+                  <Input value={editPerson.tc} disabled />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit-email">E-posta</Label>
+                  <Input 
+                    id="edit-email" 
+                    type="email"
+                    value={editPerson.email || ''} 
+                    onChange={(e) => setEditPerson({...editPerson, email: e.target.value})}
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="edit-first_name">Ad</Label>
+                  <Input 
+                    id="edit-first_name" 
+                    value={editPerson.first_name} 
+                    onChange={(e) => setEditPerson({...editPerson, first_name: e.target.value})}
+                    required 
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit-last_name">Soyad</Label>
+                  <Input 
+                    id="edit-last_name" 
+                    value={editPerson.last_name} 
+                    onChange={(e) => setEditPerson({...editPerson, last_name: e.target.value})}
+                    required 
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="edit-department">Departman</Label>
+                  <Input 
+                    id="edit-department" 
+                    value={editPerson.department || ''} 
+                    onChange={(e) => setEditPerson({...editPerson, department: e.target.value})}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit-position">Pozisyon</Label>
+                  <Input 
+                    id="edit-position" 
+                    value={editPerson.position || ''} 
+                    onChange={(e) => setEditPerson({...editPerson, position: e.target.value})}
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="edit-salary">Maaş</Label>
+                  <Input 
+                    id="edit-salary" 
+                    type="number"
+                    value={editPerson.salary || ''} 
+                    onChange={(e) => setEditPerson({...editPerson, salary: e.target.value})}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit-leave">Yıllık İzin Hakkı</Label>
+                  <Input 
+                    id="edit-leave" 
+                    type="number"
+                    value={editPerson.annual_leave_days || 0} 
+                    onChange={(e) => setEditPerson({...editPerson, annual_leave_days: parseInt(e.target.value)})}
+                  />
+                </div>
+              </div>
+              <DialogFooter>
+                <Button type="submit" className="w-full">Güncelle</Button>
+              </DialogFooter>
+            </form>
+          )}
+        </DialogContent>
+      </Dialog>
+
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
@@ -260,10 +376,17 @@ export default function PersonelListe() {
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-2">
-                        <Button variant="ghost" size="icon">
+                        <Button variant="ghost" size="icon" onClick={(e) => {
+                          e.stopPropagation();
+                          setEditPerson({...p});
+                          setIsEditDialogOpen(true);
+                        }}>
                           <Edit className="h-4 w-4" />
                         </Button>
-                        <Button variant="ghost" size="icon" className="text-red-500 hover:text-red-700 hover:bg-red-50">
+                        <Button variant="ghost" size="icon" className="text-red-500 hover:text-red-700 hover:bg-red-50" onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeletePersonnel(p.id);
+                        }}>
                           <Trash2 className="h-4 w-4" />
                         </Button>
                         <Button variant="ghost" size="icon">

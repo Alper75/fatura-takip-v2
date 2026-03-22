@@ -23,10 +23,16 @@ import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 
 export default function PersonelDashboard() {
-  const { user, currentPersonnel, fetchMyPersonnel, changePassword } = useApp();
+  const { user, currentPersonnel, fetchMyPersonnel, changePassword, submitLeaveRequest, submitExpenseRequest } = useApp();
   const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(!!user?.mustChangePassword);
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+
+  const [isLeaveDialogOpen, setIsLeaveDialogOpen] = useState(false);
+  const [leaveData, setLeaveData] = useState({ type: 'Annual', start_date: '', end_date: '', description: '' });
+
+  const [isExpenseDialogOpen, setIsExpenseDialogOpen] = useState(false);
+  const [expenseData, setExpenseData] = useState({ type: 'Expense', amount: '', date: '', description: '' });
 
   useEffect(() => {
     fetchMyPersonnel();
@@ -51,6 +57,27 @@ export default function PersonelDashboard() {
   };
 
   if (!currentPersonnel) return <div className="p-8">Yükleniyor...</div>;
+  const handleLeaveSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const result = await submitLeaveRequest(leaveData);
+    if (result.success) {
+      toast.success(result.message);
+      setIsLeaveDialogOpen(false);
+    } else {
+      toast.error(result.message);
+    }
+  };
+
+  const handleExpenseSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const result = await submitExpenseRequest(expenseData);
+    if (result.success) {
+      toast.success(result.message);
+      setIsExpenseDialogOpen(false);
+    } else {
+      toast.error(result.message);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -118,7 +145,7 @@ export default function PersonelDashboard() {
                 <CardTitle>İzin Taleplerim</CardTitle>
                 <CardDescription>Son izin başvurularınızın durumu.</CardDescription>
               </div>
-              <Button size="sm">
+              <Button size="sm" onClick={() => setIsLeaveDialogOpen(true)}>
                 <Plus className="mr-2 h-4 w-4" />
                 İzin İste
               </Button>
@@ -163,7 +190,7 @@ export default function PersonelDashboard() {
               <Upload className="mr-2 h-4 w-4" />
               Evrak Yükle (Özlük)
             </Button>
-            <Button variant="outline" className="justify-start">
+            <Button variant="outline" className="justify-start" onClick={() => setIsExpenseDialogOpen(true)}>
               <FileText className="mr-2 h-4 w-4" />
               Avans / Masraf Talebi
             </Button>
@@ -223,6 +250,88 @@ export default function PersonelDashboard() {
           <DialogFooter>
             <Button onClick={handlePasswordChange}>Şifreyi Güncelle</Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Leave Request Dialog */}
+      <Dialog open={isLeaveDialogOpen} onOpenChange={setIsLeaveDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>İzin Talebi Oluştur</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleLeaveSubmit} className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="leave-type">İzin Türü</Label>
+              <select 
+                id="leave-type"
+                className="w-full p-2 border rounded-md"
+                value={leaveData.type}
+                onChange={(e) => setLeaveData({...leaveData, type: e.target.value as any})}
+              >
+                <option value="Annual">Yıllık İzin</option>
+                <option value="Unpaid">Ücretsiz İzin</option>
+                <option value="Maternity">Doğum İzni</option>
+                <option value="Sickness">Hastalık / Rapor</option>
+              </select>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="start-date">Başlangıç</Label>
+                <Input id="start-date" type="date" value={leaveData.start_date} onChange={(e) => setLeaveData({...leaveData, start_date: e.target.value})} required />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="end-date">Bitiş</Label>
+                <Input id="end-date" type="date" value={leaveData.end_date} onChange={(e) => setLeaveData({...leaveData, end_date: e.target.value})} required />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="desc">Açıklama</Label>
+              <Input id="desc" value={leaveData.description} onChange={(e) => setLeaveData({...leaveData, description: e.target.value})} />
+            </div>
+            <DialogFooter>
+              <Button type="submit" className="w-full">Talep Gönder</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Expense Request Dialog */}
+      <Dialog open={isExpenseDialogOpen} onOpenChange={setIsExpenseDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Avans / Masraf Talebi</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleExpenseSubmit} className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="exp-type">Tür</Label>
+              <select 
+                id="exp-type"
+                className="w-full p-2 border rounded-md"
+                value={expenseData.type}
+                onChange={(e) => setExpenseData({...expenseData, type: e.target.value as any})}
+              >
+                <option value="Expense">Masraf (Harcama)</option>
+                <option value="Advance">Avans (Önden Ödeme)</option>
+              </select>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="exp-amount">Tutar</Label>
+                <Input id="exp-amount" type="number" value={expenseData.amount} onChange={(e) => setExpenseData({...expenseData, amount: e.target.value})} required />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="exp-date">Tarih</Label>
+                <Input id="exp-date" type="date" value={expenseData.date} onChange={(e) => setExpenseData({...expenseData, date: e.target.value})} required />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="exp-desc">Açıklama</Label>
+              <Input id="exp-desc" value={expenseData.description} onChange={(e) => setExpenseData({...expenseData, description: e.target.value})} />
+            </div>
+            <DialogFooter>
+              <Button type="submit" className="w-full">Talep Gönder</Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
     </div>

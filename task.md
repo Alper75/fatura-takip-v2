@@ -57,5 +57,13 @@ Aşağıdaki özellikler, uygulamayı daha kapsamlı ve kullanıcı dostu hale g
 - [ ] **📅 Takvim Görünümü:** Faturaları takvim üzerinde görme
 - [ ] **💾 Otomatik Yedekleme:** LocalStorage veya bulut yedekleme
 - [ ] **📱 Mobil Uyumluluk:** Responsive tasarım iyileştirmeleri
-- [ ] **🌙 Karanlık Mod:** Dark/Light tema desteği
+- [x] **Karanlık Mod:** Dark/Light tema desteği
 - [ ] **📄 Fatura Şablonları:** PDF çıktısı için özelleştirilebilir şablonlar (ATLANDI)
+
+* [x] **Personel Modülü Geliştirmeleri**
+    * [x] Sidebar Rol Tabanlı Filtreleme (Admin/Personel ayrımı)
+    * [x] Sidebar Genişletilebilir Personel Menüsü
+    * [x] Backend API Güncellemeleri (İzin, Masraf, CRUD)
+    * [x] Personel Yönetimi Buton Aktivasyonu (Yeni, Düzenle, Sil)
+    * [x] Personel Dashboard Buton Aktivasyonu (İzin İste, Masraf İste)
+    * [x] AppContext Tip ve Fonksiyon Güncellemeleri
