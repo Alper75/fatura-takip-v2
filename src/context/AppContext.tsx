@@ -627,7 +627,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // ==================== AUTH FUNCTIONS ====================
   const login = useCallback(async (tc: string, password: string) => {
     try {
-      const response = await fetch('http://localhost:5000/api/auth/login', {
+      const response = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ tc, password })
@@ -664,7 +664,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const changePassword = useCallback(async (newPassword: string) => {
     try {
-      const response = await fetch('http://localhost:5000/api/auth/change-password', {
+      const response = await fetch('/api/auth/change-password', {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
@@ -690,7 +690,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // ==================== PERSONEL FUNCTIONS ====================
   const fetchPersonnel = useCallback(async () => {
     try {
-      const response = await fetch('http://localhost:5000/api/admin/personnel', {
+      const response = await fetch('/api/admin/personnel', {
         headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
       });
       const data = await response.json();
@@ -702,7 +702,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const fetchMyPersonnel = useCallback(async () => {
     try {
-      const response = await fetch('http://localhost:5000/api/personnel/me', {
+      const response = await fetch('/api/personnel/me', {
         headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
       });
       const data = await response.json();
@@ -716,7 +716,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const formData = new FormData();
     formData.append('file', file);
     try {
-      const response = await fetch('http://localhost:5000/api/admin/personnel/bulk-upload', {
+      const response = await fetch('/api/admin/personnel/bulk-upload', {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` },
         body: formData
