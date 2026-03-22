@@ -126,6 +126,7 @@ interface AppContextType {
   fetchPersonnel: () => Promise<void>;
   fetchMyPersonnel: () => Promise<void>;
   bulkUploadPersonnel: (file: File) => Promise<{ success: boolean; message?: string }>;
+  addPersonnel: (data: any) => Promise<{ success: boolean; message?: string }>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -732,6 +733,27 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, [fetchPersonnel]);
 
+  const addPersonnel = useCallback(async (data: any) => {
+    try {
+      const response = await fetch('/api/admin/personnel', {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}` 
+        },
+        body: JSON.stringify(data)
+      });
+      const result = await response.json();
+      if (result.success) {
+        fetchPersonnel();
+        return { success: true, message: result.message };
+      }
+      return { success: false, message: result.message };
+    } catch (error: any) {
+      return { success: false, message: error.message };
+    }
+  }, [fetchPersonnel]);
+
   // ==================== DRAWER FUNCTIONS ====================
   const openSatisDrawer = useCallback((initialData?: Partial<SatisFaturaFormData>) => {
     setSatisInitialData(initialData || null);
@@ -1249,7 +1271,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         currentPersonnel,
         fetchPersonnel,
         fetchMyPersonnel,
-        bulkUploadPersonnel
+        bulkUploadPersonnel,
+        addPersonnel
       }}
     >
       {children}

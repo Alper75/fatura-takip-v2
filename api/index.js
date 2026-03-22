@@ -129,6 +129,23 @@ app.post('/api/admin/personnel/bulk-upload', authMiddleware, adminMiddleware, up
   }
 });
 
+app.post('/api/admin/personnel', authMiddleware, adminMiddleware, async (req, res) => {
+  const { tc, first_name, last_name, email, phone, position, department, salary } = req.body;
+  if (!tc || !first_name || !last_name) {
+    return res.status(400).json({ success: false, message: 'TC, isim ve soyisim gereklidir.' });
+  }
+  try {
+    const defaultPassword = bcrypt.hashSync('123456', 10);
+    const userResult = db.prepare('INSERT INTO users (tc, password, role) VALUES (?, ?, ?)').run(tc, defaultPassword, 'personnel');
+    db.prepare('INSERT INTO personnel (user_id, first_name, last_name, email, phone, position, department, salary) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(
+      userResult.lastInsertRowid, first_name, last_name, email, phone, position, department, salary
+    );
+    res.json({ success: true, message: 'Personel başarıyla oluşturuldu.' });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 // --- POINTAGE & REQUESTS (Simplified structure for index) ---
 app.post('/api/pointage', authMiddleware, (req, res) => {
   const { personnel_id, date, status, overtime_hours } = req.body;

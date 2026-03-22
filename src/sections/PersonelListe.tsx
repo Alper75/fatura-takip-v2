@@ -8,6 +8,15 @@ import {
   TableHeader, 
   TableRow 
 } from '@/components/ui/table';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+  DialogFooter,
+} from '@/components/ui/dialog';
+import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { 
@@ -22,8 +31,19 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { toast } from 'sonner';
 
 export default function PersonelListe() {
-  const { personnel, fetchPersonnel, bulkUploadPersonnel } = useApp();
+  const { personnel, fetchPersonnel, bulkUploadPersonnel, addPersonnel } = useApp();
   const [searchTerm, setSearchTerm] = useState('');
+  const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
+  const [newPerson, setNewPerson] = useState({
+    tc: '',
+    first_name: '',
+    last_name: '',
+    email: '',
+    phone: '',
+    position: '',
+    department: '',
+    salary: ''
+  });
 
   useEffect(() => {
     fetchPersonnel();
@@ -38,6 +58,26 @@ export default function PersonelListe() {
       } else {
         toast.error(result.message);
       }
+    }
+  };
+  const handleAddPersonnel = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const result = await addPersonnel(newPerson);
+    if (result.success) {
+      toast.success(result.message);
+      setIsAddDialogOpen(false);
+      setNewPerson({
+        tc: '',
+        first_name: '',
+        last_name: '',
+        email: '',
+        phone: '',
+        position: '',
+        department: '',
+        salary: ''
+      });
+    } else {
+      toast.error(result.message);
     }
   };
 
@@ -70,10 +110,101 @@ export default function PersonelListe() {
               Excel ile Yükle
             </Button>
           </div>
-          <Button>
-            <UserPlus className="mr-2 h-4 w-4" />
-            Yeni Personel
-          </Button>
+          <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
+            <DialogTrigger asChild>
+              <Button>
+                <UserPlus className="mr-2 h-4 w-4" />
+                Yeni Personel
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-[500px]">
+              <DialogHeader>
+                <DialogTitle>Yeni Personel Ekle</DialogTitle>
+              </DialogHeader>
+              <form onSubmit={handleAddPersonnel} className="space-y-4 py-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="tc">TC Kimlik No</Label>
+                    <Input 
+                      id="tc" 
+                      value={newPerson.tc} 
+                      onChange={(e) => setNewPerson({...newPerson, tc: e.target.value})}
+                      required 
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="email">E-posta</Label>
+                    <Input 
+                      id="email" 
+                      type="email"
+                      value={newPerson.email} 
+                      onChange={(e) => setNewPerson({...newPerson, email: e.target.value})}
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="first_name">Ad</Label>
+                    <Input 
+                      id="first_name" 
+                      value={newPerson.first_name} 
+                      onChange={(e) => setNewPerson({...newPerson, first_name: e.target.value})}
+                      required 
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="last_name">Soyad</Label>
+                    <Input 
+                      id="last_name" 
+                      value={newPerson.last_name} 
+                      onChange={(e) => setNewPerson({...newPerson, last_name: e.target.value})}
+                      required 
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="department">Departman</Label>
+                    <Input 
+                      id="department" 
+                      value={newPerson.department} 
+                      onChange={(e) => setNewPerson({...newPerson, department: e.target.value})}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="position">Pozisyon</Label>
+                    <Input 
+                      id="position" 
+                      value={newPerson.position} 
+                      onChange={(e) => setNewPerson({...newPerson, position: e.target.value})}
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="phone">Telefon</Label>
+                    <Input 
+                      id="phone" 
+                      value={newPerson.phone} 
+                      onChange={(e) => setNewPerson({...newPerson, phone: e.target.value})}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="salary">Maaş (Aylık Net)</Label>
+                    <Input 
+                      id="salary" 
+                      type="number"
+                      value={newPerson.salary} 
+                      onChange={(e) => setNewPerson({...newPerson, salary: e.target.value})}
+                    />
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button type="submit" className="w-full">Kaydet</Button>
+                </DialogFooter>
+              </form>
+            </DialogContent>
+          </Dialog>
         </div>
       </div>
 
