@@ -177,8 +177,113 @@ export interface BankaHesabiFormData extends Omit<BankaHesabi, 'id'> {}
 
 // ==================== KULLANICI ====================
 export interface User {
-  email: string;
-  password: string;
+  id?: number;
+  tc: string;
+  email?: string;
+  password?: string;
+  role: 'admin' | 'personnel';
+  token?: string;
+  mustChangePassword?: boolean;
+}
+
+// ==================== PERSONEL MODÜLÜ ====================
+
+export interface Personnel {
+  id: number;
+  user_id: number;
+  tc?: string;
+  must_change_password?: boolean;
+  first_name: string;
+  last_name: string;
+  email?: string;
+  phone?: string;
+  address?: string;
+  start_date?: string;
+  position?: string;
+  department?: string;
+  iban?: string;
+  salary?: number;
+  annual_leave_days: number;
+  created_at?: string;
+}
+
+export interface Pointage {
+  id: number;
+  personnel_id: number;
+  date: string;
+  status: string;
+  overtime_hours: number;
+}
+
+export interface Leave {
+  id: number;
+  personnel_id: number;
+  first_name?: string;
+  last_name?: string;
+  type: 'Annual' | 'Unpaid' | 'Maternity' | 'Sickness';
+  start_date: string;
+  end_date: string;
+  status: 'PENDING' | 'APPROVED' | 'REJECTED';
+  description?: string;
+  created_at: string;
+}
+
+export interface Document {
+  id: number;
+  personnel_id: number;
+  type: string;
+  file_name: string;
+  file_path: string;
+  upload_date: string;
+}
+
+export interface Asset {
+  id: number;
+  personnel_id: number;
+  name: string;
+  serial_number?: string;
+  given_date?: string;
+  return_date?: string;
+}
+
+export interface Training {
+  id: number;
+  personnel_id: number;
+  name: string;
+  date?: string;
+  expiry_date?: string;
+  certificate_path?: string;
+}
+
+export interface Payroll {
+  id: number;
+  personnel_id: number;
+  month: number;
+  year: number;
+  base_salary: number;
+  bonuses: number;
+  deductions: number;
+  net_salary: number;
+}
+
+export interface PersonnelRequest {
+  id: number;
+  personnel_id: number;
+  first_name?: string;
+  last_name?: string;
+  type: 'Advance' | 'Expense';
+  amount: number;
+  date: string;
+  status: 'PENDING' | 'APPROVED' | 'REJECTED';
+  description?: string;
+  receipt_path?: string;
+}
+
+export interface Announcement {
+  id: number;
+  title: string;
+  content: string;
+  created_at: string;
 }
 
 // ==================== VERGI HESAPLAMA ====================
@@ -243,7 +348,9 @@ export type ViewType =
   | 'ayarlar' 
   | 'banka-ekstre-liste' 
   | 'expense-liste'
-  | 'kesilecek-fatura-liste';
+  | 'kesilecek-fatura-liste'
+  | 'personel-liste'
+  | 'personel-dashboard';
 
 // ==================== FATURA DURUMU ====================
 export type OdemeDurumu = 'odenmedi' | 'odendi' | 'bekliyor';

@@ -1,18 +1,9 @@
 {
   "version": 2,
-  "functions": {
-    "api/*.php": {
-      "runtime": "vercel-php@0.7.1"
-    }
-  },
   "rewrites": [
     {
-      "source": "/api/gib/(.*)",
-      "destination": "/api/gib.php"
-    },
-    {
       "source": "/api/(.*)",
-      "destination": "/api"
+      "destination": "/api/index.js"
     },
     {
       "source": "/(.*)",

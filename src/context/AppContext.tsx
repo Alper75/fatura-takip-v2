@@ -18,15 +18,26 @@ import type {
   OdemeDurumu,
   VergiRaporu,
   MasrafKurali,
-  KesilecekFatura
+  KesilecekFatura,
+  Personnel,
+  Pointage,
+  Leave,
+  Document,
+  Asset,
+  Training,
+  Payroll,
+  PersonnelRequest,
+  Announcement
 } from '@/types';
 import { AYLAR, GELIR_VERGISI_DILIMLERI } from '@/types';
 
 interface AppContextType {
   // ==================== AUTH ====================
   isAuthenticated: boolean;
-  login: (email: string, password: string) => boolean;
+  user: User | null;
+  login: (tc: string, password: string) => Promise<{ success: boolean; message?: string }>;
   logout: () => void;
+  changePassword: (newPassword: string) => Promise<{ success: boolean; message?: string }>;
 
   // ==================== VIEW ====================
   currentView: ViewType;
@@ -116,14 +127,21 @@ interface AppContextType {
   deleteKesilecekFatura: (id: string) => void;
   // ==================== HESAPLAMALAR ====================
   calculateFaturaHesaplamalari: (tutar: number, kdvStr: string, tevStr?: string, stopajStr?: string) => any;
+  
+  // ==================== PERSONEL MODÜLÜ ====================
+  personnel: Personnel[];
+  currentPersonnel: Personnel | null;
+  fetchPersonnel: () => Promise<void>;
+  fetchMyPersonnel: () => Promise<void>;
+  bulkUploadPersonnel: (file: File) => Promise<{ success: boolean; message?: string }>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
-// Demo kullanıcı
+// Demo Kullanıcı (Artık veritabanından gelecek, ama tip hatası olmasın diye güncelliyoruz)
 const DEMO_USER: User = {
-  email: 'admin@fatura.com',
-  password: 'admin123'
+  tc: '00000000000',
+  role: 'admin'
 };
 
 // Demo Cariler
@@ -380,7 +398,15 @@ const DEMO_ALIS_FATURALARI: AlisFatura[] = [
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
   // ==================== AUTH STATE ====================
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(() => !!localStorage.getItem('token'));
+  const [user, setUser] = useState<User | null>(() => {
+    const saved = localStorage.getItem('user');
+    return saved ? JSON.parse(saved) : null;
+  });
+
+  // ==================== PERSONEL STATE ====================
+  const [personnel, setPersonnel] = useState<Personnel[]>([]);
+  const [currentPersonnel, setCurrentPersonnel] = useState<Personnel | null>(null);
 
   // ==================== VIEW STATE ====================
   const [currentView, setCurrentView] = useState<ViewType>('dashboard');
@@ -611,18 +637,112 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [cariHareketler]);
 
   // ==================== AUTH FUNCTIONS ====================
-  const login = useCallback((email: string, password: string): boolean => {
-    if (email === DEMO_USER.email && password === DEMO_USER.password) {
-      setIsAuthenticated(true);
-      return true;
+  const login = useCallback(async (tc: string, password: string) => {
+    try {
+      const response = await fetch('http://localhost:5000/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tc, password })
+      });
+      const data = await response.json();
+      if (data.success) {
+        localStorage.setItem('token', data.token);
+        localStorage.setItem('user', JSON.stringify(data.user));
+        setIsAuthenticated(true);
+        setUser(data.user);
+        if (data.user.role === 'personnel') {
+          setCurrentView('personel-dashboard');
+          fetchMyPersonnel();
+        } else {
+          setCurrentView('dashboard');
+        }
+        return { success: true };
+      }
+      return { success: false, message: data.message };
+    } catch (error: any) {
+      return { success: false, message: error.message };
     }
-    return false;
   }, []);
 
   const logout = useCallback(() => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
     setIsAuthenticated(false);
+    setUser(null);
+    setPersonnel([]);
+    setCurrentPersonnel(null);
     setCurrentView('dashboard');
   }, []);
+
+  const changePassword = useCallback(async (newPassword: string) => {
+    try {
+      const response = await fetch('http://localhost:5000/api/auth/change-password', {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify({ newPassword })
+      });
+      const data = await response.json();
+      if (data.success) {
+        if (user) {
+          const updatedUser = { ...user, mustChangePassword: false };
+          setUser(updatedUser);
+          localStorage.setItem('user', JSON.stringify(updatedUser));
+        }
+        return { success: true };
+      }
+      return { success: false, message: data.message };
+    } catch (error: any) {
+      return { success: false, message: error.message };
+    }
+  }, [user]);
+
+  // ==================== PERSONEL FUNCTIONS ====================
+  const fetchPersonnel = useCallback(async () => {
+    try {
+      const response = await fetch('http://localhost:5000/api/admin/personnel', {
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+      });
+      const data = await response.json();
+      if (data.success) setPersonnel(data.personnel);
+    } catch (error) {
+      console.error('Fetch personnel error:', error);
+    }
+  }, []);
+
+  const fetchMyPersonnel = useCallback(async () => {
+    try {
+      const response = await fetch('http://localhost:5000/api/personnel/me', {
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+      });
+      const data = await response.json();
+      if (data.success) setCurrentPersonnel(data.personnel);
+    } catch (error) {
+      console.error('Fetch my personnel error:', error);
+    }
+  }, []);
+
+  const bulkUploadPersonnel = useCallback(async (file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    try {
+      const response = await fetch('http://localhost:5000/api/admin/personnel/bulk-upload', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` },
+        body: formData
+      });
+      const data = await response.json();
+      if (data.success) {
+        fetchPersonnel();
+        return { success: true, message: data.message };
+      }
+      return { success: false, message: data.message };
+    } catch (error: any) {
+      return { success: false, message: error.message };
+    }
+  }, [fetchPersonnel]);
 
   // ==================== DRAWER FUNCTIONS ====================
   const openSatisDrawer = useCallback((initialData?: Partial<SatisFaturaFormData>) => {
@@ -1065,14 +1185,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     <AppContext.Provider
       value={{
         isAuthenticated,
+        user,
         login,
         logout,
+        changePassword,
         currentView,
         setCurrentView,
         cariler,
         addCari,
         updateCari,
         deleteCari,
+        cariHareketler,
+        addCariHareket,
+        updateCariHareket,
+        deleteCariHareket,
+        hesaplaCariBakiye,
         satisFaturalari,
         addSatisFatura,
         updateSatisFaturaOdeme,
@@ -1089,27 +1216,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         downloadAlisPdf,
         downloadAlisDekont,
         deleteAlisFatura,
-        calculateFaturaHesaplamalari,
-        getVergiRaporu,
-        isSatisDrawerOpen,
-        isAlisDrawerOpen,
-        openSatisDrawer,
-        closeSatisDrawer,
-        openAlisDrawer,
-        closeAlisDrawer,
-        isCariDrawerOpen,
-        openCariDrawer,
-        closeCariDrawer,
-        isCariEkstreDrawerOpen,
-        openCariEkstreDrawer,
-        closeCariEkstreDrawer,
-        selectedCariId,
-        setSelectedCariId,
-        cariHareketler,
-        addCariHareket,
-        updateCariHareket,
-        deleteCariHareket,
-        hesaplaCariBakiye,
+        bankaHesaplari,
+        addBankaHesabi,
+        updateBankaHesabi,
+        deleteBankaHesabi,
+        isBankaDrawerOpen,
+        openBankaDrawer,
+        closeBankaDrawer,
+        selectedBankaId,
         cekSenetler,
         addCekSenet,
         updateCekSenet,
@@ -1119,14 +1233,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         openCekSenetDrawer,
         closeCekSenetDrawer,
         selectedCekSenetId,
-        bankaHesaplari,
-        addBankaHesabi,
-        updateBankaHesabi,
-        deleteBankaHesabi,
-        isBankaDrawerOpen,
-        openBankaDrawer,
-        closeBankaDrawer,
-        selectedBankaId,
+        isSatisDrawerOpen,
+        isAlisDrawerOpen,
+        isCariDrawerOpen,
+        satisInitialData,
+        openSatisDrawer,
+        closeSatisDrawer,
+        openAlisDrawer,
+        closeAlisDrawer,
+        openCariDrawer,
+        closeCariDrawer,
+        isCariEkstreDrawerOpen,
+        openCariEkstreDrawer,
+        closeCariEkstreDrawer,
+        selectedCariId,
+        setSelectedCariId,
+        getVergiRaporu,
         masrafKurallari,
         addMasrafKurali,
         deleteMasrafKurali,
@@ -1134,7 +1256,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         addKesilecekFatura,
         updateKesilecekFatura,
         deleteKesilecekFatura,
-        satisInitialData
+        calculateFaturaHesaplamalari,
+        personnel,
+        currentPersonnel,
+        fetchPersonnel,
+        fetchMyPersonnel,
+        bulkUploadPersonnel
       }}
     >
       {children}

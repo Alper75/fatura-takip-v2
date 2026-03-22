@@ -16,15 +16,15 @@ import { useApp } from '@/context/AppContext';
 import { cn } from '@/lib/utils';
 
 export function Sidebar() {
-  const { currentView, setCurrentView, openSatisDrawer, openAlisDrawer, logout } = useApp();
+  const { user, currentPersonnel, currentView, setCurrentView, openSatisDrawer, openAlisDrawer, logout } = useApp();
 
   const menuItems = [
     {
       id: 'dashboard',
       label: 'Dashboard',
       icon: LayoutDashboard,
-      onClick: () => setCurrentView('dashboard'),
-      view: 'dashboard'
+      onClick: () => setCurrentView(user?.role === 'admin' ? 'dashboard' : 'personel-dashboard'),
+      view: user?.role === 'admin' ? 'dashboard' : 'personel-dashboard'
     },
     {
       id: 'satis-giris',
@@ -102,8 +102,16 @@ export function Sidebar() {
       icon: FilePlus,
       onClick: () => setCurrentView('kesilecek-fatura-liste'),
       view: 'kesilecek-fatura-liste'
+    },
+    {
+      id: 'personel-liste',
+      label: 'Personel Yönetimi',
+      icon: Users,
+      onClick: () => setCurrentView('personel-liste'),
+      view: 'personel-liste',
+      adminOnly: true
     }
-  ];
+  ].filter(item => !item.adminOnly || user?.role === 'admin');
 
   return (
     <aside className="w-64 bg-white border-r border-slate-200 flex flex-col h-screen sticky top-0">
@@ -157,12 +165,18 @@ export function Sidebar() {
       {/* Alt Bilgi */}
       <div className="p-4 border-t border-slate-100">
         <div className="flex items-center gap-3 mb-4 px-3">
-          <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center">
-            <span className="text-xs font-medium text-slate-600">A</span>
+          <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
+            <span className="text-xs font-medium text-primary uppercase">
+              {user?.role === 'admin' ? 'A' : (currentPersonnel?.first_name?.[0] || 'P')}
+            </span>
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-slate-900 truncate">Admin Kullanıcı</p>
-            <p className="text-xs text-slate-500 truncate">admin@fatura.com</p>
+            <p className="text-sm font-medium text-slate-900 truncate">
+              {user?.role === 'admin' ? 'Admin Kullanıcı' : `${currentPersonnel?.first_name} ${currentPersonnel?.last_name}`}
+            </p>
+            <p className="text-xs text-slate-500 truncate">
+              {user?.role === 'admin' ? 'Yönetici' : currentPersonnel?.position || 'Personel'}
+            </p>
           </div>
         </div>
         <Button

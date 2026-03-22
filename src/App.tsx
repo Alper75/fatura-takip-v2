@@ -12,6 +12,8 @@ import { BankaEkstreListesi } from './sections/BankaEkstreListesi';
 import { GenelGiderler } from './sections/GenelGiderler';
 import { KesilecekFaturalar } from './sections/KesilecekFaturalar';
 import { Toaster } from '@/components/ui/sonner';
+import PersonelListe from './sections/PersonelListe';
+import PersonelDashboard from './sections/PersonelDashboard';
 
 function AppContent() {
   const { isAuthenticated, currentView } = useApp();
@@ -44,6 +46,10 @@ function AppContent() {
             return <GenelGiderler />;
           case 'kesilecek-fatura-liste':
             return <KesilecekFaturalar />;
+          case 'personel-liste':
+            return <PersonelListe />;
+          case 'personel-dashboard':
+            return <PersonelDashboard />;
           default:
             return <Dashboard />; // Default to Dashboard if currentView is not recognized
         }

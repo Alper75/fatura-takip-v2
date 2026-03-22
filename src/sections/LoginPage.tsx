@@ -9,24 +9,26 @@ import { useApp } from '@/context/AppContext';
 
 export function LoginPage() {
   const { login } = useApp();
-  const [email, setEmail] = useState('');
+  const [tc, setTc] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setIsLoading(true);
 
-    // Simüle edilmiş loading
-    setTimeout(() => {
-      const success = login(email, password);
-      if (!success) {
-        setError('E-posta veya şifre hatalı. Demo: admin@fatura.com / admin123');
+    try {
+      const result = await login(tc, password);
+      if (!result.success) {
+        setError(result.message || 'Giriş başarısız. Lütfen bilgilerinizi kontrol edin.');
       }
+    } catch (err: any) {
+      setError('Bir hata oluştu. Lütfen tekrar deneyin.');
+    } finally {
       setIsLoading(false);
-    }, 500);
+    }
   };
 
   return (
@@ -58,18 +60,19 @@ export function LoginPage() {
               )}
 
               <div className="space-y-2">
-                <Label htmlFor="email" className="text-sm font-medium">
-                  E-posta Adresi
+                <Label htmlFor="tc" className="text-sm font-medium">
+                  TC Kimlik No
                 </Label>
                 <div className="relative">
                   <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
                   <Input
-                    id="email"
-                    type="email"
-                    placeholder="ornek@sirket.com"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
+                    id="tc"
+                    type="text"
+                    placeholder="TC Kimlik Numaranız"
+                    value={tc}
+                    onChange={(e) => setTc(e.target.value)}
                     className="pl-10 h-11"
+                    maxLength={11}
                     required
                   />
                 </div>
@@ -111,8 +114,8 @@ export function LoginPage() {
 
             <div className="mt-6 pt-4 border-t border-slate-100">
               <p className="text-xs text-center text-slate-400">
-                Demo hesap: <span className="font-medium text-slate-600">admin@fatura.com</span> / 
-                <span className="font-medium text-slate-600">admin123</span>
+                Admin girişi için TC: <span className="font-medium text-slate-600">admin</span> / 
+                Şifre: <span className="font-medium text-slate-600">admin123</span>
               </p>
             </div>
           </CardContent>
