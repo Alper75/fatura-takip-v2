@@ -62,21 +62,21 @@ export default function TalepYonetimi() {
                     <TableCell className="max-w-[200px] truncate">{req.description}</TableCell>
                     <TableCell>
                       <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                        req.status === 'Approved' ? 'bg-green-100 text-green-800' :
-                        req.status === 'Rejected' ? 'bg-red-100 text-red-800' :
-                        'bg-yellow-100 text-yellow-800'
+                        req.status === 'APPROVED' ? 'bg-green-100 text-green-800' :
+                        req.status === 'REJECTED' ? 'bg-red-100 text-red-800' :
+                        'bg-yellow-101 text-yellow-800'
                       }`}>
-                        {req.status === 'Pending' ? 'Beklemede' : 
-                         req.status === 'Approved' ? 'Onaylandı' : 'Reddedildi'}
+                        {req.status === 'PENDING' ? 'Beklemede' : 
+                         req.status === 'APPROVED' ? 'Onaylandı' : 'Reddedildi'}
                       </span>
                     </TableCell>
                     <TableCell className="text-right">
-                      {req.status === 'Pending' && (
+                      {req.status === 'PENDING' && (
                         <div className="flex justify-end gap-2">
-                          <Button size="sm" variant="outline" className="text-green-600 hover:text-green-700" onClick={() => handleStatusUpdate(req.id, 'Approved')}>
+                          <Button size="sm" variant="outline" className="text-green-600 hover:text-green-700" onClick={() => handleStatusUpdate(req.id, 'APPROVED')}>
                             <Check className="h-4 w-4" />
                           </Button>
-                          <Button size="sm" variant="outline" className="text-red-600 hover:text-red-700" onClick={() => handleStatusUpdate(req.id, 'Rejected')}>
+                          <Button size="sm" variant="outline" className="text-red-600 hover:text-red-700" onClick={() => handleStatusUpdate(req.id, 'REJECTED')}>
                             <X className="h-4 w-4" />
                           </Button>
                         </div>

@@ -47,12 +47,12 @@ export default function PersonelIzinlerim() {
                     <TableCell>{leave.end_date}</TableCell>
                     <TableCell>
                       <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                        leave.status === 'Approved' ? 'bg-green-100 text-green-800' :
-                        leave.status === 'Rejected' ? 'bg-red-100 text-red-800' :
-                        'bg-yellow-100 text-yellow-800'
+                        leave.status === 'APPROVED' ? 'bg-green-100 text-green-800' :
+                        leave.status === 'REJECTED' ? 'bg-red-100 text-red-800' :
+                        'bg-yellow-101 text-yellow-800'
                       }`}>
-                        {leave.status === 'Pending' ? 'Beklemede' : 
-                         leave.status === 'Approved' ? 'Onaylandı' : 'Reddedildi'}
+                        {leave.status === 'PENDING' ? 'Beklemede' : 
+                         leave.status === 'APPROVED' ? 'Onaylandı' : 'Reddedildi'}
                       </span>
                     </TableCell>
                   </TableRow>

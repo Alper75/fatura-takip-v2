@@ -23,7 +23,7 @@ import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 
 export default function PersonelDashboard() {
-  const { user, currentPersonnel, fetchMyPersonnel, changePassword, submitLeaveRequest, submitExpenseRequest } = useApp();
+  const { user, currentPersonnel, fetchMyPersonnel, changePassword, submitLeaveRequest, submitExpenseRequest, submitPointage } = useApp();
   const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(!!user?.mustChangePassword);
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -33,6 +33,13 @@ export default function PersonelDashboard() {
 
   const [isExpenseDialogOpen, setIsExpenseDialogOpen] = useState(false);
   const [expenseData, setExpenseData] = useState({ type: 'Expense', amount: '', date: '', description: '' });
+
+  const [isPointageDialogOpen, setIsPointageDialogOpen] = useState(false);
+  const [pointageForm, setPointageForm] = useState({
+    date: new Date().toISOString().split('T')[0],
+    status: 'Work',
+    overtime_hours: 0
+  });
 
   useEffect(() => {
     fetchMyPersonnel();
@@ -74,6 +81,16 @@ export default function PersonelDashboard() {
     if (result.success) {
       toast.success(result.message);
       setIsExpenseDialogOpen(false);
+    } else {
+      toast.error(result.message);
+    }
+  };
+
+  const handlePointageSubmit = async () => {
+    const result = await submitPointage(pointageForm);
+    if (result.success) {
+      toast.success(result.message);
+      setIsPointageDialogOpen(false);
     } else {
       toast.error(result.message);
     }
@@ -194,7 +211,7 @@ export default function PersonelDashboard() {
               <FileText className="mr-2 h-4 w-4" />
               Avans / Masraf Talebi
             </Button>
-            <Button variant="outline" className="justify-start" onClick={() => toast.info('Puantaj girişi özelliği yakında eklenecek.')}>
+            <Button variant="outline" className="justify-start" onClick={() => setIsPointageDialogOpen(true)}>
               <Clock className="mr-2 h-4 w-4" />
               Puantaj Girişi Yap
             </Button>
@@ -332,6 +349,58 @@ export default function PersonelDashboard() {
               <Button type="submit" className="w-full">Talep Gönder</Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isPointageDialogOpen} onOpenChange={setIsPointageDialogOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Puantaj Girişi Yap</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="pt-date" className="text-right">Tarih</Label>
+              <Input
+                id="pt-date"
+                type="date"
+                className="col-span-3"
+                value={pointageForm.date}
+                onChange={(e) => setPointageForm({ ...pointageForm, date: e.target.value })}
+              />
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="pt-status" className="text-right">Durum</Label>
+              <select
+                id="pt-status"
+                className="col-span-3 flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                value={pointageForm.status}
+                onChange={(e) => setPointageForm({ ...pointageForm, status: e.target.value })}
+              >
+                <option value="Work">Çalıştı</option>
+                <option value="Weekend">Hafta Sonu</option>
+                <option value="Holiday">Resmi Tatil</option>
+                <option value="Annual Leave">Yıllık İzin</option>
+                <option value="Unpaid Leave">Ücretsiz İzin</option>
+                <option value="Sickness">Raporlu</option>
+              </select>
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="pt-mesai" className="text-right">Mesai (Saat)</Label>
+              <Input
+                id="pt-mesai"
+                type="number"
+                step="0.5"
+                min="0"
+                className="col-span-3"
+                value={pointageForm.overtime_hours}
+                onChange={(e) => setPointageForm({ ...pointageForm, overtime_hours: parseFloat(e.target.value) || 0 })}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsPointageDialogOpen(false)}>İptal</Button>
+            <Button onClick={handlePointageSubmit}>Kaydet</Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

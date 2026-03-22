@@ -47,12 +47,12 @@ export default function PersonelMasraflarim() {
                     <TableCell>{req.description}</TableCell>
                     <TableCell>
                       <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                        req.status === 'Approved' ? 'bg-green-100 text-green-800' :
-                        req.status === 'Rejected' ? 'bg-red-100 text-red-800' :
-                        'bg-yellow-100 text-yellow-800'
+                        req.status === 'APPROVED' ? 'bg-green-100 text-green-800' :
+                        req.status === 'REJECTED' ? 'bg-red-100 text-red-800' :
+                        'bg-yellow-101 text-yellow-800'
                       }`}>
-                        {req.status === 'Pending' ? 'Beklemede' : 
-                         req.status === 'Approved' ? 'Onaylandı' : 'Reddedildi'}
+                        {req.status === 'PENDING' ? 'Beklemede' : 
+                         req.status === 'APPROVED' ? 'Onaylandı' : 'Reddedildi'}
                       </span>
                     </TableCell>
                   </TableRow>

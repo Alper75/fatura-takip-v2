@@ -251,6 +251,18 @@ app.get('/api/announcements', authMiddleware, (req, res) => {
   res.json({ success: true, data });
 });
 
+app.get('/api/admin/pointage', authMiddleware, adminMiddleware, (req, res) => {
+  try {
+    const list = db.prepare(`
+      SELECT po.*, p.first_name, p.last_name 
+      FROM pointage po
+      JOIN personnel p ON po.personnel_id = p.id
+      ORDER BY po.date DESC
+    `).all();
+    res.json({ success: true, data: list });
+  } catch (error) { res.status(500).json({ success: false, message: error.message }); }
+});
+
 app.post('/api/personnel/requests', authMiddleware, upload.single('file'), (req, res) => {
   const { type, amount, date, description } = req.body;
   try {

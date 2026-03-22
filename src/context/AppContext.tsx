@@ -138,8 +138,11 @@ interface AppContextType {
   requests: any[];
   fetchRequests: () => Promise<void>;
   updateRequestStatus: (id: number, status: string) => Promise<{ success: boolean; message?: string }>;
-  submitExpenseRequest: (data: any) => Promise<{ success: boolean; message?: string }>;
-  uploadPersonnelDocument: (file: File, type: string) => Promise<{ success: boolean; message?: string }>;
+  submitExpenseRequest: (data: any) => Promise<any>;
+  uploadPersonnelDocument: (file: File, type: string) => Promise<any>;
+  submitPointage: (data: any) => Promise<any>;
+  pointages: any[];
+  fetchPointages: () => Promise<void>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -898,6 +901,33 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } catch (error: any) { return { success: false, message: error.message }; }
   }, []);
 
+  const [pointages, setPointages] = useState<any[]>([]);
+  const fetchPointages = useCallback(async () => {
+    try {
+      const resp = await fetch('/api/admin/pointage', { 
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+      });
+      const data = await resp.json();
+      if (data.success) setPointages(data.data);
+    } catch (error) { console.error('Fetch pointages error:', error); }
+  }, []);
+
+  const submitPointage = useCallback(async (data: any) => {
+    try {
+      const response = await fetch('/api/pointage', {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}` 
+        },
+        body: JSON.stringify(data)
+      });
+      const result = await response.json();
+      if (result.success) fetchPointages();
+      return result;
+    } catch (error: any) { return { success: false, message: error.message }; }
+  }, [fetchPointages]);
+
   // ==================== DRAWER FUNCTIONS ====================
   const openSatisDrawer = useCallback((initialData?: Partial<SatisFaturaFormData>) => {
     setSatisInitialData(initialData || null);
@@ -1427,7 +1457,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         fetchRequests,
         updateRequestStatus,
         submitExpenseRequest,
-        uploadPersonnelDocument
+        uploadPersonnelDocument,
+        submitPointage,
+        pointages,
+        fetchPointages
       }}
     >
       {children}

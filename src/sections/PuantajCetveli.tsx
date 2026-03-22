@@ -1,9 +1,28 @@
+import { useEffect } from 'react';
+import { useApp } from '@/context/AppContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Calendar } from 'lucide-react';
 
 export default function PuantajCetveli() {
-  // Simple placeholder for pointage view
+  const { pointages, fetchPointages } = useApp();
+
+  useEffect(() => {
+    fetchPointages();
+  }, [fetchPointages]);
+
+  const getStatusText = (status: string) => {
+    switch (status) {
+      case 'Work': return 'Çalıştı';
+      case 'Weekend': return 'Hafta Sonu';
+      case 'Holiday': return 'Tatil';
+      case 'Annual Leave': return 'Yıllık İzin';
+      case 'Unpaid Leave': return 'Ücretsiz İzin';
+      case 'Sickness': return 'Raporlu';
+      default: return status;
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
@@ -12,33 +31,37 @@ export default function PuantajCetveli() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Aylık Puantaj Özeti (Mart 2026)</CardTitle>
+          <CardTitle>Genel Puantaj Geçmişi</CardTitle>
         </CardHeader>
         <CardContent>
           <Table>
             <TableHeader>
               <TableRow>
                 <TableHead>Personel</TableHead>
-                <TableHead>Çalışılan Gün</TableHead>
-                <TableHead>İzinli Gün</TableHead>
+                <TableHead>Tarih</TableHead>
+                <TableHead>Durum</TableHead>
                 <TableHead>Fazla Mesai (Saat)</TableHead>
-                <TableHead>Toplam Hakediş</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              <TableRow>
-                <TableCell className="font-medium text-muted-foreground italic">Veriler yükleniyor veya henüz girilmemiş...</TableCell>
-                <TableCell>-</TableCell>
-                <TableCell>-</TableCell>
-                <TableCell>-</TableCell>
-                <TableCell>-</TableCell>
-              </TableRow>
+              {pointages.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={4} className="text-center py-8 text-muted-foreground italic">
+                    Henüz puantaj kaydı bulunmuyor.
+                  </TableCell>
+                </TableRow>
+              ) : (
+                pointages.map((pt) => (
+                  <TableRow key={pt.id}>
+                    <TableCell className="font-medium">{pt.first_name} {pt.last_name}</TableCell>
+                    <TableCell>{pt.date}</TableCell>
+                    <TableCell>{getStatusText(pt.status)}</TableCell>
+                    <TableCell>{pt.overtime_hours} sa</TableCell>
+                  </TableRow>
+                ))
+              )}
             </TableBody>
           </Table>
-          <div className="mt-8 flex flex-col items-center justify-center p-12 border-2 border-dashed rounded-lg text-muted-foreground">
-            <Calendar className="h-12 w-12 mb-4 opacity-20" />
-            <p>Puantaj verileri için backend entegrasyonu tamamlanıyor.</p>
-          </div>
         </CardContent>
       </Card>
     </div>
