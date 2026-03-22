@@ -142,7 +142,7 @@ if (!fs.existsSync(uploadsDir)) {
 }
 
 // Initial admin user if not exists
-const adminCount = db.prepare("SELECT count(*) as count FROM users WHERE role = 'admin'").get().count;
+const adminCount = db.prepare("SELECT count(*) as count FROM users WHERE role = ?").get('admin').count;
 if (adminCount === 0) {
   const hashedPassword = bcrypt.hashSync('admin123', 10);
   db.prepare('INSERT INTO users (tc, password, role, must_change_password) VALUES (?, ?, ?, ?)').run('admin', hashedPassword, 'admin', 0);
