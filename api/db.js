@@ -8,7 +8,13 @@ const isVercel = process.env.VERCEL;
 const dbDir = isVercel ? '/tmp' : __dirname;
 const dbPath = path.resolve(dbDir, 'personnel.db');
 
-const db = new Database(dbPath);
+let db;
+try {
+  db = new Database(dbPath);
+} catch (err) {
+  console.error('SQLITE INIT ERROR:', err);
+  throw err; // Re-throw to be caught by index.js
+}
 
 // Create tables
 db.exec(`

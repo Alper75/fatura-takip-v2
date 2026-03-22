@@ -9,15 +9,35 @@ const xlsx = require('xlsx');
 const { v4: uuidv4 } = require('uuid');
 const { createInvoiceAndGetHTML } = require('fatura');
 
-// Internal Modules (Vercel scope)
-const db = require('./db');
-const { generateToken, authMiddleware, adminMiddleware, bcrypt } = require('./auth');
+let db, generateToken, authMiddleware, adminMiddleware, bcrypt;
+
+try {
+  // Internal Modules (Vercel scope)
+  db = require('./db');
+  const auth = require('./auth');
+  generateToken = auth.generateToken;
+  authMiddleware = auth.authMiddleware;
+  adminMiddleware = auth.adminMiddleware;
+  bcrypt = auth.bcrypt;
+} catch (err) {
+  console.error('DB/AUTH LOAD ERROR:', err);
+}
 
 const app = express();
-const PORT = process.env.PORT || 5000;
-
 app.use(cors());
 app.use(bodyParser.json());
+
+// Global Error Catch for Startup Failures
+app.use((req, res, next) => {
+  if (!db) {
+    return res.status(500).json({ 
+      success: false, 
+      message: 'Database initialization failed. This is likely due to better-sqlite3 native module issues on Vercel.',
+      error: process.env.NODE_ENV === 'development' ? 'DB was null' : undefined
+    });
+  }
+  next();
+});
 
 // Vercel /tmp directory for ephemeral uploads
 const isVercel = process.env.VERCEL;
