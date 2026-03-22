@@ -186,7 +186,7 @@ export default function PersonelDashboard() {
             <CardDescription>Dosya yükle veya talepte bulun.</CardDescription>
           </CardHeader>
           <CardContent className="grid gap-2">
-            <Button variant="outline" className="justify-start">
+            <Button variant="outline" className="justify-start" onClick={() => toast.info('Evrak yükleme özelliği yakında eklenecek.')}>
               <Upload className="mr-2 h-4 w-4" />
               Evrak Yükle (Özlük)
             </Button>
@@ -194,7 +194,7 @@ export default function PersonelDashboard() {
               <FileText className="mr-2 h-4 w-4" />
               Avans / Masraf Talebi
             </Button>
-            <Button variant="outline" className="justify-start">
+            <Button variant="outline" className="justify-start" onClick={() => toast.info('Puantaj girişi özelliği yakında eklenecek.')}>
               <Clock className="mr-2 h-4 w-4" />
               Puantaj Girişi Yap
             </Button>

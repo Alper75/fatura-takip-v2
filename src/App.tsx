@@ -14,6 +14,11 @@ import { KesilecekFaturalar } from './sections/KesilecekFaturalar';
 import { Toaster } from '@/components/ui/sonner';
 import PersonelListe from './sections/PersonelListe';
 import PersonelDashboard from './sections/PersonelDashboard';
+import IzinYonetimi from './sections/IzinYonetimi';
+import TalepYonetimi from './sections/TalepYonetimi';
+import PuantajCetveli from './sections/PuantajCetveli';
+import PersonelIzinlerim from './sections/PersonelIzinlerim';
+import PersonelMasraflarim from './sections/PersonelMasraflarim';
 
 function AppContent() {
   const { isAuthenticated, currentView } = useApp();
@@ -50,6 +55,16 @@ function AppContent() {
             return <PersonelListe />;
           case 'personel-dashboard':
             return <PersonelDashboard />;
+          case 'izin-yonetimi':
+            return <IzinYonetimi />;
+          case 'talep-yonetimi':
+            return <TalepYonetimi />;
+          case 'puantaj-cetveli':
+            return <PuantajCetveli />;
+          case 'personel-izinlerim':
+            return <PersonelIzinlerim />;
+          case 'personel-masraflarim':
+            return <PersonelMasraflarim />;
           default:
             return <Dashboard />; // Default to Dashboard if currentView is not recognized
         }

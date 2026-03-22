@@ -174,6 +174,7 @@ app.post('/api/personnel/leaves', authMiddleware, (req, res) => {
   const { type, start_date, end_date, description } = req.body;
   try {
     const p = db.prepare('SELECT id FROM personnel WHERE user_id = ?').get(req.user.id);
+    if (!p) return res.status(404).json({ success: false, message: 'Personel kaydı bulunamadı.' });
     db.prepare('INSERT INTO leaves (personnel_id, type, start_date, end_date, description) VALUES (?, ?, ?, ?, ?)').run(
       p.id, type, start_date, end_date, description
     );
@@ -250,11 +251,12 @@ app.get('/api/announcements', authMiddleware, (req, res) => {
   res.json({ success: true, data });
 });
 
-app.post('/api/requests', authMiddleware, upload.single('file'), (req, res) => {
+app.post('/api/personnel/requests', authMiddleware, upload.single('file'), (req, res) => {
   const { type, amount, date, description } = req.body;
-  const p = db.prepare('SELECT id FROM personnel WHERE user_id = ?').get(req.user.id);
-  const receipt_path = req.file ? req.file.path : null;
   try {
+    const p = db.prepare('SELECT id FROM personnel WHERE user_id = ?').get(req.user.id);
+    if (!p) return res.status(404).json({ success: false, message: 'Personel kaydı bulunamadı.' });
+    const receipt_path = req.file ? req.file.path : null;
     db.prepare('INSERT INTO requests (personnel_id, type, amount, date, description, receipt_path) VALUES (?, ?, ?, ?, ?, ?)').run(
       p.id, type, amount, date, description, receipt_path
     );
