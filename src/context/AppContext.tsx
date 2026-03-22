@@ -19,15 +19,7 @@ import type {
   VergiRaporu,
   MasrafKurali,
   KesilecekFatura,
-  Personnel,
-  Pointage,
-  Leave,
-  Document,
-  Asset,
-  Training,
-  Payroll,
-  PersonnelRequest,
-  Announcement
+  Personnel
 } from '@/types';
 import { AYLAR, GELIR_VERGISI_DILIMLERI } from '@/types';
 
@@ -138,11 +130,7 @@ interface AppContextType {
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
-// Demo Kullanıcı (Artık veritabanından gelecek, ama tip hatası olmasın diye güncelliyoruz)
-const DEMO_USER: User = {
-  tc: '00000000000',
-  role: 'admin'
-};
+// AppContext.tsx
 
 // Demo Cariler
 const DEMO_CARILER: Cari[] = [
