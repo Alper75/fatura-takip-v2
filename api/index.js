@@ -107,6 +107,23 @@ app.get('/api/admin/personnel', authMiddleware, adminMiddleware, (req, res) => {
   }
 });
 
+app.post('/api/admin/personnel', authMiddleware, adminMiddleware, async (req, res) => {
+  const { tc, first_name, last_name, email, phone, position, department, salary, annual_leave_days } = req.body;
+  if (!tc || !first_name || !last_name) {
+    return res.status(400).json({ success: false, message: 'TC, isim ve soyisim gereklidir.' });
+  }
+  try {
+    const defaultPassword = bcrypt.hashSync('123456', 10);
+    const userResult = db.prepare('INSERT INTO users (tc, password, role) VALUES (?, ?, ?)').run(tc, defaultPassword, 'personnel');
+    db.prepare('INSERT INTO personnel (user_id, first_name, last_name, email, phone, position, department, salary, annual_leave_days, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
+      userResult.lastInsertRowid, first_name, last_name, email, phone, position, department, salary, annual_leave_days || 14, 'Active'
+    );
+    res.json({ success: true, message: 'Personel başarıyla oluşturuldu.' });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 app.post('/api/admin/personnel/bulk-upload', authMiddleware, adminMiddleware, upload.single('file'), (req, res) => {
   if (!req.file) return res.status(400).json({ success: false, message: 'Excel dosyası gereklidir.' });
   try {
