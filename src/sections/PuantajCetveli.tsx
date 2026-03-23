@@ -10,8 +10,10 @@ import {
   XCircle, 
   Clock, 
   Palmtree, 
-  Coffee 
+  Coffee,
+  FileSpreadsheet
 } from 'lucide-react';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { toast } from 'sonner';
 
 const STATUS_OPTIONS = [
@@ -24,7 +26,7 @@ const STATUS_OPTIONS = [
 ];
 
 export default function PuantajCetveli() {
-  const { personnel, pointages, fetchPersonnel, fetchPointages, submitPointage } = useApp();
+  const { personnel, pointages, fetchPersonnel, fetchPointages, submitPointage, downloadPuantajTemplate, uploadPuantajExcel } = useApp();
   const [currentDate, setCurrentDate] = useState(new Date());
 
   useEffect(() => {
@@ -40,7 +42,6 @@ export default function PuantajCetveli() {
 
   const monthLabel = currentDate.toLocaleString('tr-TR', { month: 'long', year: 'numeric' });
 
-  // Mevcut puantaj verisini haritala (personnel_id-date -> status)
   const pointageMap = useMemo(() => {
     const map: Record<string, any> = {};
     pointages.forEach(p => {
@@ -49,22 +50,16 @@ export default function PuantajCetveli() {
     return map;
   }, [pointages]);
 
-  const handleCellClick = async (personId: number, day: number) => {
+  const handleCellClick = async (personId: number, day: number, status: string) => {
     const year = currentDate.getFullYear();
     const month = (currentDate.getMonth() + 1).toString().padStart(2, '0');
     const dayStr = day.toString().padStart(2, '0');
     const dateStr = `${year}-${month}-${dayStr}`;
     
-    // Mevcut durumu bul ve bir sonrakine geç
-    const current = pointageMap[`${personId}-${dateStr}`]?.status || 'Work';
-    const currentIndex = STATUS_OPTIONS.findIndex(o => o.id === current);
-    const nextIndex = (currentIndex + 1) % STATUS_OPTIONS.length;
-    const nextStatus = STATUS_OPTIONS[nextIndex].id;
-
     const result = await submitPointage({
       personnel_id: personId,
       date: dateStr,
-      status: nextStatus,
+      status: status,
       overtime_hours: 0
     });
 
@@ -73,8 +68,17 @@ export default function PuantajCetveli() {
     }
   };
 
-  const handlePrevMonth = () => setCurrentDate(new Date(currentDate.setMonth(currentDate.getMonth() - 1)));
-  const handleNextMonth = () => setCurrentDate(new Date(currentDate.setMonth(currentDate.getMonth() + 1)));
+  const onFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const res = await uploadPuantajExcel(file);
+      if (res.success) toast.success(res.message);
+      else toast.error(res.message);
+    }
+  };
+
+  const handlePrevMonth = () => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1));
+  const handleNextMonth = () => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1));
 
   return (
     <div className="space-y-6">
@@ -83,10 +87,21 @@ export default function PuantajCetveli() {
           <h2 className="text-2xl font-bold tracking-tight">Puantaj Cetveli</h2>
           <p className="text-muted-foreground">Personel günlük çalışma ve devam takibi.</p>
         </div>
-        <div className="flex items-center gap-4 bg-white p-2 rounded-lg border shadow-sm">
-          <Button variant="ghost" size="icon" onClick={handlePrevMonth}><ChevronLeft className="h-4 w-4" /></Button>
-          <span className="font-bold min-w-[120px] text-center">{monthLabel}</span>
-          <Button variant="ghost" size="icon" onClick={handleNextMonth}><ChevronRight className="h-4 w-4" /></Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={downloadPuantajTemplate}>
+            <FileSpreadsheet className="h-4 w-4 mr-2" /> Şablon
+          </Button>
+          <div className="relative">
+            <input type="file" className="hidden" id="puantaj-upload" accept=".xlsx, .xls" onChange={onFileUpload} />
+            <Button variant="outline" size="sm" onClick={() => document.getElementById('puantaj-upload')?.click()}>
+              <FileSpreadsheet className="h-4 w-4 mr-2" /> Excel Yükle
+            </Button>
+          </div>
+          <div className="flex items-center gap-4 bg-white p-2 rounded-lg border shadow-sm ml-2">
+            <Button variant="ghost" size="icon" onClick={handlePrevMonth}><ChevronLeft className="h-4 w-4" /></Button>
+            <span className="font-bold min-w-[120px] text-center">{monthLabel}</span>
+            <Button variant="ghost" size="icon" onClick={handleNextMonth}><ChevronRight className="h-4 w-4" /></Button>
+          </div>
         </div>
       </div>
 
@@ -104,13 +119,13 @@ export default function PuantajCetveli() {
           <Table className="border-collapse">
             <TableHeader className="bg-slate-50">
               <TableRow>
-                <TableHead className="sticky left-0 bg-slate-50 z-20 w-48 border-r">Personel</TableHead>
+                <TableHead className="sticky left-0 bg-slate-50 z-20 w-48 border-r text-xs">Personel</TableHead>
                 {Array.from({ length: daysInMonth }).map((_, i) => {
                    const day = i + 1;
                    const d = new Date(currentDate.getFullYear(), currentDate.getMonth(), day);
                    const isWeekend = d.getDay() === 0 || d.getDay() === 6;
                    return (
-                     <TableHead key={day} className={`text-center p-1 text-[10px] min-w-[30px] border-r ${isWeekend ? 'bg-slate-100 text-slate-400' : ''}`}>
+                     <TableHead key={day} className={`text-center p-1 text-[10px] min-w-[30px] border-r ${isWeekend ? 'bg-slate-200 text-slate-600 font-bold' : ''}`}>
                        {day}
                      </TableHead>
                    );
@@ -120,25 +135,48 @@ export default function PuantajCetveli() {
             <TableBody>
               {personnel.map(p => (
                 <TableRow key={p.id}>
-                  <TableCell className="sticky left-0 bg-white z-10 font-bold text-xs border-r">
+                  <TableCell className="sticky left-0 bg-white z-10 font-bold text-[11px] border-r">
                     {p.first_name} {p.last_name}
                   </TableCell>
                   {Array.from({ length: daysInMonth }).map((_, i) => {
                     const day = i + 1;
+                    const d = new Date(currentDate.getFullYear(), currentDate.getMonth(), day);
+                    const isWeekend = d.getDay() === 0 || d.getDay() === 6;
                     const dateStr = `${currentDate.getFullYear()}-${(currentDate.getMonth() + 1).toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}`;
                     const pt = pointageMap[`${p.id}-${dateStr}`];
-                    const status = pt?.status || 'Work';
+                    
+                    // Hafta sonu ise ve kayıt yoksa varsayılan renk slate-100, kayıt varsa o rengi kullan
+                    const status = pt?.status || (isWeekend ? 'Weekend' : 'Work');
                     const config = STATUS_OPTIONS.find(o => o.id === status) || STATUS_OPTIONS[0];
                     
                     return (
                       <TableCell 
                         key={day} 
-                        className={`p-0 text-center border-r hover:opacity-80 transition-opacity cursor-pointer h-10`}
-                        onClick={() => handleCellClick(p.id, day)}
+                        className={`p-0 text-center border-r hover:opacity-80 transition-opacity cursor-pointer h-10 ${isWeekend && !pt ? 'bg-slate-100' : ''}`}
                       >
-                        <div className={`w-full h-full flex items-center justify-center ${config.color} text-white`}>
-                           {pt?.overtime_hours > 0 && <span className="text-[8px] font-bold">+{pt.overtime_hours}</span>}
-                        </div>
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <div className={`w-full h-full flex items-center justify-center ${config.color} text-white`}>
+                              {pt?.overtime_hours > 0 && <span className="text-[8px] font-bold">+{pt.overtime_hours}</span>}
+                            </div>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-48 p-2 z-[100]" side="bottom">
+                            <div className="grid grid-cols-1 gap-1">
+                              {STATUS_OPTIONS.map(opt => (
+                                <Button 
+                                  key={opt.id} 
+                                  variant="ghost" 
+                                  size="sm" 
+                                  className="justify-start h-8 text-xs"
+                                  onClick={() => handleCellClick(p.id, day, opt.id)}
+                                >
+                                  <div className={`w-3 h-3 rounded-full mr-2 ${opt.color}`}></div>
+                                  {opt.label}
+                                </Button>
+                              ))}
+                            </div>
+                          </PopoverContent>
+                        </Popover>
                       </TableCell>
                     );
                   })}
@@ -148,7 +186,7 @@ export default function PuantajCetveli() {
           </Table>
         </div>
       </Card>
-      <p className="text-[10px] text-slate-400 italic">* Hücrelerin üzerine tıklayarak durumu değiştirebilirsiniz (Çalıştı &rarr; Hafta Sonu &rarr; İzinli vb.).</p>
+      <p className="text-[10px] text-slate-400 italic font-medium px-1">* Hücrelerin üzerine tıklayarak durumu seçim listesinden hızlıca güncelleyebilirsiniz.</p>
     </div>
   );
 }

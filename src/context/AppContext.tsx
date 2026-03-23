@@ -143,6 +143,8 @@ interface AppContextType {
   submitPointage: (data: any) => Promise<any>;
   pointages: any[];
   fetchPointages: () => Promise<void>;
+  downloadPuantajTemplate: () => Promise<void>;
+  uploadPuantajExcel: (file: File) => Promise<{ success: boolean; message: string }>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -850,6 +852,55 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } catch (error: any) { return { success: false, message: error.message }; }
   }, [fetchLeaves, fetchPersonnel]);
 
+  const [pointages, setPointages] = useState<any[]>([]);
+  const fetchPointages = useCallback(async () => {
+    try {
+      const resp = await fetch('/api/admin/pointage', { 
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+      });
+      const data = await resp.json();
+      if (data.success) setPointages(data.data);
+    } catch (error) { console.error('Fetch pointages error:', error); }
+  }, []);
+
+  const downloadPuantajTemplate = useCallback(async () => {
+    try {
+      const response = await fetch('/api/admin/pointage/template', {
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+      });
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', 'puantaj_sablon.xlsx');
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    } catch (error) {
+      console.error('Template download error:', error);
+    }
+  }, []);
+
+  const uploadPuantajExcel = useCallback(async (file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    try {
+      const response = await fetch('/api/admin/pointage/bulk-upload', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` },
+        body: formData
+      });
+      const data = await response.json();
+      if (data.success) {
+        fetchPointages();
+        return { success: true, message: data.message };
+      }
+      return { success: false, message: data.message };
+    } catch (error: any) {
+      return { success: false, message: error.message };
+    }
+  }, [fetchPointages]);
+
   const [requests, setRequests] = useState<any[]>([]);
   const fetchRequests = useCallback(async () => {
     try {
@@ -905,16 +956,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } catch (error: any) { return { success: false, message: error.message }; }
   }, []);
 
-  const [pointages, setPointages] = useState<any[]>([]);
-  const fetchPointages = useCallback(async () => {
-    try {
-      const resp = await fetch('/api/admin/pointage', { 
-        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
-      });
-      const data = await resp.json();
-      if (data.success) setPointages(data.data);
-    } catch (error) { console.error('Fetch pointages error:', error); }
-  }, []);
 
   const submitPointage = useCallback(async (data: any) => {
     try {
@@ -1464,7 +1505,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         uploadPersonnelDocument,
         submitPointage,
         pointages,
-        fetchPointages
+        fetchPointages,
+        downloadPuantajTemplate,
+        uploadPuantajExcel
       }}
     >
       {children}

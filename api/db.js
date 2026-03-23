@@ -36,6 +36,7 @@ db.exec(`
     phone TEXT,
     address TEXT,
     start_date DATE,
+    end_date DATE,
     position TEXT,
     department TEXT,
     iban TEXT,
@@ -139,9 +140,11 @@ db.exec(`
 // Add status column to personnel if not exists (Migration)
 try {
   db.exec("ALTER TABLE personnel ADD COLUMN status TEXT DEFAULT 'Active'");
-} catch (e) {
-  // Column already exists or table not ready, ignore
-}
+} catch (e) {}
+
+try {
+  db.exec("ALTER TABLE personnel ADD COLUMN end_date DATE");
+} catch (e) {}
 
 // Create uploads directory if it doesn't exist (Only if not on Vercel or use /tmp)
 const uploadsDir = isVercel ? '/tmp/uploads' : path.join(__dirname, 'uploads');

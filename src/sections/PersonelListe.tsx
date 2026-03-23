@@ -45,7 +45,9 @@ export default function PersonelListe() {
     department: '',
     salary: '',
     annual_leave_days: 14,
-    status: 'Active' as 'Active' | 'Inactive'
+    status: 'Active' as 'Active' | 'Inactive',
+    start_date: new Date().toISOString().split('T')[0],
+    end_date: ''
   });
 
   const [editPerson, setEditPerson] = useState<any>(null);
@@ -83,7 +85,9 @@ export default function PersonelListe() {
         department: '',
         salary: '',
         annual_leave_days: 14,
-        status: 'Active'
+        status: 'Active',
+        start_date: new Date().toISOString().split('T')[0],
+        end_date: ''
       });
     } else {
       toast.error(result.message);
@@ -242,6 +246,16 @@ export default function PersonelListe() {
                     </select>
                   </div>
                 </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="start_date">İşe Giriş Tarihi</Label>
+                    <Input id="start_date" type="date" value={newPerson.start_date} onChange={(e) => setNewPerson({...newPerson, start_date: e.target.value})} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="end_date">İşten Çıkış Tarihi</Label>
+                    <Input id="end_date" type="date" value={newPerson.end_date} onChange={(e) => setNewPerson({...newPerson, end_date: e.target.value})} />
+                  </div>
+                </div>
                 <DialogFooter>
                   <Button type="submit" className="w-full">Kaydet</Button>
                 </DialogFooter>
@@ -342,6 +356,16 @@ export default function PersonelListe() {
                     <option value="Active">Aktif</option>
                     <option value="Inactive">Ayrıldı</option>
                   </select>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="edit-start_date">İşe Giriş Tarihi</Label>
+                  <Input id="edit-start_date" type="date" value={editPerson.start_date || ''} onChange={(e) => setEditPerson({...editPerson, start_date: e.target.value})} />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit-end_date">İşten Çıkış Tarihi</Label>
+                  <Input id="edit-end_date" type="date" value={editPerson.end_date || ''} onChange={(e) => setEditPerson({...editPerson, end_date: e.target.value})} />
                 </div>
               </div>
               <DialogFooter>

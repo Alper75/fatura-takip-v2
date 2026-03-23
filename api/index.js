@@ -94,6 +94,23 @@ app.get('/api/personnel/me', authMiddleware, (req, res) => {
   }
 });
 
+// Helper to calculate annual leave based on seniority
+const calculateAnnualLeave = (startDate) => {
+  if (!startDate) return 14;
+  const start = new Date(startDate);
+  const now = new Date();
+  const years = now.getFullYear() - start.getFullYear();
+  const isAnniversaryPassed = (now.getMonth() > start.getMonth()) || 
+                               (now.getMonth() === start.getMonth() && now.getDate() >= start.getDate());
+  const seniority = isAnniversaryPassed ? years : years - 1;
+
+  if (seniority < 1) return 0; // Henüz 1 yıl dolmadıysa hakediş yok (veya 14 de denebilir ama yasal kural 1 yıl dolunca başlar)
+  if (seniority >= 1 && seniority <= 5) return 14;
+  if (seniority > 5 && seniority < 15) return 20;
+  if (seniority >= 15) return 26;
+  return 14;
+};
+
 app.get('/api/admin/personnel', authMiddleware, adminMiddleware, (req, res) => {
   try {
     const personnelList = db.prepare(`
@@ -108,15 +125,19 @@ app.get('/api/admin/personnel', authMiddleware, adminMiddleware, (req, res) => {
 });
 
 app.post('/api/admin/personnel', authMiddleware, adminMiddleware, async (req, res) => {
-  const { tc, first_name, last_name, email, phone, position, department, salary, annual_leave_days } = req.body;
+  const { tc, first_name, last_name, email, phone, position, department, salary, annual_leave_days, start_date, end_date } = req.body;
   if (!tc || !first_name || !last_name) {
     return res.status(400).json({ success: false, message: 'TC, isim ve soyisim gereklidir.' });
   }
   try {
     const defaultPassword = bcrypt.hashSync('123456', 10);
     const userResult = db.prepare('INSERT INTO users (tc, password, role) VALUES (?, ?, ?)').run(tc, defaultPassword, 'personnel');
-    db.prepare('INSERT INTO personnel (user_id, first_name, last_name, email, phone, position, department, salary, annual_leave_days, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
-      userResult.lastInsertRowid, first_name, last_name, email, phone, position, department, salary, annual_leave_days || 14, 'Active'
+    
+    // If annual_leave_days is not provided, calculate it
+    const calculatedLeave = annual_leave_days || calculateAnnualLeave(start_date);
+
+    db.prepare('INSERT INTO personnel (user_id, first_name, last_name, email, phone, position, department, salary, annual_leave_days, status, start_date, end_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
+      userResult.lastInsertRowid, first_name, last_name, email, phone, position, department, salary, calculatedLeave, 'Active', start_date, end_date
     );
     res.json({ success: true, message: 'Personel başarıyla oluşturuldu.' });
   } catch (error) {
@@ -188,14 +209,15 @@ app.delete('/api/admin/personnel/:id', authMiddleware, adminMiddleware, (req, re
 // Update personnel (admin) - MOVED & CONSOLIDATED
 app.put('/api/admin/personnel/:id', authMiddleware, adminMiddleware, (req, res) => {
   const { id } = req.params;
-  const { first_name, last_name, email, phone, position, department, salary, annual_leave_days, status } = req.body;
+  const { first_name, last_name, email, phone, position, department, salary, annual_leave_days, status, start_date, end_date } = req.body;
   try {
     db.prepare(`
       UPDATE personnel SET 
         first_name = ?, last_name = ?, email = ?, phone = ?, 
-        position = ?, department = ?, salary = ?, annual_leave_days = ?, status = ?
+        position = ?, department = ?, salary = ?, annual_leave_days = ?, status = ?,
+        start_date = ?, end_date = ?
       WHERE id = ?
-    `).run(first_name, last_name, email, phone, position, department, salary, annual_leave_days, status || 'Active', id);
+    `).run(first_name, last_name, email, phone, position, department, salary, annual_leave_days, status || 'Active', start_date, end_date, id);
     res.json({ success: true, message: 'Personel güncellendi.' });
   } catch (error) { res.status(500).json({ success: false, message: error.message }); }
 });
@@ -301,6 +323,54 @@ app.get('/api/admin/pointage', authMiddleware, adminMiddleware, (req, res) => {
       ORDER BY po.date DESC
     `).all();
     res.json({ success: true, data: list });
+  } catch (error) { res.status(500).json({ success: false, message: error.message }); }
+});
+
+app.get('/api/admin/pointage/template', authMiddleware, adminMiddleware, (req, res) => {
+  const personnel = db.prepare('SELECT id, first_name, last_name FROM personnel WHERE status = "Active"').all();
+  const data = personnel.map(p => ({
+    'ID': p.id,
+    'İsim': p.first_name + ' ' + p.last_name,
+    'Tarih': new Date().toISOString().split('T')[0],
+    'Durum': 'Work',
+    'Fazla Mesai': 0
+  }));
+  const ws = xlsx.utils.json_to_sheet(data);
+  const wb = xlsx.utils.book_new();
+  xlsx.utils.book_append_sheet(wb, ws, "Puantaj");
+  const buf = xlsx.write(wb, { type: 'buffer', bookType: 'xlsx' });
+  res.setHeader('Content-Disposition', 'attachment; filename=puantaj_sablon.xlsx');
+  res.send(buf);
+});
+
+app.post('/api/admin/pointage/bulk-upload', authMiddleware, adminMiddleware, upload.single('file'), (req, res) => {
+  if (!req.file) return res.status(400).json({ success: false, message: 'Excel dosyası gereklidir.' });
+  try {
+    const workbook = xlsx.readFile(req.file.path);
+    const sheetName = workbook.SheetNames[0];
+    const data = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName]);
+    
+    const upsert = db.prepare(`
+      INSERT INTO pointage (personnel_id, date, status, overtime_hours)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(personnel_id, date) DO UPDATE SET
+        status = excluded.status,
+        overtime_hours = excluded.overtime_hours
+    `);
+
+    const transaction = db.transaction((rows) => {
+      for (const row of rows) {
+        const pid = row.ID || row.id || row.Id;
+        const date = row.Tarih || row.date || row.Date;
+        const status = row.Durum || row.status || row.Status;
+        const ot = row['Fazla Mesai'] || row.overtime || 0;
+        if (pid && date && status) {
+          upsert.run(pid, date, status, ot);
+        }
+      }
+    });
+    transaction(data);
+    res.json({ success: true, message: `${data.length} puantaj kaydı işlendi.` });
   } catch (error) { res.status(500).json({ success: false, message: error.message }); }
 });
 

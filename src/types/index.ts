@@ -199,6 +199,7 @@ export interface Personnel {
   phone?: string;
   address?: string;
   start_date?: string;
+  end_date?: string;
   position?: string;
   department?: string;
   iban?: string;
