@@ -41,6 +41,7 @@ db.exec(`
     iban TEXT,
     salary REAL,
     annual_leave_days INTEGER DEFAULT 14,
+    status TEXT DEFAULT 'Active',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
   );
@@ -134,6 +135,13 @@ db.exec(`
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
 `);
+
+// Add status column to personnel if not exists (Migration)
+try {
+  db.exec("ALTER TABLE personnel ADD COLUMN status TEXT DEFAULT 'Active'");
+} catch (e) {
+  // Column already exists or table not ready, ignore
+}
 
 // Create uploads directory if it doesn't exist (Only if not on Vercel or use /tmp)
 const uploadsDir = isVercel ? '/tmp/uploads' : path.join(__dirname, 'uploads');
