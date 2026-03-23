@@ -44,10 +44,13 @@ export default function PersonelListe() {
     position: '',
     department: '',
     salary: '',
-    annual_leave_days: 14
+    annual_leave_days: 14,
+    status: 'Active' as 'Active' | 'Inactive'
   });
 
   const [editPerson, setEditPerson] = useState<any>(null);
+  const [selectedPersonForDetail, setSelectedPersonForDetail] = useState<any>(null);
+  const [isDetailDialogOpen, setIsDetailDialogOpen] = useState(false);
 
   useEffect(() => {
     fetchPersonnel();
@@ -79,7 +82,8 @@ export default function PersonelListe() {
         position: '',
         department: '',
         salary: '',
-        annual_leave_days: 14
+        annual_leave_days: 14,
+        status: 'Active'
       });
     } else {
       toast.error(result.message);
@@ -225,6 +229,18 @@ export default function PersonelListe() {
                       onChange={(e) => setNewPerson({...newPerson, salary: e.target.value})}
                     />
                   </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="status">Durum</Label>
+                    <select 
+                      id="status"
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                      value={newPerson.status}
+                      onChange={(e) => setNewPerson({...newPerson, status: e.target.value as any})}
+                    >
+                      <option value="Active">Aktif</option>
+                      <option value="Inactive">Ayrıldı</option>
+                    </select>
+                  </div>
                 </div>
                 <DialogFooter>
                   <Button type="submit" className="w-full">Kaydet</Button>
@@ -315,6 +331,18 @@ export default function PersonelListe() {
                     onChange={(e) => setEditPerson({...editPerson, annual_leave_days: parseInt(e.target.value)})}
                   />
                 </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit-status">Durum</Label>
+                  <select 
+                    id="edit-status"
+                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                    value={editPerson.status || 'Active'}
+                    onChange={(e) => setEditPerson({...editPerson, status: e.target.value as any})}
+                  >
+                    <option value="Active">Aktif</option>
+                    <option value="Inactive">Ayrıldı</option>
+                  </select>
+                </div>
               </div>
               <DialogFooter>
                 <Button type="submit" className="w-full">Güncelle</Button>
@@ -364,9 +392,13 @@ export default function PersonelListe() {
                     <TableCell>{p.position}</TableCell>
                     <TableCell>{p.phone}</TableCell>
                     <TableCell>
-                      {p.must_change_password ? (
+                      {p.status === 'Inactive' ? (
+                        <span className="inline-flex items-center rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-medium text-red-800">
+                          Ayrıldı
+                        </span>
+                      ) : p.must_change_password ? (
                         <span className="inline-flex items-center rounded-full bg-yellow-100 px-2.5 py-0.5 text-xs font-medium text-yellow-800">
-                          Şifre Değişimi Bekleniyor
+                          Şifre Bekliyor
                         </span>
                       ) : (
                         <span className="inline-flex items-center rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800">
@@ -389,7 +421,11 @@ export default function PersonelListe() {
                         }}>
                           <Trash2 className="h-4 w-4" />
                         </Button>
-                        <Button variant="ghost" size="icon">
+                        <Button variant="ghost" size="icon" onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedPersonForDetail(p);
+                          setIsDetailDialogOpen(true);
+                        }}>
                           <ChevronRight className="h-4 w-4" />
                         </Button>
                       </div>
@@ -407,6 +443,121 @@ export default function PersonelListe() {
           </Table>
         </CardContent>
       </Card>
+
+      {selectedPersonForDetail && (
+        <PersonelDetayDrawer 
+          person={selectedPersonForDetail} 
+          open={isDetailDialogOpen} 
+          onOpenChange={setIsDetailDialogOpen} 
+        />
+      )}
     </div>
+  );
+}
+
+// Alt Bileşen: Personel Detay Paneli
+function PersonelDetayDrawer({ person, open, onOpenChange }: { person: any, open: boolean, onOpenChange: (open: boolean) => void }) {
+  const { leaves, pointages } = useApp();
+  
+  const personLeaves = leaves.filter(l => l.personnel_id === person.id);
+  const personPointages = pointages.filter(p => p.personnel_id === person.id);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-[700px] max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>{person.first_name} {person.last_name} - Personel Detayı</DialogTitle>
+        </DialogHeader>
+        
+        <div className="space-y-6 py-4">
+          <div className="grid grid-cols-3 gap-4">
+            <Card className="bg-slate-50 border-0 shadow-none">
+              <CardContent className="pt-4">
+                <p className="text-xs text-slate-500 uppercase font-bold">Kalan İzin</p>
+                <p className="text-2xl font-bold">{person.annual_leave_days} Gün</p>
+              </CardContent>
+            </Card>
+            <Card className="bg-slate-50 border-0 shadow-none">
+              <CardContent className="pt-4">
+                <p className="text-xs text-slate-500 uppercase font-bold">Pozisyon</p>
+                <p className="text-sm font-semibold">{person.position || '-'}</p>
+              </CardContent>
+            </Card>
+            <Card className="bg-slate-50 border-0 shadow-none">
+              <CardContent className="pt-4">
+                <p className="text-xs text-slate-500 uppercase font-bold">Maaş</p>
+                <p className="text-sm font-semibold">{person.salary ? new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(person.salary) : '-'}</p>
+              </CardContent>
+            </Card>
+          </div>
+
+          <div className="space-y-3">
+            <h4 className="text-sm font-bold flex items-center gap-2">
+              <div className="w-2 h-2 rounded-full bg-blue-500"></div>
+              İzin Geçmişi
+            </h4>
+            <div className="border rounded-lg overflow-hidden">
+              <Table>
+                <TableHeader className="bg-slate-50">
+                  <TableRow>
+                    <TableHead className="py-2 h-auto text-[10px]">Tarih</TableHead>
+                    <TableHead className="py-2 h-auto text-[10px]">Tür</TableHead>
+                    <TableHead className="py-2 h-auto text-[10px]">Durum</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {personLeaves.length > 0 ? personLeaves.map(l => (
+                    <TableRow key={l.id}>
+                      <TableCell className="py-2 text-xs">{l.start_date} / {l.end_date}</TableCell>
+                      <TableCell className="py-2 text-xs">{l.type}</TableCell>
+                      <TableCell className="py-2 text-xs">
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] ${
+                          l.status === 'APPROVED' ? 'bg-green-100 text-green-700' : 
+                          l.status === 'REJECTED' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'
+                        }`}>
+                          {l.status}
+                        </span>
+                      </TableCell>
+                    </TableRow>
+                  )) : (
+                    <TableRow><TableCell colSpan={3} className="text-center py-4 text-xs italic">Kayıt yok.</TableCell></TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            <h4 className="text-sm font-bold flex items-center gap-2">
+              <div className="w-2 h-2 rounded-full bg-emerald-500"></div>
+              Son Puantaj Kayıtları
+            </h4>
+            <div className="border rounded-lg overflow-hidden">
+              <Table>
+                <TableHeader className="bg-slate-50">
+                  <TableRow>
+                    <TableHead className="py-2 h-auto text-[10px]">Tarih</TableHead>
+                    <TableHead className="py-2 h-auto text-[10px]">Durum</TableHead>
+                    <TableHead className="py-2 h-auto text-[10px]">Mesai</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {personPointages.slice(0, 10).map(p => (
+                    <TableRow key={p.id}>
+                      <TableCell className="py-2 text-xs">{p.date}</TableCell>
+                      <TableCell className="py-2 text-xs">{p.status}</TableCell>
+                      <TableCell className="py-2 text-xs">{p.overtime_hours}s</TableCell>
+                    </TableRow>
+                  ))}
+                  {personPointages.length === 0 && (
+                    <TableRow><TableCell colSpan={3} className="text-center py-4 text-xs italic">Kayıt yok.</TableCell></TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }

@@ -113,35 +113,46 @@ app.post('/api/admin/personnel/bulk-upload', authMiddleware, adminMiddleware, up
     const workbook = xlsx.readFile(req.file.path);
     const sheetName = workbook.SheetNames[0];
     const data = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName]);
-    const insertUser = db.prepare('INSERT INTO users (tc, password, role) VALUES (?, ?, ?)');
+    
+    const insertUser = db.prepare('INSERT OR IGNORE INTO users (tc, password, role) VALUES (?, ?, ?)');
     const insertPersonnel = db.prepare('INSERT INTO personnel (user_id, first_name, last_name, email, phone, position, department, salary) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
     const defaultPassword = bcrypt.hashSync('123456', 10);
+
+    const findField = (row, fields) => {
+      const key = Object.keys(row).find(k => fields.some(f => k.toLowerCase() === f.toLowerCase()));
+      return key ? row[key] : null;
+    };
+
+    let count = 0;
     const transaction = db.transaction((rows) => {
       for (const row of rows) {
-        const userResult = insertUser.run(row.TC.toString(), defaultPassword, 'personnel');
-        insertPersonnel.run(userResult.lastInsertRowid, row.Ad, row.Soyad, row.Email, row.Telefon, row.Pozisyon, row.Departman, row.Maaş);
+        const tc = findField(row, ['TC', 'TCKN', 'Kimlik', 'tc_no']);
+        const ad = findField(row, ['Ad', 'İsim', 'First Name', 'firstName']);
+        const soyad = findField(row, ['Soyad', 'Last Name', 'lastName']);
+        
+        if (!tc || !ad || !soyad) continue;
+
+        const userResult = insertUser.run(tc.toString(), defaultPassword, 'personnel');
+        if (userResult.changes > 0) {
+          insertPersonnel.run(
+            userResult.lastInsertRowid, 
+            ad, soyad, 
+            findField(row, ['Email', 'E-posta', 'Mail']), 
+            findField(row, ['Telefon', 'Phone', 'Tel']), 
+            findField(row, ['Pozisyon', 'Position', 'Görev']), 
+            findField(row, ['Departman', 'Department', 'Bölüm']), 
+            findField(row, ['Maaş', 'Maas', 'Salary'])
+          );
+          count++;
+        }
       }
     });
+    
     transaction(data);
-    res.json({ success: true, message: `${data.length} personel başarıyla eklendi.` });
+    res.json({ success: true, message: `${count} yeni personel başarıyla eklendi.` });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Excel işleme hatası: ' + error.message });
   }
-});
-
-// Update personnel (admin)
-app.put('/api/admin/personnel/:id', authMiddleware, adminMiddleware, (req, res) => {
-  const { id } = req.params;
-  const { first_name, last_name, email, phone, position, department, salary, annual_leave_days } = req.body;
-  try {
-    db.prepare(`
-      UPDATE personnel SET 
-        first_name = ?, last_name = ?, email = ?, phone = ?, 
-        position = ?, department = ?, salary = ?, annual_leave_days = ?
-      WHERE id = ?
-    `).run(first_name, last_name, email, phone, position, department, salary, annual_leave_days, id);
-    res.json({ success: true, message: 'Personel güncellendi.' });
-  } catch (error) { res.status(500).json({ success: false, message: error.message }); }
 });
 
 // Delete personnel (admin)
@@ -154,6 +165,21 @@ app.delete('/api/admin/personnel/:id', authMiddleware, adminMiddleware, (req, re
     }
     db.prepare('DELETE FROM personnel WHERE id = ?').run(id);
     res.json({ success: true, message: 'Personel silindi.' });
+  } catch (error) { res.status(500).json({ success: false, message: error.message }); }
+});
+
+// Update personnel (admin) - MOVED & CONSOLIDATED
+app.put('/api/admin/personnel/:id', authMiddleware, adminMiddleware, (req, res) => {
+  const { id } = req.params;
+  const { first_name, last_name, email, phone, position, department, salary, annual_leave_days, status } = req.body;
+  try {
+    db.prepare(`
+      UPDATE personnel SET 
+        first_name = ?, last_name = ?, email = ?, phone = ?, 
+        position = ?, department = ?, salary = ?, annual_leave_days = ?, status = ?
+      WHERE id = ?
+    `).run(first_name, last_name, email, phone, position, department, salary, annual_leave_days, status || 'Active', id);
+    res.json({ success: true, message: 'Personel güncellendi.' });
   } catch (error) { res.status(500).json({ success: false, message: error.message }); }
 });
 
@@ -184,8 +210,21 @@ app.post('/api/personnel/leaves', authMiddleware, (req, res) => {
 
 app.put('/api/admin/leaves/:id', authMiddleware, adminMiddleware, (req, res) => {
   const { id } = req.params;
-  const { status } = req.body;
+  const { status } = req.body; // 'APPROVED', 'REJECTED'
   try {
+    const leave = db.prepare('SELECT * FROM leaves WHERE id = ?').get(id);
+    if (!leave) return res.status(404).json({ success: false, message: 'İzin kaydı bulunamadı.' });
+
+    // Eğer onaylanıyorsa yıllık izinden düş
+    if (status === 'APPROVED' && leave.status !== 'APPROVED' && leave.type === 'Annual Leave') {
+      const start = new Date(leave.start_date);
+      const end = new Date(leave.end_date);
+      const diffTime = Math.abs(end - start);
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
+      
+      db.prepare('UPDATE personnel SET annual_leave_days = annual_leave_days - ? WHERE id = ?').run(diffDays, leave.personnel_id);
+    }
+
     db.prepare('UPDATE leaves SET status = ? WHERE id = ?').run(status, id);
     res.json({ success: true, message: 'Talep güncellendi.' });
   } catch (error) { res.status(500).json({ success: false, message: error.message }); }
@@ -213,22 +252,7 @@ app.put('/api/admin/requests/:id', authMiddleware, adminMiddleware, (req, res) =
   } catch (error) { res.status(500).json({ success: false, message: error.message }); }
 });
 
-app.post('/api/admin/personnel', authMiddleware, adminMiddleware, async (req, res) => {
-  const { tc, first_name, last_name, email, phone, position, department, salary } = req.body;
-  if (!tc || !first_name || !last_name) {
-    return res.status(400).json({ success: false, message: 'TC, isim ve soyisim gereklidir.' });
-  }
-  try {
-    const defaultPassword = bcrypt.hashSync('123456', 10);
-    const userResult = db.prepare('INSERT INTO users (tc, password, role) VALUES (?, ?, ?)').run(tc, defaultPassword, 'personnel');
-    db.prepare('INSERT INTO personnel (user_id, first_name, last_name, email, phone, position, department, salary) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(
-      userResult.lastInsertRowid, first_name, last_name, email, phone, position, department, salary
-    );
-    res.json({ success: true, message: 'Personel başarıyla oluşturuldu.' });
-  } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-});
+// This route was a duplicate of 216, removed and kept only one with extended logic above.
 
 // --- POINTAGE & REQUESTS (Simplified structure for index) ---
 app.post('/api/pointage', authMiddleware, (req, res) => {

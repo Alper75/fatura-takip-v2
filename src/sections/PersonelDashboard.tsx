@@ -23,7 +23,22 @@ import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 
 export default function PersonelDashboard() {
-  const { user, currentPersonnel, fetchMyPersonnel, changePassword, submitLeaveRequest, submitExpenseRequest, submitPointage } = useApp();
+  const { 
+    user, 
+    currentPersonnel, 
+    fetchMyPersonnel, 
+    changePassword, 
+    submitLeaveRequest, 
+    submitExpenseRequest, 
+    submitPointage,
+    leaves,
+    fetchLeaves,
+    pointages,
+    fetchPointages,
+    requests,
+    fetchRequests
+  } = useApp();
+
   const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(!!user?.mustChangePassword);
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -43,7 +58,22 @@ export default function PersonelDashboard() {
 
   useEffect(() => {
     fetchMyPersonnel();
-  }, [fetchMyPersonnel]);
+    fetchLeaves();
+    fetchPointages();
+    fetchRequests();
+  }, [fetchMyPersonnel, fetchLeaves, fetchPointages, fetchRequests]);
+
+  const myLeaves = leaves.filter(l => l.personnel_id === currentPersonnel?.id);
+  const myRequests = requests.filter(r => r.personnel_id === currentPersonnel?.id);
+  const myPointagesThisMonth = pointages.filter(p => {
+    if (p.personnel_id !== currentPersonnel?.id) return false;
+    const pDate = new Date(p.date);
+    const now = new Date();
+    return pDate.getMonth() === now.getMonth() && pDate.getFullYear() === now.getFullYear();
+  });
+
+  const pendingCount = myLeaves.filter(l => l.status === 'PENDING').length + 
+                       myRequests.filter(r => r.status === 'PENDING').length;
 
   const handlePasswordChange = async () => {
     if (newPassword !== confirmPassword) {
@@ -64,6 +94,7 @@ export default function PersonelDashboard() {
   };
 
   if (!currentPersonnel) return <div className="p-8">Yükleniyor...</div>;
+
   const handleLeaveSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const result = await submitLeaveRequest(leaveData);
@@ -89,7 +120,7 @@ export default function PersonelDashboard() {
   const handlePointageSubmit = async () => {
     const result = await submitPointage(pointageForm);
     if (result.success) {
-      toast.success(result.message);
+      toast.success(result.message || 'Puantaj kaydedildi.');
       setIsPointageDialogOpen(false);
     } else {
       toast.error(result.message);
@@ -101,9 +132,7 @@ export default function PersonelDashboard() {
       <div className="flex justify-between items-center">
         <div>
           <h2 className="text-3xl font-bold tracking-tight">Merhaba, {currentPersonnel.first_name}!</h2>
-          <p className="text-muted-foreground">
-            Bugün neler yapmak istersin?
-          </p>
+          <p className="text-muted-foreground">Bugün neler yapmak istersin?</p>
         </div>
         <div className="flex gap-2">
           <Button variant="outline">
@@ -130,7 +159,7 @@ export default function PersonelDashboard() {
             <Clock className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">22 / 30 Gün</div>
+            <div className="text-2xl font-bold">{myPointagesThisMonth.filter(p => p.status === 'Work').length} / {new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate()} Gün</div>
           </CardContent>
         </Card>
         <Card>
@@ -139,13 +168,12 @@ export default function PersonelDashboard() {
             <AlertCircle className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">1</div>
+            <div className="text-2xl font-bold">{pendingCount}</div>
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Son Maaş</CardTitle>
-            {/* Currency placeholder */}
             <span className="text-muted-foreground text-xs">₺</span>
           </CardHeader>
           <CardContent>
@@ -170,29 +198,24 @@ export default function PersonelDashboard() {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {/* Dummy data for now */}
-              <div className="flex items-center justify-between border-b pb-4">
-                <div className="space-y-1">
-                  <p className="text-sm font-medium leading-none">Yıllık İzin</p>
-                  <p className="text-xs text-muted-foreground">15 Nisan - 20 Nisan (5 Gün)</p>
+              {myLeaves.length > 0 ? myLeaves.slice(0, 5).map(l => (
+                <div key={l.id} className="flex items-center justify-between border-b pb-4">
+                  <div className="space-y-1">
+                    <p className="text-sm font-medium leading-none">{l.type}</p>
+                    <p className="text-xs text-muted-foreground">{l.start_date} - {l.end_date}</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                      l.status === 'APPROVED' ? 'bg-green-100 text-green-800' :
+                      l.status === 'REJECTED' ? 'bg-red-100 text-red-800' : 'bg-yellow-101 text-yellow-800'
+                    }`}>
+                      {l.status === 'PENDING' ? 'Beklemede' : l.status === 'APPROVED' ? 'Onaylandı' : 'Reddedildi'}
+                    </span>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className="inline-flex items-center rounded-full bg-yellow-100 px-2.5 py-0.5 text-xs font-medium text-yellow-800">
-                    Beklemede
-                  </span>
-                </div>
-              </div>
-              <div className="flex items-center justify-between border-b pb-4">
-                <div className="space-y-1">
-                  <p className="text-sm font-medium leading-none">Rapor</p>
-                  <p className="text-xs text-muted-foreground">2 Mart - 3 Mart (2 Gün)</p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="inline-flex items-center rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800">
-                    Onaylandı
-                  </span>
-                </div>
-              </div>
+              )) : (
+                <p className="text-center py-4 text-sm text-muted-foreground italic">Henüz izin talebiniz yok.</p>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -240,28 +263,16 @@ export default function PersonelDashboard() {
         <DialogContent onPointerDownOutside={(e) => e.preventDefault()}>
           <DialogHeader>
             <DialogTitle>Şifre Belirleme</DialogTitle>
-            <CardDescription>
-              İlk girişiniz olduğu için lütfen yeni bir şifre belirleyin.
-            </CardDescription>
+            <CardDescription>İlk girişiniz olduğu için lütfen yeni bir şifre belirleyin.</CardDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
             <div className="grid gap-2">
               <Label htmlFor="new-password">Yeni Şifre</Label>
-              <Input 
-                id="new-password" 
-                type="password" 
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-              />
+              <Input id="new-password" type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
             </div>
             <div className="grid gap-2">
               <Label htmlFor="confirm-password">Şifre Tekrar</Label>
-              <Input 
-                id="confirm-password" 
-                type="password" 
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-              />
+              <Input id="confirm-password" type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} />
             </div>
           </div>
           <DialogFooter>
@@ -352,6 +363,7 @@ export default function PersonelDashboard() {
         </DialogContent>
       </Dialog>
 
+      {/* Pointage Entry Dialog */}
       <Dialog open={isPointageDialogOpen} onOpenChange={setIsPointageDialogOpen}>
         <DialogContent className="sm:max-w-[425px]">
           <DialogHeader>
@@ -360,22 +372,11 @@ export default function PersonelDashboard() {
           <div className="grid gap-4 py-4">
             <div className="grid grid-cols-4 items-center gap-4">
               <Label htmlFor="pt-date" className="text-right">Tarih</Label>
-              <Input
-                id="pt-date"
-                type="date"
-                className="col-span-3"
-                value={pointageForm.date}
-                onChange={(e) => setPointageForm({ ...pointageForm, date: e.target.value })}
-              />
+              <Input id="pt-date" type="date" className="col-span-3" value={pointageForm.date} onChange={(e) => setPointageForm({ ...pointageForm, date: e.target.value })} />
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
               <Label htmlFor="pt-status" className="text-right">Durum</Label>
-              <select
-                id="pt-status"
-                className="col-span-3 flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                value={pointageForm.status}
-                onChange={(e) => setPointageForm({ ...pointageForm, status: e.target.value })}
-              >
+              <select id="pt-status" className="col-span-3 flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm" value={pointageForm.status} onChange={(e) => setPointageForm({ ...pointageForm, status: e.target.value })}>
                 <option value="Work">Çalıştı</option>
                 <option value="Weekend">Hafta Sonu</option>
                 <option value="Holiday">Resmi Tatil</option>
@@ -386,15 +387,7 @@ export default function PersonelDashboard() {
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
               <Label htmlFor="pt-mesai" className="text-right">Mesai (Saat)</Label>
-              <Input
-                id="pt-mesai"
-                type="number"
-                step="0.5"
-                min="0"
-                className="col-span-3"
-                value={pointageForm.overtime_hours}
-                onChange={(e) => setPointageForm({ ...pointageForm, overtime_hours: parseFloat(e.target.value) || 0 })}
-              />
+              <Input id="pt-mesai" type="number" step="0.5" min="0" className="col-span-3" value={pointageForm.overtime_hours} onChange={(e) => setPointageForm({ ...pointageForm, overtime_hours: parseFloat(e.target.value) || 0 })} />
             </div>
           </div>
           <DialogFooter>

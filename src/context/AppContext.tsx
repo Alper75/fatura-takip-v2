@@ -840,11 +840,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         },
         body: JSON.stringify({ status })
       });
-      const result = await response.json();
-      if (result.success) fetchLeaves();
-      return result;
+      const data = await response.json();
+      if (data.success) {
+        fetchLeaves();
+        fetchPersonnel(); // İzin onaylandığında yıllık izin hakkı güncellendiği için listeyi de yenilemeliyiz
+        return { success: true, message: data.message };
+      }
+      return { success: false, message: data.message };
     } catch (error: any) { return { success: false, message: error.message }; }
-  }, [fetchLeaves]);
+  }, [fetchLeaves, fetchPersonnel]);
 
   const [requests, setRequests] = useState<any[]>([]);
   const fetchRequests = useCallback(async () => {

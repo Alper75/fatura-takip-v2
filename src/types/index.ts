@@ -204,6 +204,7 @@ export interface Personnel {
   iban?: string;
   salary?: number;
   annual_leave_days: number;
+  status?: 'Active' | 'Inactive';
   created_at?: string;
 }
 
