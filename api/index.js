@@ -254,14 +254,37 @@ app.put('/api/admin/leaves/:id', authMiddleware, adminMiddleware, (req, res) => 
     const leave = db.prepare('SELECT * FROM leaves WHERE id = ?').get(id);
     if (!leave) return res.status(404).json({ success: false, message: 'İzin kaydı bulunamadı.' });
 
-    // Eğer onaylanıyorsa yıllık izinden düş
-    if (status === 'APPROVED' && leave.status !== 'APPROVED' && leave.type === 'Annual Leave') {
+    if (status === 'APPROVED' && leave.status !== 'APPROVED') {
+      // Yıllık izinden düş (sadece yıllık izin ise)
+      if (leave.type === 'Annual' || leave.type === 'Annual Leave') {
+        const start = new Date(leave.start_date);
+        const end = new Date(leave.end_date);
+        const diffTime = Math.abs(end - start);
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
+        db.prepare('UPDATE personnel SET annual_leave_days = annual_leave_days - ? WHERE id = ?').run(diffDays, leave.personnel_id);
+      }
+
+      // PUANTAJA OTOMATİK İŞLE
       const start = new Date(leave.start_date);
       const end = new Date(leave.end_date);
-      const diffTime = Math.abs(end - start);
-      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
-      
-      db.prepare('UPDATE personnel SET annual_leave_days = annual_leave_days - ? WHERE id = ?').run(diffDays, leave.personnel_id);
+      const statusMapping = {
+        'Annual': 'Annual Leave',
+        'Annual Leave': 'Annual Leave',
+        'Unpaid': 'Unpaid Leave',
+        'Unpaid Leave': 'Unpaid Leave',
+        'Sickness': 'Sickness',
+        'Maternity': 'Annual Leave' // Doğum izni için ayrı statü yoksa yıllık izin rengi
+      };
+      const ptStatus = statusMapping[leave.type] || 'Annual Leave';
+
+      for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+        const dateStr = d.toISOString().split('T')[0];
+        db.prepare(`
+          INSERT INTO pointage (personnel_id, date, status, overtime_hours)
+          VALUES (?, ?, ?, 0)
+          ON CONFLICT(personnel_id, date) DO UPDATE SET status = excluded.status
+        `).run(leave.personnel_id, dateStr, ptStatus);
+      }
     }
 
     db.prepare('UPDATE leaves SET status = ? WHERE id = ?').run(status, id);
@@ -294,9 +317,43 @@ app.put('/api/admin/requests/:id', authMiddleware, adminMiddleware, (req, res) =
 // This route was a duplicate of 216, removed and kept only one with extended logic above.
 
 // --- POINTAGE & REQUESTS (Simplified structure for index) ---
-app.post('/api/pointage', authMiddleware, (req, res) => {
-  const { personnel_id, date, status, overtime_hours } = req.body;
+// Personnel Self Routes
+app.get('/api/personnel/leaves', authMiddleware, (req, res) => {
   try {
+    const p = db.prepare('SELECT id FROM personnel WHERE user_id = ?').get(req.user.id);
+    if (!p) return res.status(404).json({ success: false, message: 'Personel kaydı bulunamadı.' });
+    const list = db.prepare('SELECT * FROM leaves WHERE personnel_id = ? ORDER BY created_at DESC').all(p.id);
+    res.json({ success: true, data: list });
+  } catch (error) { res.status(500).json({ success: false, message: error.message }); }
+});
+
+app.get('/api/personnel/requests', authMiddleware, (req, res) => {
+  try {
+    const p = db.prepare('SELECT id FROM personnel WHERE user_id = ?').get(req.user.id);
+    if (!p) return res.status(404).json({ success: false, message: 'Personel kaydı bulunamadı.' });
+    const list = db.prepare('SELECT * FROM requests WHERE personnel_id = ? ORDER BY created_at DESC').all(p.id);
+    res.json({ success: true, data: list });
+  } catch (error) { res.status(500).json({ success: false, message: error.message }); }
+});
+
+app.get('/api/personnel/pointage', authMiddleware, (req, res) => {
+  try {
+    const p = db.prepare('SELECT id FROM personnel WHERE user_id = ?').get(req.user.id);
+    if (!p) return res.status(404).json({ success: false, message: 'Personel kaydı bulunamadı.' });
+    const list = db.prepare('SELECT * FROM pointage WHERE personnel_id = ?').all(p.id);
+    res.json({ success: true, data: list });
+  } catch (error) { res.status(500).json({ success: false, message: error.message }); }
+});
+
+app.post('/api/pointage', authMiddleware, (req, res) => {
+  let { personnel_id, date, status, overtime_hours } = req.body;
+  try {
+    // Eğer personel kendisi giriyorsa, personnel_id'yi kendi id'si yap
+    if (req.user.role === 'personnel') {
+      const p = db.prepare('SELECT id FROM personnel WHERE user_id = ?').get(req.user.id);
+      personnel_id = p.id;
+    }
+
     const upsert = db.prepare(`
       INSERT INTO pointage (personnel_id, date, status, overtime_hours)
       VALUES (?, ?, ?, ?)

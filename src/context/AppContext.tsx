@@ -809,13 +809,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [leaves, setLeaves] = useState<any[]>([]);
   const fetchLeaves = useCallback(async () => {
     try {
-      const resp = await fetch('/api/admin/leaves', {
+      const endpoint = user?.role === 'admin' ? '/api/admin/leaves' : '/api/personnel/leaves';
+      const resp = await fetch(endpoint, {
         headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
       });
       const data = await resp.json();
       if (data.success) setLeaves(data.data);
     } catch (error) { console.error('Fetch leaves error:', error); }
-  }, []);
+  }, [user]);
 
   const submitLeaveRequest = useCallback(async (data: any) => {
     try {
@@ -855,13 +856,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [pointages, setPointages] = useState<any[]>([]);
   const fetchPointages = useCallback(async () => {
     try {
-      const resp = await fetch('/api/admin/pointage', { 
+      const endpoint = user?.role === 'admin' ? '/api/admin/pointage' : '/api/personnel/pointage';
+      const resp = await fetch(endpoint, { 
         headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
       });
       const data = await resp.json();
       if (data.success) setPointages(data.data);
     } catch (error) { console.error('Fetch pointages error:', error); }
-  }, []);
+  }, [user]);
 
   const downloadPuantajTemplate = useCallback(async () => {
     try {
@@ -904,13 +906,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [requests, setRequests] = useState<any[]>([]);
   const fetchRequests = useCallback(async () => {
     try {
-      const resp = await fetch('/api/admin/requests', {
+      const endpoint = user?.role === 'admin' ? '/api/admin/requests' : '/api/personnel/requests';
+      const resp = await fetch(endpoint, {
         headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
       });
       const data = await resp.json();
       if (data.success) setRequests(data.data);
     } catch (error) { console.error('Fetch requests error:', error); }
-  }, []);
+  }, [user]);
 
   const updateRequestStatus = useCallback(async (id: number, status: string) => {
     try {

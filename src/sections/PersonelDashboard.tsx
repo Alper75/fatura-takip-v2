@@ -63,10 +63,10 @@ export default function PersonelDashboard() {
     fetchRequests();
   }, [fetchMyPersonnel, fetchLeaves, fetchPointages, fetchRequests]);
 
-  const myLeaves = leaves.filter(l => l.personnel_id === currentPersonnel?.id);
-  const myRequests = requests.filter(r => r.personnel_id === currentPersonnel?.id);
+  const myLeaves = leaves.filter(l => l.personnel_id == currentPersonnel?.id);
+  const myRequests = requests.filter(r => r.personnel_id == currentPersonnel?.id);
   const myPointagesThisMonth = pointages.filter(p => {
-    if (p.personnel_id !== currentPersonnel?.id) return false;
+    if (p.personnel_id != currentPersonnel?.id) return false;
     const pDate = new Date(p.date);
     const now = new Date();
     return pDate.getMonth() === now.getMonth() && pDate.getFullYear() === now.getFullYear();
