@@ -5,11 +5,9 @@ import { Button } from '@/components/ui/button';
 import { 
   Calendar, 
   FileText, 
-  Upload, 
   Bell, 
   Clock, 
   AlertCircle,
-  Plus,
   CheckCircle2
 } from 'lucide-react';
 import { 
