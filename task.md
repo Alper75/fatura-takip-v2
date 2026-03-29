@@ -67,3 +67,11 @@ Aşağıdaki özellikler, uygulamayı daha kapsamlı ve kullanıcı dostu hale g
     * [x] Personel Yönetimi Buton Aktivasyonu (Yeni, Düzenle, Sil)
     * [x] Personel Dashboard Buton Aktivasyonu (İzin İste, Masraf İste)
     * [x] AppContext Tip ve Fonksiyon Güncellemeleri
+    * [x] Onaylanmış İzin ve Masraf Taleplerinin Listelenmesi (Personel Dashboard)
+    * [x] Admin: Talep ve İzin Yönetimi Sekmeli Yapı (Bekleyenler / Onaylananlar)
+    * [x] Alan Bazlı Excel İndirme (Onaylılar ve Bekleyenler Ayrı)
+    * [x] Personel İçin "Kişisel Puantaj" Ekranı Oluşturulması
+    * [x] Puantaj Kayıtları İçin "Yönetici Kilidi" (is_locked) Mekanizması
+    * [x] Puantaj Menü Görünürlüğünün Yönetici Kontrolüne Bağlanması (puantaj_menu_active)
+    * [x] Backend: DB Migration (is_locked, puantaj_menu_active)
+    * [ ] Turso DB Entegrasyonu (Gelecek Adım)

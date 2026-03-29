@@ -21,7 +21,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { toast } from 'sonner';
-import { Plus, Calendar, Clock } from 'lucide-react';
+import { Plus, Calendar, Clock, Download, FileText } from 'lucide-react';
 
 const IZIN_TUR_LABELS: Record<string, string> = {
   Annual: 'Yıllık İzin',
@@ -53,6 +53,7 @@ export default function PersonelIzinlerim() {
     start_date: '',
     end_date: '',
     description: '',
+    file: null as File | null
   });
 
   useEffect(() => {
@@ -73,16 +74,45 @@ export default function PersonelIzinlerim() {
       return;
     }
     setLoading(true);
-    const result = await submitLeaveRequest(form);
+    const formData = new FormData();
+    formData.append('type', form.type);
+    formData.append('start_date', form.start_date);
+    formData.append('end_date', form.end_date);
+    formData.append('description', form.description);
+    if (form.file) formData.append('document', form.file);
+
+    const result = await submitLeaveRequest(formData);
     setLoading(false);
     if (result.success) {
       toast.success('İzin talebiniz iletildi.');
       setIsDialogOpen(false);
-      setForm({ type: 'Annual', start_date: '', end_date: '', description: '' });
+      setForm({ type: 'Annual', start_date: '', end_date: '', description: '', file: null });
       fetchLeaves();
     } else {
       toast.error(result.message || 'Bir hata oluştu.');
     }
+  };
+
+  const exportToCSV = () => {
+    const headers = ['İzin Türü', 'Başlangıç', 'Bitiş', 'Gün', 'Açıklama', 'Durum', 'Belge URL'];
+    const rows = filteredLeaves.map(l => [
+      IZIN_TUR_LABELS[l.type] ?? l.type,
+      l.start_date || '',
+      l.end_date || '',
+      calcDays(l.start_date, l.end_date),
+      `"${(l.description || '').replace(/"/g, '""')}"`,
+      DURUM_CONFIG[l.status]?.label || l.status,
+      l.document_path ? `http://localhost:5000${l.document_path}` : '-'
+    ]);
+    const csvContent = "data:text/csv;charset=utf-8,\uFEFF" 
+      + [headers.join(','), ...rows.map(e => e.join(','))].join("\n");
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `izinlerim_${filterDurum}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   return (
@@ -93,10 +123,16 @@ export default function PersonelIzinlerim() {
           <h2 className="text-2xl font-bold tracking-tight">İzinlerim</h2>
           <p className="text-sm text-muted-foreground mt-1">Geçmiş ve bekleyen izin talepleriniz</p>
         </div>
-        <Button onClick={() => setIsDialogOpen(true)} className="gap-2">
-          <Plus className="w-4 h-4" />
-          Yeni İzin Talebi
-        </Button>
+        <div className="flex gap-2">
+          <Button onClick={exportToCSV} variant="outline" className="flex items-center gap-2">
+            <Download className="w-4 h-4" />
+            Excel (CSV) İndir
+          </Button>
+          <Button onClick={() => setIsDialogOpen(true)} className="gap-2">
+            <Plus className="w-4 h-4" />
+            Yeni İzin Talebi
+          </Button>
+        </div>
       </div>
 
       {/* Özet Kartları */}
@@ -163,15 +199,16 @@ export default function PersonelIzinlerim() {
                 <TableHead className="font-semibold text-slate-700">İzin Türü</TableHead>
                 <TableHead className="font-semibold text-slate-700">Başlangıç</TableHead>
                 <TableHead className="font-semibold text-slate-700">Bitiş</TableHead>
-                <TableHead className="font-semibold text-slate-700 text-center">Gün</TableHead>
+                <TableHead className="font-semibold text-slate-700">Gün</TableHead>
                 <TableHead className="font-semibold text-slate-700">Açıklama</TableHead>
+                <TableHead className="font-semibold text-slate-700 text-center">Belge</TableHead>
                 <TableHead className="font-semibold text-slate-700">Durum</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {filteredLeaves.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center py-10 text-muted-foreground">
+                  <TableCell colSpan={7} className="text-center py-10 text-muted-foreground">
                     Henüz izin talebiniz bulunmuyor.
                   </TableCell>
                 </TableRow>
@@ -190,6 +227,16 @@ export default function PersonelIzinlerim() {
                       </TableCell>
                       <TableCell className="max-w-[180px] truncate text-slate-500">
                         {leave.description || '-'}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        {leave.document_path ? (
+                          <a href={`http://localhost:5000${leave.document_path}`} target="_blank" rel="noreferrer" className="inline-flex items-center text-blue-600 hover:underline">
+                            <FileText className="w-4 h-4 mr-1" />
+                            Gör
+                          </a>
+                        ) : (
+                          <span className="text-slate-400 text-sm">-</span>
+                        )}
                       </TableCell>
                       <TableCell>
                         <Badge variant="outline" className={cfg.className}>
@@ -255,6 +302,13 @@ export default function PersonelIzinlerim() {
                 placeholder="Kısa bir not..."
                 value={form.description}
                 onChange={(e) => setForm((p) => ({ ...p, description: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Belge Yükle <span className="text-slate-400">(varsa)</span></Label>
+              <Input
+                type="file"
+                onChange={(e) => setForm((p) => ({ ...p, file: e.target.files?.[0] || null }))}
               />
             </div>
           </div>

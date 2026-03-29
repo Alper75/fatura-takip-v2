@@ -25,7 +25,8 @@ try {
 
 const app = express();
 app.use(cors());
-app.use(bodyParser.json());
+app.use(bodyParser.json({ limit: '50mb' }));
+app.use(bodyParser.urlencoded({ limit: '50mb', extended: true }));
 
 // Global Error Catch for Startup Failures
 app.use((req, res, next) => {
@@ -117,6 +118,7 @@ app.get('/api/admin/personnel', authMiddleware, adminMiddleware, (req, res) => {
       SELECT p.*, u.tc, u.must_change_password 
       FROM personnel p 
       JOIN users u ON p.user_id = u.id
+      ORDER BY p.first_name ASC
     `).all();
     res.json({ success: true, personnel: personnelList });
   } catch (error) {
@@ -125,7 +127,7 @@ app.get('/api/admin/personnel', authMiddleware, adminMiddleware, (req, res) => {
 });
 
 app.post('/api/admin/personnel', authMiddleware, adminMiddleware, async (req, res) => {
-  const { tc, first_name, last_name, email, phone, position, department, salary, annual_leave_days, start_date, end_date } = req.body;
+  const { tc, first_name, last_name, email, phone, position, department, salary, annual_leave_days, start_date, end_date, puantaj_menu_active } = req.body;
   if (!tc || !first_name || !last_name) {
     return res.status(400).json({ success: false, message: 'TC, isim ve soyisim gereklidir.' });
   }
@@ -136,8 +138,16 @@ app.post('/api/admin/personnel', authMiddleware, adminMiddleware, async (req, re
     // If annual_leave_days is not provided, calculate it
     const calculatedLeave = annual_leave_days || calculateAnnualLeave(start_date);
 
-    db.prepare('INSERT INTO personnel (user_id, first_name, last_name, email, phone, position, department, salary, annual_leave_days, status, start_date, end_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
-      userResult.lastInsertRowid, first_name, last_name, email, phone, position, department, salary, calculatedLeave, 'Active', start_date, end_date
+    db.prepare(`
+      INSERT INTO personnel (
+        user_id, first_name, last_name, email, phone, 
+        position, department, salary, annual_leave_days, 
+        status, start_date, end_date, puantaj_menu_active
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      userResult.lastInsertRowid, first_name, last_name, email, phone, 
+      position, department, salary, calculatedLeave, 'Active', 
+      start_date, end_date, puantaj_menu_active ? 1 : 0
     );
     res.json({ success: true, message: 'Personel başarıyla oluşturuldu.' });
   } catch (error) {
@@ -209,15 +219,20 @@ app.delete('/api/admin/personnel/:id', authMiddleware, adminMiddleware, (req, re
 // Update personnel (admin) - MOVED & CONSOLIDATED
 app.put('/api/admin/personnel/:id', authMiddleware, adminMiddleware, (req, res) => {
   const { id } = req.params;
-  const { first_name, last_name, email, phone, position, department, salary, annual_leave_days, status, start_date, end_date } = req.body;
+  const { first_name, last_name, email, phone, position, department, salary, annual_leave_days, status, start_date, end_date, puantaj_menu_active } = req.body;
   try {
     db.prepare(`
       UPDATE personnel SET 
         first_name = ?, last_name = ?, email = ?, phone = ?, 
         position = ?, department = ?, salary = ?, annual_leave_days = ?, status = ?,
-        start_date = ?, end_date = ?
+        start_date = ?, end_date = ?, puantaj_menu_active = ?
       WHERE id = ?
-    `).run(first_name, last_name, email, phone, position, department, salary, annual_leave_days, status || 'Active', start_date, end_date, id);
+    `).run(
+      n(first_name), n(last_name), n(email), n(phone), 
+      n(position), n(department), n(salary), n(annual_leave_days), 
+      status || 'Active', n(start_date), n(end_date), (puantaj_menu_active === true || puantaj_menu_active == 1) ? 1 : 0, 
+      id
+    );
     res.json({ success: true, message: 'Personel güncellendi.' });
   } catch (error) { res.status(500).json({ success: false, message: error.message }); }
 });
@@ -235,13 +250,14 @@ app.get('/api/admin/leaves', authMiddleware, adminMiddleware, (req, res) => {
   } catch (error) { res.status(500).json({ success: false, message: error.message }); }
 });
 
-app.post('/api/personnel/leaves', authMiddleware, (req, res) => {
+app.post('/api/personnel/leaves', authMiddleware, upload.single('document'), (req, res) => {
   const { type, start_date, end_date, description } = req.body;
+  const document_path = req.file ? `/uploads/${req.file.filename}` : null;
   try {
     const p = db.prepare('SELECT id FROM personnel WHERE user_id = ?').get(req.user.id);
     if (!p) return res.status(404).json({ success: false, message: 'Personel kaydı bulunamadı.' });
-    db.prepare('INSERT INTO leaves (personnel_id, type, start_date, end_date, description) VALUES (?, ?, ?, ?, ?)').run(
-      p.id, type, start_date, end_date, description
+    db.prepare('INSERT INTO leaves (personnel_id, type, start_date, end_date, description, document_path) VALUES (?, ?, ?, ?, ?, ?)').run(
+      p.id, n(type), n(start_date), n(end_date), n(description), n(document_path)
     );
     res.json({ success: true, message: 'İzin talebi iletildi.' });
   } catch (error) { res.status(500).json({ success: false, message: error.message }); }
@@ -305,6 +321,21 @@ app.get('/api/admin/requests', authMiddleware, adminMiddleware, (req, res) => {
   } catch (error) { res.status(500).json({ success: false, message: error.message }); }
 });
 
+app.post('/api/personnel/requests', authMiddleware, upload.single('receipt'), (req, res) => {
+  const { type, amount, date, description } = req.body;
+  const receipt_path = req.file ? `/uploads/${req.file.filename}` : null;
+  try {
+    const p = db.prepare('SELECT id FROM personnel WHERE user_id = ?').get(req.user.id);
+    if (!p) return res.status(404).json({ success: false, message: 'Personel kaydı bulunamadı.' });
+    
+    db.prepare('INSERT INTO requests (personnel_id, type, amount, date, description, receipt_path) VALUES (?, ?, ?, ?, ?, ?)').run(
+      p.id, n(type), n(amount), n(date), n(description), n(receipt_path)
+    );
+    res.json({ success: true, message: 'Masraf talebi iletildi.' });
+  } catch (error) { res.status(500).json({ success: false, message: error.message }); }
+});
+
+
 app.put('/api/admin/requests/:id', authMiddleware, adminMiddleware, (req, res) => {
   const { id } = req.params;
   const { status } = req.body;
@@ -354,16 +385,74 @@ app.post('/api/pointage', authMiddleware, (req, res) => {
       personnel_id = p.id;
     }
 
+    // Kilit kontrolü (Personel ise)
+    if (req.user.role === 'personnel') {
+      const existing = db.prepare('SELECT is_locked FROM pointage WHERE personnel_id = ? AND date = ?').get(personnel_id, date);
+      if (existing && existing.is_locked) {
+        return res.status(403).json({ success: false, message: 'Bu tarih kilitli olduğu için değişiklik yapılamaz.' });
+      }
+    }
+
     const upsert = db.prepare(`
-      INSERT INTO pointage (personnel_id, date, status, overtime_hours)
-      VALUES (?, ?, ?, ?)
+      INSERT INTO pointage (personnel_id, date, status, overtime_hours, is_locked)
+      VALUES (?, ?, ?, ?, ?)
       ON CONFLICT(personnel_id, date) DO UPDATE SET
         status = excluded.status,
-        overtime_hours = excluded.overtime_hours
+        overtime_hours = excluded.overtime_hours,
+        is_locked = CASE WHEN ? = 'admin' THEN excluded.is_locked ELSE pointage.is_locked END
     `);
-    upsert.run(personnel_id, date, status, overtime_hours || 0);
+    
+    // Admin üzerinden geliyorsa kilitleme yetkisi verelim (şuanlık statik 0, UI'dan admin kilitlerse 1 olacak)
+    const isLocked = (req.user.role === 'admin' && req.body.is_locked) ? 1 : 0;
+    
+    upsert.run(personnel_id, n(date), n(status), n(overtime_hours) || 0, isLocked, req.user.role);
     res.json({ success: true });
   } catch (error) { res.status(500).json({ success: false, message: error.message }); }
+});
+
+app.post('/api/admin/pointage/bulk-lock', authMiddleware, adminMiddleware, (req, res) => {
+  const { personnel_id, year, month, lock_status } = req.body;
+  if (!personnel_id || !year || !month) return res.status(400).json({ success: false, message: 'Eksik parametre (personnel_id, year veya month).' });
+  
+  try {
+    const monthStr = month.toString().padStart(2, '0');
+    const startDate = `${year}-${monthStr}-01`;
+    const endDate = `${year}-${monthStr}-31`;
+    
+    // SQLite: Bulk Update, and handle cases where no records exist if needed (Upsert not needed for bulk lock, usually)
+    const result = db.prepare(`
+      UPDATE pointage 
+      SET is_locked = ? 
+      WHERE personnel_id = ? AND date BETWEEN ? AND ?
+    `).run(lock_status ? 1 : 0, personnel_id, startDate, endDate);
+    
+    res.json({ success: true, message: `Puantaj kayıtları ${lock_status ? 'kilitlendi' : 'kilidi açıldı'}. (${result.changes} gün güncellendi)` });
+  } catch (error) { 
+    console.error('BULK LOCK ERROR:', error);
+    res.status(500).json({ success: false, message: 'Sunucu hatası: ' + error.message }); 
+  }
+});
+
+app.post('/api/admin/pointage/bulk-lock-all', authMiddleware, adminMiddleware, (req, res) => {
+  const { year, month, lock_status } = req.body;
+  if (!year || !month) return res.status(400).json({ success: false, message: 'Eksik parametre (year veya month).' });
+  
+  try {
+    const monthStr = month.toString().padStart(2, '0');
+    const startDate = `${year}-${monthStr}-01`;
+    const endDate = `${year}-${monthStr}-31`;
+    
+    const result = db.prepare(`
+      UPDATE pointage 
+      SET is_locked = ? 
+      WHERE date BETWEEN ? AND ?
+    `).run(lock_status ? 1 : 0, startDate, endDate);
+    
+    res.json({ success: true, message: `Tüm personellerin puantaj kayıtları ${lock_status ? 'kilitlendi' : 'kilidi açıldı'}. (${result.changes} gün güncellendi)` });
+  } catch (error) { 
+    console.error('BULK LOCK ALL ERROR:', error);
+    res.status(500).json({ success: false, message: 'Sunucu hatası: ' + error.message }); 
+  }
 });
 
 app.get('/api/announcements', authMiddleware, (req, res) => {
@@ -444,6 +533,293 @@ app.post('/api/personnel/requests', authMiddleware, upload.single('file'), (req,
   } catch (error) { res.status(500).json({ success: false, message: error.message }); }
 });
 
+// ============================================================
+// --- YARDIMCI METOD ---
+// JSON.stringify undefined değerleri yoksaydığı için, req.body'den gelen undefined'ları null'a çevirir
+// SQLite TypeError fırlatmasını (Bind parameter is undefined) engeller.
+const n = (val) => val === undefined ? null : val;
+
+// ============================================================
+// --- CARİLER ---
+// ============================================================
+app.get('/api/cariler', authMiddleware, (req, res) => {
+  try {
+    const list = db.prepare('SELECT * FROM cariler ORDER BY olusturma_tarihi DESC').all();
+    const mapped = list.map(r => ({ id: r.id, tip: r.tip, unvan: r.unvan, vknTckn: r.vkn_tckn, vergiDairesi: r.vergi_dairesi, adres: r.adres, telefon: r.telefon, eposta: r.eposta, olusturmaTarihi: r.olusturma_tarihi }));
+    res.json({ success: true, data: mapped });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+});
+app.post('/api/cariler', authMiddleware, (req, res) => {
+  const f = req.body;
+  try {
+    db.prepare('INSERT INTO cariler (id,tip,unvan,vkn_tckn,vergi_dairesi,adres,telefon,eposta,olusturma_tarihi) VALUES (?,?,?,?,?,?,?,?,?)').run(n(f.id), n(f.tip), n(f.unvan), n(f.vknTckn), n(f.vergiDairesi), n(f.adres), n(f.telefon), n(f.eposta), n(f.olusturmaTarihi));
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+});
+app.put('/api/cariler/:id', authMiddleware, (req, res) => {
+  const f = req.body;
+  try {
+    db.prepare('UPDATE cariler SET tip=?,unvan=?,vkn_tckn=?,vergi_dairesi=?,adres=?,telefon=?,eposta=? WHERE id=?').run(n(f.tip), n(f.unvan), n(f.vknTckn), n(f.vergiDairesi), n(f.adres), n(f.telefon), n(f.eposta), req.params.id);
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+});
+app.delete('/api/cariler/:id', authMiddleware, (req, res) => {
+  try { db.prepare('DELETE FROM cariler WHERE id=?').run(req.params.id); res.json({ success: true }); }
+  catch (e) { res.status(500).json({ success: false, message: e.message }); }
+});
+app.get('/api/cari-hareketler', authMiddleware, (req, res) => {
+  try {
+    const list = db.prepare('SELECT * FROM cari_hareketler ORDER BY tarih DESC').all();
+    const mapped = list.map(r => ({ 
+      id: r.id, 
+      cariId: r.cari_id, 
+      tarih: r.tarih, 
+      islemTuru: r.islem_turu, 
+      tutar: r.tutar, 
+      aciklama: r.aciklama, 
+      bagliFaturaId: r.bagli_fatura_id, 
+      bankaId: r.banka_id, 
+      dekontDosya: r.dekont_dosya, 
+      olusturmaTarihi: r.olusturma_tarihi,
+      kategoriId: r.kategori_id
+    }));
+    res.json({ success: true, data: mapped });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+});
+app.post('/api/cari-hareketler', authMiddleware, (req, res) => {
+  const f = req.body;
+  try {
+    db.prepare('INSERT INTO cari_hareketler (id,cari_id,tarih,islem_turu,tutar,aciklama,bagli_fatura_id,banka_id,dekont_dosya,olusturma_tarihi,kategori_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)').run(n(f.id), n(f.cariId), n(f.tarih), n(f.islemTuru), n(f.tutar), n(f.aciklama), n(f.bagliFaturaId), n(f.bankaId), n(f.dekontDosya), n(f.olusturmaTarihi), n(f.kategoriId));
+    
+    // BANKA BAKİYESİ GÜNCELLE
+    if (f.bankaId && f.tutar) {
+       const ArtisTurleri = ['tahsilat', 'satis_faturasi', 'cek_senet_alinan'];
+       const AzalisTurleri = ['odeme', 'alis_faturasi', 'vergi_kdv', 'vergi_muhtasar', 'vergi_gecici', 'vergi_damga', 'maas_odemesi', 'kira_odemesi', 'banka_masrafi', 'ssk_odemesi', 'genel_gider', 'kredi_karti_odemesi','cek_senet_verilen'];
+       let degisim = 0;
+       if (ArtisTurleri.includes(f.islemTuru)) degisim = f.tutar;
+       else if (AzalisTurleri.includes(f.islemTuru)) degisim = -f.tutar;
+       else if (f.islemTuru === 'transfer') {
+         if ((f.aciklama||'').toUpperCase().includes('GELEN')) degisim = f.tutar;
+         else degisim = -f.tutar;
+       }
+       if (degisim !== 0) {
+         db.prepare('UPDATE banka_hesaplari SET guncel_bakiye = guncel_bakiye + ? WHERE id = ?').run(degisim, f.bankaId);
+       }
+    }
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+});
+app.put('/api/cari-hareketler/:id', authMiddleware, (req, res) => {
+  const f = req.body;
+  try {
+    db.prepare('UPDATE cari_hareketler SET cari_id=?,tarih=?,islem_turu=?,tutar=?,aciklama=?,bagli_fatura_id=?,banka_id=?,dekont_dosya=?,kategori_id=? WHERE id=?').run(n(f.cariId), n(f.tarih), n(f.islemTuru), n(f.tutar), n(f.aciklama), n(f.bagliFaturaId), n(f.bankaId), n(f.dekontDosya), n(f.kategoriId), req.params.id);
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+});
+app.delete('/api/cari-hareketler/:id', authMiddleware, (req, res) => {
+  try { 
+    const h = db.prepare('SELECT * FROM cari_hareketler WHERE id = ?').get(req.params.id);
+    if (h && h.banka_id && h.tutar) {
+       const ArtisTurleri = ['tahsilat', 'satis_faturasi', 'cek_senet_alinan'];
+       const AzalisTurleri = ['odeme', 'alis_faturasi', 'vergi_kdv', 'vergi_muhtasar', 'vergi_gecici', 'vergi_damga', 'maas_odemesi', 'kira_odemesi', 'banka_masrafi', 'ssk_odemesi', 'genel_gider', 'kredi_karti_odemesi', 'cek_senet_verilen'];
+       let degisim = 0;
+       if (ArtisTurleri.includes(h.islem_turu)) degisim = -h.tutar; // Gelir siliniyorsa bakiye azalır
+       else if (AzalisTurleri.includes(h.islem_turu)) degisim = h.tutar; // Gider siliniyorsa bakiye artar
+       else if (h.islem_turu === 'transfer') {
+         if ((h.aciklama||'').toUpperCase().includes('GELEN')) degisim = -h.tutar;
+         else degisim = h.tutar;
+       }
+       if (degisim !== 0) {
+         db.prepare('UPDATE banka_hesaplari SET guncel_bakiye = guncel_bakiye + ? WHERE id = ?').run(degisim, h.banka_id);
+       }
+    }
+    db.prepare('DELETE FROM cari_hareketler WHERE id=?').run(req.params.id); 
+    res.json({ success: true }); 
+  }
+  catch (e) { res.status(500).json({ success: false, message: e.message }); }
+});
+// ============================================================
+// --- SATIŞ FATURALARI ---
+// ============================================================
+app.get('/api/satis-faturalari', authMiddleware, (req, res) => {
+  try {
+    const list = db.prepare('SELECT * FROM satis_faturalari ORDER BY olusturma_tarihi DESC').all();
+    const mapped = list.map(r => ({ id: r.id, tcVkn: r.tc_vkn, ad: r.ad, soyad: r.soyad, adres: r.adres, kdvOrani: r.kdv_orani, alinanUcret: r.alinan_ucret, matrah: r.matrah, kdvTutari: r.kdv_tutari, tevkifatOrani: r.tevkifat_orani, tevkifatTutari: r.tevkifat_tutari, stopajOrani: r.stopaj_orani, stopajTutari: r.stopaj_tutari, pdfDosya: r.pdf_dosya, pdfDosyaAdi: r.pdf_dosya_adi, faturaTarihi: r.fatura_tarihi, odemeTarihi: r.odeme_tarihi, odemeDurumu: r.odeme_durumu, odemeDekontu: r.odeme_dekontu, odemeDekontuAdi: r.odeme_dekontu_adi, cariId: r.cari_id, vadeTarihi: r.vade_tarihi, aciklama: r.aciklama, olusturmaTarihi: r.olusturma_tarihi }));
+    res.json({ success: true, data: mapped });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+});
+app.post('/api/satis-faturalari', authMiddleware, (req, res) => {
+  const f = req.body;
+  try {
+    db.prepare('INSERT INTO satis_faturalari (id,tc_vkn,ad,soyad,adres,kdv_orani,alinan_ucret,matrah,kdv_tutari,tevkifat_orani,tevkifat_tutari,stopaj_orani,stopaj_tutari,pdf_dosya,pdf_dosya_adi,fatura_tarihi,odeme_tarihi,odeme_durumu,odeme_dekontu,odeme_dekontu_adi,cari_id,vade_tarihi,aciklama,olusturma_tarihi) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)').run(n(f.id),n(f.tcVkn),n(f.ad),n(f.soyad),n(f.adres),n(f.kdvOrani),n(f.alinanUcret),n(f.matrah),n(f.kdvTutari),n(f.tevkifatOrani),n(f.tevkifatTutari),n(f.stopajOrani),n(f.stopajTutari),n(f.pdfDosya),n(f.pdfDosyaAdi),n(f.faturaTarihi),n(f.odemeTarihi),n(f.odemeDurumu||'odenmedi'),n(f.odemeDekontu),n(f.odemeDekontuAdi),n(f.cariId),n(f.vadeTarihi),n(f.aciklama),n(f.olusturmaTarihi));
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+});
+app.put('/api/satis-faturalari/:id', authMiddleware, (req, res) => {
+  const f = req.body;
+  try {
+    db.prepare('UPDATE satis_faturalari SET odeme_tarihi=?,odeme_durumu=?,odeme_dekontu=?,odeme_dekontu_adi=?,pdf_dosya=?,pdf_dosya_adi=? WHERE id=?').run(n(f.odemeTarihi),n(f.odemeDurumu),n(f.odemeDekontu),n(f.odemeDekontuAdi),n(f.pdfDosya),n(f.pdfDosyaAdi),req.params.id);
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+});
+app.delete('/api/satis-faturalari/:id', authMiddleware, (req, res) => {
+  try { db.prepare('DELETE FROM satis_faturalari WHERE id=?').run(req.params.id); res.json({ success: true }); }
+  catch (e) { res.status(500).json({ success: false, message: e.message }); }
+});
+// ============================================================
+// --- ALIŞ FATURALARI ---
+// ============================================================
+app.get('/api/alis-faturalari', authMiddleware, (req, res) => {
+  try {
+    const list = db.prepare('SELECT * FROM alis_faturalari ORDER BY olusturma_tarihi DESC').all();
+    const mapped = list.map(r => ({ id: r.id, faturaNo: r.fatura_no, faturaTarihi: r.fatura_tarihi, tedarikciAdi: r.tedarikci_adi, tedarikciVkn: r.tedarikci_vkn, malHizmetAdi: r.mal_hizmet_adi, toplamTutar: r.toplam_tutar, kdvOrani: r.kdv_orani, kdvTutari: r.kdv_tutari, matrah: r.matrah, tevkifatOrani: r.tevkifat_orani, tevkifatTutari: r.tevkifat_tutari, stopajOrani: r.stopaj_orani, stopajTutari: r.stopaj_tutari, pdfDosya: r.pdf_dosya, pdfDosyaAdi: r.pdf_dosya_adi, odemeTarihi: r.odeme_tarihi, odemeDurumu: r.odeme_durumu, odemeDekontu: r.odeme_dekontu, odemeDekontuAdi: r.odeme_dekontu_adi, cariId: r.cari_id, vadeTarihi: r.vade_tarihi, aciklama: r.aciklama, olusturmaTarihi: r.olusturma_tarihi }));
+    res.json({ success: true, data: mapped });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+});
+app.post('/api/alis-faturalari', authMiddleware, (req, res) => {
+  const f = req.body;
+  try {
+    db.prepare('INSERT INTO alis_faturalari (id,fatura_no,fatura_tarihi,tedarikci_adi,tedarikci_vkn,mal_hizmet_adi,toplam_tutar,kdv_orani,kdv_tutari,matrah,tevkifat_orani,tevkifat_tutari,stopaj_orani,stopaj_tutari,pdf_dosya,pdf_dosya_adi,odeme_tarihi,odeme_durumu,odeme_dekontu,odeme_dekontu_adi,cari_id,vade_tarihi,aciklama,olusturma_tarihi) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)').run(n(f.id),n(f.faturaNo),n(f.faturaTarihi),n(f.tedarikciAdi),n(f.tedarikciVkn),n(f.malHizmetAdi),n(f.toplamTutar),n(f.kdvOrani),n(f.kdvTutari),n(f.matrah),n(f.tevkifatOrani),n(f.tevkifatTutari),n(f.stopajOrani),n(f.stopajTutari),n(f.pdfDosya),n(f.pdfDosyaAdi),n(f.odemeTarihi),n(f.odemeDurumu||'odenmedi'),n(f.odemeDekontu),n(f.odemeDekontuAdi),n(f.cariId),n(f.vadeTarihi),n(f.aciklama),n(f.olusturmaTarihi));
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+});
+app.put('/api/alis-faturalari/:id', authMiddleware, (req, res) => {
+  const f = req.body;
+  try {
+    db.prepare('UPDATE alis_faturalari SET odeme_tarihi=?,odeme_durumu=?,odeme_dekontu=?,odeme_dekontu_adi=?,pdf_dosya=?,pdf_dosya_adi=? WHERE id=?').run(n(f.odemeTarihi),n(f.odemeDurumu),n(f.odemeDekontu),n(f.odemeDekontuAdi),n(f.pdfDosya),n(f.pdfDosyaAdi),req.params.id);
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+});
+app.delete('/api/alis-faturalari/:id', authMiddleware, (req, res) => {
+  try { db.prepare('DELETE FROM alis_faturalari WHERE id=?').run(req.params.id); res.json({ success: true }); }
+  catch (e) { res.status(500).json({ success: false, message: e.message }); }
+});
+// ============================================================
+// --- CEK SENET, BANKA, KESILECEK ---
+// ============================================================
+app.get('/api/cek-senetler', authMiddleware, (req, res) => {
+  try {
+    const list = db.prepare('SELECT * FROM cek_senetler ORDER BY vade_tarihi ASC').all();
+    const mapped = list.map(r => ({ id: r.id, tip: r.tip, islemTipi: r.islem_tipi, cariId: r.cari_id, belgeNo: r.belge_no, tutar: r.tutar, vadeTarihi: r.vade_tarihi, verilisTarihi: r.verilis_tarihi, durum: r.durum, aciklama: r.aciklama }));
+    res.json({ success: true, data: mapped });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+});
+app.post('/api/cek-senetler', authMiddleware, (req, res) => {
+  const c = req.body;
+  try {
+    db.prepare('INSERT INTO cek_senetler (id,tip,islem_tipi,cari_id,belge_no,tutar,vade_tarihi,verilis_tarihi,durum,aciklama) VALUES (?,?,?,?,?,?,?,?,?,?)').run(n(c.id),n(c.tip),n(c.islemTipi),n(c.cariId),n(c.belgeNo),n(c.tutar),n(c.vadeTarihi),n(c.verilisTarihi),c.durum||'bekliyor',n(c.aciklama));
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+});
+app.put('/api/cek-senetler/:id', authMiddleware, (req, res) => {
+  const c = req.body;
+  try {
+    db.prepare('UPDATE cek_senetler SET tip=?,islem_tipi=?,cari_id=?,belge_no=?,tutar=?,vade_tarihi=?,verilis_tarihi=?,durum=?,aciklama=? WHERE id=?').run(n(c.tip),n(c.islemTipi),n(c.cariId),n(c.belgeNo),n(c.tutar),n(c.vadeTarihi),n(c.verilisTarihi),n(c.durum),n(c.aciklama),req.params.id);
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+});
+app.delete('/api/cek-senetler/:id', authMiddleware, (req, res) => {
+  try { db.prepare('DELETE FROM cek_senetler WHERE id=?').run(req.params.id); res.json({ success: true }); }
+  catch (e) { res.status(500).json({ success: false, message: e.message }); }
+});
+app.get('/api/banka-hesaplari', authMiddleware, (req, res) => {
+  try {
+    const list = db.prepare('SELECT * FROM banka_hesaplari').all();
+    const mapped = list.map(r => ({ id: r.id, hesapAdi: r.hesap_adi, bankaAdi: r.banka_adi, iban: r.iban, hesapNo: r.hesap_no, kartNo: r.kart_no, dovizTuru: r.doviz_turu, guncelBakiye: r.guncel_bakiye }));
+    res.json({ success: true, data: mapped });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+});
+app.post('/api/banka-hesaplari', authMiddleware, (req, res) => {
+  const b = req.body;
+  try {
+    db.prepare('INSERT INTO banka_hesaplari (id,hesap_adi,banka_adi,iban,hesap_no,kart_no,doviz_turu,guncel_bakiye) VALUES (?,?,?,?,?,?,?,?)').run(n(b.id),n(b.hesapAdi),n(b.bankaAdi),n(b.iban),n(b.hesapNo),n(b.kartNo),n(b.dovizTuru)||'TRY',n(b.guncelBakiye)||0);
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+});
+app.put('/api/banka-hesaplari/:id', authMiddleware, (req, res) => {
+  const b = req.body;
+  try {
+    db.prepare('UPDATE banka_hesaplari SET hesap_adi=?,banka_adi=?,iban=?,hesap_no=?,kart_no=?,doviz_turu=?,guncel_bakiye=? WHERE id=?').run(n(b.hesapAdi),n(b.bankaAdi),n(b.iban),n(b.hesapNo),n(b.kartNo),n(b.dovizTuru),n(b.guncelBakiye),req.params.id);
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+});
+app.delete('/api/banka-hesaplari/:id', authMiddleware, (req, res) => {
+  try { db.prepare('DELETE FROM banka_hesaplari WHERE id=?').run(req.params.id); res.json({ success: true }); }
+  catch (e) { res.status(500).json({ success: false, message: e.message }); }
+});
+// ============================================================
+// --- MASRAF KURALLARI ---
+// ============================================================
+app.get('/api/masraf-kurallari', authMiddleware, (req, res) => {
+  try {
+    const list = db.prepare('SELECT * FROM masraf_kurallari').all();
+    const mapped = list.map(r => ({ id: r.id, anahtarKelime: r.anahtar_kelime, islemTuru: r.islem_turu, aciklama: r.aciklama }));
+    res.json({ success: true, data: mapped });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+});
+app.post('/api/masraf-kurallari', authMiddleware, (req, res) => {
+  const m = req.body;
+  try {
+    db.prepare('INSERT INTO masraf_kurallari (id,anahtar_kelime,islem_turu,aciklama) VALUES (?,?,?,?)').run(n(m.id),n(m.anahtarKelime),n(m.islemTuru),n(m.aciklama));
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+});
+app.delete('/api/masraf-kurallari/:id', authMiddleware, (req, res) => {
+  try { db.prepare('DELETE FROM masraf_kurallari WHERE id=?').run(req.params.id); res.json({ success: true }); }
+  catch (e) { res.status(500).json({ success: false, message: e.message }); }
+});
+
+app.get('/api/kesilecek-faturalar', authMiddleware, (req, res) => {
+  try {
+    const list = db.prepare('SELECT * FROM kesilecek_faturalar ORDER BY olusturma_tarihi DESC').all();
+    const mapped = list.map(r => ({ id: r.id, ad: r.ad, soyad: r.soyad, vknTckn: r.vkn_tckn, vergiDairesi: r.vergi_dairesi, adres: r.adres, il: r.il, ilce: r.ilce, tutar: r.tutar, kdvDahil: !!r.kdv_dahil, kdvOrani: r.kdv_orani, faturaTarihi: r.fatura_tarihi, aciklama: r.aciklama, olusturmaTarihi: r.olusturma_tarihi, durum: r.durum, cariId: r.cari_id }));
+    res.json({ success: true, data: mapped });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+});
+app.post('/api/kesilecek-faturalar', authMiddleware, (req, res) => {
+  const f = req.body;
+  try {
+    db.prepare('INSERT INTO kesilecek_faturalar (id,ad,soyad,vkn_tckn,vergi_dairesi,adres,il,ilce,tutar,kdv_dahil,kdv_orani,fatura_tarihi,aciklama,olusturma_tarihi,durum,cari_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)').run(n(f.id),n(f.ad),n(f.soyad),n(f.vknTckn),n(f.vergiDairesi),n(f.adres),n(f.il),n(f.ilce),n(f.tutar),f.kdvDahil?1:0,n(f.kdvOrani),n(f.faturaTarihi),n(f.aciklama),n(f.olusturmaTarihi),n(f.durum)||'bekliyor',n(f.cariId));
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+});
+app.put('/api/kesilecek-faturalar/:id', authMiddleware, (req, res) => {
+  const f = req.body;
+  try {
+    db.prepare('UPDATE kesilecek_faturalar SET ad=?,soyad=?,vkn_tckn=?,vergi_dairesi=?,adres=?,il=?,ilce=?,tutar=?,kdv_dahil=?,kdv_orani=?,fatura_tarihi=?,aciklama=?,durum=?,cari_id=? WHERE id=?').run(n(f.ad),n(f.soyad),n(f.vknTckn),n(f.vergiDairesi),n(f.adres),n(f.il),n(f.ilce),n(f.tutar),f.kdvDahil?1:0,n(f.kdvOrani),n(f.faturaTarihi),n(f.aciklama),n(f.durum),n(f.cariId),req.params.id);
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+});
+app.delete('/api/kesilecek-faturalar/:id', authMiddleware, (req, res) => {
+  try { db.prepare('DELETE FROM kesilecek_faturalar WHERE id=?').run(req.params.id); res.json({ success: true }); }
+  catch (e) { res.status(500).json({ success: false, message: e.message }); }
+});
+
+// ============================================================
+// --- GİDER KATEGORİLERİ ---
+// ============================================================
+app.get('/api/gider-kategorileri', authMiddleware, (req, res) => {
+  try {
+    const list = db.prepare('SELECT * FROM gider_kategorileri ORDER BY ad ASC').all();
+    res.json({ success: true, data: list });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+});
+
+app.post('/api/gider-kategorileri', authMiddleware, (req, res) => {
+  const k = req.body;
+  try {
+    db.prepare('INSERT INTO gider_kategorileri (id, ad) VALUES (?, ?)').run(n(k.id), n(k.ad));
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+});
+
+app.delete('/api/gider-kategorileri/:id', authMiddleware, (req, res) => {
+  try {
+    db.prepare('DELETE FROM gider_kategorileri WHERE id = ?').run(req.params.id);
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+});
+
 // --- GİB API ROUTES ---
 app.post('/api/gib/create-draft', async (req, res) => {
   const { credentials, invoice } = req.body;
@@ -481,6 +857,7 @@ app.post('/api/gib/create-draft', async (req, res) => {
 app.use('/uploads', express.static(uploadsDir));
 
 if (process.env.NODE_ENV !== 'production') {
+  const PORT = process.env.PORT || 5000;
   app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
 }
 

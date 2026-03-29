@@ -250,15 +250,15 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
       } else {
         const fList = parsed.faturalar || [parsed];
         const newForms: FormEntry[] = fList.map((f: any, idx: number) => {
-          const matchedCari = cariler.find(c => c.vknTckn === f.tcVkn && c.vknTckn && c.vknTckn.length > 5);
+          const matchedCari = (cariler || []).find(c => c && c.vknTckn === f.tcVkn && c.vknTckn && c.vknTckn.length > 5);
           return {
             id: Date.now() + idx,
             tutarTuru: f.tutar_tur || 'dahil',
             errors: {},
             data: {
-              ad: matchedCari ? matchedCari.unvan : (f.ad || ''),
+              ad: matchedCari ? (matchedCari.unvan || '') : (f.ad || ''),
               soyad: matchedCari ? '-' : (f.soyad || '-'),
-              tcVkn: matchedCari ? matchedCari.vknTckn : (f.tcVkn || ''),
+              tcVkn: matchedCari ? (matchedCari.vknTckn || '') : (f.tcVkn || ''),
               adres: matchedCari ? (matchedCari.adres || 'Adres Bulunamadı') : (f.adres || 'Adres Bulunamadı'),
               faturaTarihi: f.faturaTarihi || INITIAL_FORM.faturaTarihi,
               vadeTarihi: '',
@@ -302,9 +302,9 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
               data: {
                 ...f.data,
                 cariId: matched.id,
-                ad: matched.unvan,
+                ad: matched.unvan || '',
                 soyad: '-',
-                adres: matched.adres || f.data.adres
+                adres: matched.adres || f.data.adres || ''
               },
               errors: {}
             };
@@ -418,16 +418,16 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
 
                     <div className="mb-4">
                       <Label className="text-xs font-medium text-indigo-600 mb-1 block">Kayıtlı Cari Seç (Otomatik Doldur)</Label>
-                      <Select
-                        value={form.data.cariId || 'yok'}
-                        onValueChange={(val) => {
-                          if (val === 'yok') {
-                            setForms(prev => prev.map(fp => fp.id === form.id ? { ...fp, data: { ...fp.data, cariId: undefined } } : fp));
-                            return;
-                          }
-                          const c = cariler.find(x => x.id === val);
-                          if (c) {
-                            setForms(prev => prev.map(fp => {
+                        <Select
+                          value={String(form.data.cariId ?? 'yok')}
+                          onValueChange={(val) => {
+                            if (val === 'yok') {
+                              setForms(prev => prev.map(fp => fp.id === form.id ? { ...fp, data: { ...fp.data, cariId: undefined } } : fp));
+                              return;
+                            }
+                            const c = (cariler || []).find(x => String(x.id ?? '') === val);
+                            if (c) {
+                              setForms(prev => prev.map(fp => {
                               if (fp.id === form.id) {
                                 return {
                                   ...fp,
@@ -452,11 +452,11 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="yok" className="text-slate-500 font-medium">-- Serbest Devam Et --</SelectItem>
-                          {cariler.filter(c => c.tip !== 'tedarikci').map(c => (
-                            <SelectItem key={c.id} value={c.id}>
-                              {c.unvan} ({c.vknTckn})
-                            </SelectItem>
-                          ))}
+                          {(cariler || []).filter(c => c && c.tip !== 'tedarikci').map((c, idx) => (
+                             <SelectItem key={c.id !== undefined && c.id !== null ? String(c.id) : `cari-${idx}`} value={String(c.id ?? '')}>
+                               {String(c.unvan ?? 'Bilinmiyor')} ({String(c.vknTckn ?? '')})
+                             </SelectItem>
+                           ))}
                         </SelectContent>
                       </Select>
                     </div>

@@ -47,7 +47,8 @@ export default function PersonelListe() {
     annual_leave_days: 14,
     status: 'Active' as 'Active' | 'Inactive',
     start_date: new Date().toISOString().split('T')[0],
-    end_date: ''
+    end_date: '',
+    puantaj_menu_active: false
   });
 
   const [editPerson, setEditPerson] = useState<any>(null);
@@ -87,7 +88,8 @@ export default function PersonelListe() {
         annual_leave_days: 14,
         status: 'Active',
         start_date: new Date().toISOString().split('T')[0],
-        end_date: ''
+        end_date: '',
+        puantaj_menu_active: false
       });
     } else {
       toast.error(result.message);
@@ -245,6 +247,19 @@ export default function PersonelListe() {
                       <option value="Inactive">Ayrıldı</option>
                     </select>
                   </div>
+                  <div className="space-y-2 flex flex-col justify-end pb-1">
+                    <Label htmlFor="puantaj-menu" className="mb-2">Puantaj Menüsü</Label>
+                    <div className="flex items-center space-x-2">
+                      <input 
+                        type="checkbox" 
+                        id="puantaj-menu"
+                        className="w-4 h-4 text-primary border-slate-300 rounded focus:ring-primary"
+                        checked={newPerson.puantaj_menu_active}
+                        onChange={(e) => setNewPerson({...newPerson, puantaj_menu_active: e.target.checked})}
+                      />
+                      <span className="text-sm text-slate-600">Aktif Edilsin</span>
+                    </div>
+                  </div>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
@@ -356,6 +371,19 @@ export default function PersonelListe() {
                     <option value="Active">Aktif</option>
                     <option value="Inactive">Ayrıldı</option>
                   </select>
+                </div>
+                <div className="space-y-2 flex flex-col justify-end pb-1">
+                  <Label htmlFor="edit-puantaj-menu" className="mb-2">Puantaj Menüsü</Label>
+                  <div className="flex items-center space-x-2">
+                    <input 
+                      type="checkbox" 
+                      id="edit-puantaj-menu"
+                      className="w-4 h-4 text-primary border-slate-300 rounded focus:ring-primary"
+                      checked={editPerson.puantaj_menu_active == 1 || editPerson.puantaj_menu_active === true}
+                      onChange={(e) => setEditPerson({...editPerson, puantaj_menu_active: e.target.checked})}
+                    />
+                    <span className="text-sm text-slate-600">Aktif Edilsin</span>
+                  </div>
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-4">

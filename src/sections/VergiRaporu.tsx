@@ -134,8 +134,8 @@ export function VergiRaporu() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {availableYillar.map(yil => (
-                    <SelectItem key={yil} value={yil.toString()}>{yil}</SelectItem>
+                  {(availableYillar || []).map((yil, idx) => (
+                    <SelectItem key={yil ? String(yil) : `yil-${idx}`} value={String(yil)}>{String(yil)}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -144,8 +144,8 @@ export function VergiRaporu() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {AYLAR.map(ay => (
-                    <SelectItem key={ay.value} value={ay.value.toString()}>{ay.label}</SelectItem>
+                  {(AYLAR || []).map((ay, idx) => (
+                    <SelectItem key={ay.value ? String(ay.value) : `ay-${idx}`} value={String(ay.value)}>{String(ay.label || '')}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>

@@ -135,6 +135,7 @@ export interface CariHareket {
   olusturmaTarihi: string;
   dekontDosya?: string | null;
   bankaId?: string | null;
+  kategoriId?: string | null;
 }
 
 export interface CariBakiyeOzet {
@@ -207,6 +208,7 @@ export interface Personnel {
   annual_leave_days: number;
   status?: 'Active' | 'Inactive';
   created_at?: string;
+  puantaj_menu_active?: boolean;
 }
 
 export interface Pointage {
@@ -215,6 +217,7 @@ export interface Pointage {
   date: string;
   status: string;
   overtime_hours: number;
+  is_locked?: boolean;
 }
 
 export interface Leave {
@@ -318,6 +321,12 @@ export interface MasrafKurali {
   aciklama?: string;
 }
 
+// ==================== GİDER KATEGORİSİ ====================
+export interface GiderKategorisi {
+  id: string;
+  ad: string;
+}
+
 // ==================== KESİLECEK FATURALAR ====================
 export interface KesilecekFatura {
   id: string;
@@ -357,7 +366,8 @@ export type ViewType =
   | 'talep-yonetimi'
   | 'puantaj-cetveli'
   | 'personel-izinlerim'
-  | 'personel-masraflarim';
+  | 'personel-masraflarim'
+  | 'kisisel-puantaj';
 
 // ==================== FATURA DURUMU ====================
 export type OdemeDurumu = 'odenmedi' | 'odendi' | 'bekliyor';

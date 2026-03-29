@@ -246,19 +246,19 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
       } else {
         const fList = parsed.faturalar || [parsed];
         const newForms: FormEntry[] = fList.map((f: any, idx: number) => {
-          const matchedCari = cariler.find(c => c.vknTckn === f.tedarikciVkn && c.vknTckn && c.vknTckn.length > 5);
+          const matchedCari = (cariler || []).find(c => c && c.vknTckn === f.tedarikciVkn && c.vknTckn && c.vknTckn.length > 5);
           return {
             id: Date.now() + idx,
             tutarTuru: f.tutar_tur || 'dahil',
             errors: {},
             data: {
-              tedarikciAdi: matchedCari ? matchedCari.unvan : (f.tedarikciAdi || ''),
-              tedarikciVkn: matchedCari ? matchedCari.vknTckn : (f.tedarikciVkn || ''),
+              tedarikciAdi: matchedCari ? (matchedCari.unvan || '') : (f.tedarikciAdi || ''),
+              tedarikciVkn: matchedCari ? (matchedCari.vknTckn || '') : (f.tedarikciVkn || ''),
               faturaNo: f.faturaNo || '',
               malHizmetAdi: f.malHizmetAdi || 'Fiş Gideri',
               faturaTarihi: f.faturaTarihi || INITIAL_FORM.faturaTarihi,
               vadeTarihi: '',
-              toplamTutar: f.tutar?.toString() || '',
+              toplamTutar: f.toplamTutar?.toString() || '',
               kdvOrani: f.kdv_orani ? f.kdv_orani.toString() : '18',
               tevkifatOrani: f.tevkifat_orani?.toString() || '0',
               stopajOrani: f.stopaj_orani?.toString() || '0',
@@ -287,7 +287,7 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
     updateForm(formId, 'tedarikciVkn', val);
     
     if (val.length >= 10) {
-      const matched = cariler.find(c => c.vknTckn === val && c.tip !== 'musteri');
+      const matched = (cariler || []).find(c => c && c.vknTckn === val && c.tip !== 'musteri');
       if (matched) {
         setForms(prev => prev.map(f => {
           if (f.id === formId) {
@@ -296,7 +296,7 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
               data: {
                 ...f.data,
                 cariId: matched.id,
-                tedarikciAdi: matched.unvan
+                tedarikciAdi: matched.unvan || ''
               },
               errors: {}
             };
@@ -412,13 +412,13 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
                     <div className="mb-4">
                       <Label className="text-xs font-medium text-emerald-600 mb-1 block">Kayıtlı Tedarikçi Seç (Otomatik Doldur)</Label>
                       <Select
-                        value={form.data.cariId || 'yok'}
+                        value={String(form.data.cariId ?? 'yok')}
                         onValueChange={(val) => {
                           if (val === 'yok') {
                             setForms(prev => prev.map(fp => fp.id === form.id ? { ...fp, data: { ...fp.data, cariId: undefined } } : fp));
                             return;
                           }
-                          const c = cariler.find(x => x.id === val);
+                          const c = (cariler || []).find(x => String(x.id ?? '') === val);
                           if (c) {
                             setForms(prev => prev.map(fp => {
                               if (fp.id === form.id) {
@@ -443,11 +443,11 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="yok" className="text-slate-500 font-medium">-- Serbest Devam Et --</SelectItem>
-                          {cariler.filter(c => c.tip !== 'musteri').map(c => (
-                            <SelectItem key={c.id} value={c.id}>
-                              {c.unvan} ({c.vknTckn})
-                            </SelectItem>
-                          ))}
+                          {(cariler || []).filter(c => c && c.tip !== 'musteri' && c.id !== undefined && c.id !== null && String(c.id).trim() !== '').map((c, idx) => (
+                             <SelectItem key={c.id !== undefined && c.id !== null ? String(c.id) : `cari-${idx}`} value={String(c.id ?? '')}>
+                               {String(c.unvan ?? 'Bilinmiyor')} ({String(c.vknTckn ?? '')})
+                             </SelectItem>
+                           ))}
                         </SelectContent>
                       </Select>
                     </div>

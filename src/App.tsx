@@ -19,6 +19,7 @@ import TalepYonetimi from './sections/TalepYonetimi';
 import PuantajCetveli from './sections/PuantajCetveli';
 import PersonelIzinlerim from './sections/PersonelIzinlerim';
 import PersonelMasraflarim from './sections/PersonelMasraflarim';
+import KisiselPuantaj from './sections/KisiselPuantaj';
 
 function AppContent() {
   const { isAuthenticated, currentView } = useApp();
@@ -65,6 +66,8 @@ function AppContent() {
             return <PersonelIzinlerim />;
           case 'personel-masraflarim':
             return <PersonelMasraflarim />;
+          case 'kisisel-puantaj':
+            return <KisiselPuantaj />;
           default:
             return <Dashboard />; // Default to Dashboard if currentView is not recognized
         }

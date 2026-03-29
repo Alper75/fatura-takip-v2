@@ -117,11 +117,11 @@ export function CekSenetDrawer() {
 
           <div className="space-y-2">
             <Label>İlgili Cari (Müşteri/Tedarikçi)</Label>
-            <Select value={formData.cariId} onValueChange={(v) => setFormData({ ...formData, cariId: v })}>
+            <Select value={String(formData.cariId ?? '')} onValueChange={(v) => setFormData({ ...formData, cariId: v })}>
               <SelectTrigger><SelectValue placeholder="Seçiniz" /></SelectTrigger>
               <SelectContent>
-                {cariler.map(c => (
-                  <SelectItem key={c.id} value={c.id}>{c.unvan}</SelectItem>
+                {(cariler || []).filter(c => c && c.id !== undefined && c.id !== null && String(c.id).trim() !== '').map((c, idx) => (
+                  <SelectItem key={c.id !== undefined && c.id !== null ? String(c.id) : `cari-${idx}`} value={String(c.id ?? '')}>{String(c.unvan ?? 'Bilinmiyor')}</SelectItem>
                 ))}
               </SelectContent>
             </Select>

@@ -21,7 +21,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { toast } from 'sonner';
-import { Plus, Wallet, Clock, CheckCircle2 } from 'lucide-react';
+import { Plus, Wallet, Clock, CheckCircle2, Download, FileText } from 'lucide-react';
 
 const DURUM_CONFIG: Record<string, { label: string; className: string }> = {
   PENDING:  { label: 'Beklemede', className: 'bg-yellow-100 text-yellow-800 border-yellow-200' },
@@ -40,6 +40,7 @@ export default function PersonelMasraflarim() {
     amount: '',
     date: new Date().toISOString().split('T')[0],
     description: '',
+    file: null as File | null
   });
 
   useEffect(() => {
@@ -60,15 +61,19 @@ export default function PersonelMasraflarim() {
       return;
     }
     setLoading(true);
-    const result = await submitExpenseRequest({
-      ...form,
-      amount: Number(form.amount),
-    });
+    const formData = new FormData();
+    formData.append('type', form.type);
+    formData.append('amount', form.amount);
+    formData.append('date', form.date);
+    formData.append('description', form.description);
+    if (form.file) formData.append('receipt', form.file);
+
+    const result = await submitExpenseRequest(formData);
     setLoading(false);
     if (result.success) {
       toast.success('Talebiniz iletildi.');
       setIsDialogOpen(false);
-      setForm({ type: 'Expense', amount: '', date: new Date().toISOString().split('T')[0], description: '' });
+      setForm({ type: 'Expense', amount: '', date: new Date().toISOString().split('T')[0], description: '', file: null });
       fetchRequests();
     } else {
       toast.error(result.message || 'Bir hata oluştu.');
@@ -81,6 +86,27 @@ export default function PersonelMasraflarim() {
     .filter((r) => r.status === 'APPROVED')
     .reduce((acc, r) => acc + (r.amount ?? 0), 0);
 
+  const exportToCSV = () => {
+    const headers = ['Tür', 'Tutar', 'Tarih', 'Açıklama', 'Durum', 'Belge URL'];
+    const rows = filteredRequests.map(r => [
+      r.type === 'Expense' ? 'Masraf' : 'Avans',
+      r.amount || 0,
+      r.date || '',
+      `"${(r.description || '').replace(/"/g, '""')}"`,
+      DURUM_CONFIG[r.status]?.label || r.status,
+      r.receipt_path ? `http://localhost:5000${r.receipt_path}` : '-'
+    ]);
+    const csvContent = "data:text/csv;charset=utf-8,\uFEFF" 
+      + [headers.join(','), ...rows.map(e => e.join(','))].join("\n");
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `masraflarim_${filterDurum}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   return (
     <div className="space-y-6">
       {/* Başlık */}
@@ -89,10 +115,16 @@ export default function PersonelMasraflarim() {
           <h2 className="text-2xl font-bold tracking-tight">Harcama ve Taleplerim</h2>
           <p className="text-sm text-muted-foreground mt-1">Avans ve masraf taleplerinizi buradan yönetin</p>
         </div>
-        <Button onClick={() => setIsDialogOpen(true)} className="gap-2">
-          <Plus className="w-4 h-4" />
-          Yeni Talep
-        </Button>
+        <div className="flex gap-2">
+          <Button onClick={exportToCSV} variant="outline" className="flex items-center gap-2">
+            <Download className="w-4 h-4" />
+            Excel (CSV) İndir
+          </Button>
+          <Button onClick={() => setIsDialogOpen(true)} className="gap-2">
+            <Plus className="w-4 h-4" />
+            Yeni Talep
+          </Button>
+        </div>
       </div>
 
       {/* Özet Kartları */}
@@ -154,13 +186,14 @@ export default function PersonelMasraflarim() {
                 <TableHead className="font-semibold text-slate-700">Tutar</TableHead>
                 <TableHead className="font-semibold text-slate-700">Tarih</TableHead>
                 <TableHead className="font-semibold text-slate-700">Açıklama</TableHead>
+                <TableHead className="font-semibold text-slate-700 text-center">Belge</TableHead>
                 <TableHead className="font-semibold text-slate-700">Durum</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {filteredRequests.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={5} className="text-center py-10 text-muted-foreground">
+                  <TableCell colSpan={6} className="text-center py-10 text-muted-foreground">
                     Henüz bir talebiniz bulunmuyor.
                   </TableCell>
                 </TableRow>
@@ -178,6 +211,16 @@ export default function PersonelMasraflarim() {
                       <TableCell>{req.date}</TableCell>
                       <TableCell className="max-w-[200px] truncate text-slate-500">
                         {req.description || '-'}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        {req.receipt_path ? (
+                          <a href={`http://localhost:5000${req.receipt_path}`} target="_blank" rel="noreferrer" className="inline-flex items-center text-blue-600 hover:underline">
+                            <FileText className="w-4 h-4 mr-1" />
+                            Gör
+                          </a>
+                        ) : (
+                          <span className="text-slate-400 text-sm">-</span>
+                        )}
                       </TableCell>
                       <TableCell>
                         <Badge variant="outline" className={cfg.className}>
@@ -237,6 +280,13 @@ export default function PersonelMasraflarim() {
                 placeholder="Harcama/avans sebebini belirtin..."
                 value={form.description}
                 onChange={(e) => setForm((p) => ({ ...p, description: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Belge / Dekont Yükle</Label>
+              <Input
+                type="file"
+                onChange={(e) => setForm((p) => ({ ...p, file: e.target.files?.[0] || null }))}
               />
             </div>
           </div>

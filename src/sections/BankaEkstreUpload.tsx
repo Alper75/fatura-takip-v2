@@ -2,7 +2,7 @@ import { useState, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+// Select bileşenleri performans için native ama shadcn stiliyle giydirilmiştir.
 import { useApp } from '@/context/AppContext';
 import { Upload, FileSpreadsheet, CheckCircle2, AlertCircle, Search, Landmark, X } from 'lucide-react';
 import * as XLSX from 'xlsx';
@@ -59,12 +59,14 @@ export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploa
   const { cariler, bankaHesaplari, addCariHareket, masrafKurallari } = useApp();
   const [satirlar, setSatirlar] = useState<EkstreSatiri[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [visibleCount, setVisibleCount] = useState(50);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const banka = bankaHesaplari.find(b => b.id === bankaId);
 
-  const normalizeString = (str: string) => {
-    return str
+  const normalizeString = (str: any) => {
+    if (str === null || str === undefined) return '';
+    return String(str)
       .toUpperCase()
       .replace(/İ/g, 'I')
       .replace(/Ğ/g, 'G')
@@ -80,7 +82,8 @@ export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploa
     
     // 0. Kullanıcı Tanımlı Masraf Kuralları (En Yüksek Öncelik)
     for (const kural of masrafKurallari) {
-      if (cleanDesc.includes(normalizeString(kural.anahtarKelime))) {
+      const key = normalizeString(kural.anahtarKelime);
+      if (key && cleanDesc.includes(key)) {
         return { tur: kural.islemTuru, cariId: null };
       }
     }
@@ -113,7 +116,9 @@ export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploa
 
     // 3. Cari Eşleştirme
     for (const cari of cariler) {
-      if (cleanDesc.includes(normalizeString(cari.unvan)) || (cari.vknTckn && cleanDesc.includes(cari.vknTckn))) {
+      const u = normalizeString(cari.unvan);
+      const v = (cari.vknTckn || '').trim();
+      if ((u && cleanDesc.includes(u)) || (v && cleanDesc.includes(v))) {
         return { 
           tur: tip === 'alacak' ? 'tahsilat' : 'odeme', 
           cariId: cari.id 
@@ -165,8 +170,19 @@ export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploa
     reader.onload = (evt) => {
       try {
         const bstr = evt.target?.result;
+        if (!XLSX || !XLSX.read) {
+          toast.error('Excel kütüphanesi yüklenemedi. Sayfayı yenileyip tekrar deneyin.');
+          setIsProcessing(false);
+          return;
+        }
         const wb = XLSX.read(bstr, { type: 'binary', cellDates: true });
-        const ws = wb.Sheets[wb.SheetNames[0]];
+        const sheetName = wb.SheetNames[0];
+        if (!sheetName) {
+           toast.error('Excel içinde geçerli bir sayfa bulunamadı.');
+           setIsProcessing(false);
+           return;
+        }
+        const ws = wb.Sheets[sheetName];
         const data = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
 
         let headerRowIdx = -1;
@@ -201,55 +217,71 @@ export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploa
           return;
         }
 
-        const mappedSatirlar: EkstreSatiri[] = data.slice(headerRowIdx + 1).map(row => {
-          if (!row[dateIdx]) return null;
-          
-          let tarih = '';
-          const rawDate = row[dateIdx];
-          if (rawDate instanceof Date) {
-            tarih = rawDate.toISOString().split('T')[0];
+        const mappedSatirlar: EkstreSatiri[] = [];
+        
+        // Veriyi güvenli şekilde işle
+        for (let i = headerRowIdx + 1; i < data.length; i++) {
+          try {
+            const row = data[i];
+            if (!row || !row[dateIdx]) continue;
+            
+            let tarih = '';
+            const rawDate = row[dateIdx];
+            if (rawDate instanceof Date) {
+              tarih = rawDate.toISOString().split('T')[0];
+            } else {
+              const dateStr = String(rawDate || '').trim();
+              const parts = dateStr.split(/[\.\-\/]/); // . - / ayraçlarını destekle
+              tarih = parts.length === 3 ? `${parts[2]}-${parts[1]}-${parts[0]}` : dateStr;
+            }
+
+            const aciklama = String(row[descIdx] || '');
+            let tutar = 0;
+            let tip: 'borc' | 'alacak' = 'alacak';
+
+            if (amountIdx !== -1) {
+              const val = parseTurkishNumber(row[amountIdx]);
+              tutar = Math.abs(val);
+              tip = val < 0 ? 'borc' : 'alacak';
+            } else if (debitIdx !== -1 && creditIdx !== -1) {
+              const borc = parseTurkishNumber(row[debitIdx]);
+              const alacak = parseTurkishNumber(row[creditIdx]);
+              tutar = borc > 0 ? borc : alacak;
+              tip = borc > 0 ? 'borc' : 'alacak';
+            }
+
+            if (!tutar || isNaN(tutar)) continue;
+
+            const { tur, cariId, transferBankaId } = classifyTransaction(aciklama, tip);
+
+            mappedSatirlar.push({
+              tarih,
+              aciklama,
+              tutar,
+              tip,
+              eslesenCariId: cariId,
+              önerilenTur: tur,
+              transferBankaId: transferBankaId,
+              durum: (cariId || transferBankaId) ? 'success' : (tur !== 'tahsilat' && tur !== 'odeme' ? 'warning' : 'pending')
+            });
+          } catch (err) {
+            console.error('Satır işleme hatası (index ' + i + '):', err);
+            continue; // Hatalı satırı atla, tüm süreci çökertme
+          }
+        }
+
+        setTimeout(() => {
+          if (mappedSatirlar.length === 0) {
+             toast.error('Excel içinde işlenebilir bir veri bulunamadı.');
           } else {
-            const parts = String(rawDate).split('.');
-            tarih = parts.length === 3 ? `${parts[2]}-${parts[1]}-${parts[0]}` : String(rawDate);
+             setSatirlar(mappedSatirlar);
+             toast.success(`${mappedSatirlar.length} adet hareket yüklendi.`);
           }
-
-          const aciklama = String(row[descIdx] || '');
-          let tutar = 0;
-          let tip: 'borc' | 'alacak' = 'alacak';
-
-          if (amountIdx !== -1) {
-            const val = parseTurkishNumber(row[amountIdx]);
-            tutar = Math.abs(val);
-            tip = val < 0 ? 'borc' : 'alacak';
-          } else if (debitIdx !== -1 && creditIdx !== -1) {
-            const borc = parseTurkishNumber(row[debitIdx]);
-            const alacak = parseTurkishNumber(row[creditIdx]);
-            tutar = borc > 0 ? borc : alacak;
-            tip = borc > 0 ? 'borc' : 'alacak';
-          }
-
-          if (!tutar || isNaN(tutar)) return null;
-
-          const { tur, cariId, transferBankaId } = classifyTransaction(aciklama, tip);
-
-          return {
-            tarih,
-            aciklama,
-            tutar,
-            tip,
-            eslesenCariId: cariId,
-            önerilenTur: tur,
-            transferBankaId: transferBankaId,
-            durum: (cariId || transferBankaId) ? 'success' : (tur !== 'tahsilat' && tur !== 'odeme' ? 'warning' : 'pending')
-          } as EkstreSatiri;
-        }).filter((s): s is EkstreSatiri => s !== null && s.tutar > 0);
-
-        setSatirlar(mappedSatirlar);
-        toast.success(`${mappedSatirlar.length} adet hareket yüklendi.`);
+          setIsProcessing(false);
+        }, 100);
       } catch (err) {
-        toast.error('Excel dosyası işlenirken hata oluştu.');
+        toast.error('Excel dosyası işlenirken kritik hata oluştu.');
         console.error(err);
-      } finally {
         setIsProcessing(false);
       }
     };
@@ -278,6 +310,7 @@ export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploa
     toast.success('Banka ekstresi başarıyla işlendi.');
     onClose();
     setSatirlar([]);
+    setVisibleCount(50);
   };
 
   const updateSatir = (index: number, updates: Partial<EkstreSatiri>) => {
@@ -345,7 +378,7 @@ export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploa
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {satirlar.map((s, idx) => (
+                    {satirlar.slice(0, visibleCount).map((s, idx) => (
                       <TableRow key={idx} className={cn(
                         s.durum === 'success' ? 'bg-blue-50/30' : 
                         s.durum === 'warning' ? 'bg-amber-50/30' : ''
@@ -364,51 +397,60 @@ export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploa
                           {new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(s.tutar)}
                         </TableCell>
                         <TableCell>
-                          <div className="space-y-1">
-                            <Select 
-                              value={s.eslesenCariId || (s.transferBankaId ? 'transfer-' + s.transferBankaId : 'sistem')} 
-                              onValueChange={(v) => {
-                                if (v.startsWith('transfer-')) {
-                                  updateSatir(idx, { eslesenCariId: null, transferBankaId: v.replace('transfer-', ''), önerilenTur: 'transfer' });
-                                } else {
-                                  updateSatir(idx, { eslesenCariId: v === 'sistem' ? null : v, transferBankaId: null });
-                                }
-                              }}
-                            >
-                              <SelectTrigger className="h-7 text-[10px]">
-                                <SelectValue placeholder="Cari/Hesap Seç" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="sistem">Diğer (Kategori Seçin)</SelectItem>
-                                <SelectContent className="font-bold text-[10px] py-1 px-2 border-b">BANAKLAR (TRANSFER)</SelectContent>
-                                {bankaHesaplari.filter(b => b.id !== bankaId).map(b => (
-                                  <SelectItem key={'transfer-'+b.id} value={'transfer-'+b.id}>{b.hesapAdi} (Transfer)</SelectItem>
-                                ))}
-                                <SelectContent className="font-bold text-[10px] py-1 px-2 border-b">CARİLER</SelectContent>
-                                {cariler.map(c => (
-                                  <SelectItem key={c.id} value={c.id}>{c.unvan}</SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
+                          <div className="space-y-1.5 min-w-[140px]">
+                            {/* Cari / Banka Seçimi - Styled Native Select */}
+                            <div className="relative group">
+                              <select 
+                                className="w-full h-8 text-[11px] bg-white border border-slate-200 rounded-md px-2 pr-6 outline-none focus:border-indigo-500 cursor-pointer hover:bg-slate-50 shadow-sm appearance-none transition-all"
+                                value={s.eslesenCariId || (s.transferBankaId ? 'transfer-' + s.transferBankaId : 'sistem')} 
+                                onChange={(e) => {
+                                  const v = e.target.value;
+                                  if (v.startsWith('transfer-')) {
+                                    updateSatir(idx, { eslesenCariId: null, transferBankaId: v.replace('transfer-', ''), önerilenTur: 'transfer' });
+                                  } else {
+                                    updateSatir(idx, { eslesenCariId: v === 'sistem' ? null : v, transferBankaId: null });
+                                  }
+                                }}
+                              >
+                                <option value="sistem">Diğer (Kategori Seçin)</option>
+                                <optgroup label="BANKALAR (TRANSFER)">
+                                  {bankaHesaplari.filter(b => b.id !== bankaId).map(b => (
+                                    <option key={'transfer-'+b.id} value={'transfer-'+b.id}>{b.hesapAdi}</option>
+                                  ))}
+                                </optgroup>
+                                <optgroup label="CARİLER">
+                                  {(cariler || []).filter(c => c && c.id !== undefined && c.id !== null && String(c.id).trim() !== '').map((c, idx) => (
+                                    <option key={c.id !== undefined && c.id !== null ? String(c.id) : `cari-${idx}`} value={String(c.id ?? '')}>
+                                      {String(c.unvan ?? 'Bilinmiyor')} ({String(c.vknTckn ?? '')})
+                                    </option>
+                                  ))}
+                                </optgroup>
+                              </select>
+                              <div className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none opacity-40 group-hover:opacity-60 transition-opacity">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+                              </div>
+                            </div>
 
-                            <Select 
-                              value={s.önerilenTur} 
-                              onValueChange={(v: any) => updateSatir(idx, { önerilenTur: v })}
-                            >
-                              <SelectTrigger className="h-7 text-[10px] border-dashed">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="tahsilat">Müşteri Tahsilatı</SelectItem>
-                                <SelectItem value="odeme">Tedarikçi Ödemesi</SelectItem>
-                                <SelectItem value="transfer">Hesaplar Arası Transfer</SelectItem>
-                                <SelectItem value="vergi_kdv">KDV Ödemesi</SelectItem>
-                                <SelectItem value="maas_odemesi">Maaş Ödemesi</SelectItem>
-                                <SelectItem value="banka_masrafi">Banka Masrafı</SelectItem>
-                                <SelectItem value="kredi_karti_odemesi">Kredi Kartı Ödemesi</SelectItem>
-                                <SelectItem value="genel_gider">Genel Gider</SelectItem>
-                              </SelectContent>
-                            </Select>
+                            {/* İşlem Türü Seçimi - Styled Native Select */}
+                            <div className="relative group">
+                              <select 
+                                className="w-full h-8 text-[11px] bg-indigo-50/50 border border-slate-200 border-dashed rounded-md px-2 pr-6 outline-none focus:border-indigo-500 cursor-pointer hover:bg-white transition-all appearance-none"
+                                value={s.önerilenTur} 
+                                onChange={(e) => updateSatir(idx, { önerilenTur: e.target.value as any })}
+                              >
+                                <option value="tahsilat">Müşteri Tahsilatı</option>
+                                <option value="odeme">Tedarikçi Ödemesi</option>
+                                <option value="transfer">Hesaplar Arası Transfer</option>
+                                <option value="vergi_kdv">KDV Ödemesi</option>
+                                <option value="maas_odemesi">Maaş Ödemesi</option>
+                                <option value="banka_masrafi">Banka Masrafı</option>
+                                <option value="kredi_karti_odemesi">Kredi Kartı Ödemesi</option>
+                                <option value="genel_gider">Genel Gider</option>
+                              </select>
+                              <div className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none opacity-40 group-hover:opacity-60 transition-opacity">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+                              </div>
+                            </div>
                           </div>
                         </TableCell>
                         <TableCell>
@@ -425,6 +467,18 @@ export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploa
                   </TableBody>
                 </Table>
               </div>
+
+              {satirlar.length > visibleCount && (
+                <div className="flex justify-center pt-2">
+                  <Button 
+                    variant="outline" 
+                    className="w-full py-6 text-slate-500 border-dashed hover:bg-slate-50"
+                    onClick={() => setVisibleCount(prev => prev + 100)}
+                  >
+                    Daha Fazla Hareket Göster ({satirlar.length - visibleCount} kaldı)
+                  </Button>
+                </div>
+              )}
             </div>
           )}
         </div>

@@ -93,10 +93,10 @@ export function AlisFaturaListesi() {
   const filteredFaturalar = alisFaturalari.filter((fatura) => {
     const searchLower = filterValues.search.toLowerCase();
     const matchesSearch = 
-      fatura.faturaNo.toLowerCase().includes(searchLower) ||
-      fatura.tedarikciAdi.toLowerCase().includes(searchLower) ||
-      fatura.tedarikciVkn.toLowerCase().includes(searchLower) ||
-      fatura.malHizmetAdi.toLowerCase().includes(searchLower);
+      (fatura.faturaNo || '').toLowerCase().includes(searchLower) ||
+      (fatura.tedarikciAdi || '').toLowerCase().includes(searchLower) ||
+      (fatura.tedarikciVkn || '').toLowerCase().includes(searchLower) ||
+      (fatura.malHizmetAdi || '').toLowerCase().includes(searchLower);
 
     const matchesStatus = filterValues.status === 'all' || fatura.odemeDurumu === filterValues.status;
     
@@ -538,14 +538,14 @@ export function AlisFaturaListesi() {
             <div className="space-y-4 py-2 border-t mt-4 pt-4 text-left">
               <div className="space-y-2">
                 <Label>Ödemenin Yapıldığı Hesap (Banka/Kasa)</Label>
-                <Select value={bankaId} onValueChange={setBankaId}>
+                <Select value={String(bankaId || 'nakit')} onValueChange={setBankaId}>
                   <SelectTrigger>
                     <SelectValue placeholder="Kasa / Banka Seçiniz" />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="nakit">Nakit / Elden</SelectItem>
-                    {bankaHesaplari.map(b => (
-                      <SelectItem key={b.id} value={b.id}>{b.hesapAdi} ({b.bankaAdi})</SelectItem>
+                    {(bankaHesaplari || []).map((b, idx) => (
+                      <SelectItem key={b.id !== undefined && b.id !== null ? String(b.id) : `banka-${idx}`} value={String(b.id ?? '')}>{String(b.hesapAdi ?? '')} ({String(b.bankaAdi ?? '')})</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>

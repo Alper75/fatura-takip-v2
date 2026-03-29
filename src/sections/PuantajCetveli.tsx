@@ -11,10 +11,14 @@ import {
   Clock, 
   Palmtree, 
   Coffee,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Lock,
+  Unlock,
+  CheckCheck
 } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { toast } from 'sonner';
+import { cn } from '@/lib/utils';
 
 const STATUS_OPTIONS = [
   { id: 'Work', label: 'Çalıştı', color: 'bg-emerald-500', icon: CheckCircle2 },
@@ -26,7 +30,7 @@ const STATUS_OPTIONS = [
 ];
 
 export default function PuantajCetveli() {
-  const { personnel, pointages, fetchPersonnel, fetchPointages, submitPointage, downloadPuantajTemplate, uploadPuantajExcel } = useApp();
+  const { personnel, pointages, fetchPersonnel, fetchPointages, submitPointage, bulkLockPointage, bulkLockAllPersonnel, downloadPuantajTemplate, uploadPuantajExcel } = useApp();
   const [currentDate, setCurrentDate] = useState(new Date());
 
   useEffect(() => {
@@ -68,6 +72,50 @@ export default function PuantajCetveli() {
     }
   };
 
+  const handleLockToggle = async (personId: number, day: number, currentLocked: boolean) => {
+    const year = currentDate.getFullYear();
+    const month = (currentDate.getMonth() + 1).toString().padStart(2, '0');
+    const dayStr = day.toString().padStart(2, '0');
+    const dateStr = `${year}-${month}-${dayStr}`;
+    const pt = pointageMap[`${personId}-${dateStr}`];
+
+    const result = await submitPointage({
+      personnel_id: personId,
+      date: dateStr,
+      status: pt?.status || 'Work',
+      overtime_hours: pt?.overtime_hours || 0,
+      is_locked: !currentLocked
+    });
+
+    if (result.success) {
+      toast.success(currentLocked ? 'Kilit açıldı.' : 'Gün kilitlendi.');
+    } else {
+      toast.error('Kilit işlemi başarısız.');
+    }
+  };
+
+  const handleBulkLock = async (personId: number, lockStatus: boolean) => {
+    const year = currentDate.getFullYear();
+    const month = currentDate.getMonth() + 1;
+    const result = await bulkLockPointage(personId, year, month, lockStatus);
+    if (result.success) {
+      toast.success(result.message);
+    } else {
+      toast.error(result.message || 'Toplu işlem başarısız.');
+    }
+  };
+
+  const handleBulkLockAll = async (lockStatus: boolean) => {
+    const year = currentDate.getFullYear();
+    const month = currentDate.getMonth() + 1;
+    const result = await bulkLockAllPersonnel(year, month, lockStatus);
+    if (result.success) {
+      toast.success(result.message);
+    } else {
+      toast.error(result.message || 'Genel toplu işlem başarısız.');
+    }
+  };
+
   const onFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -102,6 +150,22 @@ export default function PuantajCetveli() {
             <span className="font-bold min-w-[120px] text-center">{monthLabel}</span>
             <Button variant="ghost" size="icon" onClick={handleNextMonth}><ChevronRight className="h-4 w-4" /></Button>
           </div>
+          <Button 
+            variant="default" 
+            size="sm" 
+            className="bg-emerald-600 hover:bg-emerald-700 ml-2"
+            onClick={() => handleBulkLockAll(true)}
+          >
+            <CheckCheck className="h-4 w-4 mr-2" /> Tümünü Onayla
+          </Button>
+          <Button 
+            variant="outline" 
+            size="sm" 
+            className="text-amber-600 border-amber-200 hover:bg-amber-50 ml-2"
+            onClick={() => handleBulkLockAll(false)}
+          >
+            <Unlock className="h-4 w-4 mr-2" /> Tüm Kilidi Aç
+          </Button>
         </div>
       </div>
 
@@ -136,7 +200,27 @@ export default function PuantajCetveli() {
               {personnel.map(p => (
                 <TableRow key={p.id}>
                   <TableCell className="sticky left-0 bg-white z-10 font-bold text-[11px] border-r">
-                    {p.first_name} {p.last_name}
+                    <div className="flex flex-col gap-1">
+                      <span>{p.first_name} {p.last_name}</span>
+                      <div className="flex gap-1">
+                        <Button 
+                          variant="ghost" 
+                          size="sm" 
+                          className="h-6 px-1 text-[9px] text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50"
+                          onClick={() => handleBulkLock(p.id, true)}
+                        >
+                          Onayla
+                        </Button>
+                        <Button 
+                          variant="ghost" 
+                          size="sm" 
+                          className="h-6 px-1 text-[9px] text-amber-600 hover:text-amber-700 hover:bg-amber-50"
+                          onClick={() => handleBulkLock(p.id, false)}
+                        >
+                          Kilidi Aç
+                        </Button>
+                      </div>
+                    </div>
                   </TableCell>
                   {Array.from({ length: daysInMonth }).map((_, i) => {
                     const day = i + 1;
@@ -156,8 +240,9 @@ export default function PuantajCetveli() {
                       >
                         <Popover>
                           <PopoverTrigger asChild>
-                            <div className={`w-full h-full flex items-center justify-center ${config.color} text-white`}>
+                            <div className={`w-full h-full flex items-center justify-center ${config.color} text-white relative`}>
                               {pt?.overtime_hours > 0 && <span className="text-[8px] font-bold">+{pt.overtime_hours}</span>}
+                              {pt?.is_locked ? <Lock className="h-3 w-3 absolute" /> : null}
                             </div>
                           </PopoverTrigger>
                           <PopoverContent className="w-48 p-2 z-[100]" side="bottom">
@@ -174,6 +259,23 @@ export default function PuantajCetveli() {
                                   {opt.label}
                                 </Button>
                               ))}
+                              <div className="border-t mt-1 pt-1">
+                                <Button 
+                                  variant="ghost" 
+                                  size="sm" 
+                                  className={cn(
+                                    "justify-start h-8 text-xs w-full",
+                                    pt?.is_locked ? "text-amber-600" : "text-emerald-600"
+                                  )}
+                                  onClick={() => handleLockToggle(p.id, day, !!pt?.is_locked)}
+                                >
+                                  {pt?.is_locked ? (
+                                    <><Unlock className="h-3 w-3 mr-2" /> Kilidi Kaldır</>
+                                  ) : (
+                                    <><Lock className="h-3 w-3 mr-2" /> Onayla & Kilitle</>
+                                  )}
+                                </Button>
+                              </div>
                             </div>
                           </PopoverContent>
                         </Popover>

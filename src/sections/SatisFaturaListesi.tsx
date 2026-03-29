@@ -92,10 +92,10 @@ export function SatisFaturaListesi() {
   const filteredFaturalar = satisFaturalari.filter((fatura) => {
     const searchLower = filterValues.search.toLowerCase();
     const matchesSearch = 
-      fatura.tcVkn.toLowerCase().includes(searchLower) ||
-      fatura.ad.toLowerCase().includes(searchLower) ||
-      fatura.soyad.toLowerCase().includes(searchLower) ||
-      fatura.adres.toLowerCase().includes(searchLower);
+      (fatura.tcVkn || '').toLowerCase().includes(searchLower) ||
+      (fatura.ad || '').toLowerCase().includes(searchLower) ||
+      (fatura.soyad || '').toLowerCase().includes(searchLower) ||
+      (fatura.adres || '').toLowerCase().includes(searchLower);
 
     const matchesStatus = filterValues.status === 'all' || fatura.odemeDurumu === filterValues.status;
     
@@ -301,11 +301,11 @@ export function SatisFaturaListesi() {
                         <div className="flex items-center gap-2">
                           <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
                             <span className="text-xs font-medium text-primary">
-                              {fatura.ad.charAt(0)}{fatura.soyad.charAt(0)}
+                              {(fatura.ad || '').charAt(0)}{(fatura.soyad || '').charAt(0)}
                             </span>
                           </div>
                           <div className="flex flex-col min-w-0">
-                            <span className="text-slate-700 font-medium truncate">{fatura.ad} {fatura.soyad}</span>
+                            <span className="text-slate-700 font-medium truncate">{fatura.ad || ''} {fatura.soyad || ''}</span>
                             {fatura.aciklama && (
                               <span className="text-[10px] text-slate-400 italic truncate" title={fatura.aciklama}>
                                 {fatura.aciklama}
@@ -550,14 +550,14 @@ export function SatisFaturaListesi() {
             <div className="space-y-4 py-2 border-t mt-4 pt-4 text-left">
               <div className="space-y-2">
                 <Label>Tahsilatın Yapıldığı Hesap (Banka/Kasa)</Label>
-                <Select value={bankaId} onValueChange={setBankaId}>
+                <Select value={String(bankaId || 'nakit')} onValueChange={setBankaId}>
                   <SelectTrigger>
                     <SelectValue placeholder="Kasa / Banka Seçiniz" />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="nakit">Nakit / Elden</SelectItem>
-                    {bankaHesaplari.map(b => (
-                      <SelectItem key={b.id} value={b.id}>{b.hesapAdi} ({b.bankaAdi})</SelectItem>
+                    {(bankaHesaplari || []).map((b, idx) => (
+                      <SelectItem key={b.id !== undefined && b.id !== null ? String(b.id) : `banka-${idx}`} value={String(b.id ?? '')}>{String(b.hesapAdi ?? '')} ({String(b.bankaAdi ?? '')})</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>

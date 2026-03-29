@@ -43,9 +43,9 @@ export function CariListe() {
   const filteredCariler = cariler.filter((cari) => {
     const searchLower = filterValues.search.toLowerCase();
     const matchesSearch = 
-      cari.unvan.toLowerCase().includes(searchLower) ||
-      cari.vknTckn.toLowerCase().includes(searchLower) ||
-      (cari.adres && cari.adres.toLowerCase().includes(searchLower));
+      (cari.unvan || '').toLowerCase().includes(searchLower) ||
+      (cari.vknTckn || '').toLowerCase().includes(searchLower) ||
+      (cari.adres || '').toLowerCase().includes(searchLower);
 
     const matchesType = filterValues.status === 'all' || cari.tip === filterValues.status;
 

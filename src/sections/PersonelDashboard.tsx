@@ -9,7 +9,8 @@ import {
   Bell, 
   Clock, 
   AlertCircle,
-  Plus
+  Plus,
+  CheckCircle2
 } from 'lucide-react';
 import { 
   Dialog, 
@@ -20,6 +21,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 
 export default function PersonelDashboard() {
@@ -93,7 +95,7 @@ export default function PersonelDashboard() {
     }
   };
 
-  if (!currentPersonnel) return <div className="p-8">Yükleniyor...</div>;
+  if (!currentPersonnel) return <div className="p-8 text-center">Yükleniyor...</div>;
 
   const handleLeaveSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -159,7 +161,7 @@ export default function PersonelDashboard() {
             <Clock className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{myPointagesThisMonth.filter(p => p.status === 'Work').length} / {new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate()} Gün</div>
+            <div className="text-2xl font-bold">{myPointagesThisMonth.filter(p => p.status === 'Work').length} Gün</div>
           </CardContent>
         </Card>
         <Card>
@@ -173,11 +175,13 @@ export default function PersonelDashboard() {
         </Card>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Son Maaş</CardTitle>
-            <span className="text-muted-foreground text-xs">₺</span>
+            <CardTitle className="text-sm font-medium">Onaylanan Talepler</CardTitle>
+            <CheckCircle2 className="h-4 w-4 text-green-500" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{currentPersonnel.salary?.toLocaleString('tr-TR')}</div>
+            <div className="text-2xl font-bold">
+              {myLeaves.filter(l => l.status === 'APPROVED').length + myRequests.filter(r => r.status === 'APPROVED').length}
+            </div>
           </CardContent>
         </Card>
       </div>
@@ -187,34 +191,38 @@ export default function PersonelDashboard() {
           <CardHeader>
             <div className="flex items-center justify-between">
               <div>
-                <CardTitle>İzin Taleplerim</CardTitle>
-                <CardDescription>Son izin başvurularınızın durumu.</CardDescription>
+                <CardTitle>Son Taleplerim</CardTitle>
+                <CardDescription>Başvurularınızın güncel durumunu buradan takip edebilirsiniz.</CardDescription>
               </div>
-              <Button size="sm" onClick={() => setIsLeaveDialogOpen(true)}>
-                <Plus className="mr-2 h-4 w-4" />
-                İzin İste
-              </Button>
+              <div className="flex gap-2">
+                <Button size="sm" onClick={() => setIsLeaveDialogOpen(true)} variant="outline">İzin İste</Button>
+                <Button size="sm" onClick={() => setIsExpenseDialogOpen(true)}>Masraf İste</Button>
+              </div>
             </div>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {myLeaves.length > 0 ? myLeaves.slice(0, 5).map(l => (
-                <div key={l.id} className="flex items-center justify-between border-b pb-4">
+              {[...myLeaves, ...myRequests].sort((a, b) => b.id - a.id).slice(0, 5).map(item => (
+                <div key={`${'type' in item ? 'req' : 'leave'}-${item.id}`} className="flex items-center justify-between border-b pb-4 last:border-0 last:pb-0">
                   <div className="space-y-1">
-                    <p className="text-sm font-medium leading-none">{l.type}</p>
-                    <p className="text-xs text-muted-foreground">{l.start_date} - {l.end_date}</p>
+                    <p className="text-sm font-medium leading-none">
+                      {'amount' in item ? `${item.amount} ₺ - Masraf/Avans` : `${item.type} İzni`}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {'date' in item ? item.date : `${item.start_date} - ${item.end_date}`}
+                    </p>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                      l.status === 'APPROVED' ? 'bg-green-100 text-green-800' :
-                      l.status === 'REJECTED' ? 'bg-red-100 text-red-800' : 'bg-yellow-101 text-yellow-800'
-                    }`}>
-                      {l.status === 'PENDING' ? 'Beklemede' : l.status === 'APPROVED' ? 'Onaylandı' : 'Reddedildi'}
-                    </span>
-                  </div>
+                  <Badge variant="outline" className={
+                    item.status === 'APPROVED' ? 'bg-green-100 text-green-800 border-green-200' :
+                    item.status === 'REJECTED' ? 'bg-red-100 text-red-800 border-red-200' : 
+                    'bg-yellow-100 text-yellow-800 border-yellow-200'
+                  }>
+                    {item.status === 'PENDING' ? 'Beklemede' : item.status === 'APPROVED' ? 'Onaylandı' : 'Reddedildi'}
+                  </Badge>
                 </div>
-              )) : (
-                <p className="text-center py-4 text-sm text-muted-foreground italic">Henüz izin talebiniz yok.</p>
+              ))}
+              {[...myLeaves, ...myRequests].length === 0 && (
+                <p className="text-center py-4 text-sm text-muted-foreground italic">Henüz bir talebiniz bulunmuyor.</p>
               )}
             </div>
           </CardContent>
@@ -223,24 +231,75 @@ export default function PersonelDashboard() {
         <Card className="col-span-3">
           <CardHeader>
             <CardTitle>Hızlı İşlemler</CardTitle>
-            <CardDescription>Dosya yükle veya talepte bulun.</CardDescription>
+            <CardDescription>Sık kullanılan işlemler.</CardDescription>
           </CardHeader>
-          <CardContent className="grid gap-2">
-            <Button variant="outline" className="justify-start" onClick={() => toast.info('Evrak yükleme özelliği yakında eklenecek.')}>
-              <Upload className="mr-2 h-4 w-4" />
-              Evrak Yükle (Özlük)
-            </Button>
-            <Button variant="outline" className="justify-start" onClick={() => setIsExpenseDialogOpen(true)}>
+          <CardContent className="grid gap-3">
+            {currentPersonnel.puantaj_menu_active ? (
+              <Button variant="outline" className="justify-start px-4 h-11 border-indigo-200 bg-indigo-50/30 hover:bg-indigo-50" onClick={() => setIsPointageDialogOpen(true)}>
+                <Clock className="mr-2 h-4 w-4 text-indigo-600" />
+                Günlük Puantaj Girişi
+              </Button>
+            ) : null}
+            <Button variant="outline" className="justify-start px-4 h-11" onClick={() => setIsExpenseDialogOpen(true)}>
               <FileText className="mr-2 h-4 w-4" />
-              Avans / Masraf Talebi
+              Masraf / Avans Bildir
             </Button>
-            <Button variant="outline" className="justify-start" onClick={() => setIsPointageDialogOpen(true)}>
-              <Clock className="mr-2 h-4 w-4" />
-              Puantaj Girişi Yap
+            <Button variant="outline" className="justify-start px-4 h-11" onClick={() => setIsLeaveDialogOpen(true)}>
+              <Calendar className="mr-2 h-4 w-4" />
+              İzin Talebi Oluştur
             </Button>
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Onaylanan Taleplerim</CardTitle>
+          <CardDescription>Yönetici tarafından onaylanmış tüm taleplerinizin özeti.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid md:grid-cols-2 gap-8">
+            <div className="space-y-4">
+              <h4 className="text-sm font-semibold flex items-center gap-2 text-green-700">
+                <CheckCircle2 className="w-4 h-4" />
+                Onaylı İzinler
+              </h4>
+              <div className="space-y-2">
+                {myLeaves.filter(l => l.status === 'APPROVED').length > 0 ? (
+                  myLeaves.filter(l => l.status === 'APPROVED').slice(0, 3).map(l => (
+                    <div key={l.id} className="text-sm p-3 bg-green-50/30 rounded-lg border border-green-100 flex justify-between items-center">
+                      <div className="flex flex-col">
+                        <span className="font-medium">{l.type} İzni</span>
+                        <span className="text-xs text-muted-foreground">{l.start_date} - {l.end_date}</span>
+                      </div>
+                      <Badge className="bg-green-600">Onaylı</Badge>
+                    </div>
+                  ))
+                ) : <p className="text-xs text-muted-foreground italic">Onaylı izin bulunamadı.</p>}
+              </div>
+            </div>
+            <div className="space-y-4">
+              <h4 className="text-sm font-semibold flex items-center gap-2 text-green-700">
+                <CheckCircle2 className="w-4 h-4" />
+                Onaylı Masraflar / Avanslar
+              </h4>
+              <div className="space-y-2">
+                {myRequests.filter(r => r.status === 'APPROVED').length > 0 ? (
+                  myRequests.filter(r => r.status === 'APPROVED').slice(0, 3).map(r => (
+                    <div key={r.id} className="text-sm p-3 bg-green-50/30 rounded-lg border border-green-100 flex justify-between items-center">
+                      <div className="flex flex-col">
+                        <span className="font-medium text-slate-900">{r.amount} ₺</span>
+                        <span className="text-xs text-muted-foreground">{r.type} - {r.date}</span>
+                      </div>
+                      <Badge className="bg-green-600">Onaylı</Badge>
+                    </div>
+                  ))
+                ) : <p className="text-xs text-muted-foreground italic">Onaylı masraf bulunamadı.</p>}
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Announcements */}
       <Card>

@@ -133,7 +133,8 @@ export function Sidebar() {
   ] : [
     { id: 'personel-dashboard', label: 'Benim Dashboard', view: 'personel-dashboard' },
     { id: 'personel-izinlerim', label: 'İzinlerim', view: 'personel-izinlerim' },
-    { id: 'personel-masraflarim', label: 'Masraflarım', view: 'personel-masraflarim' }
+    { id: 'personel-masraflarim', label: 'Masraflarım', view: 'personel-masraflarim' },
+    ...(currentPersonnel?.puantaj_menu_active ? [{ id: 'kisisel-puantaj', label: 'Puantaj Cetvelim', view: 'kisisel-puantaj' as any }] : [])
   ];
 
   return (

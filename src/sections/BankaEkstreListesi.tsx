@@ -19,7 +19,8 @@ import {
   ArrowUpRight, 
   ArrowDownLeft,
   FilterX,
-  Pencil
+  Pencil,
+  Tag
 } from 'lucide-react';
 import { 
   Select, 
@@ -54,7 +55,14 @@ import { Label } from '@/components/ui/label';
 import type { CariHareket } from '@/types';
 
 export function BankaEkstreListesi() {
-  const { cariHareketler, bankaHesaplari, cariler, deleteCariHareket, updateCariHareket } = useApp();
+  const { 
+    cariHareketler, 
+    bankaHesaplari, 
+    cariler, 
+    deleteCariHareket, 
+    updateCariHareket,
+    giderKategorileri
+  } = useApp();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedBanka, setSelectedBanka] = useState<string>('all');
   
@@ -72,7 +80,7 @@ export function BankaEkstreListesi() {
     return cariHareketler
       .filter(h => h.bankaId !== null && h.bankaId !== undefined)
       .filter(h => {
-        const matchesSearch = h.aciklama.toLowerCase().includes(searchTerm.toLowerCase());
+        const matchesSearch = (h.aciklama || '').toLowerCase().includes(searchTerm.toLowerCase());
         const matchesBanka = selectedBanka === 'all' || h.bankaId === selectedBanka;
         
         const hDate = new Date(h.tarih);
@@ -92,12 +100,13 @@ export function BankaEkstreListesi() {
     const exportData = filteredHareketler.map(h => {
       const banka = bankaHesaplari.find(b => b.id === h.bankaId);
       const cari = cariler.find(c => c.id === h.cariId);
+      const kategori = h.kategoriId ? giderKategorileri.find(k => k.id === h.kategoriId) : null;
       return {
         'Tarih': h.tarih,
         'Banka': banka?.hesapAdi || 'Bilinmiyor',
         'Açıklama': h.aciklama,
         'Cari': cari?.unvan || 'Diğer',
-        'İşlem Türü': h.islemTuru,
+        'Kategori': kategori?.ad || h.islemTuru,
         'Tutar': h.tutar,
         'Yön': (h.islemTuru === 'tahsilat' || h.islemTuru === 'satis_faturasi' || (h.islemTuru === 'transfer' && h.aciklama.includes('GELEN'))) ? 'GİRİŞ' : 'ÇIKIŞ'
       };
@@ -192,9 +201,10 @@ export function BankaEkstreListesi() {
                   <TableHead className="w-32">Tarih</TableHead>
                   <TableHead>Banka</TableHead>
                   <TableHead className="min-w-[200px]">Açıklama</TableHead>
-                  <TableHead>Cari / Kategori</TableHead>
-                   <TableHead className="text-right">Tutar</TableHead>
-                   <TableHead className="w-24"></TableHead>
+                  <TableHead>Cari</TableHead>
+                  <TableHead>Kategori / Tür</TableHead>
+                  <TableHead className="text-right">Tutar</TableHead>
+                  <TableHead className="w-24"></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -208,7 +218,8 @@ export function BankaEkstreListesi() {
                   filteredHareketler.map((h) => {
                     const banka = bankaHesaplari.find(b => b.id === h.bankaId);
                     const cari = cariler.find(c => c.id === h.cariId);
-                    const isGiris = (h.islemTuru === 'tahsilat' || h.islemTuru === 'satis_faturasi' || (h.islemTuru === 'transfer' && h.aciklama.toUpperCase().includes('GELEN')));
+                    const kategori = h.kategoriId ? giderKategorileri.find(k => k.id === h.kategoriId) : null;
+                    const isGiris = (h.islemTuru === 'tahsilat' || h.islemTuru === 'satis_faturasi' || (h.islemTuru === 'transfer' && (h.aciklama || '').toUpperCase().includes('GELEN')));
 
                     return (
                       <TableRow key={h.id} className="group transition-colors">
@@ -235,19 +246,33 @@ export function BankaEkstreListesi() {
                                 {h.aciklama}
                               </span>
                               <span className="text-[10px] text-slate-400 uppercase font-bold tracking-tight">
-                                {h.islemTuru.replace(/_/g, ' ')}
+                                {(h.islemTuru || '').replace(/_/g, ' ')}
                               </span>
                             </div>
                           </div>
                         </TableCell>
                         <TableCell className="text-xs">
                           {cari ? (
-                            <span className="font-semibold text-indigo-700 px-2 py-0.5 bg-indigo-50 rounded">
+                            <span className="font-semibold text-indigo-700 px-2 py-0.5 bg-indigo-50 rounded w-fit max-w-[150px] truncate block" title={cari.unvan}>
                               {cari.unvan}
                             </span>
                           ) : (
-                            <span className="text-slate-400 italic">Genel Kategori</span>
+                            <span className="text-slate-300 italic">-</span>
                           )}
+                        </TableCell>
+                        <TableCell className="text-xs">
+                          <div className="flex flex-col gap-1">
+                            {kategori ? (
+                              <span className="font-bold text-rose-700 px-2 py-0.5 bg-rose-50 rounded w-fit border border-rose-100 flex items-center gap-1">
+                                <Tag className="w-3 h-3" />
+                                {kategori.ad}
+                              </span>
+                            ) : (
+                              <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 bg-slate-100 text-slate-500 rounded border border-slate-200 w-fit">
+                                {(h.islemTuru || '').replace(/_/g, ' ')}
+                              </span>
+                            )}
+                          </div>
                         </TableCell>
                         <TableCell className={cn(
                           "text-right font-bold text-sm tabular-nums",
@@ -330,32 +355,31 @@ export function BankaEkstreListesi() {
             <div className="grid grid-cols-4 items-center gap-4">
               <Label htmlFor="banka" className="text-right text-xs">Banka</Label>
               <div className="col-span-3">
-                <Select value={editForm.bankaId || ''} onValueChange={(val) => setEditForm({...editForm, bankaId: val})}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Banka Seç" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {bankaHesaplari.map(b => (
-                      <SelectItem key={b.id} value={b.id}>{b.hesapAdi}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <select 
+                  className="w-full h-9 bg-white border border-slate-200 rounded-md px-3 text-sm outline-none focus:border-indigo-500"
+                  value={editForm.bankaId || ''} 
+                  onChange={(e) => setEditForm({...editForm, bankaId: e.target.value})}
+                >
+                  <option value="">Banka Seçin</option>
+                  {bankaHesaplari.map(b => (
+                    <option key={b.id} value={b.id}>{b.hesapAdi}</option>
+                  ))}
+                </select>
               </div>
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
               <Label htmlFor="cari" className="text-right text-xs">Cari</Label>
               <div className="col-span-3">
-                <Select value={editForm.cariId || 'none'} onValueChange={(val) => setEditForm({...editForm, cariId: val === 'none' ? undefined : val})}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Cari Seç" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">Seçilmedi</SelectItem>
-                    {cariler.map(c => (
-                      <SelectItem key={c.id} value={c.id}>{c.unvan}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <select 
+                  className="w-full h-9 bg-white border border-slate-200 rounded-md px-3 text-sm outline-none focus:border-indigo-500"
+                  value={editForm.cariId || 'none'} 
+                  onChange={(e) => setEditForm({...editForm, cariId: e.target.value === 'none' ? undefined : e.target.value})}
+                >
+                  <option value="none">Seçilmedi</option>
+                  {cariler.map(c => (
+                    <option key={c.id} value={c.id}>{c.unvan}</option>
+                  ))}
+                </select>
               </div>
             </div>
           </div>
