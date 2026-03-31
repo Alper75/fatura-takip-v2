@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
 
-const API_BASE = 'http://localhost:5000';
+const API_BASE = '';
 const getToken = () => localStorage.getItem('token') || '';
 
 

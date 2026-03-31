@@ -47,7 +47,7 @@ export default function TalepYonetimi() {
       r.date || '',
       `"${(r.description || '').replace(/"/g, '""')}"`,
       DURUM_CONFIG[r.status]?.label || r.status,
-      r.receipt_path ? `http://localhost:5000${r.receipt_path}` : '-'
+      r.receipt_path ? `${r.receipt_path}` : '-'
     ]);
     const csvContent = "data:text/csv;charset=utf-8,\uFEFF" 
       + [headers.join(','), ...rows.map(e => e.join(','))].join("\n");
@@ -190,7 +190,7 @@ export default function TalepYonetimi() {
                       </TableCell>
                       <TableCell className="text-center">
                         {req.receipt_path ? (
-                          <a href={`http://localhost:5000${req.receipt_path}`} target="_blank" rel="noreferrer" className="inline-flex items-center text-blue-600 hover:underline">
+                          <a href={`${req.receipt_path}`} target="_blank" rel="noreferrer" className="inline-flex items-center text-blue-600 hover:underline">
                             <FileText className="w-4 h-4 mr-1" />
                             Gör
                           </a>

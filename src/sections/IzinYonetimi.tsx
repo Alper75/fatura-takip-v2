@@ -61,7 +61,7 @@ export default function IzinYonetimi() {
       calcDays(l.start_date, l.end_date),
       `"${(l.description || '').replace(/"/g, '""')}"`,
       DURUM_CONFIG[l.status]?.label || l.status,
-      l.document_path ? `http://localhost:5000${l.document_path}` : '-'
+      l.document_path ? `${l.document_path}` : '-'
     ]);
     const csvContent = "data:text/csv;charset=utf-8,\uFEFF" 
       + [headers.join(','), ...rows.map(e => e.join(','))].join("\n");
@@ -200,7 +200,7 @@ export default function IzinYonetimi() {
                       </TableCell>
                       <TableCell className="text-center">
                         {leave.document_path ? (
-                          <a href={`http://localhost:5000${leave.document_path}`} target="_blank" rel="noreferrer" className="inline-flex items-center text-blue-600 hover:underline">
+                          <a href={`${leave.document_path}`} target="_blank" rel="noreferrer" className="inline-flex items-center text-blue-600 hover:underline">
                             <FileText className="w-4 h-4 mr-1" />
                             Gör
                           </a>
