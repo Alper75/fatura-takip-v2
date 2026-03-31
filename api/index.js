@@ -1146,7 +1146,13 @@ app.get('/api/admin/db-init', authMiddleware, adminMiddleware, async (req, res) 
 });
 
 // Upgrade to Super Admin Route (Constraint Fix + Role Update)
-app.get('/api/admin/upgrade-to-super', authMiddleware, adminMiddleware, async (req, res) => {
+// NOTE: We use a secret param to allow browser access without Bearer token
+app.get('/api/admin/upgrade-to-super', async (req, res) => {
+  const secret = req.query.secret;
+  if (secret !== 'super_upgrade_88') {
+    return res.status(401).json({ success: false, message: 'Unauthorized: Geçersiz anahtar.' });
+  }
+
   try {
     console.log('Starting Super Admin Upgrade...');
     
