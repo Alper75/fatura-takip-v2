@@ -1154,18 +1154,17 @@ app.get('/api/admin/upgrade-to-super', async (req, res) => {
   }
 
   try {
-    console.log('Starting Super Admin Upgrade...');
+    console.log('Starting Super Admin Upgrade via Turso Batch API...');
     
-    // 1. Transactional Migration to update CHECK constraint
-    await client.execute('PRAGMA foreign_keys=OFF');
-    await client.execute('BEGIN TRANSACTION');
-    
-    // Check current columns
+    // Check current columns to ensure we copy everything
     const columnsRs = await client.execute('PRAGMA table_info(users)');
     const columns = columnsRs.rows.map(c => c.name).join(', ');
     
-    await client.execute(`
-      CREATE TABLE users_new (
+    // Execute all migration steps in a single atomic batch
+    await client.batch([
+      "PRAGMA foreign_keys=OFF",
+      "DROP TABLE IF EXISTS users_new",
+      `CREATE TABLE users_new (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         tc TEXT UNIQUE NOT NULL,
         password TEXT NOT NULL,
@@ -1173,20 +1172,16 @@ app.get('/api/admin/upgrade-to-super', async (req, res) => {
         must_change_password BOOLEAN DEFAULT 1,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         company_id INTEGER DEFAULT 1
-      )
-    `);
-    
-    await client.execute(`INSERT INTO users_new (${columns}) SELECT ${columns} FROM users`);
-    await client.execute('DROP TABLE users');
-    await client.execute('ALTER TABLE users_new RENAME TO users');
-    await client.execute('COMMIT');
-    await client.execute('PRAGMA foreign_keys=ON');
-
-    // 2. Update the user role
-    await client.execute({
-      sql: "UPDATE users SET role = 'super_admin' WHERE tc = 'admin'",
-      args: []
-    });
+      )`,
+      `INSERT INTO users_new (${columns}) SELECT ${columns} FROM users`,
+      "DROP TABLE users",
+      "ALTER TABLE users_new RENAME TO users",
+      {
+        sql: "UPDATE users SET role = 'super_admin' WHERE tc = 'admin'",
+        args: []
+      },
+      "PRAGMA foreign_keys=ON"
+    ], "write");
 
     res.json({ 
       success: true, 
@@ -1194,8 +1189,6 @@ app.get('/api/admin/upgrade-to-super', async (req, res) => {
     });
   } catch (error) {
     console.error('UPGRADE ERROR:', error);
-    // Rollback if needed (Simplified)
-    try { await client.execute('ROLLBACK'); } catch(e) {}
     res.status(500).json({ success: false, message: 'Yükseltme hatası: ' + error.message });
   }
 });
