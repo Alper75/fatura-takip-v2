@@ -4,14 +4,17 @@ require('dotenv').config();
 const url = process.env.TURSO_URL;
 const authToken = process.env.TURSO_AUTH_TOKEN;
 
-if (!url) {
-  throw new Error('TURSO_URL is not defined in .env');
+let client;
+if (url) {
+  client = createClient({
+    url: url,
+    authToken: authToken,
+  });
+} else {
+  console.error('CRITICAL: TURSO_URL is not defined in environment variables.');
+  // We don't throw here to prevent top-level crash on Vercel
+  client = null; 
 }
-
-const client = createClient({
-  url: url,
-  authToken: authToken,
-});
 
 // Since Turso is async, we export the client and a utility to run the initial schema setup
 async function initDb() {
@@ -24,7 +27,7 @@ async function initDb() {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         tc TEXT UNIQUE NOT NULL,
         password TEXT NOT NULL,
-        role TEXT CHECK(role IN ('admin', 'personnel')) NOT NULL DEFAULT 'personnel',
+        role TEXT CHECK(role IN ('admin', 'personnel', 'super_admin')) NOT NULL DEFAULT 'personnel',
         must_change_password BOOLEAN DEFAULT 1,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
       );

@@ -12,8 +12,8 @@ const { createInvoiceAndGetHTML } = require('fatura');
 const { client, initDb } = require('./db');
 const { generateToken, authMiddleware, adminMiddleware, bcrypt } = require('./auth');
 
-// Initialize Database Asynchronously
-initDb().catch(err => console.error('DATABASE INIT ERROR:', err));
+// We no longer call initDb() automatically on every cold start in index.js to prevent timeouts.
+// Instead, we provide a manual route to initialize or use it lazily.
 
 const app = express();
 app.use(cors());
@@ -25,8 +25,8 @@ app.use((req, res, next) => {
   if (!client) {
     return res.status(500).json({ 
       success: false, 
-      message: 'Database initialization failed. Turso client is not ready.',
-      error: process.env.NODE_ENV === 'development' ? 'Client was null' : undefined
+      message: 'Vercel Ayarı Eksik: TURSO_URL tanımlı değil.',
+      error: 'Lütfen Vercel Dashboard > Project Settings > Environment Variables kısmından TURSO_URL ve TURSO_AUTH_TOKEN eklediğinizden ve projenizi "Redeploy" ettiğinizden emin olun.'
     });
   }
   next();
@@ -1135,7 +1135,76 @@ app.post('/api/gib/create-draft', async (req, res) => {
   }
 });
 
-// Static files (Ephermal on Vercel)
+// Manual Database Initialization Route (For Migrations)
+app.get('/api/admin/db-init', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    await initDb();
+    res.json({ success: true, message: 'Veritabanı şeması başarıyla başlatıldı ve güncellendi.' });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Veritabanı başlatma hatası: ' + error.message });
+  }
+});
+
+// Upgrade to Super Admin Route (Constraint Fix + Role Update)
+app.get('/api/admin/upgrade-to-super', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    console.log('Starting Super Admin Upgrade...');
+    
+    // 1. Transactional Migration to update CHECK constraint
+    await client.execute('PRAGMA foreign_keys=OFF');
+    await client.execute('BEGIN TRANSACTION');
+    
+    // Check current columns
+    const columnsRs = await client.execute('PRAGMA table_info(users)');
+    const columns = columnsRs.rows.map(c => c.name).join(', ');
+    
+    await client.execute(`
+      CREATE TABLE users_new (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        tc TEXT UNIQUE NOT NULL,
+        password TEXT NOT NULL,
+        role TEXT CHECK(role IN ('admin', 'personnel', 'super_admin')) NOT NULL DEFAULT 'personnel',
+        must_change_password BOOLEAN DEFAULT 1,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        company_id INTEGER DEFAULT 1
+      )
+    `);
+    
+    await client.execute(`INSERT INTO users_new (${columns}) SELECT ${columns} FROM users`);
+    await client.execute('DROP TABLE users');
+    await client.execute('ALTER TABLE users_new RENAME TO users');
+    await client.execute('COMMIT');
+    await client.execute('PRAGMA foreign_keys=ON');
+
+    // 2. Update the user role
+    await client.execute({
+      sql: "UPDATE users SET role = 'super_admin' WHERE tc = 'admin'",
+      args: []
+    });
+
+    res.json({ 
+      success: true, 
+      message: 'Başarıyla Süper Admin yapıldınız! Lütfen sayfayı yenileyin veya çıkış-giriş yapın.' 
+    });
+  } catch (error) {
+    console.error('UPGRADE ERROR:', error);
+    // Rollback if needed (Simplified)
+    try { await client.execute('ROLLBACK'); } catch(e) {}
+    res.status(500).json({ success: false, message: 'Yükseltme hatası: ' + error.message });
+  }
+});
+
+// Health/Debug Check Route
+app.get('/api/debug/health', (req, res) => {
+  res.json({ 
+    success: true, 
+    status: 'online', 
+    env: { 
+      turso_url: !!process.env.TURSO_URL, 
+      turso_token: !!process.env.TURSO_AUTH_TOKEN 
+    } 
+  });
+});
 app.use('/uploads', express.static(uploadsDir));
 
 if (process.env.NODE_ENV !== 'production') {
