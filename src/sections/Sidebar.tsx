@@ -14,25 +14,36 @@ import {
   Landmark,
   ChevronDown,
   ChevronUp,
-  Briefcase
+  Briefcase,
+  ShieldCheck,
+  Building2
 } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
 import { cn } from '@/lib/utils';
 import type { ViewType } from '@/types';
 
 export function Sidebar() {
-  const { user, currentPersonnel, currentView, setCurrentView, openSatisDrawer, openAlisDrawer, logout } = useApp();
+  const { user, currentPersonnel, currentView, setCurrentView, openSatisDrawer, openAlisDrawer, logout, companies } = useApp();
   const [isPersonnelOpen, setIsPersonnelOpen] = useState(false);
 
   const isAdmin = user?.role === 'admin';
+  const isSuperAdmin = user?.role === 'super_admin';
 
   const menuItems = [
     {
       id: 'dashboard',
       label: 'Dashboard',
       icon: LayoutDashboard,
-      onClick: () => setCurrentView(isAdmin ? 'dashboard' : 'personel-dashboard'),
-      view: isAdmin ? 'dashboard' : 'personel-dashboard'
+      onClick: () => setCurrentView(isSuperAdmin ? 'super-admin' : (isAdmin ? 'dashboard' : 'personel-dashboard')),
+      view: isSuperAdmin ? 'super-admin' : (isAdmin ? 'dashboard' : 'personel-dashboard')
+    },
+    {
+      id: 'super-admin',
+      label: 'Süper Admin',
+      icon: ShieldCheck,
+      onClick: () => setCurrentView('super-admin'),
+      view: 'super-admin',
+      superAdminOnly: true
     },
     // Accounting Items (Admin Only)
     {
@@ -123,9 +134,13 @@ export function Sidebar() {
       view: 'kesilecek-fatura-liste',
       adminOnly: true
     }
-  ].filter(item => !item.adminOnly || isAdmin);
+  ].filter(item => {
+    if (item.superAdminOnly) return isSuperAdmin;
+    if (item.adminOnly) return isAdmin || isSuperAdmin;
+    return true;
+  });
 
-  const personnelSubItems: { id: string; label: string; view: ViewType }[] = isAdmin ? [
+  const personnelSubItems: { id: string; label: string; view: ViewType }[] = (isAdmin || isSuperAdmin) ? [
     { id: 'personel-liste', label: 'Personel Listesi', view: 'personel-liste' },
     { id: 'izin-yonetimi', label: 'İzin Talepleri', view: 'izin-yonetimi' },
     { id: 'talep-yonetimi', label: 'Masraf Talepleri', view: 'talep-yonetimi' },
@@ -185,39 +200,41 @@ export function Sidebar() {
           })}
 
           {/* Personnel Collapsible Section */}
-          <li>
-            <Button
-              variant="ghost"
-              onClick={() => setIsPersonnelOpen(!isPersonnelOpen)}
-              className={cn(
-                "w-full justify-start gap-3 h-11 font-medium transition-all",
-                isPersonnelOpen ? "text-slate-900" : "text-slate-600"
+          {!isSuperAdmin && (
+            <li>
+              <Button
+                variant="ghost"
+                onClick={() => setIsPersonnelOpen(!isPersonnelOpen)}
+                className={cn(
+                  "w-full justify-start gap-3 h-11 font-medium transition-all",
+                  isPersonnelOpen ? "text-slate-900" : "text-slate-600"
+                )}
+              >
+                <Briefcase className="w-4 h-4 text-slate-500" />
+                <span className="flex-1 text-left">Personel Modülü</span>
+                {isPersonnelOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+              </Button>
+              {isPersonnelOpen && (
+                <ul className="mt-1 ml-9 space-y-1">
+                  {personnelSubItems.map((sub) => (
+                    <li key={sub.id}>
+                      <button
+                        onClick={() => setCurrentView(sub.view)}
+                        className={cn(
+                          "w-full text-left py-2 px-3 text-sm rounded-md transition-all",
+                          currentView === sub.view 
+                            ? "bg-slate-100 text-primary font-semibold" 
+                            : "text-slate-500 hover:bg-slate-50 hover:text-slate-900"
+                        )}
+                      >
+                        {sub.label}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
               )}
-            >
-              <Briefcase className="w-4 h-4 text-slate-500" />
-              <span className="flex-1 text-left">Personel Modülü</span>
-              {isPersonnelOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-            </Button>
-            {isPersonnelOpen && (
-              <ul className="mt-1 ml-9 space-y-1">
-                {personnelSubItems.map((sub) => (
-                  <li key={sub.id}>
-                    <button
-                      onClick={() => setCurrentView(sub.view)}
-                      className={cn(
-                        "w-full text-left py-2 px-3 text-sm rounded-md transition-all",
-                        currentView === sub.view 
-                          ? "bg-slate-100 text-primary font-semibold" 
-                          : "text-slate-500 hover:bg-slate-50 hover:text-slate-900"
-                      )}
-                    >
-                      {sub.label}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </li>
+            </li>
+          )}
         </ul>
       </nav>
 
@@ -226,18 +243,29 @@ export function Sidebar() {
         <div className="flex items-center gap-3 mb-4 px-3">
           <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
             <span className="text-xs font-medium text-primary uppercase">
-              {user?.role === 'admin' ? 'A' : (currentPersonnel?.first_name?.[0] || 'P')}
+              {isSuperAdmin ? 'SA' : (user?.role === 'admin' ? 'A' : (currentPersonnel?.first_name?.[0] || 'P'))}
             </span>
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium text-slate-900 truncate">
-              {user?.role === 'admin' ? 'Admin Kullanıcı' : `${currentPersonnel?.first_name} ${currentPersonnel?.last_name}`}
+              {isSuperAdmin ? 'Süper Admin' : (user?.role === 'admin' ? 'Admin Kullanıcı' : `${currentPersonnel?.first_name} ${currentPersonnel?.last_name}`)}
             </p>
-            <p className="text-xs text-slate-500 truncate">
-              {user?.role === 'admin' ? 'Yönetici' : currentPersonnel?.position || 'Personel'}
+            <p className="text-[10px] text-slate-400 truncate uppercase tracking-tight">
+              {isSuperAdmin ? 'Platform Sahibi' : (user?.role === 'admin' ? 'Şirket Yöneticisi' : currentPersonnel?.position || 'Personel')}
             </p>
           </div>
         </div>
+
+        {/* Company Badge */}
+        {!isSuperAdmin && (
+          <div className="mx-3 mb-4 p-2 bg-slate-50 border border-slate-100 rounded-lg flex items-center gap-2">
+            <Building2 className="w-3.5 h-3.5 text-slate-400" />
+            <span className="text-[10px] font-semibold text-slate-600 truncate">
+              {companies.find(c => c.id === user?.companyId)?.name || 'Aktif Şirket'}
+            </span>
+          </div>
+        )}
+
         <Button
           variant="outline"
           className="w-full justify-start gap-2 text-slate-600 hover:text-red-600 hover:border-red-200 hover:bg-red-50"

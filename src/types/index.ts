@@ -182,9 +182,19 @@ export interface User {
   tc: string;
   email?: string;
   password?: string;
-  role: 'admin' | 'personnel';
+  role: 'admin' | 'personnel' | 'super_admin';
   token?: string;
   mustChangePassword?: boolean;
+  companyId?: number;
+}
+
+export interface Company {
+  id: number;
+  name: string;
+  tax_no?: string;
+  address?: string;
+  email?: string;
+  is_active?: boolean;
 }
 
 // ==================== PERSONEL MODÜLÜ ====================
@@ -367,7 +377,8 @@ export type ViewType =
   | 'puantaj-cetveli'
   | 'personel-izinlerim'
   | 'personel-masraflarim'
-  | 'kisisel-puantaj';
+  | 'kisisel-puantaj'
+  | 'super-admin';
 
 // ==================== FATURA DURUMU ====================
 export type OdemeDurumu = 'odenmedi' | 'odendi' | 'bekliyor';
@@ -393,7 +404,7 @@ export const AYLAR = [
   { value: 5, label: 'Mayıs' },
   { value: 6, label: 'Haziran' },
   { value: 7, label: 'Temmuz' },
-  { value: 8, label: 'Ağustos' },
+  { value: 8, label: 'Aralık' },
   { value: 9, label: 'Eylül' },
   { value: 10, label: 'Ekim' },
   { value: 11, label: 'Kasım' },

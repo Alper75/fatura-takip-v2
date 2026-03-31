@@ -74,4 +74,14 @@ Aşağıdaki özellikler, uygulamayı daha kapsamlı ve kullanıcı dostu hale g
     * [x] Puantaj Kayıtları İçin "Yönetici Kilidi" (is_locked) Mekanizması
     * [x] Puantaj Menü Görünürlüğünün Yönetici Kontrolüne Bağlanması (puantaj_menu_active)
     * [x] Backend: DB Migration (is_locked, puantaj_menu_active)
-    * [ ] Turso DB Entegrasyonu (Gelecek Adım)
+    * [x] Turso DB Entegrasyonu (Multi-Tenant SaaS)
+
+* [x] **Çoklu Şirket (Multi-Tenancy) & SaaS Geçişi**
+    * [x] `companies` tablosunun oluşturulması ve varsayılan şirket tanımı
+    * [x] Tüm tablolara `company_id` kolonunun eklenmesi (Migration)
+    * [x] JWT Token içeriğine `companyId` entegrasyonu
+    * [x] Tüm API rotalarının (index.js) şirket bazlı filtreleme ile güncellenmesi
+    * [x] Frontend `AppContext` güncellemesi ve şirket yönetim metodları
+    * [x] `SuperAdminPanel` bileşeninin modern ve premium tasarımı
+    * [x] Sidebar ve Profil bölümlerinde aktif şirket bilgisinin gösterilmesi
+    * [x] Rol tabanlı erişim kontrolü (Süper Admin / Admin / Personel)

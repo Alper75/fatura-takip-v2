@@ -20,6 +20,7 @@ import PuantajCetveli from './sections/PuantajCetveli';
 import PersonelIzinlerim from './sections/PersonelIzinlerim';
 import PersonelMasraflarim from './sections/PersonelMasraflarim';
 import KisiselPuantaj from './sections/KisiselPuantaj';
+import { SuperAdminPanel } from './sections/SuperAdminPanel';
 
 function AppContent() {
   const { isAuthenticated, currentView } = useApp();
@@ -68,6 +69,8 @@ function AppContent() {
             return <PersonelMasraflarim />;
           case 'kisisel-puantaj':
             return <KisiselPuantaj />;
+          case 'super-admin':
+            return <SuperAdminPanel />;
           default:
             return <Dashboard />; // Default to Dashboard if currentView is not recognized
         }

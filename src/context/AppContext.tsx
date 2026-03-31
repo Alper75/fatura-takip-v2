@@ -63,7 +63,8 @@ import type {
   MasrafKurali,
   KesilecekFatura,
   Personnel,
-  GiderKategorisi
+  GiderKategorisi,
+  Company
 } from '@/types';
 import { AYLAR, GELIR_VERGISI_DILIMLERI } from '@/types';
 
@@ -195,6 +196,13 @@ interface AppContextType {
   fetchPointages: () => Promise<void>;
   downloadPuantajTemplate: () => Promise<void>;
   uploadPuantajExcel: (file: File) => Promise<{ success: boolean; message: string }>;
+
+  // ==================== SUPER ADMIN ====================
+  companies: Company[];
+  fetchCompanies: () => Promise<void>;
+  addCompany: (data: Omit<Company, 'id'>) => Promise<{ success: boolean; message?: string }>;
+  updateCompany: (id: number, data: Partial<Company>) => Promise<{ success: boolean; message?: string }>;
+  deleteCompany: (id: number) => Promise<{ success: boolean; message?: string }>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -245,6 +253,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [isBankaDrawerOpen, setIsBankaDrawerOpen] = useState(false);
   const [selectedBankaId, setSelectedBankaId] = useState<string | null>(null);
 
+  // ==================== SUPER ADMIN STATE ====================
+  const [companies, setCompanies] = useState<Company[]>([]);
+
   // ==================== VERÄ° YÃœKLEME (API'DAN) ====================
   const loadAllData = useCallback(async () => {
     if (!isAuthenticated) return;
@@ -275,9 +286,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           }
         }
       });
-      fetchPersonnel();
       if (user?.role === 'personnel') fetchMyPersonnel();
-    } catch (e) { console.error('Veri yÃ¼kleme hatasÄ±:', e); }
+    } catch (e) { console.error('Veri yükleme hatası:', e); }
   }, [isAuthenticated, user?.role]);
 
   useEffect(() => {
@@ -798,6 +808,46 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return result;
     } catch (error: any) { return { success: false, message: error.message }; }
   }, [fetchPointages]);
+
+  // ==================== SUPER ADMIN FUNCTIONS ====================
+  const fetchCompanies = useCallback(async () => {
+    try {
+      const data = await apiFetch('/api/super/companies');
+      if (data.success) setCompanies(data.data);
+    } catch (error) { console.error('Fetch companies error:', error); }
+  }, []);
+
+  const addCompany = useCallback(async (data: Omit<Company, 'id'>) => {
+    try {
+      const result = await apiFetch('/api/super/companies', {
+        method: 'POST',
+        body: JSON.stringify(data)
+      });
+      if (result.success) fetchCompanies();
+      return result;
+    } catch (error: any) { return { success: false, message: error.message }; }
+  }, [fetchCompanies]);
+
+  const updateCompany = useCallback(async (id: number, data: Partial<Company>) => {
+    try {
+      const result = await apiFetch(`/api/super/companies/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify(data)
+      });
+      if (result.success) fetchCompanies();
+      return result;
+    } catch (error: any) { return { success: false, message: error.message }; }
+  }, [fetchCompanies]);
+
+  const deleteCompany = useCallback(async (id: number) => {
+    try {
+      const result = await apiFetch(`/api/super/companies/${id}`, {
+        method: 'DELETE'
+      });
+      if (result.success) fetchCompanies();
+      return result;
+    } catch (error: any) { return { success: false, message: error.message }; }
+  }, [fetchCompanies]);
 
   // ==================== DRAWER FUNCTIONS ====================
   const openSatisDrawer = useCallback((initialData?: Partial<SatisFaturaFormData>) => {
@@ -1331,7 +1381,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         pointages,
         fetchPointages,
         downloadPuantajTemplate,
-        uploadPuantajExcel
+        uploadPuantajExcel,
+        companies,
+        fetchCompanies,
+        addCompany,
+        updateCompany,
+        deleteCompany
       }}
     >
       {children}

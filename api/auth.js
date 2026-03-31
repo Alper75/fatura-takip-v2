@@ -5,7 +5,7 @@ const JWT_SECRET = process.env.JWT_SECRET || 'personnel_module_secret_88';
 
 const generateToken = (user) => {
   return jwt.sign(
-    { id: user.id, tc: user.tc, role: user.role },
+    { id: user.id, tc: user.tc, role: user.role, companyId: user.company_id },
     JWT_SECRET,
     { expiresIn: '24h' }
   );
