@@ -37,10 +37,18 @@ const authMiddleware = (req, res, next) => {
 };
 
 const adminMiddleware = (req, res, next) => {
-  if (req.user && req.user.role === 'admin') {
+  if (req.user && (req.user.role === 'admin' || req.user.role === 'super_admin')) {
     next();
   } else {
     res.status(403).json({ success: false, message: 'Forbidden: Admin access required' });
+  }
+};
+
+const superAdminMiddleware = (req, res, next) => {
+  if (req.user && req.user.role === 'super_admin') {
+    next();
+  } else {
+    res.status(403).json({ success: false, message: 'Forbidden: Super Admin access required' });
   }
 };
 
@@ -49,5 +57,6 @@ module.exports = {
   verifyToken,
   authMiddleware,
   adminMiddleware,
+  superAdminMiddleware,
   bcrypt
 };

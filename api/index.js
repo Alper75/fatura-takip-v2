@@ -10,7 +10,7 @@ const { v4: uuidv4 } = require('uuid');
 const { createInvoiceAndGetHTML } = require('fatura');
 
 const { client, initDb } = require('./db');
-const { generateToken, authMiddleware, adminMiddleware, bcrypt } = require('./auth');
+const { generateToken, authMiddleware, adminMiddleware, superAdminMiddleware, bcrypt } = require('./auth');
 
 // We no longer call initDb() automatically on every cold start in index.js to prevent timeouts.
 // Instead, we provide a manual route to initialize or use it lazily.
@@ -1028,14 +1028,14 @@ app.delete('/api/kesilecek-faturalar/:id', authMiddleware, async (req, res) => {
 });
 
 // --- SUPER ADMIN COMPANY MANAGEMENT ---
-app.get('/api/super/companies', authMiddleware, adminMiddleware, async (req, res) => {
+app.get('/api/super/companies', authMiddleware, superAdminMiddleware, async (req, res) => {
   try {
     const rs = await client.execute('SELECT * FROM companies ORDER BY name ASC');
     res.json({ success: true, data: rs.rows });
   } catch (error) { res.status(500).json({ success: false, message: error.message }); }
 });
 
-app.post('/api/super/companies', authMiddleware, adminMiddleware, async (req, res) => {
+app.post('/api/super/companies', authMiddleware, superAdminMiddleware, async (req, res) => {
   const { name, tax_no, address, email } = req.body;
   try {
     await client.execute({
@@ -1046,7 +1046,7 @@ app.post('/api/super/companies', authMiddleware, adminMiddleware, async (req, re
   } catch (error) { res.status(500).json({ success: false, message: error.message }); }
 });
 
-app.put('/api/super/companies/:id', authMiddleware, adminMiddleware, async (req, res) => {
+app.put('/api/super/companies/:id', authMiddleware, superAdminMiddleware, async (req, res) => {
   const { id } = req.params;
   const { name, tax_no, address, email } = req.body;
   try {
@@ -1058,7 +1058,7 @@ app.put('/api/super/companies/:id', authMiddleware, adminMiddleware, async (req,
   } catch (error) { res.status(500).json({ success: false, message: error.message }); }
 });
 
-app.delete('/api/super/companies/:id', authMiddleware, adminMiddleware, async (req, res) => {
+app.delete('/api/super/companies/:id', authMiddleware, superAdminMiddleware, async (req, res) => {
   const { id } = req.params;
   if (id === '1') return res.status(400).json({ success: false, message: 'Varsayılan şirket silinemez.' });
   try {
