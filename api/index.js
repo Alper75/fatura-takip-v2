@@ -9,28 +9,11 @@ const xlsx = require('xlsx');
 const { v4: uuidv4 } = require('uuid');
 const { createInvoiceAndGetHTML } = require('fatura');
 
-let client, initDb, generateToken, authMiddleware, adminMiddleware, bcrypt;
+const { client, initDb } = require('./db');
+const { generateToken, authMiddleware, adminMiddleware, bcrypt } = require('./auth');
 
-async function setup() {
-  try {
-    const dbModule = require('./db');
-    client = dbModule.client;
-    initDb = dbModule.initDb;
-    
-    // Initialize Schema
-    await initDb();
-
-    const auth = require('./auth');
-    generateToken = auth.generateToken;
-    authMiddleware = auth.authMiddleware;
-    adminMiddleware = auth.adminMiddleware;
-    bcrypt = auth.bcrypt;
-  } catch (err) {
-    console.error('DB/AUTH LOAD ERROR:', err);
-  }
-}
-
-setup();
+// Initialize Database Asynchronously
+initDb().catch(err => console.error('DATABASE INIT ERROR:', err));
 
 const app = express();
 app.use(cors());
