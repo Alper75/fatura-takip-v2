@@ -344,21 +344,12 @@ async function initDb() {
         tax_no TEXT,
         address TEXT,
         email TEXT,
+        status TEXT DEFAULT 'active',
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
       );
     `);
 
-    // Ensure Default Company exists
-    const compCheck = await client.execute('SELECT COUNT(*) as count FROM companies');
-    if (Number(compCheck.rows[0].count) === 0) {
-        console.log('Creating default company...');
-        await client.execute({
-            sql: 'INSERT INTO companies (id, name, status) VALUES (?, ?, ?)',
-            args: [1, 'Varsayılan Şirket', 'active']
-        });
-    }
-
-    // Check for status column in companies
+    // 1. Check and Add 'status' column to companies FIRST
     try {
         const compInfo = await client.execute('PRAGMA table_info(companies)');
         const hasStatus = compInfo.rows.some(col => col.name === 'status');
@@ -368,6 +359,20 @@ async function initDb() {
         }
     } catch (e) {
         console.warn(`Could not add status to companies: ${e.message}`);
+    }
+
+    // 2. Ensure Default Company exists
+    try {
+        const compCheck = await client.execute('SELECT COUNT(*) as count FROM companies');
+        if (Number(compCheck.rows[0].count) === 0) {
+            console.log('Creating default company...');
+            await client.execute({
+                sql: 'INSERT INTO companies (id, name, status) VALUES (?, ?, ?)',
+                args: [1, 'Varsayılan Şirket', 'active']
+            });
+        }
+    } catch (e) {
+        console.warn(`Could not ensure default company: ${e.message}`);
     }
 
     // Add company_id to all tables if not exists
