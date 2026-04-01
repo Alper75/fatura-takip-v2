@@ -1201,14 +1201,23 @@ app.post('/api/gib/create-draft', authMiddleware, async (req, res) => {
   if (!invoice.vknTckn)
     return res.status(400).json({ success: false, message: 'Alıcı VKN veya T.C. Kimlik Numarası zorunludur.' });
 
-  // Fatura tipi haritası
+  // Fatura tipi haritası (GIB portal değerleriyle birebir)
   const INVOICE_TYPE_MAP = {
-    SATIS: InvoiceType?.SATIS,
-    IADE: InvoiceType?.IADE,
-    TEVKIFAT: InvoiceType?.TEVKIFAT,
-    ISTISNA: InvoiceType?.ISTISNA,
-    OZEL_MATRAH: InvoiceType?.OZEL_MATRAH,
-    IHRAC_KAYITLI: InvoiceType?.IHRAC_KAYITLI,
+    SATIS:            InvoiceType?.SATIS,
+    IADE:             InvoiceType?.IADE,
+    TEVKIFAT:         InvoiceType?.TEVKIFAT,
+    TEVKIFATIADE:     InvoiceType?.TEVKIFAT,   // pakette ayrı değer yoksa TEVKIFAT kullan
+    ISTISNA:          InvoiceType?.ISTISNA,
+    OZELMATRAH:       InvoiceType?.OZEL_MATRAH,
+    OZEL_MATRAH:      InvoiceType?.OZEL_MATRAH,
+    IHRACKAYITLI:     InvoiceType?.IHRAC_KAYITLI,
+    IHRAC_KAYITLI:    InvoiceType?.IHRAC_KAYITLI,
+    KONAKLAMAVERGISI: InvoiceType?.SATIS,       // paket desteklemiyorsa SATIS
+    YTBSATIS:         InvoiceType?.SATIS,
+    YTBISTISNA:       InvoiceType?.ISTISNA,
+    YTBIADE:          InvoiceType?.IADE,
+    YTBTEVKIFAT:      InvoiceType?.TEVKIFAT,
+    YTBTEVKIFATIADE:  InvoiceType?.TEVKIFAT,
   };
   const resolvedInvoiceType = INVOICE_TYPE_MAP[invoice.faturaTipi] || InvoiceType?.SATIS || 'SATIS';
 
@@ -1216,61 +1225,92 @@ app.post('/api/gib/create-draft', authMiddleware, async (req, res) => {
   let products = [];
   if (invoice.kalemler && invoice.kalemler.length > 0) {
     products = invoice.kalemler.map(k => {
-      const totalAmount = Math.round(k.birimFiyat * k.miktar * 100) / 100;
-      const vatAmount = Math.round(totalAmount * ((k.kdvOrani || 0) / 100) * 100) / 100;
+      const quantity  = parseFloat(k.miktar)    || 1;
+      const unitPrice = parseFloat(k.birimFiyat) || 0;
+      const vatRate   = parseFloat(k.kdvOrani)   || 0;
+
+      const grossAmount   = Math.round(quantity * unitPrice * 100) / 100;    // Brüt
+      const totalAmount   = grossAmount;                                       // İskonto yok = matrah
+      const vatAmount     = Math.round(totalAmount * (vatRate / 100) * 100) / 100;
+
+      // Tevkifat: tevkifatOrani artık sayısal % (örn: 30 = %30)
+      const tevkifatOrani = parseFloat(k.tevkifatOrani) || 0;
+      let vatWithholdingRate   = 0;
+      let vatWithholdingAmount = 0;
+      if (tevkifatOrani > 0) {
+        vatWithholdingRate   = tevkifatOrani / 100;   // 0.30
+        vatWithholdingAmount = Math.round(vatAmount * vatWithholdingRate * 100) / 100;
+      }
+
+      const unitType = UNIT_TYPE_MAP_GIB[k.birim] || EInvoiceUnitType?.ADET;
 
       const kalem = {
-        name: k.ad,
-        quantity: k.miktar,
-        unitPrice: k.birimFiyat,
-        price: k.birimFiyat,
-        unitType: UNIT_TYPE_MAP_GIB[k.birim] || EInvoiceUnitType?.ADET,
-        totalAmount,
-        vatRate: k.kdvOrani || 0,
+        name:        k.ad || 'Hizmet',
+        quantity,
+        unitType,
+        unitPrice,
+        price:       unitPrice,
+        totalAmount,               // KDV hariç matrah
+        grossAmount,               // Brüt (iskonto öncesi)
+        vatRate,
         vatAmount,
+        discountRate:   0,
+        discountAmount: 0,
       };
 
-      // Kalem bazında KDV Tevkifatı
-      if (k.tevkifatOrani && k.tevkifatOrani !== '0') {
-        const [pay, payda] = k.tevkifatOrani.split('/').map(Number);
-        if (payda > 0) {
-          const tevkifatCarpani = pay / payda;
-          kalem.vatWithholdingRate = tevkifatCarpani;
-          kalem.vatWithholdingAmount = Math.round(vatAmount * tevkifatCarpani * 100) / 100;
+      // Tevkifat varsa ekle
+      if (vatWithholdingRate > 0) {
+        kalem.vatWithholdingRate   = vatWithholdingRate;
+        kalem.vatWithholdingAmount = vatWithholdingAmount;
+        // Tevkifat kodu (GIB: 601-825)
+        if (k.tevkifatKodu) {
+          kalem.withholdingCode = String(k.tevkifatKodu);
         }
       }
 
       return kalem;
     });
   } else {
-    // Tek kalem (eski davranış)
-    const matrah = invoice.kdvDahil
+    // Tek kalem (eski davranış - kalem girilmemişse)
+    const matrah  = invoice.kdvDahil
       ? invoice.tutar / (1 + (invoice.kdvOrani || 20) / 100)
       : invoice.tutar;
     const vatAmount = Math.round(matrah * ((invoice.kdvOrani || 20) / 100) * 100) / 100;
     products = [{
-      name: invoice.aciklama || 'Hizmet / Mal Bedeli',
-      quantity: 1,
-      unitPrice: Math.round(matrah * 100) / 100,
-      price: Math.round(matrah * 100) / 100,
-      unitType: EInvoiceUnitType?.ADET,
+      name:        invoice.aciklama || 'Hizmet / Mal Bedeli',
+      quantity:    1,
+      unitPrice:   Math.round(matrah * 100) / 100,
+      price:       Math.round(matrah * 100) / 100,
+      unitType:    EInvoiceUnitType?.ADET,
       totalAmount: Math.round(matrah * 100) / 100,
-      vatRate: invoice.kdvOrani || 20,
+      grossAmount: Math.round(matrah * 100) / 100,
+      vatRate:     invoice.kdvOrani || 20,
       vatAmount,
+      discountRate:   0,
+      discountAmount: 0,
     }];
   }
 
   const productsTotalPrice = Math.round(products.reduce((s, p) => s + p.totalAmount, 0) * 100) / 100;
-  const totalVat = Math.round(products.reduce((s, p) => s + (p.vatAmount || 0), 0) * 100) / 100;
-  const totalWithholding = Math.round(products.reduce((s, p) => s + (p.vatWithholdingAmount || 0), 0) * 100) / 100;
+  const totalVat           = Math.round(products.reduce((s, p) => s + (p.vatAmount || 0), 0) * 100) / 100;
+  const totalWithholding   = Math.round(products.reduce((s, p) => s + (p.vatWithholdingAmount || 0), 0) * 100) / 100;
 
-  // KV/GV Stopajı (vergi satırı)
-  let withTaxAmount = 0;
-  if (invoice.stopajOrani && parseFloat(invoice.stopajOrani) > 0) {
-    withTaxAmount = Math.round(productsTotalPrice * (parseFloat(invoice.stopajOrani) / 100) * 100) / 100;
+  // Tevkifata tabi matrah ve KDV
+  const withholdingBase = Math.round(
+    products.filter(p => p.vatWithholdingRate > 0).reduce((s, p) => s + p.totalAmount, 0) * 100
+  ) / 100;
+
+  // Stopaj (KV/GV) – taxes dizisi olarak işle
+  let stopajAmount = 0;
+  const taxTotals = {};
+  const stopajTipi = invoice.stopajTipi || '';  // 'V0011' | 'V0003'
+  if (stopajTipi && invoice.stopajOrani && parseFloat(invoice.stopajOrani) > 0) {
+    const stopajRate = parseFloat(invoice.stopajOrani) / 100;
+    stopajAmount = Math.round(productsTotalPrice * stopajRate * 100) / 100;
+    taxTotals[stopajTipi] = { taxType: stopajTipi, rate: invoice.stopajOrani, amount: stopajAmount };
   }
 
-  const paymentPrice = Math.round((productsTotalPrice + totalVat - totalWithholding - withTaxAmount) * 100) / 100;
+  const paymentPrice = Math.round((productsTotalPrice + totalVat - totalWithholding - stopajAmount) * 100) / 100;
 
   const now = new Date();
   const invoicePayload = {
@@ -1281,29 +1321,34 @@ app.post('/api/gib/create-draft', authMiddleware, async (req, res) => {
     currencyRate: 1,
     country: EInvoiceCountry?.TURKIYE,
 
-    buyerFirstName: invoice.ad,
-    buyerLastName: invoice.soyad || '',
-    buyerTitle: invoice.ad,
-    buyerTaxId: invoice.vknTckn,   // artık frontend'den doğru gelecek
-    buyerTaxOffice: invoice.vergiDairesi || '',
-    buyerAddress: invoice.adres || '',
-    buyerCity: invoice.il || '',
-    buyerDistrict: invoice.ilce || '',
+    // Alıcı
+    buyerFirstName:  invoice.ad,
+    buyerLastName:   invoice.soyad || '',
+    buyerTitle:      invoice.ad,
+    buyerTaxId:      String(invoice.vknTckn).trim(),
+    buyerTaxOffice:  invoice.vergiDairesi || undefined,
+    buyerAddress:    invoice.adres       || undefined,
+    buyerCity:       invoice.il          || undefined,
+    buyerDistrict:   invoice.ilce        || undefined,
 
+    // Ürünler
     products,
+
+    // Toplamlar
+    base:                    productsTotalPrice,
     productsTotalPrice,
-    includedTaxesTotalPrice: Math.round((productsTotalPrice + totalVat) * 100) / 100,
+    totalDiscount:           0,
     totalVat,
+    includedTaxesTotalPrice: Math.round((productsTotalPrice + totalVat) * 100) / 100,
     paymentPrice,
-    base: productsTotalPrice,
 
-    note: invoice.aciklama || '',
-
-    // KV Stopajı varsa
-    ...(withTaxAmount > 0 ? {
-      taxWithholdingRate: parseFloat(invoice.stopajOrani) / 100,
-      taxWithholdingAmount: withTaxAmount,
+    // Tevkifat toplamları
+    ...(withholdingBase > 0 ? {
+      withholdingBase,
+      withholdingAmount: totalWithholding,
     } : {}),
+
+    note: invoice.aciklama || undefined,
   };
 
   try {
