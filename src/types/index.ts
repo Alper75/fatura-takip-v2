@@ -194,7 +194,7 @@ export interface Company {
   tax_no?: string;
   address?: string;
   email?: string;
-  is_active?: boolean;
+  status: 'active' | 'passive';
 }
 
 // ==================== PERSONEL MODÜLÜ ====================

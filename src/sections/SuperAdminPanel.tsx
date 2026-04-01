@@ -28,7 +28,10 @@ export function SuperAdminPanel() {
     name: '',
     tax_no: '',
     address: '',
-    email: ''
+    email: '',
+    admin_tc: '',
+    admin_password: '',
+    status: 'active' as 'active' | 'passive'
   });
 
   const filteredCompanies = companies.filter(c => 
@@ -43,11 +46,14 @@ export function SuperAdminPanel() {
         name: company.name,
         tax_no: company.tax_no || '',
         address: company.address || '',
-        email: company.email || ''
+        email: company.email || '',
+        admin_tc: '',
+        admin_password: '',
+        status: company.status || 'active'
       });
     } else {
       setEditingCompany(null);
-      setFormData({ name: '', tax_no: '', address: '', email: '' });
+      setFormData({ name: '', tax_no: '', address: '', email: '', admin_tc: '', admin_password: '', status: 'active' });
     }
     setIsModalOpen(true);
   };
@@ -187,10 +193,17 @@ export function SuperAdminPanel() {
                       </div>
                     </td>
                     <td className="px-6 py-4">
-                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-green-50 text-green-700 border border-green-100">
-                        <span className="w-1.5 h-1.5 rounded-full bg-green-600 animate-pulse"></span>
-                        Aktif
-                      </span>
+                      {company.status === 'passive' ? (
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-red-50 text-red-700 border border-red-100">
+                          <XCircle className="w-3 h-3" />
+                          Pasif
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-green-50 text-green-700 border border-green-100">
+                          <span className="w-1.5 h-1.5 rounded-full bg-green-600 animate-pulse"></span>
+                          Aktif
+                        </span>
+                      )}
                     </td>
                     <td className="px-6 py-4 text-right">
                       <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -260,12 +273,54 @@ export function SuperAdminPanel() {
               <div className="space-y-2">
                 <label className="text-sm font-semibold text-slate-700">Adres</label>
                 <textarea 
-                  className="w-full rounded-xl border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 min-h-[100px]"
+                  className="w-full rounded-xl border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 min-h-[80px]"
                   value={formData.address}
                   onChange={(e) => setFormData({...formData, address: e.target.value})}
                   placeholder="Şirket resmi adresi..."
                 />
               </div>
+
+              {!editingCompany ? (
+                <div className="bg-slate-50 p-4 rounded-2xl space-y-4 border border-slate-100">
+                  <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Yönetici (Admin) Hesabı</p>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <label className="text-sm font-semibold text-slate-700">Admin TC/Kullanıcı</label>
+                      <Input 
+                        value={formData.admin_tc}
+                        onChange={(e) => setFormData({...formData, admin_tc: e.target.value})}
+                        placeholder="admin_username" 
+                        className="rounded-xl bg-white"
+                        required={!editingCompany}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-semibold text-slate-700">Şifre</label>
+                      <Input 
+                        type="password"
+                        value={formData.admin_password}
+                        onChange={(e) => setFormData({...formData, admin_password: e.target.value})}
+                        placeholder="******" 
+                        className="rounded-xl bg-white"
+                        required={!editingCompany}
+                      />
+                    </div>
+                  </div>
+                  <p className="text-[10px] text-slate-400 italic font-medium">Bu bilgilerle şirketin ilk yöneticisi sisteme giriş yapacaktır.</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <label className="text-sm font-semibold text-slate-700 text-primary">Şirket Durumu</label>
+                  <select 
+                    className="w-full rounded-xl border border-input bg-slate-50 px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    value={formData.status}
+                    onChange={(e) => setFormData({...formData, status: e.target.value as any})}
+                  >
+                    <option value="active">Aktif (Giriş Yapılabilir)</option>
+                    <option value="passive">Pasif (Giriş Engellenir)</option>
+                  </select>
+                </div>
+              )}
               <div className="flex gap-3 pt-4">
                 <Button variant="outline" className="flex-1 rounded-xl" type="button" onClick={() => setIsModalOpen(false)}>
                   Vazgeç

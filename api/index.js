@@ -64,6 +64,17 @@ app.post('/api/auth/login', async (req, res) => {
     if (!user || !bcrypt.compareSync(password, user.password)) {
       return res.status(401).json({ success: false, message: 'Geçersiz TC veya şifre.' });
     }
+
+    // Check Company Status
+    const compRs = await client.execute({
+      sql: 'SELECT status FROM companies WHERE id = ?',
+      args: [user.company_id || 1]
+    });
+    const company = compRs.rows[0];
+    if (company && company.status === 'passive') {
+      return res.status(403).json({ success: false, message: 'Şirket hesabınız pasif durumdadır. Lütfen yönetici ile iletişime geçin.' });
+    }
+
     const token = generateToken(user);
     res.json({ success: true, token, user: { id: user.id, tc: user.tc, role: user.role, companyId: user.company_id, mustChangePassword: !!user.must_change_password } });
   } catch (error) {
@@ -1036,23 +1047,40 @@ app.get('/api/super/companies', authMiddleware, superAdminMiddleware, async (req
 });
 
 app.post('/api/super/companies', authMiddleware, superAdminMiddleware, async (req, res) => {
-  const { name, tax_no, address, email } = req.body;
+  const { name, tax_no, address, email, admin_tc, admin_password } = req.body;
+  if (!name) return res.status(400).json({ success: false, message: 'Şirket adı zorunludur.' });
+
   try {
-    await client.execute({
-      sql: 'INSERT INTO companies (name, tax_no, address, email) VALUES (?, ?, ?, ?)',
-      args: [n(name), n(tax_no), n(address), n(email)]
+    // 1. Create Company
+    const compResult = await client.execute({
+      sql: 'INSERT INTO companies (name, tax_no, address, email, status) VALUES (?, ?, ?, ?, ?) RETURNING id',
+      args: [n(name), n(tax_no), n(address), n(email), 'active']
     });
-    res.json({ success: true, message: 'Şirket başarıyla oluşturuldu.' });
-  } catch (error) { res.status(500).json({ success: false, message: error.message }); }
+    
+    const newCompanyId = compResult.rows[0].id;
+
+    // 2. Create Admin User if provided
+    if (admin_tc && admin_password) {
+      const hashedPassword = bcrypt.hashSync(admin_password, 10);
+      await client.execute({
+        sql: 'INSERT INTO users (tc, password, role, must_change_password, company_id) VALUES (?, ?, ?, ?, ?)',
+        args: [admin_tc, hashedPassword, 'admin', 0, newCompanyId]
+      });
+    }
+
+    res.json({ success: true, message: 'Şirket ve yönetici hesabı başarıyla oluşturuldu.', companyId: newCompanyId });
+  } catch (error) { 
+    res.status(500).json({ success: false, message: error.message }); 
+  }
 });
 
 app.put('/api/super/companies/:id', authMiddleware, superAdminMiddleware, async (req, res) => {
   const { id } = req.params;
-  const { name, tax_no, address, email } = req.body;
+  const { name, tax_no, address, email, status } = req.body;
   try {
     await client.execute({
-      sql: 'UPDATE companies SET name = ?, tax_no = ?, address = ?, email = ? WHERE id = ?',
-      args: [n(name), n(tax_no), n(address), n(email), id]
+      sql: 'UPDATE companies SET name = ?, tax_no = ?, address = ?, email = ?, status = ? WHERE id = ?',
+      args: [n(name), n(tax_no), n(address), n(email), n(status), id]
     });
     res.json({ success: true, message: 'Şirket güncellendi.' });
   } catch (error) { res.status(500).json({ success: false, message: error.message }); }
@@ -1061,13 +1089,33 @@ app.put('/api/super/companies/:id', authMiddleware, superAdminMiddleware, async 
 app.delete('/api/super/companies/:id', authMiddleware, superAdminMiddleware, async (req, res) => {
   const { id } = req.params;
   if (id === '1') return res.status(400).json({ success: false, message: 'Varsayılan şirket silinemez.' });
+  
   try {
-    await client.execute({
+    // 1. Manually delete all associated data (Cascade)
+    const tables = [
+      'users', 'personnel', 'pointage', 'leaves', 'documents', 
+      'assets', 'trainings', 'payroll', 'requests', 'announcements', 
+      'cariler', 'cari_hareketler', 'satis_faturalari', 'alis_faturalari', 
+      'cek_senetler', 'banka_hesaplari', 'masraf_kurallari', 
+      'kesilecek_faturalar', 'gider_kategorileri'
+    ];
+
+    const deleteStatements = tables.map(t => ({
+      sql: `DELETE FROM ${t} WHERE company_id = ?`,
+      args: [id]
+    }));
+
+    // Add company deletion itself
+    deleteStatements.push({
       sql: 'DELETE FROM companies WHERE id = ?',
       args: [id]
     });
-    res.json({ success: true, message: 'Şirket silindi.' });
-  } catch (error) { res.status(500).json({ success: false, message: error.message }); }
+
+    await client.batch(deleteStatements);
+    res.json({ success: true, message: 'Şirket ve tüm bağlı veriler başarıyla silindi.' });
+  } catch (error) { 
+    res.status(500).json({ success: false, message: error.message }); 
+  }
 });
 
 // --- GİDER KATEGORİLERİ ---

@@ -353,9 +353,21 @@ async function initDb() {
     if (Number(compCheck.rows[0].count) === 0) {
         console.log('Creating default company...');
         await client.execute({
-            sql: 'INSERT INTO companies (id, name) VALUES (?, ?)',
-            args: [1, 'Varsayılan Şirket']
+            sql: 'INSERT INTO companies (id, name, status) VALUES (?, ?, ?)',
+            args: [1, 'Varsayılan Şirket', 'active']
         });
+    }
+
+    // Check for status column in companies
+    try {
+        const compInfo = await client.execute('PRAGMA table_info(companies)');
+        const hasStatus = compInfo.rows.some(col => col.name === 'status');
+        if (!hasStatus) {
+            console.log('Adding status column to companies...');
+            await client.execute("ALTER TABLE companies ADD COLUMN status TEXT DEFAULT 'active'");
+        }
+    } catch (e) {
+        console.warn(`Could not add status to companies: ${e.message}`);
     }
 
     // Add company_id to all tables if not exists
