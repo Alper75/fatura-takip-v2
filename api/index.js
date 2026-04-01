@@ -1230,7 +1230,11 @@ app.delete('/api/stok/kategoriler/:id', authMiddleware, async (req, res) => {
 app.get('/api/stok/urunler', authMiddleware, async (req, res) => {
   try {
     const rs = await client.execute({
-      sql: 'SELECT * FROM stok_urunler WHERE company_id = ? ORDER BY urun_adi ASC',
+      sql: `SELECT id, stok_kodu as stokKodu, barkod, urun_adi as urunAdi, 
+            kategori_id as kategoriId, ana_birim as anaBirim, minimum_stok as minimumStok, 
+            maksimum_stok as maksimumStok, lot_takibi as lotTakibi, 
+            son_kullanma_tarihli as sonKullanma_tarihli, aktif, birim_fiyat as birimFiyat, aciklama 
+            FROM stok_urunler WHERE company_id = ? ORDER BY urun_adi ASC`,
       args: [req.user.companyId]
     });
     res.json({ success: true, data: rs.rows });
@@ -1345,7 +1349,10 @@ app.delete('/api/stok/depolar/:id', authMiddleware, async (req, res) => {
 app.get('/api/stok/hareketler', authMiddleware, async (req, res) => {
   try {
     const rs = await client.execute({
-      sql: 'SELECT * FROM stok_hareketler WHERE company_id = ? ORDER BY tarih DESC',
+      sql: `SELECT id, urun_id as urunId, depo_id as depoId, tip, miktar, 
+            birim_fiyat as birimFiyat, tutar, tarih, aciklama, 
+            referans_no as referansNo, iptal
+            FROM stok_hareketler WHERE company_id = ? ORDER BY tarih DESC`,
       args: [req.user.companyId]
     });
     res.json({ success: true, data: rs.rows });
@@ -1387,7 +1394,9 @@ app.post('/api/stok/hareketler', authMiddleware, async (req, res) => {
 app.get('/api/stok/sayimlar', authMiddleware, async (req, res) => {
   try {
     const rs = await client.execute({
-      sql: 'SELECT * FROM stok_sayimlar WHERE company_id = ? ORDER BY tarih DESC',
+      sql: `SELECT id, depo_id as depoId, tarih, durum, onay_tarihi as onayTarihi, 
+            onaylayan_kullanici as onaylayanKullanici, aciklama
+            FROM stok_sayimlar WHERE company_id = ? ORDER BY tarih DESC`,
       args: [req.user.companyId]
     });
     res.json({ success: true, data: rs.rows });
@@ -1397,11 +1406,15 @@ app.get('/api/stok/sayimlar', authMiddleware, async (req, res) => {
 app.get('/api/stok/sayimlar/:id', authMiddleware, async (req, res) => {
   try {
     const sayimRs = await client.execute({
-      sql: 'SELECT * FROM stok_sayimlar WHERE id = ? AND company_id = ?',
+      sql: `SELECT id, depo_id as depoId, tarih, durum, onay_tarihi as onayTarihi, 
+            onaylayan_kullanici as onaylayanKullanici, aciklama
+            FROM stok_sayimlar WHERE id = ? AND company_id = ?`,
       args: [req.params.id, req.user.companyId]
     });
     const kalemlerRs = await client.execute({
-      sql: 'SELECT * FROM stok_sayim_kalemler WHERE sayim_id = ? AND company_id = ?',
+      sql: `SELECT id, sayim_id as sayimId, urun_id as urunId, 
+            sistem_miktari as sistemMiktari, sayim_miktari as sayimMiktari, fark
+            FROM stok_sayim_kalemler WHERE sayim_id = ? AND company_id = ?`,
       args: [req.params.id, req.user.companyId]
     });
     res.json({ success: true, sayim: sayimRs.rows[0], kalemler: kalemlerRs.rows });
