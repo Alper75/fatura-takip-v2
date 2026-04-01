@@ -519,7 +519,7 @@ SADECE JSON döndür:
                             const selectedUrun = urunler?.find(u => u.id === val);
                             updateForm(form.id, 'urunId', val === 'yok' ? '' : val);
                             if (selectedUrun) {
-                               updateForm(form.id, 'malHizmetAdi', selectedUrun.urunAdi);
+                               updateForm(form.id, 'malHizmetAdi', selectedUrun.urunAdi || 'İsimsiz Ürün');
                             }
                           }}
                         >
@@ -528,8 +528,10 @@ SADECE JSON döndür:
                           </SelectTrigger>
                           <SelectContent>
                             <SelectItem value="yok">Bağlama Yapma</SelectItem>
-                            {urunler?.map(u => (
-                              <SelectItem key={u.id} value={u.id}>{u.urunAdi} ({u.stokKodu})</SelectItem>
+                            {(!urunler || urunler.length === 0) ? (
+                              <SelectItem value="none" disabled className="text-slate-400 italic">Sistemde hiç stok kartınız yok (+ Yeni ekleyin)</SelectItem>
+                            ) : urunler.map(u => (
+                              <SelectItem key={u.id} value={u.id}>{u.urunAdi || 'İsimsiz'} ({u.stokKodu})</SelectItem>
                             ))}
                           </SelectContent>
                         </Select>
