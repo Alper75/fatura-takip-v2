@@ -1198,15 +1198,41 @@ app.post('/api/gib/create-draft', authMiddleware, async (req, res) => {
     return res.status(400).json({ success: false, message: 'GİB kullanıcı adı ve şifre gereklidir.' });
   if (!invoice)
     return res.status(400).json({ success: false, message: 'Fatura verisi eksik.' });
-  if (!invoice.vknTckn)
-    return res.status(400).json({ success: false, message: 'Alıcı VKN veya T.C. Kimlik Numarası zorunludur.' });
+
+  // === DEBUG: Gelen verinin tam logu ===
+  console.log('[GIB] Gelen invoice verisi:', JSON.stringify({
+    vknTckn: invoice.vknTckn,
+    ad: invoice.ad,
+    adres: invoice.adres,
+    il: invoice.il,
+    faturaTipi: invoice.faturaTipi,
+    stopajTipi: invoice.stopajTipi,
+    stopajOrani: invoice.stopajOrani,
+    kalemSayisi: invoice.kalemler?.length || 0,
+    kalemler: invoice.kalemler?.map(k => ({
+      ad: k.ad, birimFiyat: k.birimFiyat, miktar: k.miktar,
+      kdvOrani: k.kdvOrani, tevkifatOrani: k.tevkifatOrani, tevkifatKodu: k.tevkifatKodu
+    }))
+  }, null, 2));
+
+  // VKN/TCKN doğrulaması
+  const vknStr = String(invoice.vknTckn || '').trim().replace(/\s/g, '');
+  if (!vknStr || vknStr === '0' || vknStr === 'undefined') {
+    return res.status(400).json({ success: false, message: 'VKN/TC Kimlik numarası zorunludur. Lütfen fatura planı formunda doldurun.' });
+  }
+  if (vknStr.length !== 10 && vknStr.length !== 11) {
+    return res.status(400).json({ success: false, message: `VKN/TCKN 10 veya 11 haneli olmalıdır. Girilen: "${vknStr}" (${vknStr.length} hane)` });
+  }
+  if (/^1+$/.test(vknStr)) {
+    return res.status(400).json({ success: false, message: 'Test VKN\'si (11111111111) kullanılamaz. Gerçek VKN/TCKN girin.' });
+  }
 
   // Fatura tipi haritası (GIB portal değerleriyle birebir)
   const INVOICE_TYPE_MAP = {
     SATIS:            InvoiceType?.SATIS,
     IADE:             InvoiceType?.IADE,
     TEVKIFAT:         InvoiceType?.TEVKIFAT,
-    TEVKIFATIADE:     InvoiceType?.TEVKIFAT,   // pakette ayrı değer yoksa TEVKIFAT kullan
+    TEVKIFATIADE:     InvoiceType?.TEVKIFAT,
     ISTISNA:          InvoiceType?.ISTISNA,
     OZELMATRAH:       InvoiceType?.OZEL_MATRAH,
     OZEL_MATRAH:      InvoiceType?.OZEL_MATRAH,
@@ -1258,13 +1284,13 @@ app.post('/api/gib/create-draft', authMiddleware, async (req, res) => {
         discountAmount: 0,
       };
 
-      // Tevkifat varsa ekle
+      // Tevkifat varsa ekle (kalem seviyesinde)
       if (vatWithholdingRate > 0) {
         kalem.vatWithholdingRate   = vatWithholdingRate;
         kalem.vatWithholdingAmount = vatWithholdingAmount;
-        // Tevkifat kodu (GIB: 601-825)
         if (k.tevkifatKodu) {
-          kalem.withholdingCode = String(k.tevkifatKodu);
+          kalem.withholdingCode    = String(k.tevkifatKodu);  // e-fatura paketi
+          kalem.vatWithholdingCode = String(k.tevkifatKodu);  // alternatif alan adı
         }
       }
 
@@ -1313,6 +1339,19 @@ app.post('/api/gib/create-draft', authMiddleware, async (req, res) => {
   const paymentPrice = Math.round((productsTotalPrice + totalVat - totalWithholding - stopajAmount) * 100) / 100;
 
   const now = new Date();
+  console.log('[GIB] Son payload ozet:', JSON.stringify({
+    buyerTaxId:        vknStr,
+    buyerAddress:      invoice.adres || '(bos)',
+    invoiceType:       resolvedInvoiceType,
+    base:              productsTotalPrice,
+    totalVat,
+    totalWithholding,
+    withholdingBase,
+    paymentPrice,
+    stopajTipi,
+    stopajAmount,
+  }, null, 2));
+
   const invoicePayload = {
     date: invoice.faturaTarihi ? convertToGIBDate(invoice.faturaTarihi) : `${String(now.getDate()).padStart(2,'0')}/${String(now.getMonth()+1).padStart(2,'0')}/${now.getFullYear()}`,
     time: formatGIBTime(now),
@@ -1322,14 +1361,14 @@ app.post('/api/gib/create-draft', authMiddleware, async (req, res) => {
     country: EInvoiceCountry?.TURKIYE,
 
     // Alıcı
-    buyerFirstName:  invoice.ad,
+    buyerFirstName:  invoice.ad || '',
     buyerLastName:   invoice.soyad || '',
-    buyerTitle:      invoice.ad,
-    buyerTaxId:      String(invoice.vknTckn).trim(),
-    buyerTaxOffice:  invoice.vergiDairesi || undefined,
-    buyerAddress:    invoice.adres       || undefined,
-    buyerCity:       invoice.il          || undefined,
-    buyerDistrict:   invoice.ilce        || undefined,
+    buyerTitle:      invoice.ad || '',
+    buyerTaxId:      vknStr,
+    buyerTaxOffice:  invoice.vergiDairesi || '',
+    buyerAddress:    invoice.adres        || '',
+    buyerCity:       invoice.il           || '',
+    buyerDistrict:   invoice.ilce         || '',
 
     // Ürünler
     products,
@@ -1342,13 +1381,13 @@ app.post('/api/gib/create-draft', authMiddleware, async (req, res) => {
     includedTaxesTotalPrice: Math.round((productsTotalPrice + totalVat) * 100) / 100,
     paymentPrice,
 
-    // Tevkifat toplamları
+    // KDV Tevkifatı toplamları (invoice seviyesi - GIB için zorunlu)
     ...(withholdingBase > 0 ? {
       withholdingBase,
       withholdingAmount: totalWithholding,
     } : {}),
 
-    note: invoice.aciklama || undefined,
+    note: invoice.aciklama || '',
   };
 
   try {
