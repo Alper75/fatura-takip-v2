@@ -1113,6 +1113,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       try { await apiFetch('/api/cari-hareketler', { method: 'POST', body: JSON.stringify(yeniHareket) }); }
       catch (e) { console.error('Cari hareket eklenemedi:', e); }
     }
+    return yeniFatura.id;
   }, []);
 
   const updateAlisFaturaOdeme = useCallback(async (id: string, odemeTarihi: string, odemeDurumu: 'odenmedi' | 'odendi' | 'bekliyor') => {

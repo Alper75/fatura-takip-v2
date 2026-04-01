@@ -28,17 +28,39 @@ import {
   BoxSelect
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { DepoForm } from './DepoForm';
 
 export const DepoYonetimi: React.FC = () => {
   const [activeTab, setActiveTab] = useState('definitions');
-  const [selectedDepoId, setSelectedDepoId] = useState<string>('1');
+  const [selectedDepoId, setSelectedDepoId] = useState<string>('');
   const [warehouseSearch, setWarehouseSearch] = useState('');
   const [stockSearch, setStockSearch] = useState('');
+  
+  // Form states
+  const [isFormOpen, setIsFormOpen] = useState(false);
+  const [editingDepo, setEditingDepo] = useState<any>(null);
 
   const { data: depolar, isLoading: isDepoLoading } = useDepolar();
   const { data: urunler } = useUrunler();
   const { data: hareketler } = useStokHareketler();
   const { deleteDepo } = useDepoMutations();
+
+  React.useEffect(() => {
+    if (depolar && depolar.length > 0 && !selectedDepoId) {
+      const varsayilan = depolar.find(d => d.varsayilan);
+      setSelectedDepoId(varsayilan ? varsayilan.id : depolar[0].id);
+    }
+  }, [depolar, selectedDepoId]);
+
+  const handleEdit = (depo: any) => {
+    setEditingDepo(depo);
+    setIsFormOpen(true);
+  };
+
+  const handleAddNew = () => {
+    setEditingDepo(null);
+    setIsFormOpen(true);
+  };
 
   // Selected warehouse stock levels
   const warehouseStock = useMemo(() => {
@@ -115,7 +137,7 @@ export const DepoYonetimi: React.FC = () => {
                 onChange={(e) => setWarehouseSearch(e.target.value)}
               />
             </div>
-            <Button className="rounded-xl shadow-lg shadow-primary/20">
+            <Button className="rounded-xl shadow-lg shadow-primary/20" onClick={handleAddNew}>
               <Plus className="w-4 h-4 mr-2" />
               Yeni Depo Ekle
             </Button>
@@ -150,7 +172,7 @@ export const DepoYonetimi: React.FC = () => {
                       )}
                     </TableCell>
                     <TableCell className="text-right space-x-2">
-                      <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full">
+                      <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full" onClick={() => handleEdit(depo)}>
                         <Edit className="h-4 w-4 text-blue-600" />
                       </Button>
                       <Button 
@@ -246,6 +268,12 @@ export const DepoYonetimi: React.FC = () => {
           </div>
         </TabsContent>
       </Tabs>
+
+      <DepoForm 
+        isOpen={isFormOpen} 
+        onClose={() => setIsFormOpen(false)} 
+        editingDepo={editingDepo} 
+      />
     </div>
   );
 };

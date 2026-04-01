@@ -12,11 +12,9 @@ if (url) {
   });
 } else {
   console.error('CRITICAL: TURSO_URL is not defined in environment variables.');
-  // We don't throw here to prevent top-level crash on Vercel
   client = null; 
 }
 
-// Since Turso is async, we export the client and a utility to run the initial schema setup
 async function initDb() {
   console.log('Initializing Turso Database Schema...');
   
@@ -336,11 +334,7 @@ async function initDb() {
       );
     `);
 
-    /**
-     * INVENTORY (STOK) MODULE TABLES
-     */
-    
-    // Stok Kategoriler
+    // STOK MODULE TABLES
     await client.execute(`
       CREATE TABLE IF NOT EXISTS stok_kategoriler (
         id TEXT PRIMARY KEY,
@@ -349,7 +343,6 @@ async function initDb() {
       );
     `);
 
-    // Stok Urunler
     await client.execute(`
       CREATE TABLE IF NOT EXISTS stok_urunler (
         id TEXT PRIMARY KEY,
@@ -370,7 +363,6 @@ async function initDb() {
       );
     `);
 
-    // Stok Depolar
     await client.execute(`
       CREATE TABLE IF NOT EXISTS stok_depolar (
         id TEXT PRIMARY KEY,
@@ -383,19 +375,19 @@ async function initDb() {
       );
     `);
 
-    // Stok Hareketler
     await client.execute(`
       CREATE TABLE IF NOT EXISTS stok_hareketler (
         id TEXT PRIMARY KEY,
         urun_id TEXT NOT NULL,
         depo_id TEXT NOT NULL,
-        tip TEXT NOT NULL, -- GIRIS, CIKIS, TRANSFER_GIRIS, TRANSFER_CIKIS, SAYIM_GIRIS, SAYIM_CIKIS
+        tip TEXT NOT NULL,
         miktar REAL NOT NULL,
         birim_fiyat REAL DEFAULT 0,
         tutar REAL DEFAULT 0,
         tarih TEXT NOT NULL,
         aciklama TEXT,
         referans_no TEXT,
+        bagli_fatura_id TEXT,
         iptal BOOLEAN DEFAULT 0,
         company_id INTEGER DEFAULT 1,
         FOREIGN KEY (urun_id) REFERENCES stok_urunler(id) ON DELETE CASCADE,
@@ -403,13 +395,21 @@ async function initDb() {
       );
     `);
 
-    // Stok Sayimlar (Inventory Sessions)
+    // Migration for bagli_fatura_id in stok_hareketler
+    try {
+        const info = await client.execute("PRAGMA table_info(stok_hareketler)");
+        const hasBagliId = info.rows.some(col => col.name === 'bagli_fatura_id');
+        if (!hasBagliId) {
+            await client.execute("ALTER TABLE stok_hareketler ADD COLUMN bagli_fatura_id TEXT");
+        }
+    } catch (e) {}
+
     await client.execute(`
       CREATE TABLE IF NOT EXISTS stok_sayimlar (
         id TEXT PRIMARY KEY,
         depo_id TEXT NOT NULL,
         tarih TEXT NOT NULL,
-        durum TEXT DEFAULT 'TASLAK', -- TASLAK, ONAYLANDI
+        durum TEXT DEFAULT 'TASLAK',
         aciklama TEXT,
         onaylayan_kullanici TEXT,
         company_id INTEGER DEFAULT 1,
@@ -417,7 +417,6 @@ async function initDb() {
       );
     `);
 
-    // Stok Sayim Kalemleri
     await client.execute(`
       CREATE TABLE IF NOT EXISTS stok_sayim_kalemler (
         id TEXT PRIMARY KEY,
@@ -430,9 +429,6 @@ async function initDb() {
         FOREIGN KEY (urun_id) REFERENCES stok_urunler(id) ON DELETE CASCADE
       );
     `);
-
-    // Business rule: Ensure only 1 default warehouse per company
-    // This is handled in code but good to know
 
     // Companies Table
     await client.execute(`
@@ -447,35 +443,7 @@ async function initDb() {
       );
     `);
 
-    // 1. Aggressively ensure 'status' column exists in companies
-    try {
-        // Direct attempt to add the column, ignore "already exists" error
-        await client.execute("ALTER TABLE companies ADD COLUMN status TEXT DEFAULT 'active'");
-        console.log('Status column added to companies successfully.');
-    } catch (e) {
-        const msg = e.message.toLowerCase();
-        if (msg.includes('duplicate column name') || msg.includes('already exists')) {
-            // This is fine, it means the column is already there
-        } else {
-            console.warn(`Migration notice (status column): ${e.message}`);
-        }
-    }
-
-    // 2. Ensure Default Company exists
-    try {
-        const compCheck = await client.execute('SELECT COUNT(*) as count FROM companies');
-        if (Number(compCheck.rows[0].count) === 0) {
-            console.log('Creating default company...');
-            await client.execute({
-                sql: 'INSERT INTO companies (id, name, status) VALUES (?, ?, ?)',
-                args: [1, 'Varsayılan Şirket', 'active']
-            });
-        }
-    } catch (e) {
-        console.warn(`Could not ensure default company: ${e.message}`);
-    }
-
-    // Add company_id to all tables if not exists
+    // Migration for company_id in all tables
     const tablesToUpdate = [
       'users', 'personnel', 'pointage', 'leaves', 'documents', 
       'assets', 'trainings', 'payroll', 'requests', 'announcements', 
@@ -486,32 +454,28 @@ async function initDb() {
 
     for (const table of tablesToUpdate) {
         try {
-          // Check if company_id already exists to avoid errors
           const info = await client.execute(`PRAGMA table_info(${table})`);
           const hasCompanyId = info.rows.some(col => col.name === 'company_id');
           if (!hasCompanyId) {
-            console.log(`Adding company_id to ${table}...`);
             await client.execute(`ALTER TABLE ${table} ADD COLUMN company_id INTEGER DEFAULT 1`);
           }
-        } catch (e) {
-          console.warn(`Could not add company_id to ${table}: ${e.message}`);
-        }
+        } catch (e) {}
     }
 
-    console.log('Turso Database schema initialized successfully.');
+    // Default User & Company
+    const compCheck = await client.execute('SELECT COUNT(*) as count FROM companies');
+    if (Number(compCheck.rows[0].count) === 0) {
+        await client.execute("INSERT INTO companies (id, name, status) VALUES (1, 'Varsayılan Şirket', 'active')");
+    }
 
-    // Add default admin user if not exists
     const bcrypt = require('bcryptjs');
     const rs = await client.execute('SELECT COUNT(*) as count FROM users');
     if (Number(rs.rows[0].count) === 0) {
-        console.log('No users found. Creating default admin...');
         const adminPassword = bcrypt.hashSync('admin', 10);
-        await client.execute({
-            sql: 'INSERT INTO users (tc, password, role, must_change_password, company_id) VALUES (?, ?, ?, ?, ?)',
-            args: ['admin', adminPassword, 'admin', 0, 1]
-        });
-        console.log('Default admin created (TC: admin, PW: admin).');
+        await client.execute("INSERT INTO users (tc, password, role, must_change_password, company_id) VALUES ('admin', ?, 'admin', 0, 1)", [adminPassword]);
     }
+
+    console.log('Turso Database schema initialized successfully.');
   } catch (err) {
     console.error('Error initializing Turso schema:', err);
     throw err;

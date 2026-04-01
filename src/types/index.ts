@@ -102,6 +102,9 @@ export interface AlisFatura {
   cariId?: string;
   vadeTarihi?: string | null;
   aciklama?: string;
+  // Stok Entegrasyonu
+  urunId?: string;
+  depoId?: string;
 }
 
 export interface AlisFaturaFormData {
@@ -119,6 +122,9 @@ export interface AlisFaturaFormData {
   cariId?: string;
   vadeTarihi?: string;
   aciklama?: string;
+  // Stok Entegrasyonu
+  urunId?: string;
+  depoId?: string;
 }
 
 // ==================== CARİ HAREKET (Bakiye / Ekstre İşlemleri) ====================

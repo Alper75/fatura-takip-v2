@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -9,6 +9,9 @@ import { Save, X, ShoppingCart, FileText, Sparkles, Loader2, CheckCircle2, Plus,
 import type { AlisFaturaFormData } from '@/types';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import { useUrunler, useDepolar } from '../modules/stok/hooks/useStokQuery';
+import { UrunForm } from '../modules/stok/components/UrunForm';
+import { stokApi } from '../modules/stok/services/stokApi';
 
 const KDV_ORANLARI = ['0', '1', '8', '10', '18', '20'];
 const TEVKIFAT_ORANLARI = ['0', '2/10', '3/10', '4/10', '5/10', '7/10', '9/10', '10/10'];
@@ -42,10 +45,20 @@ type UploadedFile = {
 
 export function AlisFaturaDrawer() {
   const { isAlisDrawerOpen, closeAlisDrawer, addAlisFatura, cariler } = useApp();
+  const { data: urunler } = useUrunler();
+  const { data: depolar } = useDepolar();
 
-  const [forms, setForms] = useState<FormEntry[]>([
-    { id: Date.now(), data: INITIAL_FORM, tutarTuru: 'dahil', errors: {} }
-  ]);
+  const [forms, setForms] = useState<FormEntry[]>([]);
+  const [isUrunFormOpen, setIsUrunFormOpen] = useState(false);
+
+  // Initialize with one form if open and empty
+  useEffect(() => {
+    if (isAlisDrawerOpen && forms.length === 0) {
+      setForms([{ id: Date.now(), data: INITIAL_FORM, tutarTuru: 'dahil', errors: {} }]);
+    }
+  }, [isAlisDrawerOpen]);
+
+  const varsayilanDepoId = depolar?.find(d => d.varsayilan)?.id || depolar?.[0]?.id || '';
 
   // AI States
   const [isDragging, setIsDragging] = useState(false);
@@ -70,11 +83,9 @@ export function AlisFaturaDrawer() {
       let matrah = 0;
 
       if (f.tutarTuru === 'dahil') {
-        // Tutar = Net Ödenecek kabul ediyoruz
         const carpan = 1 + kdvOrani - stopajOrani - (kdvOrani * tevkifatCarpani);
         matrah = carpan > 0 ? girilenTutar / carpan : 0;
       } else {
-        // Tutar = Brüt Matrah kabul ediyoruz
         matrah = girilenTutar;
       }
 
@@ -142,7 +153,7 @@ export function AlisFaturaDrawer() {
     closeAlisDrawer();
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (forms.length === 0) {
@@ -151,24 +162,41 @@ export function AlisFaturaDrawer() {
     }
 
     if (validateAll()) {
-      forms.forEach(f => {
-        const hes = getHesaplanan(f);
-        // Form verisine dosyayı da dahil ediyoruz
-        addAlisFatura({
-          ...f.data,
-          toplamTutar: f.tutarTuru === 'dahil' ? parseFloat(f.data.toplamTutar).toString() : hes.toplamNet.toString(),
-          dosyaBase64: uploadedFile?.base64,
-          dosyaAdi: uploadedFile?.name
-        });
-      });
-      toast.success(`${forms.length} adet alış faturası kaydedildi (Medyaları ile birlikte)`);
-      handleClose();
+      try {
+        for (const f of forms) {
+          const hes = getHesaplanan(f);
+          
+          const invoiceId = await addAlisFatura({
+            ...f.data,
+            toplamTutar: f.tutarTuru === 'dahil' ? parseFloat(f.data.toplamTutar).toString() : hes.toplamNet.toString(),
+            dosyaBase64: uploadedFile?.base64,
+            dosyaAdi: uploadedFile?.name
+          });
+
+          if (f.data.urunId) {
+            await stokApi.addHareket({
+              urunId: f.data.urunId,
+              depoId: f.data.depoId || varsayilanDepoId,
+              tip: 'GIRIS',
+              miktar: 1, 
+              birimFiyat: hes.matrah,
+              tutar: hes.matrah,
+              referans: `Alış Faturası: ${f.data.faturaNo}`,
+              aciklama: `${f.data.tedarikciAdi} firmasından alım.`,
+              bagliFaturaId: invoiceId
+            });
+          }
+        }
+        toast.success(`${forms.length} adet alış faturası kaydedildi (Stok hareketleri ile birlikte)`);
+        handleClose();
+      } catch (error: any) {
+        toast.error('Kayıt sırasında bir hata oluştu: ' + error.message);
+      }
     } else {
       toast.error('Lütfen formdaki eksik alanları doldurun.');
     }
   };
 
-  // --- IMAGES & AI ---
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       processImageFile(e.target.files[0]);
@@ -191,31 +219,26 @@ export function AlisFaturaDrawer() {
     setIsScanning(true);
     const rawBase64 = uploadedFile.base64.split(',')[1];
 
-    // PDF ve Resim için ortak prompt (Gemini 1.5/2.5 Flash native PDF destekler)
-    const prompt = `Bu dosyada BİRDEN FAZLA ayrı fiş veya fatura olabilir (örneğin yan yana 3 fiş veya çok sayfalı belge). 
-Lütfen bulduğun TÜM fiş/faturaları çıkar ve aşağıdaki JSON DİZİSİ (Array) formatında döndür. 
-Ayrı fişleri aynı hesaba KESİNLİKLE birleştirme. 
-Ekstra Kural: Eğer AYNI fişin içinde KDV oranları (%1, %8 vesaire) ayrı ayrı KDV kısımlarına bölünmüşse, KDV oranlarına göre o fişi kendi içinde yeni fişlermiş gibi böl.
-Ayrıca belgede Stopaj (Kesinti) veya KDV Tevkifatı varsa bu oranları da tespit et.
+    const prompt = `Bu dosyada BİRDEN FAZLA ayrı fiş veya fatura olabilir. 
+Lütfen bulduğun TÜM fiş/faturaları çıkar ve aşağıdaki JSON DİZİSİ formatında döndür. 
 SADECE JSON döndür:
 {
   "faturalar": [
     {
       "tedarikciAdi": "firma/satıcı adı",
-      "tedarikciVkn": "bulunabilirse VKN veya T.C. (yoksa boş bırak)",
-      "faturaNo": "fatura veya fiş altındaki belge numarası",
-      "malHizmetAdi": "alınan hizmet/malın genel özeti",
-      "faturaTarihi": "YYYY-MM-DD formatında tarih",
-      "tutar": "toplam rakam (noktalı/virgüllü olmadan genel sayı formatı, örn: 120.50)",
+      "tedarikciVkn": "VKN veya T.C.",
+      "faturaNo": "belge no",
+      "malHizmetAdi": "ürün özeti",
+      "faturaTarihi": "YYYY-MM-DD",
+      "tutar": "120.50",
       "tutar_tur": "dahil",
-      "kdv_orani": "kdv yüzdesi (0, 1, 8, 10, 18, 20 gibi değerler. Bulamazsan 18)",
-      "tevkifat_orani": "kdv tevkifat oranı (varsa '2/10', '9/10' gibi kesirli format, yoksa '0')",
-      "stopaj_orani": "stopaj kesinti yüzdesi (varsa 20, 10 gibi sadece sayı, yoksa '0')",
-      "aciklama": "varsa belge üzerindeki açıklama veya not"
+      "kdv_orani": "18",
+      "tevkifat_orani": "0",
+      "stopaj_orani": "0",
+      "aciklama": ""
     }
   ]
-}
-Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
+}`;
 
     try {
       const apiKey = import.meta.env.VITE_GEMINI_API_KEY || '';
@@ -234,7 +257,6 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
       });
 
       const data = await response.json();
-
       if (data.error) throw new Error(data.error.message || 'API Hatası');
 
       const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
@@ -258,12 +280,13 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
               malHizmetAdi: f.malHizmetAdi || 'Fiş Gideri',
               faturaTarihi: f.faturaTarihi || INITIAL_FORM.faturaTarihi,
               vadeTarihi: '',
-              toplamTutar: f.toplamTutar?.toString() || '',
+              toplamTutar: f.tutar?.toString() || '',
               kdvOrani: f.kdv_orani ? f.kdv_orani.toString() : '18',
               tevkifatOrani: f.tevkifat_orani?.toString() || '0',
               stopajOrani: f.stopaj_orani?.toString() || '0',
               aciklama: f.aciklama || '',
-              cariId: matchedCari ? matchedCari.id : undefined
+              cariId: matchedCari ? matchedCari.id : undefined,
+              depoId: varsayilanDepoId
             }
           };
         });
@@ -322,7 +345,6 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
         </SheetHeader>
 
         <div className="py-6 space-y-6">
-          {/* AI UPLOAD ZONE */}
           <div className="space-y-3">
             {!uploadedFile ? (
               <div
@@ -478,6 +500,59 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
                       </div>
                     </div>
 
+                    <div className="grid grid-cols-2 gap-4 mb-4">
+                      <div className="space-y-2">
+                        <Label className="text-xs font-medium text-blue-600 mb-1 flex items-center justify-between">
+                          Stok Kartı Bağla (Opsiyonel)
+                          <Button 
+                            type="button" 
+                            variant="link" 
+                            className="h-auto p-0 text-[10px] font-bold h-4" 
+                            onClick={() => setIsUrunFormOpen(true)}
+                          >
+                            + Yeni Stok Kartı
+                          </Button>
+                        </Label>
+                        <Select
+                          value={form.data.urunId || 'yok'}
+                          onValueChange={(val) => {
+                            const selectedUrun = urunler?.find(u => u.id === val);
+                            updateForm(form.id, 'urunId', val === 'yok' ? '' : val);
+                            if (selectedUrun) {
+                               updateForm(form.id, 'malHizmetAdi', selectedUrun.urunAdi);
+                            }
+                          }}
+                        >
+                          <SelectTrigger className="h-9 border-blue-100 bg-blue-50/20">
+                            <SelectValue placeholder="Stok seçiniz..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="yok">Bağlama Yapma</SelectItem>
+                            {urunler?.map(u => (
+                              <SelectItem key={u.id} value={u.id}>{u.urunAdi} ({u.stokKodu})</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      <div className="space-y-2">
+                         <Label className="text-xs font-medium text-slate-500">Hedef Depo</Label>
+                         <Select
+                          value={form.data.depoId || varsayilanDepoId}
+                          onValueChange={(val) => updateForm(form.id, 'depoId', val)}
+                        >
+                          <SelectTrigger className="h-9">
+                            <SelectValue placeholder="Depo seçiniz..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {depolar?.map(d => (
+                              <SelectItem key={d.id} value={d.id}>{d.ad}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+
                     <div className="space-y-2 mb-4">
                       <Label className="text-xs font-medium text-slate-500">Hizmet/Ürün Açıklaması<span className="text-red-500">*</span></Label>
                       <Input value={form.data.malHizmetAdi} onChange={(e) => updateForm(form.id, 'malHizmetAdi', e.target.value)} className={form.errors.malHizmetAdi ? 'border-red-500 h-9' : 'h-9'} />
@@ -532,7 +607,6 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
                       </div>
                     </div>
 
-                    {/* Sonuç Özeti Inline */}
                     {(hes.matrah > 0 || hes.kdvTutari > 0) && (
                       <div className="bg-slate-50 rounded p-3 text-xs flex flex-wrap gap-4 border items-center">
                         <div className="text-slate-500">Brüt Matrah: <strong className="text-slate-900">{formatCurrency(hes.matrah)}</strong></div>
@@ -562,6 +636,10 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
             </div>
           </form>
         </div>
+        <UrunForm 
+          isOpen={isUrunFormOpen} 
+          onClose={() => setIsUrunFormOpen(false)} 
+        />
       </SheetContent>
     </Sheet>
   );

@@ -866,10 +866,16 @@ app.put('/api/alis-faturalari/:id', authMiddleware, async (req, res) => {
 
 app.delete('/api/alis-faturalari/:id', authMiddleware, async (req, res) => {
   try {
-    await client.execute({
-      sql: 'DELETE FROM alis_faturalari WHERE id=? AND company_id = ?',
-      args: [req.params.id, req.user.companyId]
-    });
+    await client.batch([
+      {
+        sql: 'DELETE FROM stok_hareketler WHERE bagli_fatura_id = ? AND company_id = ?',
+        args: [req.params.id, req.user.companyId]
+      },
+      {
+        sql: 'DELETE FROM alis_faturalari WHERE id=? AND company_id = ?',
+        args: [req.params.id, req.user.companyId]
+      }
+    ], "write");
     res.json({ success: true });
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }
 });
