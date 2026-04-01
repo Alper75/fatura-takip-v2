@@ -21,6 +21,17 @@ import PersonelIzinlerim from './sections/PersonelIzinlerim';
 import PersonelMasraflarim from './sections/PersonelMasraflarim';
 import KisiselPuantaj from './sections/KisiselPuantaj';
 import { SuperAdminPanel } from './sections/SuperAdminPanel';
+import { StokPage } from './modules/stok/pages/StokPage';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 1000 * 60 * 5, // 5 minutes
+      retry: 1,
+    },
+  },
+});
 
 function AppContent() {
   const { isAuthenticated, currentView } = useApp();
@@ -69,6 +80,8 @@ function AppContent() {
             return <PersonelMasraflarim />;
           case 'kisisel-puantaj':
             return <KisiselPuantaj />;
+          case 'stok-yonetimi':
+            return <StokPage />;
           case 'super-admin':
             return <SuperAdminPanel />;
           default:
@@ -81,10 +94,12 @@ function AppContent() {
 
 function App() {
   return (
-    <AppProvider>
-      <AppContent />
-      <Toaster position="top-right" />
-    </AppProvider>
+    <QueryClientProvider client={queryClient}>
+      <AppProvider>
+        <AppContent />
+        <Toaster position="top-right" />
+      </AppProvider>
+    </QueryClientProvider>
   );
 }
 

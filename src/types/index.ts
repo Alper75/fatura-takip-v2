@@ -378,6 +378,7 @@ export type ViewType =
   | 'personel-izinlerim'
   | 'personel-masraflarim'
   | 'kisisel-puantaj'
+  | 'stok-yonetimi'
   | 'super-admin';
 
 // ==================== FATURA DURUMU ====================

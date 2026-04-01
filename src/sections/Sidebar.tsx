@@ -16,7 +16,8 @@ import {
   ChevronUp,
   Briefcase,
   ShieldCheck,
-  Building2
+  Building2,
+  Package
 } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
 import { cn } from '@/lib/utils';
@@ -132,6 +133,14 @@ export function Sidebar() {
       icon: FilePlus,
       onClick: () => setCurrentView('kesilecek-fatura-liste'),
       view: 'kesilecek-fatura-liste',
+      adminOnly: true
+    },
+    {
+      id: 'stok-yonetimi',
+      label: 'Stok Yönetimi',
+      icon: Package,
+      onClick: () => setCurrentView('stok-yonetimi'),
+      view: 'stok-yonetimi',
       adminOnly: true
     }
   ].filter(item => {
