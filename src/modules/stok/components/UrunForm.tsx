@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { useForm } from 'react-hook-form';
+import { useForm, type SubmitHandler, type Resolver } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import {
@@ -22,19 +22,19 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useKategoriler, useUrunMutations } from '../hooks/useStokQuery';
-import type { IUrun } from '../types/stok.types';
+import type { IUrun, IStokKategori } from '../types/stok.types';
 import { toast } from 'sonner';
 import { Loader2, RefreshCw } from 'lucide-react';
 
 const urunSchema = z.object({
   stokKodu: z.string().min(1, 'Stok kodu zorunludur'),
-  barkod: z.string().optional().default(''),
+  barkod: z.string().optional().or(z.literal('')),
   urunAdi: z.string().min(2, 'Ürün adı en az 2 karakter olmalıdır'),
-  kategoriId: z.string().optional().nullable(),
+  kategoriId: z.string().optional().nullable().or(z.literal('')),
   anaBirim: z.string().min(1, 'Birim seçiniz'),
   minimumStok: z.coerce.number().min(0, 'Minimum stok 0 veya daha fazla olmalıdır'),
   aktif: z.boolean().default(true),
-  aciklama: z.string().optional().default(''),
+  aciklama: z.string().optional().or(z.literal('')),
 });
 
 type UrunFormValues = z.infer<typeof urunSchema>;
@@ -50,7 +50,7 @@ export const UrunForm: React.FC<UrunFormProps> = ({ isOpen, onClose, editingUrun
   const { addUrun, updateUrun } = useUrunMutations();
 
   const form = useForm<UrunFormValues>({
-    resolver: zodResolver(urunSchema),
+    resolver: zodResolver(urunSchema) as Resolver<UrunFormValues>,
     defaultValues: {
       stokKodu: '',
       barkod: '',
@@ -67,12 +67,13 @@ export const UrunForm: React.FC<UrunFormProps> = ({ isOpen, onClose, editingUrun
     if (editingUrun) {
       form.reset({
         stokKodu: editingUrun.stokKodu,
-        barkod: editingUrun.barkod,
+        barkod: editingUrun.barkod || '',
         urunAdi: editingUrun.urunAdi,
-        kategoriId: editingUrun.kategoriId,
+        kategoriId: editingUrun.kategoriId || '',
         anaBirim: editingUrun.anaBirim,
         minimumStok: editingUrun.minimumStok,
         aktif: editingUrun.aktif,
+        aciklama: editingUrun.aciklama || '',
       });
     } else {
       // Yeni ürün için otomatik kod üret
@@ -82,7 +83,7 @@ export const UrunForm: React.FC<UrunFormProps> = ({ isOpen, onClose, editingUrun
         stokKodu: `STK-${year}-${randomId}`,
         barkod: '',
         urunAdi: '',
-        kategoriId: '1',
+        kategoriId: '',
         anaBirim: 'Adet',
         minimumStok: 0,
         aktif: true,
@@ -97,13 +98,13 @@ export const UrunForm: React.FC<UrunFormProps> = ({ isOpen, onClose, editingUrun
     form.setValue('barkod', randomBarcode);
   };
 
-  const onSubmit = async (values: UrunFormValues) => {
+  const onSubmit: SubmitHandler<UrunFormValues> = async (values) => {
     try {
       if (editingUrun) {
-        await updateUrun.mutateAsync({ id: editingUrun.id, data: values });
+        await updateUrun.mutateAsync({ id: editingUrun.id, data: values as any });
         toast.success('Ürün başarıyla güncellendi.');
       } else {
-        await addUrun.mutateAsync(values);
+        await addUrun.mutateAsync(values as any);
         toast.success('Yeni ürün başarıyla eklendi.');
       }
       onClose();
@@ -136,7 +137,7 @@ export const UrunForm: React.FC<UrunFormProps> = ({ isOpen, onClose, editingUrun
               <div className="flex gap-2">
                 <Input id="barkod" {...form.register('barkod')} placeholder="869..." />
                 <Button type="button" variant="outline" size="icon" onClick={generateBarcode} title="Barkod Üret">
-                  <RefreshCw className="h-4 w-4" />
+                   <RefreshCw className="h-4 w-4" />
                 </Button>
               </div>
             </div>
@@ -161,7 +162,7 @@ export const UrunForm: React.FC<UrunFormProps> = ({ isOpen, onClose, editingUrun
                   <SelectValue placeholder="Kategori seçin" />
                 </SelectTrigger>
                 <SelectContent>
-                  {kategoriler?.map((cat) => (
+                  {kategoriler?.map((cat: IStokKategori) => (
                     <SelectItem key={cat.id} value={cat.id}>
                       {cat.ad}
                     </SelectItem>

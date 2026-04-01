@@ -336,6 +336,104 @@ async function initDb() {
       );
     `);
 
+    /**
+     * INVENTORY (STOK) MODULE TABLES
+     */
+    
+    // Stok Kategoriler
+    await client.execute(`
+      CREATE TABLE IF NOT EXISTS stok_kategoriler (
+        id TEXT PRIMARY KEY,
+        ad TEXT NOT NULL,
+        company_id INTEGER DEFAULT 1
+      );
+    `);
+
+    // Stok Urunler
+    await client.execute(`
+      CREATE TABLE IF NOT EXISTS stok_urunler (
+        id TEXT PRIMARY KEY,
+        stok_kodu TEXT UNIQUE NOT NULL,
+        barkod TEXT,
+        urun_adi TEXT NOT NULL,
+        kategori_id TEXT,
+        ana_birim TEXT NOT NULL,
+        minimum_stok REAL DEFAULT 0,
+        maksimum_stok REAL,
+        lot_takibi BOOLEAN DEFAULT 0,
+        son_kullanma_tarihli BOOLEAN DEFAULT 0,
+        aktif BOOLEAN DEFAULT 1,
+        birim_fiyat REAL DEFAULT 0,
+        aciklama TEXT,
+        company_id INTEGER DEFAULT 1,
+        FOREIGN KEY (kategori_id) REFERENCES stok_kategoriler(id) ON DELETE SET NULL
+      );
+    `);
+
+    // Stok Depolar
+    await client.execute(`
+      CREATE TABLE IF NOT EXISTS stok_depolar (
+        id TEXT PRIMARY KEY,
+        kod TEXT UNIQUE NOT NULL,
+        ad TEXT NOT NULL,
+        varsayilan BOOLEAN DEFAULT 0,
+        aktif BOOLEAN DEFAULT 1,
+        adres TEXT,
+        company_id INTEGER DEFAULT 1
+      );
+    `);
+
+    // Stok Hareketler
+    await client.execute(`
+      CREATE TABLE IF NOT EXISTS stok_hareketler (
+        id TEXT PRIMARY KEY,
+        urun_id TEXT NOT NULL,
+        depo_id TEXT NOT NULL,
+        tip TEXT NOT NULL, -- GIRIS, CIKIS, TRANSFER_GIRIS, TRANSFER_CIKIS, SAYIM_GIRIS, SAYIM_CIKIS
+        miktar REAL NOT NULL,
+        birim_fiyat REAL DEFAULT 0,
+        tutar REAL DEFAULT 0,
+        tarih TEXT NOT NULL,
+        aciklama TEXT,
+        referans_no TEXT,
+        iptal BOOLEAN DEFAULT 0,
+        company_id INTEGER DEFAULT 1,
+        FOREIGN KEY (urun_id) REFERENCES stok_urunler(id) ON DELETE CASCADE,
+        FOREIGN KEY (depo_id) REFERENCES stok_depolar(id) ON DELETE CASCADE
+      );
+    `);
+
+    // Stok Sayimlar (Inventory Sessions)
+    await client.execute(`
+      CREATE TABLE IF NOT EXISTS stok_sayimlar (
+        id TEXT PRIMARY KEY,
+        depo_id TEXT NOT NULL,
+        tarih TEXT NOT NULL,
+        durum TEXT DEFAULT 'TASLAK', -- TASLAK, ONAYLANDI
+        aciklama TEXT,
+        onaylayan_kullanici TEXT,
+        company_id INTEGER DEFAULT 1,
+        FOREIGN KEY (depo_id) REFERENCES stok_depolar(id) ON DELETE CASCADE
+      );
+    `);
+
+    // Stok Sayim Kalemleri
+    await client.execute(`
+      CREATE TABLE IF NOT EXISTS stok_sayim_kalemler (
+        id TEXT PRIMARY KEY,
+        sayim_id TEXT NOT NULL,
+        urun_id TEXT NOT NULL,
+        sistem_miktari REAL DEFAULT 0,
+        sayim_miktari REAL DEFAULT 0,
+        company_id INTEGER DEFAULT 1,
+        FOREIGN KEY (sayim_id) REFERENCES stok_sayimlar(id) ON DELETE CASCADE,
+        FOREIGN KEY (urun_id) REFERENCES stok_urunler(id) ON DELETE CASCADE
+      );
+    `);
+
+    // Business rule: Ensure only 1 default warehouse per company
+    // This is handled in code but good to know
+
     // Companies Table
     await client.execute(`
       CREATE TABLE IF NOT EXISTS companies (

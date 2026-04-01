@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { 
   Card, 
   CardContent, 
@@ -6,7 +6,13 @@ import {
   CardTitle 
 } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Button } from '@/components/ui/button';
 import { UrunListesi } from '../components/UrunListesi';
+import { DepoYonetimi } from '../components/DepoYonetimi';
+import { HareketListesi } from '../components/HareketListesi';
+import { StokSayim } from '../components/StokSayim';
+import { StokRaporlar } from '../components/StokRaporlar';
+import { StokHareketForm } from '../components/StokHareketForm';
 import { 
   useUrunler, 
   useStokHareketler 
@@ -18,7 +24,10 @@ import {
   History, 
   BarChart3,
   Warehouse,
-  ClipboardList
+  ClipboardList,
+  ArrowDownLeft,
+  ArrowUpRight,
+  ArrowRightLeft
 } from 'lucide-react';
 
 /**
@@ -26,6 +35,10 @@ import {
  * Displays summary stats and a tabbed interface for Products, Warehouses, Movements, etc.
  */
 export const StokPage: React.FC = () => {
+  const [activeTab, setActiveTab] = useState('products');
+  const [isHareketFormOpen, setIsHareketFormOpen] = useState(false);
+  const [hareketType, setHareketType] = useState<'GIRIS' | 'CIKIS' | 'TRANSFER'>('GIRIS');
+
   const { data: urunler } = useUrunler();
   const { data: hareketler } = useStokHareketler();
 
@@ -33,14 +46,17 @@ export const StokPage: React.FC = () => {
   const stats = useMemo(() => {
     if (!urunler || !hareketler) return { totalItems: 0, criticalItems: 0, totalStock: 0 };
     
-    let totalItems = urunler.length;
+    const totalItems = urunler.length;
     let criticalItems = 0;
     let totalStock = 0;
 
     urunler.forEach(u => {
       const miktar = hareketler
-        .filter(h => h.urunId === u.id)
-        .reduce((total, h) => h.tip === 'GIRIS' ? total + h.miktar : total - h.miktar, 0);
+        .filter(h => !h.iptal && h.urunId === u.id)
+        .reduce((total, h) => {
+          const isGiris = h.tip === 'GIRIS' || h.tip === 'TRANSFER_GIRIS';
+          return isGiris ? total + h.miktar : total - h.miktar;
+        }, 0);
       
       totalStock += miktar;
       if (miktar <= u.minimumStok) {
@@ -51,12 +67,34 @@ export const StokPage: React.FC = () => {
     return { totalItems, criticalItems, totalStock };
   }, [urunler, hareketler]);
 
+  const openHareket = (type: 'GIRIS' | 'CIKIS' | 'TRANSFER') => {
+    setHareketType(type);
+    setIsHareketFormOpen(true);
+  };
+
   return (
     <div className="p-6 space-y-8 animate-in fade-in duration-500">
       {/* Header Area */}
-      <div className="flex flex-col gap-1">
-        <h1 className="text-3xl font-extrabold tracking-tight text-slate-800">Stok Yönetimi</h1>
-        <p className="text-muted-foreground font-medium">Ürünlerinizi, depolarınızı ve stok hareketlerinizi tek bir yerden yönetin.</p>
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="flex flex-col gap-1">
+          <h1 className="text-3xl font-extrabold tracking-tight text-slate-800">Stok Yönetimi</h1>
+          <p className="text-muted-foreground font-medium">Ürünlerinizi, depolarınızı ve stok hareketlerinizi tek bir yerden yönetin.</p>
+        </div>
+        
+        <div className="flex items-center gap-2">
+           <Button 
+            onClick={() => openHareket('GIRIS')} 
+            className="bg-emerald-600 hover:bg-emerald-700 rounded-xl font-bold shadow-lg shadow-emerald-100"
+          >
+             <ArrowDownLeft className="w-4 h-4 mr-2" /> Hızlı Giriş
+           </Button>
+           <Button 
+            onClick={() => openHareket('CIKIS')} 
+            className="bg-red-600 hover:bg-red-700 rounded-xl font-bold shadow-lg shadow-red-100"
+          >
+             <ArrowUpRight className="w-4 h-4 mr-2" /> Hızlı Çıkış
+           </Button>
+        </div>
       </div>
 
       {/* Stats Cards */}
@@ -94,7 +132,7 @@ export const StokPage: React.FC = () => {
             <BarChart3 className="h-5 w-5 text-emerald-500" />
           </CardHeader>
           <CardContent>
-            <div className="text-3xl font-black text-slate-800">{stats.totalStock}</div>
+            <div className="text-3xl font-black text-slate-800">{stats.totalStock.toLocaleString('tr-TR')}</div>
             <p className="text-xs text-emerald-600 mt-1 font-medium flex items-center">
                Tüm depolardaki fiziksel toplam
             </p>
@@ -103,35 +141,70 @@ export const StokPage: React.FC = () => {
       </div>
 
       {/* Main Tabs Container */}
-      <Tabs defaultValue="products" className="w-full space-y-6">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full space-y-6">
         <TabsList className="bg-slate-100/80 p-1 rounded-2xl border border-slate-200/50">
           <TabsTrigger value="products" className="rounded-xl px-6 py-2.5 font-bold data-[state=active]:bg-white data-[state=active]:shadow-sm">
             <Package className="w-4 h-4 mr-2" />
             Ürünler
           </TabsTrigger>
-          <TabsTrigger value="warehouses" className="rounded-xl px-6 py-2.5 font-bold data-[state=active]:bg-white data-[state=active]:shadow-sm opacity-50 cursor-not-allowed">
+          <TabsTrigger value="warehouses" className="rounded-xl px-6 py-2.5 font-bold data-[state=active]:bg-white data-[state=active]:shadow-sm">
             <Warehouse className="w-4 h-4 mr-2" />
             Depolar
           </TabsTrigger>
-          <TabsTrigger value="movements" className="rounded-xl px-6 py-2.5 font-bold data-[state=active]:bg-white data-[state=active]:shadow-sm opacity-50 cursor-not-allowed">
+          <TabsTrigger value="movements" className="rounded-xl px-6 py-2.5 font-bold data-[state=active]:bg-white data-[state=active]:shadow-sm">
             <History className="w-4 h-4 mr-2" />
             Hareketler
           </TabsTrigger>
-          <TabsTrigger value="audit" className="rounded-xl px-6 py-2.5 font-bold data-[state=active]:bg-white data-[state=active]:shadow-sm opacity-50 cursor-not-allowed">
+          <TabsTrigger value="audit" className="rounded-xl px-6 py-2.5 font-bold data-[state=active]:bg-white data-[state=active]:shadow-sm">
             <ClipboardList className="w-4 h-4 mr-2" />
             Sayım
           </TabsTrigger>
+          <TabsTrigger value="reports" className="rounded-xl px-6 py-2.5 font-bold data-[state=active]:bg-white data-[state=active]:shadow-sm text-indigo-700">
+            <BarChart3 className="w-4 h-4 mr-2" />
+            Raporlar
+          </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="products" className="mt-0 ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">
+        <TabsContent value="products" className="mt-0 outline-none">
           <UrunListesi />
         </TabsContent>
 
-        {/* Other tabs are placeholders for now */}
-        <TabsContent value="warehouses" className="h-64 border-2 border-dashed border-slate-100 rounded-3xl flex items-center justify-center text-slate-300 font-bold">
-           Depo yönetimi yakında...
+        <TabsContent value="warehouses" className="mt-0 outline-none">
+          <DepoYonetimi />
+        </TabsContent>
+
+        <TabsContent value="movements" className="mt-0 outline-none">
+          <div className="space-y-4">
+            <div className="flex justify-end gap-2 px-1">
+               <Button onClick={() => openHareket('GIRIS')} variant="outline" className="rounded-xl font-bold border-emerald-200 text-emerald-700 hover:bg-emerald-50">
+                 <ArrowDownLeft className="w-4 h-4 mr-2" /> Stok Girişi
+               </Button>
+               <Button onClick={() => openHareket('CIKIS')} variant="outline" className="rounded-xl font-bold border-red-200 text-red-700 hover:bg-red-50">
+                 <ArrowUpRight className="w-4 h-4 mr-2" /> Stok Çıkışı
+               </Button>
+               <Button onClick={() => openHareket('TRANSFER')} variant="outline" className="rounded-xl font-bold border-blue-200 text-blue-700 hover:bg-blue-50">
+                 <ArrowRightLeft className="w-4 h-4 mr-2" /> Depo Transferi
+               </Button>
+            </div>
+            <HareketListesi />
+          </div>
+        </TabsContent>
+
+        <TabsContent value="audit" className="mt-0 outline-none">
+           <StokSayim />
+        </TabsContent>
+
+        <TabsContent value="reports" className="mt-0 outline-none">
+           <StokRaporlar />
         </TabsContent>
       </Tabs>
+
+      {/* Movement Modal */}
+      <StokHareketForm
+        isOpen={isHareketFormOpen}
+        onClose={() => setIsHareketFormOpen(false)}
+        initialType={hareketType}
+      />
     </div>
   );
 };

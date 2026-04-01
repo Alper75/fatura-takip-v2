@@ -1183,6 +1183,397 @@ app.post('/api/gib/create-draft', async (req, res) => {
   }
 });
 
+// --- STOK (INVENTORY) MODULE ROUTES ---
+
+// Helper for UUID generation if ID is missing
+const ensureId = (id) => id || uuidv4();
+
+// Categories
+app.get('/api/stok/kategoriler', authMiddleware, async (req, res) => {
+  try {
+    const rs = await client.execute({
+      sql: 'SELECT * FROM stok_kategoriler WHERE company_id = ? ORDER BY ad ASC',
+      args: [req.user.companyId]
+    });
+    res.json({ success: true, data: rs.rows });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+});
+
+app.post('/api/stok/kategoriler', authMiddleware, async (req, res) => {
+  const { id, ad } = req.body;
+  try {
+    await client.execute({
+      sql: 'INSERT INTO stok_kategoriler (id, ad, company_id) VALUES (?, ?, ?)',
+      args: [ensureId(id), ad, req.user.companyId]
+    });
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+});
+
+app.delete('/api/stok/kategoriler/:id', authMiddleware, async (req, res) => {
+  try {
+    await client.execute({
+      sql: 'DELETE FROM stok_kategoriler WHERE id = ? AND company_id = ?',
+      args: [req.params.id, req.user.companyId]
+    });
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+});
+
+// Products
+app.get('/api/stok/urunler', authMiddleware, async (req, res) => {
+  try {
+    const rs = await client.execute({
+      sql: 'SELECT * FROM stok_urunler WHERE company_id = ? ORDER BY urun_adi ASC',
+      args: [req.user.companyId]
+    });
+    res.json({ success: true, data: rs.rows });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+});
+
+app.post('/api/stok/urunler', authMiddleware, async (req, res) => {
+  const u = req.body;
+  try {
+    await client.execute({
+      sql: `INSERT INTO stok_urunler (
+        id, stok_kodu, barkod, urun_adi, kategori_id, ana_birim, 
+        minimum_stok, maksimum_stok, lot_takibi, son_kullanma_tarihli, 
+        aktif, birim_fiyat, aciklama, company_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [
+        ensureId(u.id), u.stokKodu, u.barkod || null, u.urunAdi, u.kategoriId || null, u.anaBirim,
+        u.minimumStok || 0, u.maksimumStok || null, u.lotTakibi ? 1 : 0, u.sonKullanma_tarihli ? 1 : 0,
+        u.aktif !== false ? 1 : 0, u.birimFiyat || 0, u.aciklama || null, req.user.companyId
+      ]
+    });
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+});
+
+app.put('/api/stok/urunler/:id', authMiddleware, async (req, res) => {
+  const u = req.body;
+  try {
+    await client.execute({
+      sql: `UPDATE stok_urunler SET 
+        stok_kodu = ?, barkod = ?, urun_adi = ?, kategori_id = ?, ana_birim = ?, 
+        minimum_stok = ?, maksimum_stok = ?, lot_takibi = ?, son_kullanma_tarihli = ?, 
+        aktif = ?, birim_fiyat = ?, aciklama = ?
+        WHERE id = ? AND company_id = ?`,
+      args: [
+        u.stokKodu, u.barkod || null, u.urunAdi, u.kategoriId || null, u.anaBirim,
+        u.minimumStok || 0, u.maksimumStok || null, u.lotTakibi ? 1 : 0, u.sonKullanma_tarihli ? 1 : 0,
+        u.aktif !== false ? 1 : 0, u.birimFiyat || 0, u.aciklama || null,
+        req.params.id, req.user.companyId
+      ]
+    });
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+});
+
+app.delete('/api/stok/urunler/:id', authMiddleware, async (req, res) => {
+  try {
+    await client.execute({
+      sql: 'DELETE FROM stok_urunler WHERE id = ? AND company_id = ?',
+      args: [req.params.id, req.user.companyId]
+    });
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+});
+
+// Warehouses
+app.get('/api/stok/depolar', authMiddleware, async (req, res) => {
+  try {
+    const rs = await client.execute({
+      sql: 'SELECT * FROM stok_depolar WHERE company_id = ? ORDER BY kod ASC',
+      args: [req.user.companyId]
+    });
+    res.json({ success: true, data: rs.rows });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+});
+
+app.post('/api/stok/depolar', authMiddleware, async (req, res) => {
+  const d = req.body;
+  try {
+    if (d.varsayilan) {
+      await client.execute({
+        sql: 'UPDATE stok_depolar SET varsayilan = 0 WHERE company_id = ?',
+        args: [req.user.companyId]
+      });
+    }
+    await client.execute({
+      sql: 'INSERT INTO stok_depolar (id, kod, ad, varsayilan, aktif, adres, company_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      args: [ensureId(d.id), d.kod, d.ad, d.varsayilan ? 1 : 0, d.aktif !== false ? 1 : 0, d.adres || null, req.user.companyId]
+    });
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+});
+
+app.put('/api/stok/depolar/:id', authMiddleware, async (req, res) => {
+  const d = req.body;
+  try {
+    if (d.varsayilan) {
+      await client.execute({
+        sql: 'UPDATE stok_depolar SET varsayilan = 0 WHERE company_id = ?',
+        args: [req.user.companyId]
+      });
+    }
+    await client.execute({
+      sql: 'UPDATE stok_depolar SET kod = ?, ad = ?, varsayilan = ?, aktif = ?, adres = ? WHERE id = ? AND company_id = ?',
+      args: [d.kod, d.ad, d.varsayilan ? 1 : 0, d.aktif !== false ? 1 : 0, d.adres || null, req.params.id, req.user.companyId]
+    });
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+});
+
+app.delete('/api/stok/depolar/:id', authMiddleware, async (req, res) => {
+  try {
+    await client.execute({
+      sql: 'DELETE FROM stok_depolar WHERE id = ? AND company_id = ?',
+      args: [req.params.id, req.user.companyId]
+    });
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+});
+
+// Movements
+app.get('/api/stok/hareketler', authMiddleware, async (req, res) => {
+  try {
+    const rs = await client.execute({
+      sql: 'SELECT * FROM stok_hareketler WHERE company_id = ? ORDER BY tarih DESC',
+      args: [req.user.companyId]
+    });
+    res.json({ success: true, data: rs.rows });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+});
+
+app.post('/api/stok/hareketler', authMiddleware, async (req, res) => {
+  const h = req.body;
+  try {
+    if (h.tip === 'TRANSFER') {
+      const transId1 = uuidv4();
+      const transId2 = uuidv4();
+      const refNo = h.referansNo || `TRA-${Date.now().toString().slice(-6)}`;
+      
+      await client.batch([
+        {
+          sql: `INSERT INTO stok_hareketler (id, urun_id, depo_id, tip, miktar, birim_fiyat, tutar, tarih, aciklama, referans_no, company_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          args: [transId1, h.urunId, h.depoId, 'TRANSFER_CIKIS', h.miktar, h.birimFiyat || 0, h.tutar || 0, h.tarih, h.aciklama, refNo, req.user.companyId]
+        },
+        {
+          sql: `INSERT INTO stok_hareketler (id, urun_id, depo_id, tip, miktar, birim_fiyat, tutar, tarih, aciklama, referans_no, company_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          args: [transId2, h.urunId, h.hedefDepoId, 'TRANSFER_GIRIS', h.miktar, h.birimFiyat || 0, h.tutar || 0, h.tarih, h.aciklama, refNo, req.user.companyId]
+        }
+      ], "write");
+    } else {
+      await client.execute({
+        sql: `INSERT INTO stok_hareketler (id, urun_id, depo_id, tip, miktar, birim_fiyat, tutar, tarih, aciklama, referans_no, company_id)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: [ensureId(h.id), h.urunId, h.depoId, h.tip, h.miktar, h.birimFiyat || 0, h.tutar || 0, h.tarih, h.aciklama, h.referansNo, req.user.companyId]
+      });
+    }
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+});
+
+// Inventory Sessions (Sayım)
+app.get('/api/stok/sayimlar', authMiddleware, async (req, res) => {
+  try {
+    const rs = await client.execute({
+      sql: 'SELECT * FROM stok_sayimlar WHERE company_id = ? ORDER BY tarih DESC',
+      args: [req.user.companyId]
+    });
+    res.json({ success: true, data: rs.rows });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+});
+
+app.get('/api/stok/sayimlar/:id', authMiddleware, async (req, res) => {
+  try {
+    const sayimRs = await client.execute({
+      sql: 'SELECT * FROM stok_sayimlar WHERE id = ? AND company_id = ?',
+      args: [req.params.id, req.user.companyId]
+    });
+    const kalemlerRs = await client.execute({
+      sql: 'SELECT * FROM stok_sayim_kalemler WHERE sayim_id = ? AND company_id = ?',
+      args: [req.params.id, req.user.companyId]
+    });
+    res.json({ success: true, sayim: sayimRs.rows[0], kalemler: kalemlerRs.rows });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+});
+
+app.post('/api/stok/sayimlar/baslat', authMiddleware, async (req, res) => {
+  const { depoId } = req.body;
+  try {
+    const sayimId = uuidv4();
+    const now = new Date().toISOString();
+    
+    // 1. Create session
+    await client.execute({
+      sql: 'INSERT INTO stok_sayimlar (id, depo_id, tarih, durum, company_id) VALUES (?, ?, ?, ?, ?)',
+      args: [sayimId, depoId, now, 'TASLAK', req.user.companyId]
+    });
+
+    // 2. Capture snapshot of all active products
+    const urunlerRs = await client.execute({
+      sql: 'SELECT id FROM stok_urunler WHERE aktif = 1 AND company_id = ?',
+      args: [req.user.companyId]
+    });
+
+    const batch = urunlerRs.rows.map(u => {
+      // For each product, calculate current stock in this warehouse
+      return {
+        sql: `INSERT INTO stok_sayim_kalemler (id, sayim_id, urun_id, sistem_miktari, sayim_miktari, company_id)
+              SELECT ?, ?, ?, 
+              COALESCE((SELECT SUM(CASE WHEN tip IN ('GIRIS', 'TRANSFER_GIRIS', 'SAYIM_GIRIS') THEN miktar ELSE -miktar END) 
+               FROM stok_hareketler WHERE urun_id = ? AND depo_id = ? AND iptal = 0 AND company_id = ?), 0),
+              COALESCE((SELECT SUM(CASE WHEN tip IN ('GIRIS', 'TRANSFER_GIRIS', 'SAYIM_GIRIS') THEN miktar ELSE -miktar END) 
+               FROM stok_hareketler WHERE urun_id = ? AND depo_id = ? AND iptal = 0 AND company_id = ?), 0),
+              ?`,
+        args: [uuidv4(), sayimId, u.id, u.id, depoId, req.user.companyId, u.id, depoId, req.user.companyId, req.user.companyId]
+      };
+    });
+
+    if (batch.length > 0) {
+      await client.batch(batch, "write");
+    }
+
+    res.json({ success: true, id: sayimId });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+});
+
+app.post('/api/stok/sayimlar/kalem-kaydet', authMiddleware, async (req, res) => {
+  const { kalemId, sayimMiktari } = req.body;
+  try {
+    await client.execute({
+      sql: 'UPDATE stok_sayim_kalemler SET sayim_miktari = ? WHERE id = ? AND company_id = ?',
+      args: [sayimMiktari, kalemId, req.user.companyId]
+    });
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+});
+
+app.post('/api/stok/sayimlar/onayla', authMiddleware, async (req, res) => {
+  const { id, kullanici } = req.body;
+  try {
+    const sayimRs = await client.execute({
+      sql: 'SELECT * FROM stok_sayimlar WHERE id = ? AND company_id = ?',
+      args: [id, req.user.companyId]
+    });
+    const sayim = sayimRs.rows[0];
+    if (sayim.durum !== 'TASLAK') return res.status(400).json({ success: false, message: 'Bu sayım zaten onaylanmış.' });
+
+    const kalemlerRs = await client.execute({
+      sql: 'SELECT * FROM stok_sayim_kalemler WHERE sayim_id = ? AND company_id = ?',
+      args: [id, req.user.companyId]
+    });
+
+    const movements = [];
+    const now = new Date().toISOString();
+    const refNo = `SAYIM-${Date.now().toString().slice(-6)}`;
+
+    for (const k of kalemlerRs.rows) {
+      const diff = k.sayim_miktari - k.sistem_miktari;
+      if (diff !== 0) {
+        movements.push({
+          sql: `INSERT INTO stok_hareketler (id, urun_id, depo_id, tip, miktar, tarih, aciklama, referans_no, company_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          args: [uuidv4(), k.urun_id, sayim.depo_id, diff > 0 ? 'SAYIM_GIRIS' : 'SAYIM_CIKIS', Math.abs(diff), now, 'SAYIM SONUCU DÜZELTME', refNo, req.user.companyId]
+        });
+      }
+    }
+
+    movements.push({
+      sql: 'UPDATE stok_sayimlar SET durum = ?, onaylayan_kullanici = ? WHERE id = ? AND company_id = ?',
+      args: ['ONAYLANDI', kullanici || 'Admin', id, req.user.companyId]
+    });
+
+    await client.batch(movements, "write");
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+});
+
+// Analytics
+app.get('/api/stok/analiz', authMiddleware, async (req, res) => {
+  try {
+    const compId = req.user.companyId;
+
+    // 1. Get all products and categories
+    const urunlerRs = await client.execute({
+      sql: 'SELECT * FROM stok_urunler WHERE aktif = 1 AND company_id = ?',
+      args: [compId]
+    });
+    const kategorilerRs = await client.execute({
+      sql: 'SELECT * FROM stok_kategoriler WHERE company_id = ?',
+      args: [compId]
+    });
+    const hareketlerRs = await client.execute({
+      sql: "SELECT * FROM stok_hareketler WHERE iptal = 0 AND company_id = ?",
+      args: [compId]
+    });
+
+    const urunler = urunlerRs.rows;
+    const kategoriler = kategorilerRs.rows;
+    const hareketler = hareketlerRs.rows;
+
+    // 2. Calculation logic (similar to mock but on DB data)
+    const productStocks = urunler.map(u => {
+      const uMoves = hareketler.filter(h => h.urun_id === u.id);
+      const totalAmount = uMoves.reduce((total, h) => {
+        const isGiris = ['GIRIS', 'TRANSFER_GIRIS', 'SAYIM_GIRIS'].includes(h.tip);
+        return isGiris ? total + h.miktar : total - h.miktar;
+      }, 0);
+
+      const lastPurchase = uMoves.filter(h => h.tip === 'GIRIS').pop();
+      const unitVal = lastPurchase?.birim_fiyat || u.birim_fiyat || 0;
+      const totalVal = totalAmount * unitVal;
+
+      return {
+        id: u.id,
+        urunAdi: u.urun_adi,
+        stokKodu: u.stok_kodu,
+        kategoriId: u.kategori_id,
+        miktar: totalAmount,
+        deger: totalVal,
+        moveCount: uMoves.length,
+        minStok: u.minimum_stok
+      };
+    });
+
+    const totalValuation = productStocks.reduce((sum, p) => sum + p.deger, 0);
+
+    const categoryDist = kategoriler.map(cat => {
+      const catVal = productStocks.filter(p => p.kategoriId === cat.id).reduce((sum, p) => sum + p.deger, 0);
+      return {
+        id: cat.id,
+        ad: cat.ad,
+        deger: catVal,
+        yuzde: totalValuation > 0 ? (catVal / totalValuation) * 100 : 0
+      };
+    });
+
+    const topMovers = [...productStocks]
+      .sort((a, b) => b.moveCount - a.moveCount)
+      .slice(0, 5)
+      .map(p => ({
+        urunAdi: p.urunAdi,
+        stokKodu: p.stokKodu,
+        moveCount: p.moveCount,
+        miktar: p.miktar
+      }));
+
+    res.json({
+      success: true,
+      data: {
+        totalValuation,
+        categoryDist,
+        topMovers,
+        criticalCount: productStocks.filter(p => p.miktar <= p.minStok).length
+      }
+    });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+});
+
 // Manual Database Initialization Route (For Migrations)
 app.get('/api/admin/db-init', authMiddleware, adminMiddleware, async (req, res) => {
   try {

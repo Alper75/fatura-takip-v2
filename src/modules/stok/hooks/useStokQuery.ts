@@ -1,107 +1,159 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { mockStokApi } from '../services/mockStokApi';
-import type { IUrun } from '../types/stok.types';
+import { stokApi } from '../services/stokApi';
+import type { IUrun, IDepo } from '../types/stok.types';
 
-/**
- * Key identifiers for stock queries.
- */
 export const STOK_KEYS = {
-  urunler: ['stok', 'urunler'] as const,
-  kategoriler: ['stok', 'kategoriler'] as const,
-  depolar: ['stok', 'depolar'] as const,
-  hareketler: ['stok', 'hareketler'] as const,
-  stokMevcut: (urunId: string, depoId?: string) => ['stok', 'mevcut', urunId, depoId] as const,
-  search: (query: string) => ['stok', 'search', query] as const,
+  all: ['stok'] as const,
+  urunler: () => [...STOK_KEYS.all, 'urunler'] as const,
+  depolar: () => [...STOK_KEYS.all, 'depolar'] as const,
+  hareketler: () => [...STOK_KEYS.all, 'hareketler'] as const,
+  kategoriler: () => [...STOK_KEYS.all, 'kategoriler'] as const,
 };
 
-/**
- * Hook to fetch all products.
- */
+// --- Products Hooks ---
 export function useUrunler() {
   return useQuery({
-    queryKey: STOK_KEYS.urunler,
-    queryFn: () => mockStokApi.getUrunler(),
+    queryKey: STOK_KEYS.urunler(),
+    queryFn: () => stokApi.getUrunler(),
   });
 }
 
-/**
- * Hook to fetch all categories.
- */
-export function useKategoriler() {
-  return useQuery({
-    queryKey: STOK_KEYS.kategoriler,
-    queryFn: () => mockStokApi.getKategoriler(),
-  });
-}
-
-/**
- * Hook to fetch all warehouses.
- */
-export function useDepolar() {
-  return useQuery({
-    queryKey: STOK_KEYS.depolar,
-    queryFn: () => mockStokApi.getDepolar(),
-  });
-}
-
-/**
- * Hook to fetch all stock movements.
- */
-export function useStokHareketler() {
-  return useQuery({
-    queryKey: STOK_KEYS.hareketler,
-    queryFn: () => mockStokApi.getStokHareketler(),
-  });
-}
-
-/**
- * Hook to fetch current stock status for a product.
- */
-export function useStokMevcut(urunId: string, depoId?: string) {
-  return useQuery({
-    queryKey: STOK_KEYS.stokMevcut(urunId, depoId),
-    queryFn: () => mockStokApi.getStokMevcut(urunId, depoId),
-    enabled: !!urunId, // Only fetch if urunId exists
-  });
-}
-
-/**
- * Hook to search for products.
- */
-export function useSearchUrunler(query: string) {
-  return useQuery({
-    queryKey: STOK_KEYS.search(query),
-    queryFn: () => mockStokApi.searchUrunler(query),
-    enabled: query.length >= 2, // Only search if query is 2+ chars
-  });
-}
-
-/**
- * Hook for product mutations (Add/Update/Delete).
- */
+// Bulk mutations for products (Expected by UrunForm/UrunListesi)
 export function useUrunMutations() {
   const queryClient = useQueryClient();
 
   const addUrun = useMutation({
-    mutationFn: (data: Omit<IUrun, 'id'>) => mockStokApi.addUrun(data),
+    mutationFn: (u: Partial<IUrun>) => stokApi.addUrun(u),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: STOK_KEYS.urunler });
+      queryClient.invalidateQueries({ queryKey: STOK_KEYS.urunler() });
     },
   });
 
   const updateUrun = useMutation({
-    mutationFn: ({ id, data }: { id: string; data: Partial<IUrun> }) => mockStokApi.updateUrun(id, data),
+    mutationFn: ({ id, data }: { id: string; data: Partial<IUrun> }) => 
+      stokApi.updateUrun(id, data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: STOK_KEYS.urunler });
+      queryClient.invalidateQueries({ queryKey: STOK_KEYS.urunler() });
     },
   });
 
   const deleteUrun = useMutation({
-    mutationFn: (id: string) => mockStokApi.deleteUrun(id),
+    mutationFn: (id: string) => stokApi.deleteUrun(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: STOK_KEYS.urunler });
+      queryClient.invalidateQueries({ queryKey: STOK_KEYS.urunler() });
     },
   });
 
   return { addUrun, updateUrun, deleteUrun };
+}
+
+// Low-level individual mutations (for more control)
+export function useAddUrun() {
+  return useUrunMutations().addUrun;
+}
+
+export function useUpdateUrun() {
+  return useUrunMutations().updateUrun;
+}
+
+export function useDeleteUrun() {
+  return useUrunMutations().deleteUrun;
+}
+
+// --- Warehouses Hooks ---
+export function useDepolar() {
+  return useQuery({
+    queryKey: STOK_KEYS.depolar(),
+    queryFn: () => stokApi.getDepolar(),
+  });
+}
+
+export function useDepoMutations() {
+  const queryClient = useQueryClient();
+
+  const addDepo = useMutation({
+    mutationFn: (d: Partial<IDepo>) => stokApi.addDepo(d),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: STOK_KEYS.depolar() });
+    },
+  });
+
+  const updateDepo = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: Partial<IDepo> }) => 
+      stokApi.updateDepo(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: STOK_KEYS.depolar() });
+    },
+  });
+
+  const deleteDepo = useMutation({
+    mutationFn: (id: string) => stokApi.deleteDepo(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: STOK_KEYS.depolar() });
+    },
+  });
+
+  return { addDepo, updateDepo, deleteDepo };
+}
+
+export function useAddDepo() {
+  return useDepoMutations().addDepo;
+}
+
+export function useUpdateDepo() {
+  return useDepoMutations().updateDepo;
+}
+
+export function useDeleteDepo() {
+  return useDepoMutations().deleteDepo;
+}
+
+// --- Movements Hooks ---
+export function useStokHareketler() {
+  return useQuery({
+    queryKey: STOK_KEYS.hareketler(),
+    queryFn: () => stokApi.getHareketler(),
+  });
+}
+
+export function useAddStokHareket() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (h: any) => stokApi.addHareket(h),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: STOK_KEYS.hareketler() });
+      queryClient.invalidateQueries({ queryKey: STOK_KEYS.urunler() });
+    },
+  });
+}
+
+// --- Category Hooks ---
+export function useStokKategoriler() {
+  return useQuery({
+    queryKey: STOK_KEYS.kategoriler(),
+    queryFn: () => stokApi.getCategoriler(),
+  });
+}
+
+// Alias for compatibility
+export const useKategoriler = useStokKategoriler;
+
+export function useAddStokKategori() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (ad: string) => stokApi.addKategori(ad),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: STOK_KEYS.kategoriler() });
+    },
+  });
+}
+
+export function useDeleteStokKategori() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => stokApi.deleteKategori(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: STOK_KEYS.kategoriler() });
+    },
+  });
 }

@@ -19,7 +19,7 @@ import {
 import { Checkbox } from '@/components/ui/checkbox';
 import { 
   useUrunler, 
-  useKategoriler, 
+  useStokKategoriler as useKategoriler, 
   useDepolar, 
   useStokHareketler,
   useUrunMutations 
@@ -45,7 +45,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import type { IUrun } from '../types/stok.types';
+import type { IUrun, IStokKategori } from '../types/stok.types';
 
 export const UrunListesi: React.FC = () => {
   // State for filtering and sorting
@@ -195,7 +195,7 @@ export const UrunListesi: React.FC = () => {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Tüm Kategoriler</SelectItem>
-              {kategoriler?.map(cat => (
+              {kategoriler?.map((cat: IStokKategori) => (
                 <SelectItem key={cat.id} value={cat.id}>{cat.ad}</SelectItem>
               ))}
             </SelectContent>
@@ -281,7 +281,7 @@ export const UrunListesi: React.FC = () => {
                     </TableCell>
                     <TableCell className="hidden lg:table-cell">
                       <span className="text-xs px-2 py-1 bg-slate-100 rounded-md text-slate-600">
-                        {kategoriler?.find(c => c.id === urun.kategoriId)?.ad || 'Belirtilmemiş'}
+                        {kategoriler?.find((c: IStokKategori) => c.id === urun.kategoriId)?.ad || 'Belirtilmemiş'}
                       </span>
                     </TableCell>
                     <TableCell>
