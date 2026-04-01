@@ -181,7 +181,8 @@ export function AlisFaturaDrawer() {
               miktar: 1, 
               birimFiyat: hes.matrah,
               tutar: hes.matrah,
-              referans: `Alış Faturası: ${f.data.faturaNo}`,
+              tarih: f.data.faturaTarihi,
+              referansNo: `Alış Faturası: ${f.data.faturaNo}`,
               aciklama: `${f.data.tedarikciAdi} firmasından alım.`,
               bagliFaturaId: invoiceId
             });

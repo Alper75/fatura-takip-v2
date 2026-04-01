@@ -1381,9 +1381,9 @@ app.post('/api/stok/hareketler', authMiddleware, async (req, res) => {
       ], "write");
     } else {
       await client.execute({
-        sql: `INSERT INTO stok_hareketler (id, urun_id, depo_id, tip, miktar, birim_fiyat, tutar, tarih, aciklama, referans_no, company_id)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        args: [ensureId(h.id), h.urunId, h.depoId, h.tip, h.miktar, h.birimFiyat || 0, h.tutar || 0, h.tarih, h.aciklama, h.referansNo, req.user.companyId]
+        sql: `INSERT INTO stok_hareketler (id, urun_id, depo_id, tip, miktar, birim_fiyat, tutar, tarih, aciklama, referans_no, bagli_fatura_id, company_id)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: [ensureId(h.id), h.urunId, h.depoId, h.tip, h.miktar, h.birimFiyat || 0, h.tutar || 0, h.tarih, h.aciklama, h.referansNo, h.bagliFaturaId || null, req.user.companyId]
       });
     }
     res.json({ success: true });
