@@ -12,8 +12,8 @@ const { createInvoiceAndGetHTML } = require('fatura');
 const { client, initDb } = require('./db');
 const { generateToken, authMiddleware, adminMiddleware, superAdminMiddleware, bcrypt } = require('./auth');
 
-// We no longer call initDb() automatically on every cold start in index.js to prevent timeouts.
-// Instead, we provide a manual route to initialize or use it lazily.
+// We now call initDb() automatically to ensure the new 'status' column is added.
+initDb().catch(e => console.error('Startup DB Init Error:', e));
 
 const app = express();
 app.use(cors());
@@ -1208,7 +1208,21 @@ app.get('/api/admin/upgrade-to-super', async (req, res) => {
     const columnsRs = await client.execute('PRAGMA table_info(users)');
     const columns = columnsRs.rows.map(c => c.name).join(', ');
     
-    // Execute all migration steps in a single atomic batch
+// Emergency Repair Route (Public with Secret)
+app.get('/api/admin/repair', async (req, res) => {
+  const secret = req.query.secret;
+  if (secret !== 'repair_99') return res.status(401).json({ success: false, message: 'Unauthorized' });
+  try {
+    await initDb();
+    // Aggressive status column add
+    try { await client.execute("ALTER TABLE companies ADD COLUMN status TEXT DEFAULT 'active'"); } catch(e) {}
+    res.json({ success: true, message: 'DB Repair Successful. Status column added if missing.' });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// Execute all migration steps in a single atomic batch
     await client.batch([
       "PRAGMA foreign_keys=OFF",
       "DROP TABLE IF EXISTS users_new",

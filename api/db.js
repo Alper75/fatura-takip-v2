@@ -349,16 +349,18 @@ async function initDb() {
       );
     `);
 
-    // 1. Check and Add 'status' column to companies FIRST
+    // 1. Aggressively ensure 'status' column exists in companies
     try {
-        const compInfo = await client.execute('PRAGMA table_info(companies)');
-        const hasStatus = compInfo.rows.some(col => col.name === 'status');
-        if (!hasStatus) {
-            console.log('Adding status column to companies...');
-            await client.execute("ALTER TABLE companies ADD COLUMN status TEXT DEFAULT 'active'");
-        }
+        // Direct attempt to add the column, ignore "already exists" error
+        await client.execute("ALTER TABLE companies ADD COLUMN status TEXT DEFAULT 'active'");
+        console.log('Status column added to companies successfully.');
     } catch (e) {
-        console.warn(`Could not add status to companies: ${e.message}`);
+        const msg = e.message.toLowerCase();
+        if (msg.includes('duplicate column name') || msg.includes('already exists')) {
+            // This is fine, it means the column is already there
+        } else {
+            console.warn(`Migration notice (status column): ${e.message}`);
+        }
     }
 
     // 2. Ensure Default Company exists
