@@ -59,7 +59,19 @@ const newKalem = (): FaturaKalemi => ({
   birim: 'ADET',
   birimFiyat: 0,
   kdvOrani: 20,
+  tevkifatOrani: '0',
 });
+
+const FATURA_TIPI_SECENEKLERI = [
+  { value: 'SATIS', label: 'Satış' },
+  { value: 'IADE', label: 'Gümrük İçin İade' },
+  { value: 'TEVKIFAT', label: 'Tevkifat' },
+  { value: 'ISTISNA', label: 'İstisna' },
+  { value: 'OZEL_MATRAH', label: 'Özel Matrah' },
+  { value: 'IHRAC_KAYITLI', label: 'İhraç Kayıtlı' },
+];
+
+const TEVKIFAT_ORANLARI = ['0', '2/10', '3/10', '4/10', '5/10', '7/10', '9/10', '10/10'];
 
 export function KesilecekFaturalar() {
   const { 
@@ -91,6 +103,8 @@ export function KesilecekFaturalar() {
   const [selectedInvoiceForGib, setSelectedInvoiceForGib] = useState<KesilecekFatura | null>(null);
   const [isGibSending, setIsGibSending] = useState(false);
   const [autoSign, setAutoSign] = useState(false);
+  const [gibFaturaTipi, setGibFaturaTipi] = useState('SATIS');
+  const [gibStopajOrani, setGibStopajOrani] = useState('0');
 
   // Kalem hesaplamaları
   const kalemToplam = useMemo(() => {
@@ -221,6 +235,10 @@ export function KesilecekFaturalar() {
       toast.error('Lütfen tüm bilgileri girin.');
       return;
     }
+    if (!selectedInvoiceForGib.vknTckn) {
+      toast.error('Faturada VKN/TC bulunmuyor. Listeye eklerken VKN/TC girin.');
+      return;
+    }
     setIsGibSending(true);
     try {
       const apiUrl = import.meta.env.DEV ? 'http://localhost:5000/api/gib/create-draft' : '/api/gib/create-draft';
@@ -229,13 +247,17 @@ export function KesilecekFaturalar() {
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` },
         body: JSON.stringify({
           credentials: gibCredentials,
-          invoice: selectedInvoiceForGib,
+          invoice: {
+            ...selectedInvoiceForGib,
+            faturaTipi: gibFaturaTipi,
+            stopajOrani: gibStopajOrani !== '0' ? gibStopajOrani : undefined,
+          },
           autoSign,
         }),
       });
       const result = await response.json();
       if (result.success) {
-        toast.success(result.message);
+        toast.success(result.message + (result.data?.invoiceUUID ? ` (UUID: ${result.data.invoiceUUID})` : ''));
         setIsGibModalOpen(false);
         updateKesilecekFatura(selectedInvoiceForGib.id, { durum: 'kesildi' });
       } else {
@@ -248,7 +270,12 @@ export function KesilecekFaturalar() {
     }
   };
 
-  const openGibModal = (f: KesilecekFatura) => { setSelectedInvoiceForGib(f); setIsGibModalOpen(true); };
+  const openGibModal = (f: KesilecekFatura) => {
+    setSelectedInvoiceForGib(f);
+    setGibFaturaTipi('SATIS');
+    setGibStopajOrani('0');
+    setIsGibModalOpen(true);
+  };
   const formatCurrency = (val: number) => new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(val);
 
   return (
@@ -376,8 +403,33 @@ export function KesilecekFaturalar() {
                         </div>
                       </div>
 
+                      {/* Tevkifat */}
+                      <div className="space-y-1">
+                        <Label className="text-[10px] text-slate-400 font-medium">KDV Tevkifatı (varsa)</Label>
+                        <select
+                          value={k.tevkifatOrani || '0'}
+                          onChange={e => updateKalem(k.id, 'tevkifatOrani', e.target.value)}
+                          className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+                        >
+                          {TEVKIFAT_ORANLARI.map(o => (
+                            <option key={o} value={o}>{o === '0' ? 'Yok' : `${o} Tevkifat`}</option>
+                          ))}
+                        </select>
+                      </div>
+
                       <div className="text-right text-xs text-slate-500">
-                        Satır Toplam: <span className="font-bold text-slate-800">{formatCurrency((k.birimFiyat * k.miktar) * (1 + k.kdvOrani / 100))}</span>
+                        Satır Matrah: <span className="font-bold text-slate-700">{formatCurrency(k.birimFiyat * k.miktar)}</span>
+                        {' · '}KDV: <span className="font-bold text-emerald-700">{formatCurrency((k.birimFiyat * k.miktar) * (k.kdvOrani / 100))}</span>
+                        {k.tevkifatOrani && k.tevkifatOrani !== '0' && (
+                          <span className="text-amber-600">
+                            {' · '}Tevk: -{formatCurrency(
+                              (() => {
+                                const [pay, payda] = k.tevkifatOrani.split('/').map(Number);
+                                return payda > 0 ? (k.birimFiyat * k.miktar) * (k.kdvOrani / 100) * (pay / payda) : 0;
+                              })()
+                            )}
+                          </span>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -541,13 +593,50 @@ export function KesilecekFaturalar() {
             {selectedInvoiceForGib && (
               <div className="bg-slate-50 p-3 rounded-md border text-sm text-slate-600 space-y-1">
                 <p><strong>Müşteri:</strong> {selectedInvoiceForGib.ad} {selectedInvoiceForGib.soyad}</p>
-                <p><strong>VKN/TC:</strong> {selectedInvoiceForGib.vknTckn}</p>
+                <p><strong>VKN/TC:</strong> {selectedInvoiceForGib.vknTckn || <span className="text-red-500 font-bold">⚠️ Eksik!</span>}</p>
                 <p><strong>Toplam:</strong> {formatCurrency(selectedInvoiceForGib.tutar)}</p>
                 {selectedInvoiceForGib.kalemler && selectedInvoiceForGib.kalemler.length > 0 && (
                   <p><strong>Kalemler:</strong> {selectedInvoiceForGib.kalemler.length} adet ürün/hizmet kalemi</p>
                 )}
               </div>
             )}
+
+            {/* Fatura Tipi */}
+            <div className="grid gap-1.5">
+              <Label className="text-sm font-semibold">Fatura Tipi</Label>
+              <select
+                value={gibFaturaTipi}
+                onChange={e => setGibFaturaTipi(e.target.value)}
+                className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              >
+                {FATURA_TIPI_SECENEKLERI.map(t => (
+                  <option key={t.value} value={t.value}>{t.label}</option>
+                ))}
+              </select>
+              {gibFaturaTipi === 'TEVKIFAT' && (
+                <p className="text-[11px] text-amber-600 bg-amber-50 border border-amber-100 rounded px-2 py-1">
+                  ℹ️ Tevkifatlı fatura için kalemlerdeki KDV Tevkifatı oranlarının dolu olduğundan emin olun.
+                </p>
+              )}
+            </div>
+
+            {/* KV Stopajı */}
+            <div className="grid gap-1.5">
+              <Label className="text-sm font-semibold">KV Stopajı (Kurumlar Vergisi Stopajı) %</Label>
+              <div className="flex items-center gap-2">
+                <Input
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="0.1"
+                  value={gibStopajOrani}
+                  onChange={e => setGibStopajOrani(e.target.value)}
+                  placeholder="0"
+                  className="h-9 w-24"
+                />
+                <span className="text-sm text-slate-500">%  (0 = Yok)</span>
+              </div>
+            </div>
 
             {/* Taslak / Otomatik Onay Seçimi */}
             <div className="rounded-lg border p-3 space-y-2">

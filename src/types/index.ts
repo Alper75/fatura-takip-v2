@@ -348,13 +348,14 @@ export interface GiderKategorisi {
 
 // ==================== KESİLECEK FATURALAR ====================
 export interface FaturaKalemi {
-  id: string;          // local unique key
-  urunId?: string;     // stok ürün id (opsiyonel)
-  ad: string;          // ürün/hizmet adı
+  id: string;
+  urunId?: string;
+  ad: string;
   miktar: number;
-  birim: string;       // ADET, KG, SAATvb.
-  birimFiyat: number;  // KDV hariç
-  kdvOrani: number;    // %
+  birim: string;
+  birimFiyat: number;
+  kdvOrani: number;
+  tevkifatOrani?: string;  // örn: '2/10', '9/10'
 }
 
 export interface KesilecekFatura {
@@ -366,12 +367,14 @@ export interface KesilecekFatura {
   adres: string;
   il?: string;
   ilce?: string;
-  tutar: number;       // toplam (kalemler yoksa kullanılır)
+  tutar: number;
   kdvDahil: boolean;
   kdvOrani?: number;
   faturaTarihi?: string;
   aciklama?: string;
-  kalemler?: FaturaKalemi[]; // birden fazla ürün/hizmet kalemi
+  kalemler?: FaturaKalemi[];
+  faturaTipi?: string;  // SATIS | IADE | TEVKIFAT | ISTISNA | OZEL_MATRAH | IHRAC_KAYITLI
+  stopajOrani?: string; // KV Stopaj oranı %
   olusturmaTarihi: string;
   durum: 'bekliyor' | 'kesildi';
   cariId?: string;

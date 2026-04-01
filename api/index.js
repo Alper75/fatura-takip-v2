@@ -1198,14 +1198,28 @@ app.post('/api/gib/create-draft', authMiddleware, async (req, res) => {
     return res.status(400).json({ success: false, message: 'GİB kullanıcı adı ve şifre gereklidir.' });
   if (!invoice)
     return res.status(400).json({ success: false, message: 'Fatura verisi eksik.' });
+  if (!invoice.vknTckn)
+    return res.status(400).json({ success: false, message: 'Alıcı VKN veya T.C. Kimlik Numarası zorunludur.' });
+
+  // Fatura tipi haritası
+  const INVOICE_TYPE_MAP = {
+    SATIS: InvoiceType?.SATIS,
+    IADE: InvoiceType?.IADE,
+    TEVKIFAT: InvoiceType?.TEVKIFAT,
+    ISTISNA: InvoiceType?.ISTISNA,
+    OZEL_MATRAH: InvoiceType?.OZEL_MATRAH,
+    IHRAC_KAYITLI: InvoiceType?.IHRAC_KAYITLI,
+  };
+  const resolvedInvoiceType = INVOICE_TYPE_MAP[invoice.faturaTipi] || InvoiceType?.SATIS || 'SATIS';
 
   // Kalem listesini oluştur
   let products = [];
   if (invoice.kalemler && invoice.kalemler.length > 0) {
     products = invoice.kalemler.map(k => {
-      const totalAmount = k.birimFiyat * k.miktar;
-      const vatAmount = totalAmount * ((k.kdvOrani || 0) / 100);
-      return {
+      const totalAmount = Math.round(k.birimFiyat * k.miktar * 100) / 100;
+      const vatAmount = Math.round(totalAmount * ((k.kdvOrani || 0) / 100) * 100) / 100;
+
+      const kalem = {
         name: k.ad,
         quantity: k.miktar,
         unitPrice: k.birimFiyat,
@@ -1215,13 +1229,25 @@ app.post('/api/gib/create-draft', authMiddleware, async (req, res) => {
         vatRate: k.kdvOrani || 0,
         vatAmount,
       };
+
+      // Kalem bazında KDV Tevkifatı
+      if (k.tevkifatOrani && k.tevkifatOrani !== '0') {
+        const [pay, payda] = k.tevkifatOrani.split('/').map(Number);
+        if (payda > 0) {
+          const tevkifatCarpani = pay / payda;
+          kalem.vatWithholdingRate = tevkifatCarpani;
+          kalem.vatWithholdingAmount = Math.round(vatAmount * tevkifatCarpani * 100) / 100;
+        }
+      }
+
+      return kalem;
     });
   } else {
     // Tek kalem (eski davranış)
     const matrah = invoice.kdvDahil
       ? invoice.tutar / (1 + (invoice.kdvOrani || 20) / 100)
       : invoice.tutar;
-    const vatAmount = matrah * ((invoice.kdvOrani || 20) / 100);
+    const vatAmount = Math.round(matrah * ((invoice.kdvOrani || 20) / 100) * 100) / 100;
     products = [{
       name: invoice.aciklama || 'Hizmet / Mal Bedeli',
       quantity: 1,
@@ -1230,19 +1256,27 @@ app.post('/api/gib/create-draft', authMiddleware, async (req, res) => {
       unitType: EInvoiceUnitType?.ADET,
       totalAmount: Math.round(matrah * 100) / 100,
       vatRate: invoice.kdvOrani || 20,
-      vatAmount: Math.round(vatAmount * 100) / 100,
+      vatAmount,
     }];
   }
 
-  const productsTotalPrice = products.reduce((s, p) => s + p.totalAmount, 0);
-  const totalVat = products.reduce((s, p) => s + (p.vatAmount || 0), 0);
-  const paymentPrice = productsTotalPrice + totalVat;
+  const productsTotalPrice = Math.round(products.reduce((s, p) => s + p.totalAmount, 0) * 100) / 100;
+  const totalVat = Math.round(products.reduce((s, p) => s + (p.vatAmount || 0), 0) * 100) / 100;
+  const totalWithholding = Math.round(products.reduce((s, p) => s + (p.vatWithholdingAmount || 0), 0) * 100) / 100;
+
+  // KV Stopajı (kurumlar vergisi stopajı)
+  let withTaxAmount = 0;
+  if (invoice.stopajOrani && parseFloat(invoice.stopajOrani) > 0) {
+    withTaxAmount = Math.round(productsTotalPrice * (parseFloat(invoice.stopajOrani) / 100) * 100) / 100;
+  }
+
+  const paymentPrice = Math.round((productsTotalPrice + totalVat - totalWithholding - withTaxAmount) * 100) / 100;
 
   const now = new Date();
   const invoicePayload = {
     date: invoice.faturaTarihi ? convertToGIBDate(invoice.faturaTarihi) : `${String(now.getDate()).padStart(2,'0')}/${String(now.getMonth()+1).padStart(2,'0')}/${now.getFullYear()}`,
     time: formatGIBTime(now),
-    invoiceType: InvoiceType?.SATIS || 'SATIS',
+    invoiceType: resolvedInvoiceType,
     currency: EInvoiceCurrencyType?.TURK_LIRASI,
     currencyRate: 1,
     country: EInvoiceCountry?.TURKIYE,
@@ -1250,20 +1284,26 @@ app.post('/api/gib/create-draft', authMiddleware, async (req, res) => {
     buyerFirstName: invoice.ad,
     buyerLastName: invoice.soyad || '',
     buyerTitle: invoice.ad,
-    buyerTaxId: invoice.vknTckn,
+    buyerTaxId: invoice.vknTckn,   // artık frontend'den doğru gelecek
     buyerTaxOffice: invoice.vergiDairesi || '',
     buyerAddress: invoice.adres || '',
     buyerCity: invoice.il || '',
     buyerDistrict: invoice.ilce || '',
 
     products,
-    productsTotalPrice: Math.round(productsTotalPrice * 100) / 100,
-    includedTaxesTotalPrice: Math.round(paymentPrice * 100) / 100,
-    totalVat: Math.round(totalVat * 100) / 100,
-    paymentPrice: Math.round(paymentPrice * 100) / 100,
-    base: Math.round(productsTotalPrice * 100) / 100,
+    productsTotalPrice,
+    includedTaxesTotalPrice: Math.round((productsTotalPrice + totalVat) * 100) / 100,
+    totalVat,
+    paymentPrice,
+    base: productsTotalPrice,
 
     note: invoice.aciklama || '',
+
+    // KV Stopajı varsa
+    ...(withTaxAmount > 0 ? {
+      taxWithholdingRate: parseFloat(invoice.stopajOrani) / 100,
+      taxWithholdingAmount: withTaxAmount,
+    } : {}),
   };
 
   try {
