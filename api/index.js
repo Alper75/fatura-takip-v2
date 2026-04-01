@@ -1156,36 +1156,162 @@ app.delete('/api/gider-kategorileri/:id', authMiddleware, async (req, res) => {
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }
 });
 
-// --- GİB API ROUTES ---
-app.post('/api/gib/create-draft', async (req, res) => {
-  const { credentials, invoice } = req.body;
-  if (!credentials || !invoice) return res.status(400).json({ success: false, message: 'Eksik veri.' });
+// --- GİB API ROUTES (e-fatura npm paketi ile) ---
+const {
+  default: EInvoice,
+  InvoiceType,
+  EInvoiceCountry,
+  EInvoiceUnitType,
+  EInvoiceCurrencyType,
+  EInvoiceApiError,
+  EInvoiceTypeError
+} = require('e-fatura');
+
+const UNIT_TYPE_MAP_GIB = {
+  ADET: EInvoiceUnitType?.ADET,
+  PAKET: EInvoiceUnitType?.PAKET,
+  KG: EInvoiceUnitType?.KG,
+  LT: EInvoiceUnitType?.LT,
+  TON: EInvoiceUnitType?.TON,
+  M2: EInvoiceUnitType?.M2,
+  M3: EInvoiceUnitType?.M3,
+  SAAT: EInvoiceUnitType?.SAAT,
+  GUN: EInvoiceUnitType?.GUN,
+};
+
+function convertToGIBDate(dateStr) {
+  if (!dateStr) return null;
+  const [year, month, day] = dateStr.split('-');
+  return `${day}/${month}/${year}`;
+}
+
+function formatGIBTime(d) {
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  const ss = String(d.getSeconds()).padStart(2, '0');
+  return `${hh}:${mm}:${ss}`;
+}
+
+app.post('/api/gib/create-draft', authMiddleware, async (req, res) => {
+  const { credentials, invoice, autoSign } = req.body;
+  if (!credentials?.username || !credentials?.password)
+    return res.status(400).json({ success: false, message: 'GİB kullanıcı adı ve şifre gereklidir.' });
+  if (!invoice)
+    return res.status(400).json({ success: false, message: 'Fatura verisi eksik.' });
+
+  // Kalem listesini oluştur
+  let products = [];
+  if (invoice.kalemler && invoice.kalemler.length > 0) {
+    products = invoice.kalemler.map(k => {
+      const totalAmount = k.birimFiyat * k.miktar;
+      const vatAmount = totalAmount * ((k.kdvOrani || 0) / 100);
+      return {
+        name: k.ad,
+        quantity: k.miktar,
+        unitPrice: k.birimFiyat,
+        price: k.birimFiyat,
+        unitType: UNIT_TYPE_MAP_GIB[k.birim] || EInvoiceUnitType?.ADET,
+        totalAmount,
+        vatRate: k.kdvOrani || 0,
+        vatAmount,
+      };
+    });
+  } else {
+    // Tek kalem (eski davranış)
+    const matrah = invoice.kdvDahil
+      ? invoice.tutar / (1 + (invoice.kdvOrani || 20) / 100)
+      : invoice.tutar;
+    const vatAmount = matrah * ((invoice.kdvOrani || 20) / 100);
+    products = [{
+      name: invoice.aciklama || 'Hizmet / Mal Bedeli',
+      quantity: 1,
+      unitPrice: Math.round(matrah * 100) / 100,
+      price: Math.round(matrah * 100) / 100,
+      unitType: EInvoiceUnitType?.ADET,
+      totalAmount: Math.round(matrah * 100) / 100,
+      vatRate: invoice.kdvOrani || 20,
+      vatAmount: Math.round(vatAmount * 100) / 100,
+    }];
+  }
+
+  const productsTotalPrice = products.reduce((s, p) => s + p.totalAmount, 0);
+  const totalVat = products.reduce((s, p) => s + (p.vatAmount || 0), 0);
+  const paymentPrice = productsTotalPrice + totalVat;
+
+  const now = new Date();
+  const invoicePayload = {
+    date: invoice.faturaTarihi ? convertToGIBDate(invoice.faturaTarihi) : `${String(now.getDate()).padStart(2,'0')}/${String(now.getMonth()+1).padStart(2,'0')}/${now.getFullYear()}`,
+    time: formatGIBTime(now),
+    invoiceType: InvoiceType?.SATIS || 'SATIS',
+    currency: EInvoiceCurrencyType?.TURK_LIRASI,
+    currencyRate: 1,
+    country: EInvoiceCountry?.TURKIYE,
+
+    buyerFirstName: invoice.ad,
+    buyerLastName: invoice.soyad || '',
+    buyerTitle: invoice.ad,
+    buyerTaxId: invoice.vknTckn,
+    buyerTaxOffice: invoice.vergiDairesi || '',
+    buyerAddress: invoice.adres || '',
+    buyerCity: invoice.il || '',
+    buyerDistrict: invoice.ilce || '',
+
+    products,
+    productsTotalPrice: Math.round(productsTotalPrice * 100) / 100,
+    includedTaxesTotalPrice: Math.round(paymentPrice * 100) / 100,
+    totalVat: Math.round(totalVat * 100) / 100,
+    paymentPrice: Math.round(paymentPrice * 100) / 100,
+    base: Math.round(productsTotalPrice * 100) / 100,
+
+    note: invoice.aciklama || '',
+  };
+
   try {
-    const gibInvoice = {
-      vknTckn: invoice.vknTckn,
-      ad: invoice.ad,
-      soyad: invoice.soyad || '',
-      adres: invoice.adres || '',
-      ulke: 'Türkiye',
-      tarih: invoice.tarih || new Date().toLocaleDateString('tr-TR'),
-      saat: new Date().toLocaleTimeString('tr-TR'),
-      paraBirimi: 'TRY',
-      faturaTipi: 'SATIS',
-      malHizmetListe: [{
-        name: invoice.aciklama || 'Hizmet Bedeli',
-        quantity: 1,
-        unit: 'ADET',
-        unitPrice: invoice.tutar,
-        price: invoice.tutar,
-        vatRate: invoice.kdvOrani || 20,
-        vatAmount: (invoice.tutar * (invoice.kdvOrani || 20)) / 100,
-        totalAmount: invoice.tutar + (invoice.tutar * (invoice.kdvOrani || 20)) / 100
-      }]
-    };
-    const result = await createInvoiceAndGetHTML(credentials.username, credentials.password, gibInvoice, { sign: false });
-    res.json({ success: true, message: 'Taslak fatura portala başarıyla gönderildi.', data: result });
+    if (process.env.GIB_TEST_MODE === 'true') {
+      EInvoice.setTestMode(true);
+    }
+
+    await EInvoice.connect({
+      username: credentials.username,
+      password: credentials.password,
+    });
+
+    const invoiceUUID = await EInvoice.createDraftInvoice(invoicePayload);
+
+    let signResult = null;
+    if (autoSign === true) {
+      signResult = await EInvoice.signDraftInvoice({ uuid: invoiceUUID });
+    }
+
+    await EInvoice.logout();
+
+    return res.json({
+      success: true,
+      message: autoSign ? 'Fatura başarıyla oluşturuldu ve imzalandı.' : 'Fatura taslak olarak GİB portalına gönderildi.',
+      data: { invoiceUUID, signed: autoSign === true, signResult }
+    });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Fatura oluşturma hatası: ' + error.message });
+    try { await EInvoice.logout(); } catch (_) {}
+
+    if (error instanceof EInvoiceApiError) {
+      return res.status(400).json({
+        success: false,
+        error: 'GİB API Hatası',
+        message: error.message,
+        errorCode: error.errorCode,
+      });
+    }
+    if (error instanceof EInvoiceTypeError) {
+      return res.status(400).json({
+        success: false,
+        error: 'Doğrulama Hatası',
+        message: error.message,
+      });
+    }
+    return res.status(500).json({
+      success: false,
+      message: 'GİB fatura hatası: ' + error.message,
+    });
   }
 });
 

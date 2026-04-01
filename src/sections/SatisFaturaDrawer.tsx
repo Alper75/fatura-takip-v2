@@ -10,7 +10,7 @@ import { Save, X, Banknote, FileText, Sparkles, Loader2, CheckCircle2, Plus, Tra
 import type { SatisFaturaFormData } from '@/types';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
-
+import { useUrunler } from '@/modules/stok/hooks/useStokQuery';
 const KDV_ORANLARI = ['0', '1', '8', '10', '18', '20'];
 const TEVKIFAT_ORANLARI = ['0', '2/10', '3/10', '4/10', '5/10', '7/10', '9/10', '10/10'];
 
@@ -43,6 +43,7 @@ type UploadedFile = {
 
 export function SatisFaturaDrawer() {
   const { isSatisDrawerOpen, closeSatisDrawer, addSatisFatura, cariler, satisInitialData } = useApp();
+  const { data: urunler } = useUrunler();
 
   useEffect(() => {
     if (isSatisDrawerOpen && satisInitialData) {
@@ -497,6 +498,41 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
                     <div className="space-y-2 mb-4">
                       <Label className="text-xs font-medium text-slate-500">Fatura Açıklaması / Not</Label>
                       <Input value={form.data.aciklama} onChange={(e) => updateForm(form.id, 'aciklama', e.target.value)} placeholder="Örn: 2024 Mart ayı hakediş bedeli" className="h-9" />
+                    </div>
+
+                    {/* Stoktan Ürün Seçimi */}
+                    <div className="mb-4 p-3 bg-emerald-50/50 border border-emerald-100 rounded-lg space-y-2">
+                      <Label className="text-xs font-semibold text-emerald-700">📦 Stoktan Ürün Bağla (Opsiyonel)</Label>
+                      <Select
+                        value={form.data.urunId || 'yok'}
+                        onValueChange={(val) => {
+                          const selectedUrun = urunler?.find(u => u.id === val);
+                          updateForm(form.id, 'urunId', val === 'yok' ? '' : val);
+                          if (selectedUrun) {
+                            if (!form.data.aciklama) updateForm(form.id, 'aciklama', selectedUrun.urunAdi || '');
+                            if (selectedUrun.birimFiyat && !form.data.alinanUcret) {
+                              updateForm(form.id, 'alinanUcret', String(selectedUrun.birimFiyat));
+                            }
+                          }
+                        }}
+                      >
+                        <SelectTrigger className="h-9 bg-white border-emerald-100">
+                          <SelectValue placeholder="Stok kartından seçin..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="yok">Bağlama Yapma</SelectItem>
+                          {(!urunler || urunler.length === 0) ? (
+                            <SelectItem value="none" disabled className="text-slate-400 italic">Sistemde hiç stok kartınız yok</SelectItem>
+                          ) : urunler.map(u => (
+                            <SelectItem key={u.id} value={u.id}>
+                              {u.urunAdi || 'İsimsiz'} ({u.stokKodu}){u.birimFiyat ? ` — ${new Intl.NumberFormat('tr-TR', {style:'currency',currency:'TRY'}).format(u.birimFiyat)}` : ''}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {form.data.urunId && form.data.urunId !== 'yok' && (
+                        <p className="text-[10px] text-emerald-600">✅ Stok kartı bağlandı. Fatura kaydedilince stok hareketine çıkış olarak işlenecektir.</p>
+                      )}
                     </div>
 
                     <div className="grid grid-cols-2 gap-4 mb-4">

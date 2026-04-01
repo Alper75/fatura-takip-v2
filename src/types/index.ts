@@ -47,6 +47,9 @@ export interface SatisFaturaFormData {
   cariId?: string;
   vadeTarihi?: string;
   aciklama?: string;
+  // Stok Entegrasyonu
+  urunId?: string;
+  depoId?: string;
 }
 
 // ==================== CARİ KART ====================
@@ -344,6 +347,16 @@ export interface GiderKategorisi {
 }
 
 // ==================== KESİLECEK FATURALAR ====================
+export interface FaturaKalemi {
+  id: string;          // local unique key
+  urunId?: string;     // stok ürün id (opsiyonel)
+  ad: string;          // ürün/hizmet adı
+  miktar: number;
+  birim: string;       // ADET, KG, SAATvb.
+  birimFiyat: number;  // KDV hariç
+  kdvOrani: number;    // %
+}
+
 export interface KesilecekFatura {
   id: string;
   ad: string;
@@ -353,11 +366,12 @@ export interface KesilecekFatura {
   adres: string;
   il?: string;
   ilce?: string;
-  tutar: number;
+  tutar: number;       // toplam (kalemler yoksa kullanılır)
   kdvDahil: boolean;
   kdvOrani?: number;
   faturaTarihi?: string;
   aciklama?: string;
+  kalemler?: FaturaKalemi[]; // birden fazla ürün/hizmet kalemi
   olusturmaTarihi: string;
   durum: 'bekliyor' | 'kesildi';
   cariId?: string;

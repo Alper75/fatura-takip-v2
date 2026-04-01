@@ -21,13 +21,13 @@ import {
   AlertCircle, 
   Plus, 
   Send, 
-  ExternalLink, 
   ShieldCheck, 
-  Loader2 
+  Loader2,
+  Package,
+  X
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Label } from '@/components/ui/label';
-import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import {
   Dialog,
@@ -37,9 +37,29 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 import * as XLSX from 'xlsx';
-import type { KesilecekFatura } from '@/types';
+import type { KesilecekFatura, FaturaKalemi } from '@/types';
+import { useUrunler } from '@/modules/stok/hooks/useStokQuery';
+
+const BIRIM_SECENEKLERI = ['ADET', 'PAKET', 'KG', 'LT', 'TON', 'M2', 'M3', 'SAAT', 'GUN'];
+const KDV_ORANLARI = [0, 1, 8, 10, 18, 20];
+
+const newKalem = (): FaturaKalemi => ({
+  id: 'k' + Date.now() + Math.random().toString(36).slice(2),
+  ad: '',
+  miktar: 1,
+  birim: 'ADET',
+  birimFiyat: 0,
+  kdvOrani: 20,
+});
 
 export function KesilecekFaturalar() {
   const { 
@@ -50,35 +70,39 @@ export function KesilecekFaturalar() {
     openSatisDrawer,
     cariler
   } = useApp();
+  const { data: urunler } = useUrunler();
 
   const [searchTerm, setSearchTerm] = useState('');
   
-  // Yeni Fatura Formu State
+  // Form
   const [form, setForm] = useState({
-    ad: '',
-    soyad: '',
-    vknTckn: '',
-    vergiDairesi: '',
-    adres: '',
-    il: '',
-    ilce: '',
-    tutar: '',
-    kdvOrani: '20',
+    ad: '', soyad: '', vknTckn: '', vergiDairesi: '',
+    adres: '', il: '', ilce: '', kdvOrani: '20',
     faturaTarihi: new Date().toISOString().split('T')[0],
-    aciklama: '',
-    kdvDahil: true,
-    cariId: 'none'
+    aciklama: '', cariId: 'none',
   });
+
+  // Kalem listesi
+  const [kalemler, setKalemler] = useState<FaturaKalemi[]>([newKalem()]);
 
   // GİB States
   const [isGibModalOpen, setIsGibModalOpen] = useState(false);
   const [gibCredentials, setGibCredentials] = useState({ username: '', password: '' });
   const [selectedInvoiceForGib, setSelectedInvoiceForGib] = useState<KesilecekFatura | null>(null);
   const [isGibSending, setIsGibSending] = useState(false);
+  const [autoSign, setAutoSign] = useState(false);
+
+  // Kalem hesaplamaları
+  const kalemToplam = useMemo(() => {
+    return kalemler.reduce((sum, k) => {
+      const matrah = k.birimFiyat * k.miktar;
+      const kdv = matrah * (k.kdvOrani / 100);
+      return { matrah: sum.matrah + matrah, kdv: sum.kdv + kdv, toplam: sum.toplam + matrah + kdv };
+    }, { matrah: 0, kdv: 0, toplam: 0 });
+  }, [kalemler]);
 
   const filteredInvoices = useMemo(() => {
     if (!kesilecekFaturalar || !Array.isArray(kesilecekFaturalar)) return [];
-    
     return kesilecekFaturalar
       .filter(f => 
         (f.ad || "").toLowerCase().includes(searchTerm.toLowerCase()) || 
@@ -95,77 +119,64 @@ export function KesilecekFaturalar() {
     }
     const cari = cariler?.find(c => c.id === cariId);
     if (cari) {
-      setForm(prev => ({
-        ...prev,
-        cariId: cari.id,
-        ad: cari.unvan,
-        soyad: '', // Ünvan genelde tam isimdir
-        vknTckn: cari.vknTckn,
-        vergiDairesi: cari.vergiDairesi || '',
-        adres: cari.adres || '',
-      }));
+      setForm(prev => ({ ...prev, cariId: cari.id, ad: cari.unvan, soyad: '', vknTckn: cari.vknTckn, vergiDairesi: cari.vergiDairesi || '', adres: cari.adres || '' }));
+    }
+  };
+
+  // Kalem güncelleme fonksiyonları
+  const addKalem = () => setKalemler(prev => [...prev, newKalem()]);
+  const removeKalem = (id: string) => setKalemler(prev => prev.filter(k => k.id !== id));
+  const updateKalem = (id: string, field: keyof FaturaKalemi, value: any) =>
+    setKalemler(prev => prev.map(k => k.id === id ? { ...k, [field]: value } : k));
+
+  const selectUrunForKalem = (kalemId: string, urunId: string) => {
+    if (!urunId || urunId === 'none') {
+      updateKalem(kalemId, 'urunId', undefined);
+      return;
+    }
+    const urun = urunler?.find(u => u.id === urunId);
+    if (urun) {
+      setKalemler(prev => prev.map(k => k.id === kalemId ? {
+        ...k,
+        urunId: urun.id,
+        ad: urun.urunAdi || '',
+        birimFiyat: urun.birimFiyat || 0,
+        birim: urun.anaBirim || 'ADET',
+      } : k));
     }
   };
 
   const handleAdd = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.ad || !form.vknTckn || !form.tutar) {
-      toast.error('Lütfen gerekli alanları doldurun (Ad, VKN/TC, Tutar)');
+    if (!form.ad || !form.vknTckn) {
+      toast.error('Lütfen müşteri adı ve VKN/TC alanlarını doldurun.');
+      return;
+    }
+    const kalemlerDolu = kalemler.filter(k => k.ad.trim() && k.birimFiyat > 0);
+    if (kalemlerDolu.length === 0) {
+      toast.error('En az bir kalem ekleyin (ad ve birim fiyat dolu olmalı).');
       return;
     }
 
     addKesilecekFatura({
-      ad: form.ad,
-      soyad: form.soyad,
-      vknTckn: form.vknTckn,
-      vergiDairesi: form.vergiDairesi,
-      adres: form.adres,
-      il: form.il,
-      ilce: form.ilce,
-      tutar: parseFloat(form.tutar),
+      ad: form.ad, soyad: form.soyad, vknTckn: form.vknTckn,
+      vergiDairesi: form.vergiDairesi, adres: form.adres, il: form.il, ilce: form.ilce,
+      tutar: kalemToplam.toplam,
+      kdvDahil: true,
       kdvOrani: parseInt(form.kdvOrani),
       faturaTarihi: form.faturaTarihi,
       aciklama: form.aciklama,
-      kdvDahil: form.kdvDahil,
-      cariId: form.cariId || undefined
+      kalemler: kalemlerDolu,
+      cariId: form.cariId !== 'none' ? form.cariId : undefined,
     });
 
-    setForm({
-      ad: '',
-      soyad: '',
-      vknTckn: '',
-      vergiDairesi: '',
-      adres: '',
-      il: '',
-      ilce: '',
-      tutar: '',
-      kdvOrani: '20',
-      faturaTarihi: new Date().toISOString().split('T')[0],
-      aciklama: '',
-      kdvDahil: true,
-      cariId: 'none'
-    });
-    toast.success('Kayıt listeye eklendi.');
+    setForm({ ad: '', soyad: '', vknTckn: '', vergiDairesi: '', adres: '', il: '', ilce: '', kdvOrani: '20', faturaTarihi: new Date().toISOString().split('T')[0], aciklama: '', cariId: 'none' });
+    setKalemler([newKalem()]);
+    toast.success('Fatura planı listeye eklendi.');
   };
 
   const downloadTemplate = () => {
-    const template = [
-      {
-        'Ad (veya Firma)': 'Örnek A.Ş.',
-        'Soyad (Şahıs ise)': '',
-        'VKN / TCKN': '1234567890',
-        'Vergi Dairesi': 'Kadıköy',
-        'Adres': 'Kadıköy / İstanbul',
-        'İl': 'İstanbul',
-        'İlçe': 'Kadıköy',
-        'Fatura Tarihi (GG.AA.YYYY)': new Date().toLocaleDateString('tr-TR'),
-        'Tutar': '1500.50',
-        'KDV Oranı': '20',
-        'KDV Dahil mi? (E/H)': 'E',
-        'Açıklama': 'Sistem Bakım Ücreti'
-      }
-    ];
-
+    const template = [{ 'Ad (veya Firma)': 'Örnek A.Ş.', 'Soyad (Şahıs ise)': '', 'VKN / TCKN': '1234567890', 'Vergi Dairesi': 'Kadıköy', 'Adres': 'Kadıköy / İstanbul', 'İl': 'İstanbul', 'İlçe': 'Kadıköy', 'Fatura Tarihi (GG.AA.YYYY)': new Date().toLocaleDateString('tr-TR'), 'Tutar': '1500.50', 'KDV Oranı': '20', 'KDV Dahil mi? (E/H)': 'E', 'Açıklama': 'Sistem Bakım Ücreti' }];
     const ws = XLSX.utils.json_to_sheet(template);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Şablon');
@@ -175,51 +186,32 @@ export function KesilecekFaturalar() {
   const handleExcelUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
     const reader = new FileReader();
     reader.onload = (evt) => {
       try {
-        const bstr = evt.target?.result;
-        const wb = XLSX.read(bstr, { type: 'binary' });
-        const wsname = wb.SheetNames[0];
-        const ws = wb.Sheets[wsname];
+        const wb = XLSX.read(evt.target?.result, { type: 'binary' });
+        const ws = wb.Sheets[wb.SheetNames[0]];
         const data = XLSX.utils.sheet_to_json(ws);
-
         data.forEach((row: any) => {
           addKesilecekFatura({
-            ad: row['Ad (veya Firma)'] || '',
-            soyad: row['Soyad (Şahıs ise)'] || '',
-            vknTckn: String(row['VKN / TCKN'] || ''),
-            vergiDairesi: row['Vergi Dairesi'] || '',
-            adres: row['Adres'] || '',
-            il: row['İl'] || '',
-            ilce: row['İlçe'] || '',
+            ad: row['Ad (veya Firma)'] || '', soyad: row['Soyad (Şahıs ise)'] || '',
+            vknTckn: String(row['VKN / TCKN'] || ''), vergiDairesi: row['Vergi Dairesi'] || '',
+            adres: row['Adres'] || '', il: row['İl'] || '', ilce: row['İlçe'] || '',
             tutar: parseFloat(String(row['Tutar'] || '0').replace(',', '.')),
             kdvOrani: parseInt(row['KDV Oranı'] || '20'),
             faturaTarihi: row['Fatura Tarihi (GG.AA.YYYY)'] || new Date().toISOString().split('T')[0],
             aciklama: row['Açıklama'] || '',
-            kdvDahil: (row['KDV Dahil mi? (E/H)'] || 'E').toUpperCase() === 'E'
+            kdvDahil: (row['KDV Dahil mi? (E/H)'] || 'E').toUpperCase() === 'E',
           });
         });
         toast.success(`${data.length} kayıt başarıyla yüklendi.`);
-      } catch (err) {
-        toast.error('Excel okuma hatası. Lütfen şablonu kullanın.');
-      }
+      } catch { toast.error('Excel okuma hatası. Lütfen şablonu kullanın.'); }
     };
     reader.readAsBinaryString(file);
   };
 
   const convertToRealInvoice = (f: KesilecekFatura) => {
-    openSatisDrawer({
-      ad: f.ad,
-      soyad: f.soyad || '',
-      tcVkn: f.vknTckn,
-      adres: f.adres,
-      alinanUcret: String(f.tutar),
-      aciklama: f.aciklama
-    });
-    
-    // Durumu güncelle
+    openSatisDrawer({ ad: f.ad, soyad: f.soyad || '', tcVkn: f.vknTckn, adres: f.adres, alinanUcret: String(f.tutar), aciklama: f.aciklama });
     updateKesilecekFatura(f.id, { durum: 'kesildi' });
   };
 
@@ -229,58 +221,39 @@ export function KesilecekFaturalar() {
       toast.error('Lütfen tüm bilgileri girin.');
       return;
     }
-
     setIsGibSending(true);
     try {
-      const apiUrl = import.meta.env.DEV 
-        ? 'http://localhost:5000/api/gib/create-draft' 
-        : '/api/gib/create-draft';
-
+      const apiUrl = import.meta.env.DEV ? 'http://localhost:5000/api/gib/create-draft' : '/api/gib/create-draft';
       const response = await fetch(apiUrl, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` },
         body: JSON.stringify({
           credentials: gibCredentials,
-          invoice: {
-            ...selectedInvoiceForGib,
-            tarih: selectedInvoiceForGib.faturaTarihi || new Date().toLocaleDateString('tr-TR'),
-            // Portal genellikle KDV hariç matrah ve oran bekler
-            tutar: selectedInvoiceForGib.kdvDahil 
-              ? selectedInvoiceForGib.tutar / (1 + (selectedInvoiceForGib.kdvOrani || 20) / 100)
-              : selectedInvoiceForGib.tutar,
-            kdvOrani: selectedInvoiceForGib.kdvOrani || 20
-          }
+          invoice: selectedInvoiceForGib,
+          autoSign,
         }),
       });
-
       const result = await response.json();
       if (result.success) {
         toast.success(result.message);
         setIsGibModalOpen(false);
-        // Durumu güncelle
         updateKesilecekFatura(selectedInvoiceForGib.id, { durum: 'kesildi' });
       } else {
-        toast.error(result.message || 'GİB Gönderim hatası');
+        toast.error(`${result.error || 'GİB Hatası'}: ${result.message}`);
       }
-    } catch (error) {
-      toast.error('Sunucuya bağlanılamadı. Lütfen backend sunucusunun çalıştığından emin olun.');
+    } catch {
+      toast.error('Sunucuya bağlanılamadı.');
     } finally {
       setIsGibSending(false);
     }
   };
 
-  const openGibModal = (f: KesilecekFatura) => {
-    setSelectedInvoiceForGib(f);
-    setIsGibModalOpen(true);
-  };
-
+  const openGibModal = (f: KesilecekFatura) => { setSelectedInvoiceForGib(f); setIsGibModalOpen(true); };
   const formatCurrency = (val: number) => new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(val);
 
   return (
     <div className="space-y-6">
-       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h2 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
             <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center">
@@ -295,13 +268,7 @@ export function KesilecekFaturalar() {
             <Download className="w-4 h-4" /> Şablon İndir
           </Button>
           <div className="relative">
-            <input 
-              type="file" 
-              id="excel-upload" 
-              className="hidden" 
-              accept=".xlsx,.xls" 
-              onChange={handleExcelUpload}
-            />
+            <input type="file" id="excel-upload" className="hidden" accept=".xlsx,.xls" onChange={handleExcelUpload} />
             <Button onClick={() => document.getElementById('excel-upload')?.click()} className="gap-2 h-10 bg-emerald-600 hover:bg-emerald-700 text-white">
               <Upload className="w-4 h-4" /> Excel Yükle
             </Button>
@@ -311,101 +278,125 @@ export function KesilecekFaturalar() {
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Form Kartı */}
-        <Card className="lg:col-span-4 border-0 shadow-sm ring-1 ring-slate-200">
+        <Card className="lg:col-span-5 border-0 shadow-sm ring-1 ring-slate-200">
           <CardHeader>
             <CardTitle className="text-lg">Fatura Planı Ekle</CardTitle>
-            <CardDescription>Müşteri ve tutar bilgilerini girin</CardDescription>
+            <CardDescription>Müşteri bilgileri ve ürün/hizmet kalemlerini girin</CardDescription>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleAdd} className="space-y-4">
+              {/* Cari seçimi */}
               <div className="space-y-2">
-                <Label htmlFor="cari">Cari Karttan Seç (Opsiyonel)</Label>
-                <select 
-                  id="cari"
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                  value={form.cariId} 
-                  onChange={e => handleCariChange(e.target.value)}
+                <Label>Cari Karttan Seç (Opsiyonel)</Label>
+                <select
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  value={form.cariId} onChange={e => handleCariChange(e.target.value)}
                 >
                   <option value="none">-- Manuel Giriş --</option>
-                  {cariler?.map(c => (
-                    <option key={c.id} value={c.id}>{c.unvan}</option>
-                  ))}
+                  {cariler?.map(c => <option key={c.id} value={c.id}>{c.unvan}</option>)}
                 </select>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="ad">Firma Ünvanı / Ad</Label>
-                  <Input id="ad" value={form.ad} onChange={e => setForm({...form, ad: e.target.value})} placeholder="Ad" className="h-10" />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="soyad">Soyad</Label>
-                  <Input id="soyad" value={form.soyad} onChange={e => setForm({...form, soyad: e.target.value})} placeholder="Soyad" className="h-10" />
-                </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1"><Label className="text-xs">Firma Ünvanı / Ad *</Label><Input value={form.ad} onChange={e => setForm({...form, ad: e.target.value})} className="h-9" /></div>
+                <div className="space-y-1"><Label className="text-xs">Soyad</Label><Input value={form.soyad} onChange={e => setForm({...form, soyad: e.target.value})} className="h-9" /></div>
               </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="vkn">VKN / TCKN</Label>
-                  <Input id="vkn" value={form.vknTckn} onChange={e => setForm({...form, vknTckn: e.target.value})} placeholder="10-11 hane" className="h-10" />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="vd">Vergi Dairesi</Label>
-                  <Input id="vd" value={form.vergiDairesi} onChange={e => setForm({...form, vergiDairesi: e.target.value})} placeholder="Daire adı" className="h-10" />
-                </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1"><Label className="text-xs">VKN / TCKN *</Label><Input value={form.vknTckn} onChange={e => setForm({...form, vknTckn: e.target.value})} className="h-9" /></div>
+                <div className="space-y-1"><Label className="text-xs">Vergi Dairesi</Label><Input value={form.vergiDairesi} onChange={e => setForm({...form, vergiDairesi: e.target.value})} className="h-9" /></div>
               </div>
+              <div className="space-y-1"><Label className="text-xs">Fatura Tarihi</Label><Input type="date" value={form.faturaTarihi} onChange={e => setForm({...form, faturaTarihi: e.target.value})} className="h-9" /></div>
+              <div className="space-y-1"><Label className="text-xs">Tam Adres</Label><Input value={form.adres} onChange={e => setForm({...form, adres: e.target.value})} className="h-9" /></div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1"><Label className="text-xs">İl</Label><Input value={form.il} onChange={e => setForm({...form, il: e.target.value})} className="h-9" /></div>
+                <div className="space-y-1"><Label className="text-xs">İlçe</Label><Input value={form.ilce} onChange={e => setForm({...form, ilce: e.target.value})} className="h-9" /></div>
+              </div>
+              <div className="space-y-1"><Label className="text-xs">Fatura Açıklaması</Label><Textarea value={form.aciklama} onChange={e => setForm({...form, aciklama: e.target.value})} className="resize-none h-14" /></div>
 
+              {/* Kalem Listesi */}
               <div className="space-y-2">
-                <Label htmlFor="faturaTarihi">Fatura Tarihi</Label>
-                <Input id="faturaTarihi" type="date" value={form.faturaTarihi} onChange={e => setForm({...form, faturaTarihi: e.target.value})} className="h-10" />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="adres">Tam Adres</Label>
-                <Input id="adres" value={form.adres} onChange={e => setForm({...form, adres: e.target.value})} placeholder="Cadde, sokak, no..." className="h-10" />
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="il">İl</Label>
-                  <Input id="il" value={form.il} onChange={e => setForm({...form, il: e.target.value})} placeholder="İstanbul" className="h-10" />
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs font-semibold text-blue-700 flex items-center gap-1"><Package className="w-3.5 h-3.5" /> Ürün / Hizmet Kalemleri</Label>
+                  <Button type="button" size="sm" variant="outline" onClick={addKalem} className="h-7 text-xs gap-1"><Plus className="w-3 h-3" />Kalem Ekle</Button>
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="ilce">İlçe</Label>
-                  <Input id="ilce" value={form.ilce} onChange={e => setForm({...form, ilce: e.target.value})} placeholder="Kadıköy" className="h-10" />
-                </div>
-              </div>
-              
-              <div className="space-y-2">
-                <Label htmlFor="aciklama">Fatura Açıklaması</Label>
-                <Textarea id="aciklama" value={form.aciklama} onChange={e => setForm({...form, aciklama: e.target.value})} placeholder="Hizmet bedeli vb..." className="resize-none h-16" />
-              </div>
 
-              <div className="space-y-2 pt-2">
-                <Label>Tutar ve KDV</Label>
-                <div className="flex gap-2">
-                  <div className="relative flex-1">
-                    <Input id="tutar" type="number" step="0.01" value={form.tutar} onChange={e => setForm({...form, tutar: e.target.value})} placeholder="0.00" className="h-10 pr-10" />
-                    <div className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs font-bold">₺</div>
+                <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+                  {kalemler.map((k) => (
+                    <div key={k.id} className="border rounded-lg p-3 bg-slate-50/50 space-y-2 relative">
+                      {kalemler.length > 1 && (
+                        <button type="button" onClick={() => removeKalem(k.id)} className="absolute top-2 right-2 text-slate-300 hover:text-red-500 transition-colors">
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+
+                      {/* Stoktan seç */}
+                      <div className="space-y-1">
+                        <Label className="text-[10px] text-slate-400 font-medium">Stoktan Seç (Opsiyonel)</Label>
+                        <Select
+                          value={k.urunId || 'none'}
+                          onValueChange={(val) => selectUrunForKalem(k.id, val)}
+                        >
+                          <SelectTrigger className="h-8 text-xs bg-white">
+                            <SelectValue placeholder="Stok ürünü seç..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="none">-- Manuel giriş --</SelectItem>
+                            {urunler?.map(u => (
+                              <SelectItem key={u.id} value={u.id}>{u.urunAdi} ({u.stokKodu})</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      <div className="space-y-1">
+                        <Label className="text-[10px] text-slate-400">Ürün / Hizmet Adı</Label>
+                        <Input value={k.ad} onChange={e => updateKalem(k.id, 'ad', e.target.value)} className="h-8 text-sm" placeholder="Ürün veya hizmet adı" />
+                      </div>
+
+                      <div className="grid grid-cols-4 gap-2">
+                        <div className="space-y-1">
+                          <Label className="text-[10px] text-slate-400">Miktar</Label>
+                          <Input type="number" min="0.01" step="0.01" value={k.miktar} onChange={e => updateKalem(k.id, 'miktar', parseFloat(e.target.value) || 0)} className="h-8 text-sm" />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-[10px] text-slate-400">Birim</Label>
+                          <select value={k.birim} onChange={e => updateKalem(k.id, 'birim', e.target.value)} className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs">
+                            {BIRIM_SECENEKLERI.map(b => <option key={b} value={b}>{b}</option>)}
+                          </select>
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-[10px] text-slate-400">B.Fiyat ₺</Label>
+                          <Input type="number" min="0" step="0.01" value={k.birimFiyat || ''} onChange={e => updateKalem(k.id, 'birimFiyat', parseFloat(e.target.value) || 0)} className="h-8 text-sm" />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-[10px] text-slate-400">KDV %</Label>
+                          <select value={k.kdvOrani} onChange={e => updateKalem(k.id, 'kdvOrani', parseInt(e.target.value))} className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs">
+                            {KDV_ORANLARI.map(o => <option key={o} value={o}>%{o}</option>)}
+                          </select>
+                        </div>
+                      </div>
+
+                      <div className="text-right text-xs text-slate-500">
+                        Satır Toplam: <span className="font-bold text-slate-800">{formatCurrency((k.birimFiyat * k.miktar) * (1 + k.kdvOrani / 100))}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Toplam özeti */}
+                <div className="bg-blue-50 rounded-lg p-3 text-xs flex justify-between items-center border border-blue-100">
+                  <div className="space-y-0.5 text-slate-600">
+                    <div>Matrah: <strong>{formatCurrency(kalemToplam.matrah)}</strong></div>
+                    <div>Toplam KDV: <strong>{formatCurrency(kalemToplam.kdv)}</strong></div>
                   </div>
-                  <select 
-                    className="w-28 h-10 rounded-md border border-input bg-background px-3 py-2 text-sm font-bold shadow-sm"
-                    value={form.kdvOrani} 
-                    onChange={e => setForm({...form, kdvOrani: e.target.value})}
-                  >
-                    <option value="20">% 20</option>
-                    <option value="10">% 10</option>
-                    <option value="1">% 1</option>
-                    <option value="0">% 0</option>
-                  </select>
-                  <div className="flex items-center gap-2 border rounded-md px-3 bg-slate-50/50">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase w-8 leading-tight">{form.kdvDahil ? 'Dahil' : 'Hariç'}</span>
-                    <Switch checked={form.kdvDahil} onCheckedChange={val => setForm({...form, kdvDahil: val})} />
+                  <div className="text-right">
+                    <div className="text-slate-400 text-[10px]">GENEL TOPLAM</div>
+                    <div className="text-xl font-bold text-blue-700">{formatCurrency(kalemToplam.toplam)}</div>
                   </div>
                 </div>
               </div>
 
-              <Button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 h-11 gap-2 mt-4 shadow-sm shadow-blue-100 font-semibold">
+              <Button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 h-11 gap-2 mt-2 font-semibold">
                 <Plus className="w-4 h-4" /> Planla ve Listeye Ekle
               </Button>
             </form>
@@ -413,18 +404,13 @@ export function KesilecekFaturalar() {
         </Card>
 
         {/* Liste Kartı */}
-        <Card className="lg:col-span-8 border-0 shadow-sm ring-1 ring-slate-200 overflow-hidden">
+        <Card className="lg:col-span-7 border-0 shadow-sm ring-1 ring-slate-200 overflow-hidden">
           <CardHeader className="bg-slate-50/30 border-b pb-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <CardTitle className="text-lg">Bekleyen Faturalar</CardTitle>
               <div className="relative w-full sm:w-64">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                <Input 
-                  placeholder="Müşteri veya VKN ara..." 
-                  className="pl-10 h-9 bg-white"
-                  value={searchTerm}
-                  onChange={e => setSearchTerm(e.target.value)}
-                />
+                <Input placeholder="Müşteri veya VKN ara..." className="pl-10 h-9 bg-white" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
               </div>
             </div>
           </CardHeader>
@@ -434,7 +420,8 @@ export function KesilecekFaturalar() {
                 <TableHeader>
                   <TableRow className="bg-slate-50/50 border-0 hover:bg-slate-50/50">
                     <TableHead className="font-semibold text-slate-600">Müşteri Detayları</TableHead>
-                    <TableHead className="font-semibold text-slate-600">Planlanan Tutar</TableHead>
+                    <TableHead className="font-semibold text-slate-600">Kalemler</TableHead>
+                    <TableHead className="font-semibold text-slate-600">Toplam</TableHead>
                     <TableHead className="font-semibold text-slate-600 text-center">Durum</TableHead>
                     <TableHead className="text-right font-semibold text-slate-600">Aksiyon</TableHead>
                   </TableRow>
@@ -442,7 +429,7 @@ export function KesilecekFaturalar() {
                 <TableBody>
                   {filteredInvoices.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={4} className="h-48 text-center">
+                      <TableCell colSpan={5} className="h-48 text-center">
                         <div className="flex flex-col items-center justify-center text-slate-400 gap-2">
                           <AlertCircle className="w-8 h-8 opacity-20" />
                           <p>Kayıtlı fatura planı bulunamadı.</p>
@@ -455,33 +442,28 @@ export function KesilecekFaturalar() {
                         <TableCell>
                           <div className="flex flex-col">
                             <span className="font-bold text-slate-900 leading-tight">{f.ad} {f.soyad}</span>
-                            <div className="flex items-center gap-2 mt-0.5">
-                              <span className="text-[11px] text-slate-500 font-medium">{f.vknTckn}</span>
-                              {f.faturaTarihi && (
-                                <span className="text-[11px] text-blue-600 font-bold bg-blue-50 px-1.5 rounded">{f.faturaTarihi}</span>
-                              )}
-                            </div>
-                            <span className="text-[10px] text-slate-500 mt-0.5">
-                              {f.vergiDairesi && `${f.vergiDairesi} VD. • `} 
-                              {f.adres || (f.il ? `${f.ilce}/${f.il}` : 'Adres Belirtilmedi')}
-                            </span>
-                            {f.aciklama && (
-                              <p className="text-[10px] text-slate-400 mt-1 italic leading-tight">
-                                "{f.aciklama}"
-                              </p>
+                            <span className="text-[11px] text-slate-500 font-medium">{f.vknTckn}</span>
+                            {f.faturaTarihi && <span className="text-[11px] text-blue-600 font-bold bg-blue-50 px-1.5 rounded w-fit mt-0.5">{f.faturaTarihi}</span>}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex flex-col gap-0.5">
+                            {f.kalemler && f.kalemler.length > 0 ? (
+                              f.kalemler.slice(0, 2).map(k => (
+                                <span key={k.id} className="text-[11px] text-slate-600">
+                                  {k.miktar}x {k.ad}
+                                </span>
+                              ))
+                            ) : (
+                              <span className="text-[11px] text-slate-400 italic">{f.aciklama || 'Açıklama yok'}</span>
+                            )}
+                            {f.kalemler && f.kalemler.length > 2 && (
+                              <span className="text-[10px] text-blue-500">+{f.kalemler.length - 2} kalem daha</span>
                             )}
                           </div>
                         </TableCell>
                         <TableCell>
-                          <div className="flex flex-col">
-                            <span className="font-bold text-slate-900">{formatCurrency(f.tutar)}</span>
-                            <span className={cn(
-                              "text-[10px] font-bold uppercase tracking-wider",
-                              f.kdvDahil ? "text-emerald-600" : "text-amber-600"
-                            )}>
-                              KDV {f.kdvDahil ? 'Dahil' : 'Hariç'}
-                            </span>
-                          </div>
+                          <span className="font-bold text-slate-900">{formatCurrency(f.tutar)}</span>
                         </TableCell>
                         <TableCell className="text-center">
                           <div className="flex justify-center">
@@ -498,30 +480,24 @@ export function KesilecekFaturalar() {
                         </TableCell>
                         <TableCell className="text-right">
                           <div className="flex items-center justify-end gap-1 md:opacity-0 group-hover:opacity-100 transition-opacity">
-                             {f.durum === 'bekliyor' && (
+                            {f.durum === 'bekliyor' && (
                               <>
-                                <Button 
-                                  variant="outline" 
-                                  size="sm" 
-                                  onClick={() => openGibModal(f)}
+                                <Button
+                                  variant="outline" size="sm" onClick={() => openGibModal(f)}
                                   className="h-7 text-[10px] font-bold bg-amber-50 border-amber-200 text-amber-700 hover:bg-amber-600 hover:text-white hover:border-amber-600 gap-1"
                                 >
-                                  <ExternalLink className="w-3 h-3" /> GİB'E GÖNDER
+                                  <ShieldCheck className="w-3 h-3" /> GİB'E GÖNDER
                                 </Button>
-                                <Button 
-                                  variant="outline" 
-                                  size="sm" 
-                                  onClick={() => convertToRealInvoice(f)}
+                                <Button
+                                  variant="outline" size="sm" onClick={() => convertToRealInvoice(f)}
                                   className="h-7 text-[10px] font-bold bg-white border-blue-200 text-blue-700 hover:bg-blue-600 hover:text-white hover:border-blue-600"
                                 >
                                   FATURA KES
                                 </Button>
                               </>
                             )}
-                            <Button 
-                              variant="ghost" 
-                              size="icon" 
-                              onClick={() => deleteKesilecekFatura(f.id)}
+                            <Button
+                              variant="ghost" size="icon" onClick={() => deleteKesilecekFatura(f.id)}
                               className="w-8 h-8 text-slate-300 hover:text-red-500 hover:bg-red-50"
                             >
                               <Trash2 className="w-4 h-4" />
@@ -540,57 +516,82 @@ export function KesilecekFaturalar() {
 
       {/* GİB Modal */}
       <Dialog open={isGibModalOpen} onOpenChange={setIsGibModalOpen}>
-        <DialogContent className="sm:max-w-[425px]">
+        <DialogContent className="sm:max-w-[480px]">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <ShieldCheck className="w-5 h-5 text-amber-600" />
-              GİB e-Arşiv Portal Taslak Gönderimi
+              GİB e-Arşiv Fatura Gönderimi
             </DialogTitle>
             <DialogDescription>
-              Faturayı GİB portalına taslak olarak göndermek için portal giriş bilgilerinizi girin.
+              Faturayı GİB e-Arşiv portalına göndermek için giriş bilgilerinizi girin.
             </DialogDescription>
           </DialogHeader>
-          <form onSubmit={handleGibSend} className="space-y-4 py-4">
-            <div className="grid gap-4">
-              <div className="grid gap-2">
+          <form onSubmit={handleGibSend} className="space-y-4 py-2">
+            <div className="grid gap-3">
+              <div className="grid gap-1.5">
                 <Label htmlFor="gib_user">Kullanıcı Kodu / VKN</Label>
-                <Input 
-                  id="gib_user" 
-                  value={gibCredentials.username} 
-                  onChange={e => setGibCredentials({...gibCredentials, username: e.target.value})}
-                  placeholder="Kullanıcı Kodu"
-                  required
-                />
+                <Input id="gib_user" value={gibCredentials.username} onChange={e => setGibCredentials({...gibCredentials, username: e.target.value})} placeholder="Kullanıcı Kodu" required />
               </div>
-              <div className="grid gap-2">
+              <div className="grid gap-1.5">
                 <Label htmlFor="gib_pass">Şifre</Label>
-                <Input 
-                  id="gib_pass" 
-                  type="password"
-                  value={gibCredentials.password} 
-                  onChange={e => setGibCredentials({...gibCredentials, password: e.target.value})}
-                  placeholder="********"
-                  required
-                />
+                <Input id="gib_pass" type="password" value={gibCredentials.password} onChange={e => setGibCredentials({...gibCredentials, password: e.target.value})} placeholder="********" required />
               </div>
             </div>
+
             {selectedInvoiceForGib && (
-              <div className="bg-slate-50 p-3 rounded-md border text-sm text-slate-600">
+              <div className="bg-slate-50 p-3 rounded-md border text-sm text-slate-600 space-y-1">
                 <p><strong>Müşteri:</strong> {selectedInvoiceForGib.ad} {selectedInvoiceForGib.soyad}</p>
-                <p><strong>Tutar:</strong> {formatCurrency(selectedInvoiceForGib.tutar)}</p>
+                <p><strong>VKN/TC:</strong> {selectedInvoiceForGib.vknTckn}</p>
+                <p><strong>Toplam:</strong> {formatCurrency(selectedInvoiceForGib.tutar)}</p>
+                {selectedInvoiceForGib.kalemler && selectedInvoiceForGib.kalemler.length > 0 && (
+                  <p><strong>Kalemler:</strong> {selectedInvoiceForGib.kalemler.length} adet ürün/hizmet kalemi</p>
+                )}
               </div>
             )}
-            <DialogFooter className="pt-4">
-              <Button type="button" variant="outline" onClick={() => setIsGibModalOpen(false)} disabled={isGibSending}>
-                İptal
-              </Button>
-              <Button type="submit" className="bg-amber-600 hover:bg-amber-700 gap-2" disabled={isGibSending}>
-                {isGibSending ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <Send className="w-4 h-4" />
-                )}
-                Taslak Olarak Gönder
+
+            {/* Taslak / Otomatik Onay Seçimi */}
+            <div className="rounded-lg border p-3 space-y-2">
+              <Label className="text-sm font-semibold">Gönderim Modu</Label>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setAutoSign(false)}
+                  className={cn(
+                    "flex-1 rounded-md border p-2 text-xs font-medium text-center transition-all",
+                    !autoSign ? "bg-amber-500 border-amber-600 text-white shadow" : "bg-white text-slate-600 hover:border-slate-300"
+                  )}
+                >
+                  📄 Taslak Olarak Gönder
+                  <div className={cn("text-[10px] mt-0.5", !autoSign ? "text-amber-100" : "text-slate-400")}>Portala taslak bırakır, imzalamazsınız</div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAutoSign(true)}
+                  className={cn(
+                    "flex-1 rounded-md border p-2 text-xs font-medium text-center transition-all",
+                    autoSign ? "bg-emerald-600 border-emerald-700 text-white shadow" : "bg-white text-slate-600 hover:border-slate-300"
+                  )}
+                >
+                  ✅ Otomatik Onayla
+                  <div className={cn("text-[10px] mt-0.5", autoSign ? "text-emerald-100" : "text-slate-400")}>Faturayı anında imzalar ve resmileştirir</div>
+                </button>
+              </div>
+              {autoSign && (
+                <div className="text-[11px] text-amber-600 bg-amber-50 border border-amber-200 rounded px-2 py-1">
+                  ⚠️ Otomatik onaylama seçildi. Fatura geri alınamaz biçimde oluşturulacaktır.
+                </div>
+              )}
+            </div>
+
+            <DialogFooter className="pt-2">
+              <Button type="button" variant="outline" onClick={() => setIsGibModalOpen(false)} disabled={isGibSending}>İptal</Button>
+              <Button
+                type="submit"
+                className={cn("gap-2", autoSign ? "bg-emerald-600 hover:bg-emerald-700" : "bg-amber-600 hover:bg-amber-700")}
+                disabled={isGibSending}
+              >
+                {isGibSending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                {autoSign ? 'Onayla ve Gönder' : 'Taslak Gönder'}
               </Button>
             </DialogFooter>
           </form>
