@@ -1208,20 +1208,6 @@ app.get('/api/admin/upgrade-to-super', async (req, res) => {
     const columnsRs = await client.execute('PRAGMA table_info(users)');
     const columns = columnsRs.rows.map(c => c.name).join(', ');
     
-// Emergency Repair Route (Public with Secret)
-app.get('/api/admin/repair', async (req, res) => {
-  const secret = req.query.secret;
-  if (secret !== 'repair_99') return res.status(401).json({ success: false, message: 'Unauthorized' });
-  try {
-    await initDb();
-    // Aggressive status column add
-    try { await client.execute("ALTER TABLE companies ADD COLUMN status TEXT DEFAULT 'active'"); } catch(e) {}
-    res.json({ success: true, message: 'DB Repair Successful. Status column added if missing.' });
-  } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-});
-
 // Execute all migration steps in a single atomic batch
     await client.batch([
       "PRAGMA foreign_keys=OFF",
@@ -1266,6 +1252,25 @@ app.get('/api/debug/health', (req, res) => {
     } 
   });
 });
+// Emergency Repair Route (Public with Secret)
+app.get('/api/admin/repair', async (req, res) => {
+  const secret = req.query.secret;
+  if (secret !== 'repair_99') return res.status(401).json({ success: false, message: 'Unauthorized' });
+  try {
+    await initDb();
+    // Aggressive status column add
+    try { 
+      await client.execute("ALTER TABLE companies ADD COLUMN status TEXT DEFAULT 'active'"); 
+      console.log('Status column forcefully checked/added.');
+    } catch(e) {
+      console.warn('Status column already exists or add failed:', e.message);
+    }
+    res.json({ success: true, message: 'DB Repair Successful. Status column added if missing.' });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 app.use('/uploads', express.static(uploadsDir));
 
 if (process.env.NODE_ENV !== 'production') {
