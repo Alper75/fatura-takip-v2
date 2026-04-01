@@ -1264,7 +1264,7 @@ app.post('/api/gib/create-draft', authMiddleware, async (req, res) => {
   const totalVat = Math.round(products.reduce((s, p) => s + (p.vatAmount || 0), 0) * 100) / 100;
   const totalWithholding = Math.round(products.reduce((s, p) => s + (p.vatWithholdingAmount || 0), 0) * 100) / 100;
 
-  // KV Stopajı (kurumlar vergisi stopajı)
+  // KV/GV Stopajı (vergi satırı)
   let withTaxAmount = 0;
   if (invoice.stopajOrani && parseFloat(invoice.stopajOrani) > 0) {
     withTaxAmount = Math.round(productsTotalPrice * (parseFloat(invoice.stopajOrani) / 100) * 100) / 100;

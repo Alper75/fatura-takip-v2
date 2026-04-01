@@ -49,29 +49,130 @@ import * as XLSX from 'xlsx';
 import type { KesilecekFatura, FaturaKalemi } from '@/types';
 import { useUrunler } from '@/modules/stok/hooks/useStokQuery';
 
-const BIRIM_SECENEKLERI = ['ADET', 'PAKET', 'KG', 'LT', 'TON', 'M2', 'M3', 'SAAT', 'GUN'];
 const KDV_ORANLARI = [0, 1, 8, 10, 18, 20];
 
 const newKalem = (): FaturaKalemi => ({
   id: 'k' + Date.now() + Math.random().toString(36).slice(2),
   ad: '',
   miktar: 1,
-  birim: 'ADET',
+  birim: 'C62',           // GIB kodu: C62 = Adet
   birimFiyat: 0,
   kdvOrani: 20,
-  tevkifatOrani: '0',
+  tevkifatOrani: 0,       // % olarak (ornek: 30 = %30 = 3/10)
+  tevkifatKodu: '',       // ornek: '616'
 });
 
+// GIB Portal'daki fatura tipleriyle birebir
 const FATURA_TIPI_SECENEKLERI = [
-  { value: 'SATIS', label: 'Satış' },
-  { value: 'IADE', label: 'Gümrük İçin İade' },
-  { value: 'TEVKIFAT', label: 'Tevkifat' },
-  { value: 'ISTISNA', label: 'İstisna' },
-  { value: 'OZEL_MATRAH', label: 'Özel Matrah' },
-  { value: 'IHRAC_KAYITLI', label: 'İhraç Kayıtlı' },
+  { value: 'SATIS',             label: 'SATIŞ' },
+  { value: 'IADE',              label: 'GENEL İADE' },
+  { value: 'TEVKIFAT',          label: 'TEVKİFAT' },
+  { value: 'TEVKIFATIADE',      label: 'TEVKİFAT İADE' },
+  { value: 'ISTISNA',           label: 'İSTİSNA' },
+  { value: 'OZELMATRAH',        label: 'ÖZEL MATRAH' },
+  { value: 'IHRACKAYITLI',      label: 'İHRAÇ KAYITLI' },
+  { value: 'KONAKLAMAVERGISI',  label: 'KONAKLAMA VERGİSİ' },
+  { value: 'YTBSATIS',          label: 'YATIRIM TEŞVİK SATIŞ' },
+  { value: 'YTBISTISNA',        label: 'YATIRIM TEŞVİK İSTİSNA' },
+  { value: 'YTBIADE',           label: 'YATIRIM TEŞVİK İADE' },
+  { value: 'YTBTEVKIFAT',       label: 'YATIRIM TEŞVİK TEVKİFAT' },
+  { value: 'YTBTEVKIFATIADE',   label: 'YATIRIM TEŞVİK TEVKİFAT İADE' },
 ];
 
-const TEVKIFAT_ORANLARI = ['0', '2/10', '3/10', '4/10', '5/10', '7/10', '9/10', '10/10'];
+// GIB'in desteklediği birim kodları
+const BIRIM_KODLARI = [
+  { value: 'C62', label: 'Adet' },
+  { value: 'HUR', label: 'Saat' },
+  { value: 'DAY', label: 'Gün' },
+  { value: 'MON', label: 'Ay' },
+  { value: 'ANN', label: 'Yıl' },
+  { value: 'PA',  label: 'Paket' },
+  { value: 'BX',  label: 'Kutu' },
+  { value: 'KGM', label: 'Kilogram (kg)' },
+  { value: 'GRM', label: 'Gram (g)' },
+  { value: 'LTR', label: 'Litre (lt)' },
+  { value: 'TNE', label: 'Ton' },
+  { value: 'MTR', label: 'Metre (m)' },
+  { value: 'MTK', label: 'Metre Kare (m2)' },
+  { value: 'MTQ', label: 'Metre Küp (m3)' },
+  { value: 'SET', label: 'Set' },
+];
+
+// KDV Tevkifat oranları (%)
+const TEVKIFAT_ORAN_SECENEKLERI = [
+  { value: 0,  label: 'Yok' },
+  { value: 20, label: '%20 (2/10)' },
+  { value: 30, label: '%30 (3/10)' },
+  { value: 40, label: '%40 (4/10)' },
+  { value: 50, label: '%50 (5/10)' },
+  { value: 70, label: '%70 (7/10)' },
+  { value: 90, label: '%90 (9/10)' },
+  { value: 100, label: '%100 (10/10)' },
+];
+
+// Tevkifat kodları (GIB portal formatinda)
+const TEVKIFAT_KODLARI = [
+  { value: '', label: '-- Kod Seçin --' },
+  { value: '601', label: '601 - Yapım İşleri Mhnd-Mimarlık-Etüt' },
+  { value: '602', label: '602 - Etüt, plan-proje, danışmanlık, denetim' },
+  { value: '603', label: '603 - Makine, Teçhizat Tadil/Bakım/Onarım' },
+  { value: '604', label: '604 - Yemek servis hizmeti' },
+  { value: '605', label: '605 - Organizasyon hizmeti' },
+  { value: '606', label: '606 - İşgülü temin hizmetleri' },
+  { value: '607', label: '607 - Özel güvenlik hizmeti' },
+  { value: '608', label: '608 - Yapı denetim hizmetleri' },
+  { value: '609', label: '609 - Fason Tekstil/Konfeksiyon' },
+  { value: '610', label: '610 - Turistik mağazalara verilen hizmet' },
+  { value: '611', label: '611 - Spor kulüpleri yayın/reklam' },
+  { value: '612', label: '612 - Temizlik Hizmeti' },
+  { value: '613', label: '613 - Çevre, Bahçe ve Bakım Hizmetleri' },
+  { value: '614', label: '614 - Servis taşımacılığı' },
+  { value: '615', label: '615 - Her Türlü Baskı ve Basım Hizmetleri' },
+  { value: '616', label: '616 - Diğer Hizmetler' },
+  { value: '617', label: '617 - Hurda metalden külçe teslimleri' },
+  { value: '618', label: '618 - Bakır,Çinko,Alüm. Külçe Teslimi' },
+  { value: '619', label: '619 - Bakır, çinko ve alüm. ürünleri teslimi' },
+  { value: '620', label: '620 - İstisnadan vaçgeçenlerin hurda teslimi' },
+  { value: '621', label: '621 - Metal/plastik/lastik hurda hammadde' },
+  { value: '622', label: '622 - Pamuk, tiftik, yün; post ve deri' },
+  { value: '623', label: '623 - Ağaç ve orman ürünleri teslimi' },
+  { value: '624', label: '624 - Yük Taşımacılığı Hizmeti' },
+  { value: '625', label: '625 - Ticari Reklam Hizmetleri' },
+  { value: '626', label: '626 - Diğer Teslimler' },
+  { value: '627', label: '627 - Demir-Çelik Ürünleri Teslimi' },
+  { value: '801', label: '801 - Yapım İşleri (800-serisi)' },
+  { value: '802', label: '802 - Etüt/Plan/Proje/Danışmanlık' },
+  { value: '803', label: '803 - Makine/Teçhizat Bakım/Onarım' },
+  { value: '804', label: '804 - Yemek Servis Hizmeti' },
+  { value: '805', label: '805 - Organizasyon Hizmeti' },
+  { value: '806', label: '806 - İşgülü Temin Hizmetleri' },
+  { value: '807', label: '807 - Özel Güvenlik Hizmeti' },
+  { value: '808', label: '808 - Yapı Denetim Hizmetleri' },
+  { value: '809', label: '809 - Fason Tekstil (800-serisi)' },
+  { value: '810', label: '810 - Turistik Mağaza Müşteri Bulma' },
+  { value: '811', label: '811 - Spor Kulüpleri Yayın/Reklam' },
+  { value: '812', label: '812 - Temizlik Hizmeti (800-serisi)' },
+  { value: '813', label: '813 - Çevre/Bahçe Bakım Hizmetleri' },
+  { value: '814', label: '814 - Servis Taşımacılığı Hizmeti' },
+  { value: '815', label: '815 - Baskı ve Basım Hizmetleri' },
+  { value: '816', label: '816 - Hurda Metalden Külçe Teslimleri' },
+  { value: '817', label: '817 - Bakır,Çinko,Alüm Külçe (800-serisi)' },
+  { value: '818', label: '818 - Bakır,Çinko,Alüm Ürün Teslimi' },
+  { value: '819', label: '819 - İstisnadan Vaçgeçenlerin Hurda Teslimi' },
+  { value: '820', label: '820 - Metal/Plastik/Lastik Hurda' },
+  { value: '821', label: '821 - Pamuk/Tiftik/Yün/Post/Deri' },
+  { value: '822', label: '822 - Ağaç ve Orman Ürünleri' },
+  { value: '823', label: '823 - Yük Taşımacılığı Hizmeti (800)' },
+  { value: '824', label: '824 - Ticari Reklam Hizmetleri (800)' },
+  { value: '825', label: '825 - Demir-Çelik Ürünleri Teslimi (800)' },
+];
+
+// Stopaj tipleri
+const STOPAJ_TIPI_SECENEKLERI = [
+  { value: '', label: 'Yok' },
+  { value: 'V0011', label: 'KV. Stopajı (Kurumlar Vergisi)' },
+  { value: 'V0003', label: 'GV. Stopajı (Gelir Vergisi)' },
+];
 
 export function KesilecekFaturalar() {
   const { 
@@ -104,6 +205,7 @@ export function KesilecekFaturalar() {
   const [isGibSending, setIsGibSending] = useState(false);
   const [autoSign, setAutoSign] = useState(false);
   const [gibFaturaTipi, setGibFaturaTipi] = useState('SATIS');
+  const [gibStopajTipi, setGibStopajTipi] = useState('');
   const [gibStopajOrani, setGibStopajOrani] = useState('0');
 
   // Kalem hesaplamaları
@@ -250,6 +352,7 @@ export function KesilecekFaturalar() {
           invoice: {
             ...selectedInvoiceForGib,
             faturaTipi: gibFaturaTipi,
+            stopajTipi: gibStopajTipi || undefined,
             stopajOrani: gibStopajOrani !== '0' ? gibStopajOrani : undefined,
           },
           autoSign,
@@ -273,6 +376,7 @@ export function KesilecekFaturalar() {
   const openGibModal = (f: KesilecekFatura) => {
     setSelectedInvoiceForGib(f);
     setGibFaturaTipi('SATIS');
+    setGibStopajTipi('');
     setGibStopajOrani('0');
     setIsGibModalOpen(true);
   };
@@ -388,7 +492,7 @@ export function KesilecekFaturalar() {
                         <div className="space-y-1">
                           <Label className="text-[10px] text-slate-400">Birim</Label>
                           <select value={k.birim} onChange={e => updateKalem(k.id, 'birim', e.target.value)} className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs">
-                            {BIRIM_SECENEKLERI.map(b => <option key={b} value={b}>{b}</option>)}
+                            {BIRIM_KODLARI.map(b => <option key={b.value} value={b.value}>{b.label}</option>)}
                           </select>
                         </div>
                         <div className="space-y-1">
@@ -403,30 +507,42 @@ export function KesilecekFaturalar() {
                         </div>
                       </div>
 
-                      {/* Tevkifat */}
-                      <div className="space-y-1">
-                        <Label className="text-[10px] text-slate-400 font-medium">KDV Tevkifatı (varsa)</Label>
-                        <select
-                          value={k.tevkifatOrani || '0'}
-                          onChange={e => updateKalem(k.id, 'tevkifatOrani', e.target.value)}
-                          className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
-                        >
-                          {TEVKIFAT_ORANLARI.map(o => (
-                            <option key={o} value={o}>{o === '0' ? 'Yok' : `${o} Tevkifat`}</option>
-                          ))}
-                        </select>
+                      {/* KDV Tevkifatı - çift seçici */}
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="space-y-1">
+                          <Label className="text-[10px] text-amber-700 font-medium">KDV Tevkifat Oranı</Label>
+                          <select
+                            value={k.tevkifatOrani}
+                            onChange={e => updateKalem(k.id, 'tevkifatOrani', parseInt(e.target.value))}
+                            className="h-8 w-full rounded-md border border-amber-100 bg-background px-2 text-xs"
+                          >
+                            {TEVKIFAT_ORAN_SECENEKLERI.map(o => (
+                              <option key={o.value} value={o.value}>{o.label}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-[10px] text-amber-700 font-medium">Tevkifat Kodu</Label>
+                          <select
+                            value={k.tevkifatKodu || ''}
+                            onChange={e => updateKalem(k.id, 'tevkifatKodu', e.target.value)}
+                            className="h-8 w-full rounded-md border border-amber-100 bg-background px-2 text-xs"
+                            disabled={!k.tevkifatOrani}
+                          >
+                            {TEVKIFAT_KODLARI.map(kod => (
+                              <option key={kod.value} value={kod.value}>{kod.label}</option>
+                            ))}
+                          </select>
+                        </div>
                       </div>
 
                       <div className="text-right text-xs text-slate-500">
-                        Satır Matrah: <span className="font-bold text-slate-700">{formatCurrency(k.birimFiyat * k.miktar)}</span>
+                        Matrah: <span className="font-bold text-slate-700">{formatCurrency(k.birimFiyat * k.miktar)}</span>
                         {' · '}KDV: <span className="font-bold text-emerald-700">{formatCurrency((k.birimFiyat * k.miktar) * (k.kdvOrani / 100))}</span>
-                        {k.tevkifatOrani && k.tevkifatOrani !== '0' && (
+                        {k.tevkifatOrani > 0 && (
                           <span className="text-amber-600">
                             {' · '}Tevk: -{formatCurrency(
-                              (() => {
-                                const [pay, payda] = k.tevkifatOrani.split('/').map(Number);
-                                return payda > 0 ? (k.birimFiyat * k.miktar) * (k.kdvOrani / 100) * (pay / payda) : 0;
-                              })()
+                              (k.birimFiyat * k.miktar) * (k.kdvOrani / 100) * (k.tevkifatOrani / 100)
                             )}
                           </span>
                         )}
@@ -620,22 +736,39 @@ export function KesilecekFaturalar() {
               )}
             </div>
 
-            {/* KV Stopajı */}
+            {/* Stopaj Türü + Oran */}
             <div className="grid gap-1.5">
-              <Label className="text-sm font-semibold">KV Stopajı (Kurumlar Vergisi Stopajı) %</Label>
-              <div className="flex items-center gap-2">
-                <Input
-                  type="number"
-                  min="0"
-                  max="100"
-                  step="0.1"
-                  value={gibStopajOrani}
-                  onChange={e => setGibStopajOrani(e.target.value)}
-                  placeholder="0"
-                  className="h-9 w-24"
-                />
-                <span className="text-sm text-slate-500">%  (0 = Yok)</span>
+              <Label className="text-sm font-semibold">Stopaj (Varsa)</Label>
+              <div className="grid grid-cols-2 gap-2">
+                <select
+                  value={gibStopajTipi}
+                  onChange={e => setGibStopajTipi(e.target.value)}
+                  className="h-9 rounded-md border border-input bg-background px-2 text-xs"
+                >
+                  {STOPAJ_TIPI_SECENEKLERI.map(s => (
+                    <option key={s.value} value={s.value}>{s.label}</option>
+                  ))}
+                </select>
+                <div className="flex items-center gap-1">
+                  <Input
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="0.5"
+                    value={gibStopajOrani}
+                    onChange={e => setGibStopajOrani(e.target.value)}
+                    placeholder="0"
+                    className="h-9 w-20"
+                    disabled={!gibStopajTipi}
+                  />
+                  <span className="text-xs text-slate-400">%</span>
+                </div>
               </div>
+              {gibStopajTipi && gibStopajOrani !== '0' && parseFloat(gibStopajOrani) > 0 && (
+                <p className="text-[11px] text-blue-600 bg-blue-50 border border-blue-100 rounded px-2 py-1">
+                  & Matrah üzerinden %{gibStopajOrani} {gibStopajTipi === 'V0011' ? 'Kurumlar Vergisi' : 'Gelir Vergisi'} stopajı uygulanacak.
+                </p>
+              )}
             </div>
 
             {/* Taslak / Otomatik Onay Seçimi */}

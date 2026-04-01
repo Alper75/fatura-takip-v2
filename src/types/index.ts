@@ -352,10 +352,11 @@ export interface FaturaKalemi {
   urunId?: string;
   ad: string;
   miktar: number;
-  birim: string;
+  birim: string;          // GİB kodu: 'C62'=Adet, 'HUR'=Saat, 'KGM'=kg vb.
   birimFiyat: number;
   kdvOrani: number;
-  tevkifatOrani?: string;  // örn: '2/10', '9/10'
+  tevkifatOrani: number;  // % olarak: 30 = %30 = 3/10 (sayı)
+  tevkifatKodu?: string;  // GİB kodu: '616', '802' vb.
 }
 
 export interface KesilecekFatura {
@@ -373,8 +374,9 @@ export interface KesilecekFatura {
   faturaTarihi?: string;
   aciklama?: string;
   kalemler?: FaturaKalemi[];
-  faturaTipi?: string;  // SATIS | IADE | TEVKIFAT | ISTISNA | OZEL_MATRAH | IHRAC_KAYITLI
-  stopajOrani?: string; // KV Stopaj oranı %
+  faturaTipi?: string;    // GİB portal değeri: SATIS, TEVKIFAT, IADE vb.
+  stopajTipi?: string;    // 'V0011' (KV) | 'V0003' (GV)
+  stopajOrani?: string;   // % Stopaj oranı
   olusturmaTarihi: string;
   durum: 'bekliyor' | 'kesildi';
   cariId?: string;
