@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { 
   LayoutDashboard, 
@@ -26,6 +26,17 @@ import type { ViewType } from '@/types';
 export function Sidebar() {
   const { user, currentPersonnel, currentView, setCurrentView, openSatisDrawer, openAlisDrawer, logout, companies } = useApp();
   const [isPersonnelOpen, setIsPersonnelOpen] = useState(false);
+
+  useEffect(() => {
+    const personnelViews: ViewType[] = [
+      'personel-liste', 'izin-yonetimi', 'talep-yonetimi', 
+      'puantaj-cetveli', 'personel-dashboard', 'personel-izinlerim', 
+      'personel-masraflarim', 'kisisel-puantaj'
+    ];
+    if (personnelViews.includes(currentView)) {
+      setIsPersonnelOpen(true);
+    }
+  }, [currentView]);
 
   const isAdmin = user?.role === 'admin';
   const isSuperAdmin = user?.role === 'super_admin';

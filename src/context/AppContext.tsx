@@ -257,42 +257,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [companies, setCompanies] = useState<Company[]>([]);
 
   // ==================== VERÄ° YÃœKLEME (API'DAN) ====================
-  const loadAllData = useCallback(async () => {
-    if (!isAuthenticated) return;
-    try {
-      const endpoints = [
-        '/api/cariler', '/api/cari-hareketler', '/api/satis-faturalari',
-        '/api/alis-faturalari', '/api/cek-senetler', '/api/banka-hesaplari',
-        '/api/masraf-kurallari', '/api/kesilecek-faturalar', '/api/gider-kategorileri'
-      ];
-      const resData = await Promise.all(endpoints.map(ep => apiFetch(ep)));
-      
-      resData.forEach((res, index) => {
-        if (res?.success) {
-          // Bozuk verileri (null, id'si olmayan veya id'si boş dize olan) temizle
-          const data = Array.isArray(res.data) 
-            ? (res.data as any[]).filter(item => item && item.id !== undefined && item.id !== null && String(item.id).trim() !== '') 
-            : [];
-          switch (index) {
-            case 0: setCariler(data); break;
-            case 1: setCariHareketler(data); break;
-            case 2: setSatisFaturalari(data); break;
-            case 3: setAlisFaturalari(data); break;
-            case 4: setCekSenetler(data); break;
-            case 5: setBankaHesaplari(data); break;
-            case 6: setMasrafKurallari(data); break;
-            case 7: setKesilecekFaturalar(data); break;
-            case 8: setGiderKategorileri(data); break;
-          }
-        }
-      });
-      if (user?.role === 'personnel') fetchMyPersonnel();
-    } catch (e) { console.error('Veri yükleme hatası:', e); }
-  }, [isAuthenticated, user?.role]);
-
-  useEffect(() => {
-    if (isAuthenticated) loadAllData();
-  }, [isAuthenticated, loadAllData]);
 
   // ==================== CARÄ° CRUD ====================
   const addCari = useCallback(async (data: CariFormData) => {
@@ -1279,6 +1243,54 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     try { await apiFetch(`/api/gider-kategorileri/${id}`, { method: 'DELETE' }); }
     catch (e) { console.error('Kategori silinemedi:', e); }
   }, []);
+
+
+  const loadAllData = useCallback(async () => {
+    if (!isAuthenticated) return;
+    try {
+      const endpoints = [
+        '/api/cariler', '/api/cari-hareketler', '/api/satis-faturalari',
+        '/api/alis-faturalari', '/api/cek-senetler', '/api/banka-hesaplari',
+        '/api/masraf-kurallari', '/api/kesilecek-faturalar', '/api/gider-kategorileri'
+      ];
+      const resData = await Promise.all(endpoints.map(ep => apiFetch(ep)));
+      
+      resData.forEach((res, index) => {
+        if (res?.success) {
+          const data = Array.isArray(res.data) 
+            ? (res.data as any[]).filter(item => item && item.id !== undefined && item.id !== null && String(item.id).trim() !== '') 
+            : [];
+          switch (index) {
+            case 0: setCariler(data); break;
+            case 1: setCariHareketler(data); break;
+            case 2: setSatisFaturalari(data); break;
+            case 3: setAlisFaturalari(data); break;
+            case 4: setCekSenetler(data); break;
+            case 5: setBankaHesaplari(data); break;
+            case 6: setMasrafKurallari(data); break;
+            case 7: setKesilecekFaturalar(data); break;
+            case 8: setGiderKategorileri(data); break;
+          }
+        }
+      });
+      if (user?.role === 'admin' || user?.role === 'super_admin') {
+        fetchPersonnel();
+        fetchLeaves();
+        fetchRequests();
+        fetchPointages();
+      }
+      if (user?.role === 'personnel') {
+        fetchMyPersonnel();
+        fetchLeaves();
+        fetchRequests();
+        fetchPointages();
+      }
+    } catch (e) { console.error('Veri yükleme hatası:', e); }
+  }, [isAuthenticated, user?.role, fetchPersonnel, fetchLeaves, fetchRequests, fetchPointages, fetchMyPersonnel]);
+
+  useEffect(() => {
+    if (isAuthenticated) loadAllData();
+  }, [isAuthenticated, loadAllData]);
 
   return (
     <AppContext.Provider
