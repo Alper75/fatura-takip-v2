@@ -1279,6 +1279,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         fetchRequests();
         fetchPointages();
       }
+      if (user?.role === 'super_admin') {
+        fetchCompanies();
+      }
       if (user?.role === 'personnel') {
         fetchMyPersonnel();
         fetchLeaves();
@@ -1286,7 +1289,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         fetchPointages();
       }
     } catch (e) { console.error('Veri yükleme hatası:', e); }
-  }, [isAuthenticated, user?.role, fetchPersonnel, fetchLeaves, fetchRequests, fetchPointages, fetchMyPersonnel]);
+  }, [isAuthenticated, user?.role, fetchPersonnel, fetchLeaves, fetchRequests, fetchPointages, fetchMyPersonnel, fetchCompanies]);
 
   useEffect(() => {
     if (isAuthenticated) loadAllData();

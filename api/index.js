@@ -109,6 +109,80 @@ app.get('/api/personnel/me', authMiddleware, async (req, res) => {
   }
 });
 
+// --- SUPER ADMIN COMPANIES ---
+
+// List all companies
+app.get('/api/super/companies', authMiddleware, superAdminMiddleware, async (req, res) => {
+  try {
+    const rs = await client.execute('SELECT * FROM companies ORDER BY id DESC');
+    res.json({ success: true, data: rs.rows });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// Add new company with its first admin
+app.post('/api/super/companies', authMiddleware, superAdminMiddleware, async (req, res) => {
+  const { name, tax_no, address, email, admin_tc, admin_password, status } = req.body;
+  
+  if (!name) return res.status(400).json({ success: false, message: 'Şirket adı gereklidir.' });
+
+  try {
+    // 1. Create Company
+    const compResult = await client.execute({
+      sql: 'INSERT INTO companies (name, tax_no, address, email, status) VALUES (?, ?, ?, ?, ?)',
+      args: [name, n(tax_no), n(address), n(email), status || 'active']
+    });
+    const newCompanyId = Number(compResult.lastInsertRowid);
+
+    // 2. Create Admin User if provided
+    if (admin_tc && admin_password) {
+      const hashedPassword = bcrypt.hashSync(admin_password, 10);
+      await client.execute({
+        sql: 'INSERT INTO users (tc, password, role, company_id, must_change_password) VALUES (?, ?, ?, ?, ?)',
+        args: [admin_tc, hashedPassword, 'admin', newCompanyId, 0]
+      });
+    }
+
+    res.json({ success: true, message: 'Şirket ve yönetici hesabı oluşturuldu.', companyId: newCompanyId });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// Update company
+app.put('/api/super/companies/:id', authMiddleware, superAdminMiddleware, async (req, res) => {
+  const { id } = req.params;
+  const { name, tax_no, address, email, status } = req.body;
+  try {
+    await client.execute({
+      sql: 'UPDATE companies SET name = ?, tax_no = ?, address = ?, email = ?, status = ? WHERE id = ?',
+      args: [name, n(tax_no), n(address), n(email), status || 'active', id]
+    });
+    res.json({ success: true, message: 'Şirket bilgileri güncellendi.' });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// Delete company
+app.delete('/api/super/companies/:id', authMiddleware, superAdminMiddleware, async (req, res) => {
+  const { id } = req.params;
+  if (Number(id) === 1) return res.status(400).json({ success: false, message: 'Varsayılan şirket silinemez.' });
+  
+  try {
+    // Not: Gerçek senaryoda cascading delete veya soft-delete tercih edilmeli.
+    // Şimdilik sadece şirketi siliyoruz.
+    await client.execute({
+      sql: 'DELETE FROM companies WHERE id = ?',
+      args: [id]
+    });
+    res.json({ success: true, message: 'Şirket silindi.' });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 // Helper to calculate annual leave based on seniority
 const calculateAnnualLeave = (startDate) => {
   if (!startDate) return 14;
