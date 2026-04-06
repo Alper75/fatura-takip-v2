@@ -1,5 +1,5 @@
-const jwt = require('jsonwebtoken');
-const bcrypt = require('bcryptjs');
+import jwt from 'jsonwebtoken';
+import bcrypt from 'bcryptjs';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'personnel_module_secret_88';
 
@@ -52,7 +52,7 @@ const superAdminMiddleware = (req, res, next) => {
   }
 };
 
-module.exports = {
+export {
   generateToken,
   verifyToken,
   authMiddleware,

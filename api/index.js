@@ -1,16 +1,21 @@
-const express = require('express');
-const cors = require('cors');
-const bodyParser = require('body-parser');
-const axios = require('axios');
-const multer = require('multer');
-const path = require('path');
-const fs = require('fs');
-const xlsx = require('xlsx');
-const { v4: uuidv4 } = require('uuid');
-const { createInvoiceAndGetHTML } = require('fatura');
+import express from 'express';
+import cors from 'cors';
+import bodyParser from 'body-parser';
+import axios from 'axios';
+import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
+import xlsx from 'xlsx';
+import { v4 as uuidv4 } from 'uuid';
+import { createInvoiceAndGetHTML } from 'fatura';
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
 
-const { client, initDb } = require('./db.cjs');
-const { generateToken, authMiddleware, adminMiddleware, superAdminMiddleware, bcrypt } = require('./auth.cjs');
+import { client, initDb } from './db.js';
+import { generateToken, authMiddleware, adminMiddleware, superAdminMiddleware, bcrypt } from './auth.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 // We now call initDb() automatically to ensure the new 'status' column is added.
 initDb().catch(e => console.error('Startup DB Init Error:', e));
@@ -1231,15 +1236,15 @@ app.delete('/api/gider-kategorileri/:id', authMiddleware, async (req, res) => {
 });
 
 // --- GİB API ROUTES (e-fatura npm paketi ile) ---
-const {
-  default: EInvoice,
+import {
+  default as EInvoice,
   InvoiceType,
   EInvoiceCountry,
   EInvoiceUnitType,
   EInvoiceCurrencyType,
   EInvoiceApiError,
   EInvoiceTypeError
-} = require('e-fatura');
+} from 'e-fatura';
 
 const UNIT_TYPE_MAP_GIB = {
   ADET: EInvoiceUnitType?.ADET,
