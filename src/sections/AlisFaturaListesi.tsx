@@ -69,6 +69,7 @@ export function AlisFaturaListesi() {
     downloadAlisDekont,
     updateAlisFaturaOdeme,
     openAlisDrawer,
+    parseInvoiceXml,
     bankaHesaplari
   } = useApp();
   
@@ -89,6 +90,36 @@ export function AlisFaturaListesi() {
   
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const dekontInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const xmlInputRef = useRef<HTMLInputElement | null>(null);
+
+  const handleXmlFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      toast.info('XML dosyası işleniyor...', { id: 'xml-upload' });
+      const result = await parseInvoiceXml(file);
+      if (result.success && result.data) {
+        toast.success('XML başarıyla okundu!', { id: 'xml-upload' });
+        const data = result.data;
+        const initialData = {
+          tedarikciVkn: data.supplier?.vkn || '',
+          tedarikciAdi: (data.supplier?.ad ? `${data.supplier.ad} ${data.supplier.soyad || ''}`.trim() : '') || 'Bilinmiyor',
+          faturaNo: data.faturaNo || '',
+          faturaTarihi: data.faturaTarihi || new Date().toISOString().split('T')[0],
+          vadeTarihi: '',
+          malHizmetAdi: data.items?.[0]?.name || 'Muhtelif İşlemler',
+          toplamTutar: data.matrah?.toString() || '',
+          kdvOrani: data.kdvOrani?.toString() || '20',
+          tevkifatOrani: '0',
+          stopajOrani: '0',
+          aciklama: ''
+        };
+        openAlisDrawer(initialData);
+      } else {
+        toast.error(result.message || 'XML okunamadı.', { id: 'xml-upload' });
+      }
+      if (xmlInputRef.current) xmlInputRef.current.value = '';
+    }
+  };
 
   const filteredFaturalar = alisFaturalari.filter((fatura) => {
     const searchLower = filterValues.search.toLowerCase();
@@ -228,7 +259,24 @@ export function AlisFaturaListesi() {
                 <FileSpreadsheet className="w-4 h-4" />
                 <span className="hidden sm:inline">Excel</span>
               </Button>
-              <Button onClick={openAlisDrawer} className="gap-2">
+
+              <input 
+                type="file" 
+                accept=".xml" 
+                ref={xmlInputRef} 
+                onChange={handleXmlFileSelect} 
+                className="hidden" 
+              />
+              <Button 
+                variant="outline" 
+                onClick={() => xmlInputRef.current?.click()} 
+                className="gap-2 text-indigo-700 border-indigo-200 hover:bg-indigo-50 hover:text-indigo-800"
+              >
+                <Upload className="w-4 h-4" />
+                <span className="hidden sm:inline">XML Gönder</span>
+              </Button>
+
+              <Button onClick={() => openAlisDrawer()} className="gap-2">
                 <FilePlus className="w-4 h-4" />
                 <span className="hidden sm:inline">Yeni</span>
               </Button>

@@ -11,6 +11,8 @@ import { createInvoiceAndGetHTML } from 'fatura';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 
+import { XMLParser } from 'fast-xml-parser';
+
 import { client, initDb } from './db.js';
 import { generateToken, authMiddleware, adminMiddleware, superAdminMiddleware, bcrypt } from './auth.js';
 
@@ -49,6 +51,103 @@ const storage = multer.diskStorage({
   filename: (req, file, cb) => cb(null, `${Date.now()}_${file.originalname}`)
 });
 const upload = multer({ storage });
+
+// XML Parser for UBL-TR Invoice
+const parser = new XMLParser({
+  ignoreAttributes: false,
+  attributeNamePrefix: "@_",
+});
+
+app.post('/api/invoices/parse-xml', authMiddleware, upload.single('file'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ success: false, message: 'XML dosyası gereklidir.' });
+  
+  try {
+    const xmlContent = fs.readFileSync(req.file.path, 'utf-8');
+    const jsonObj = parser.parse(xmlContent);
+    
+    // UBL-TR 2.1 mapping
+    // Invoice root is usually jsonObj.Invoice
+    const inv = jsonObj.Invoice;
+    if (!inv) throw new Error('Geçersiz XML formatı: Invoice kök etiketi bulunamadı.');
+
+    // Party Information (Seller/Buyer based on context, but let's just pull general data)
+    // For Sale Invoice: Buyer (AccountingCustomerParty)
+    // For Purchase Invoice: Seller (AccountingSupplierParty)
+    
+    const supplierParty = inv['cac:AccountingSupplierParty']?.['cac:Party'];
+    const customerParty = inv['cac:AccountingCustomerParty']?.['cac:Party'];
+    
+    // Extract VKN/TCKN
+    const getVkn = (party) => {
+      const id = party?.['cac:PartyIdentification']?.['cbc:ID'];
+      return Array.isArray(id) ? id.find(v => v['@_schemeID'] === 'VKN' || v['@_schemeID'] === 'TCKN')?.['#text'] : id?.['#text'] || id;
+    };
+
+    const getAd = (party) => {
+      return party?.['cac:PartyName']?.['cbc:Name'] || party?.['cac:Person']?.['cbc:FirstName'] || '';
+    };
+
+    const getSoyad = (party) => {
+      return party?.['cac:Person']?.['cbc:FamilyName'] || '';
+    };
+    
+    const getTaxOffice = (party) => {
+      return party?.['cac:PartyTaxScheme']?.['cac:TaxScheme']?.['cbc:Name'] || '';
+    };
+
+    const getAddress = (party) => {
+      const addr = party?.['cac:PostalAddress'];
+      if (!addr) return '';
+      return `${addr['cbc:StreetName'] || ''} ${addr['cbc:BuildingNumber'] || ''} ${addr['cbc:CitySubdivisionName'] || ''} ${addr['cbc:CityName'] || ''}`;
+    };
+
+    // Financial Totals
+    const monTotal = inv['cac:LegalMonetaryTotal'];
+    const taxTotal = inv['cac:TaxTotal'];
+
+    const parsedData = {
+      faturaNo: inv['cbc:ID'],
+      faturaTarihi: inv['cbc:IssueDate'],
+      supplier: {
+        vkn: getVkn(supplierParty),
+        ad: getAd(supplierParty),
+        soyad: getSoyad(supplierParty),
+        vergiDairesi: getTaxOffice(supplierParty),
+        adres: getAddress(supplierParty),
+      },
+      customer: {
+        vkn: getVkn(customerParty),
+        ad: getAd(customerParty),
+        soyad: getSoyad(customerParty),
+        vergiDairesi: getTaxOffice(customerParty),
+        adres: getAddress(customerParty),
+      },
+      matrah: parseFloat(monTotal?.['cbc:TaxExclusiveAmount']?.['#text'] || monTotal?.['cbc:TaxExclusiveAmount'] || 0),
+      toplamTutar: parseFloat(monTotal?.['cbc:PayableAmount']?.['#text'] || monTotal?.['cbc:PayableAmount'] || 0),
+      kdvTutari: parseFloat(taxTotal?.['cbc:TaxAmount']?.['#text'] || taxTotal?.['cbc:TaxAmount'] || 0),
+      kdvOrani: 20, // Default KDV, usually extracted from TaxSubtotal if needed
+    };
+
+    // Optionally extract lines (items)
+    const lines = inv['cac:InvoiceLine'];
+    if (lines) {
+        const lineArr = Array.isArray(lines) ? lines : [lines];
+        parsedData.items = lineArr.map(l => ({
+            name: l['cac:Item']?.['cbc:Name'],
+            quantity: parseFloat(l['cbc:InvoicedQuantity']?.['#text'] || l['cbc:InvoicedQuantity'] || 0),
+            price: parseFloat(l['cac:Price']?.['cbc:PriceAmount']?.['#text'] || l['cac:Price']?.['cbc:PriceAmount'] || 0),
+        }));
+    }
+
+    res.json({ success: true, data: parsedData });
+  } catch (error) {
+    console.error('XML Parse Error:', error);
+    res.status(500).json({ success: false, message: 'XML ayrıştırma hatası: ' + error.message });
+  } finally {
+    // Cleanup
+    if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+  }
+});
 
 // --- GİB PORTAL LOGIC ---
 const USE_TEST_MODE = false;

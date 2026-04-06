@@ -68,6 +68,7 @@ export function SatisFaturaListesi() {
     downloadSatisDekont,
     updateSatisFaturaOdeme,
     openSatisDrawer,
+    parseInvoiceXml,
     bankaHesaplari
   } = useApp();
   
@@ -88,6 +89,36 @@ export function SatisFaturaListesi() {
   
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const dekontInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const xmlInputRef = useRef<HTMLInputElement | null>(null);
+
+  const handleXmlFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      toast.info('XML dosyası işleniyor...', { id: 'xml-upload' });
+      const result = await parseInvoiceXml(file);
+      if (result.success && result.data) {
+        toast.success('XML başarıyla okundu!', { id: 'xml-upload' });
+        // Map the parsed data to the format SatisFaturaFormData expects
+        const data = result.data;
+        const initialData = {
+          tcVkn: data.customer?.vkn || '',
+          ad: data.customer?.ad || '',
+          soyad: data.customer?.soyad || '',
+          vergiDairesi: data.customer?.vergiDairesi || '',
+          adres: data.customer?.adres || '',
+          hizmetAdi: data.items?.[0]?.name || 'Muhtelif İşlemler',
+          alinanUcret: data.matrah?.toString() || '',
+          faturaTarihi: data.faturaTarihi || new Date().toISOString().split('T')[0],
+          kdvOrani: data.kdvOrani?.toString() || '20'
+        };
+        openSatisDrawer(initialData);
+      } else {
+        toast.error(result.message || 'XML okunamadı.', { id: 'xml-upload' });
+      }
+      // Reset input
+      if (xmlInputRef.current) xmlInputRef.current.value = '';
+    }
+  };
 
   const filteredFaturalar = satisFaturalari.filter((fatura) => {
     const searchLower = filterValues.search.toLowerCase();
@@ -243,6 +274,23 @@ export function SatisFaturaListesi() {
                   </Badge>
                 )}
               </Button>
+
+              <input 
+                type="file" 
+                accept=".xml" 
+                ref={xmlInputRef} 
+                onChange={handleXmlFileSelect} 
+                className="hidden" 
+              />
+              <Button 
+                variant="outline" 
+                onClick={() => xmlInputRef.current?.click()} 
+                className="gap-2 text-indigo-700 border-indigo-200 hover:bg-indigo-50 hover:text-indigo-800"
+              >
+                <Upload className="w-4 h-4" />
+                <span className="hidden sm:inline">XML Gönder</span>
+              </Button>
+
               <Button onClick={() => openSatisDrawer()} className="gap-2">
                 <FilePlus className="w-4 h-4" />
                 <span className="hidden sm:inline">Yeni</span>

@@ -113,6 +113,9 @@ interface AppContextType {
   downloadAlisDekont: (faturaId: string) => void;
   deleteAlisFatura: (id: string) => void;
 
+  // ==================== XML UPLOAD ====================
+  parseInvoiceXml: (file: File) => Promise<{ success: boolean; data?: any; message?: string }>;
+
   // ==================== VERGI HESAPLAMA ====================
   getVergiRaporu: (yil: number, ay: number) => VergiRaporu;
 
@@ -123,7 +126,8 @@ interface AppContextType {
   satisInitialData: Partial<SatisFaturaFormData> | null;
   openSatisDrawer: (initialData?: Partial<SatisFaturaFormData>) => void;
   closeSatisDrawer: () => void;
-  openAlisDrawer: () => void;
+  alisInitialData: Partial<AlisFaturaFormData> | null;
+  openAlisDrawer: (initialData?: Partial<AlisFaturaFormData>) => void;
   closeAlisDrawer: () => void;
   openCariDrawer: (id?: string) => void;
   closeCariDrawer: () => void;
@@ -239,6 +243,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [isCariEkstreDrawerOpen, setIsCariEkstreDrawerOpen] = useState(false);
   const [selectedCariId, setSelectedCariId] = useState<string | null>(null);
   const [satisInitialData, setSatisInitialData] = useState<Partial<SatisFaturaFormData> | null>(null);
+  const [alisInitialData, setAlisInitialData] = useState<Partial<AlisFaturaFormData> | null>(null);
 
   // ==================== Ã‡EK SENET STATE ====================
   const [cekSenetler, setCekSenetler] = useState<CekSenet[]>([]);
@@ -822,8 +827,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setIsSatisDrawerOpen(false);
     setTimeout(() => setSatisInitialData(null), 300);
   }, []);
-  const openAlisDrawer = useCallback(() => setIsAlisDrawerOpen(true), []);
-  const closeAlisDrawer = useCallback(() => setIsAlisDrawerOpen(false), []);
+  const openAlisDrawer = useCallback((initialData?: Partial<AlisFaturaFormData>) => {
+    setAlisInitialData(initialData || null);
+    setIsAlisDrawerOpen(true);
+  }, []);
+  const closeAlisDrawer = useCallback(() => {
+    setIsAlisDrawerOpen(false);
+    setTimeout(() => setAlisInitialData(null), 300);
+  }, []);
   const openCariDrawer = useCallback((id?: string) => {
     setSelectedCariId(id || null);
     setIsCariDrawerOpen(true);
@@ -1093,6 +1104,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     catch (e) { console.error('AlÄ±ÅŸ fatura silinemedi:', e); }
   }, []);
 
+  const parseInvoiceXml = useCallback(async (file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    try {
+      const data = await apiFetch('/api/invoices/parse-xml', {
+        method: 'POST',
+        body: formData
+      });
+      return data;
+    } catch (error: any) {
+      return { success: false, message: error.message };
+    }
+  }, []);
+
+
 
   // ==================== PDF/DEKONT UPLOAD/DOWNLOAD ====================
   const uploadFile = (setter: React.Dispatch<React.SetStateAction<any[]>>, faturaId: string, file: File, field: string) => {
@@ -1330,6 +1356,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         downloadAlisPdf,
         downloadAlisDekont,
         deleteAlisFatura,
+        parseInvoiceXml,
         bankaHesaplari,
         addBankaHesabi,
         updateBankaHesabi,
@@ -1351,6 +1378,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         isAlisDrawerOpen,
         isCariDrawerOpen,
         satisInitialData,
+        alisInitialData,
         openSatisDrawer,
         closeSatisDrawer,
         openAlisDrawer,

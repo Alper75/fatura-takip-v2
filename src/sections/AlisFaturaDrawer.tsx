@@ -44,7 +44,7 @@ type UploadedFile = {
 };
 
 export function AlisFaturaDrawer() {
-  const { isAlisDrawerOpen, closeAlisDrawer, addAlisFatura, cariler } = useApp();
+  const { isAlisDrawerOpen, closeAlisDrawer, addAlisFatura, cariler, alisInitialData } = useApp();
   const { data: urunler } = useUrunler();
   const { data: depolar } = useDepolar();
 
@@ -54,9 +54,13 @@ export function AlisFaturaDrawer() {
   // Initialize with one form if open and empty
   useEffect(() => {
     if (isAlisDrawerOpen && forms.length === 0) {
-      setForms([{ id: Date.now(), data: INITIAL_FORM, tutarTuru: 'dahil', errors: {} }]);
+      if (alisInitialData) {
+        setForms([{ id: Date.now(), data: { ...INITIAL_FORM, ...alisInitialData }, tutarTuru: 'dahil', errors: {} }]);
+      } else {
+        setForms([{ id: Date.now(), data: INITIAL_FORM, tutarTuru: 'dahil', errors: {} }]);
+      }
     }
-  }, [isAlisDrawerOpen]);
+  }, [isAlisDrawerOpen, alisInitialData]);
 
   const varsayilanDepoId = depolar?.find(d => d.varsayilan)?.id || depolar?.[0]?.id || '';
 
