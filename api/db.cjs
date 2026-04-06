@@ -469,10 +469,27 @@ async function initDb() {
     }
 
     const bcrypt = require('bcryptjs');
-    const rs = await client.execute('SELECT COUNT(*) as count FROM users');
-    if (Number(rs.rows[0].count) === 0) {
+    
+    // Check for super_admin
+    const superAdminCheck = await client.execute({
+      sql: 'SELECT COUNT(*) as count FROM users WHERE role = ?',
+      args: ['super_admin']
+    });
+    if (Number(superAdminCheck.rows[0].count) === 0) {
+        const superPassword = bcrypt.hashSync('123456', 10);
+        await client.execute({
+          sql: "INSERT INTO users (tc, password, role, must_change_password) VALUES ('superadmin', ?, 'super_admin', 0)",
+          args: [superPassword]
+        });
+        console.log('Default superadmin user created.');
+    }
+
+    // Existing admin check (if table was completely empty)
+    const totalUsers = await client.execute('SELECT COUNT(*) as count FROM users');
+    if (Number(totalUsers.rows[0].count) === 1 && (await client.execute('SELECT tc FROM users')).rows[0].tc === 'superadmin') {
         const adminPassword = bcrypt.hashSync('admin', 10);
         await client.execute("INSERT INTO users (tc, password, role, must_change_password, company_id) VALUES ('admin', ?, 'admin', 0, 1)", [adminPassword]);
+        console.log('Default company admin created.');
     }
 
     console.log('Turso Database schema initialized successfully.');

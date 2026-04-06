@@ -9,8 +9,8 @@ const xlsx = require('xlsx');
 const { v4: uuidv4 } = require('uuid');
 const { createInvoiceAndGetHTML } = require('fatura');
 
-const { client, initDb } = require('./db');
-const { generateToken, authMiddleware, adminMiddleware, superAdminMiddleware, bcrypt } = require('./auth');
+const { client, initDb } = require('./db.cjs');
+const { generateToken, authMiddleware, adminMiddleware, superAdminMiddleware, bcrypt } = require('./auth.cjs');
 
 // We now call initDb() automatically to ensure the new 'status' column is added.
 initDb().catch(e => console.error('Startup DB Init Error:', e));
