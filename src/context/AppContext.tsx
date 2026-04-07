@@ -985,11 +985,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // FormÃ¼l: Net = Matrah + (Matrah * KDV) - (Matrah * Stopaj) - (Matrah * KDV * Tevkifat)
     // Matrah = Net / (1 + KDV - Stopaj - (KDV * Tevkifat))
     const carpan = 1 + kdvOrani - stopajOrani - (kdvOrani * tevkifatCarpani);
-    const matrah = carpan > 0 ? tutar / carpan : 0;
+    const matrah = (carpan > 0 && !isNaN(tutar)) ? tutar / carpan : 0;
 
-    const kdvTutari = matrah * kdvOrani;
-    const stopajTutari = matrah * stopajOrani;
-    const tevkifatTutari = kdvTutari * tevkifatCarpani;
+    const kdvTutari = matrah * kdvOrani || 0;
+    const stopajTutari = matrah * stopajOrani || 0;
+    const tevkifatTutari = kdvTutari * tevkifatCarpani || 0;
 
     return {
       matrah: Math.round(matrah * 100) / 100,
@@ -1010,7 +1010,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const addSatisFatura = useCallback(async (formData: SatisFaturaFormData) => {
     const hesaplanan = calculateSatisFatura(formData);
     const yeniFatura: SatisFatura = {
-      id: 's' + Date.now().toString(),
+      id: 's' + Date.now().toString() + Math.random().toString(36).substr(2, 5),
       tcVkn: formData.tcVkn, ad: formData.ad, soyad: formData.soyad, adres: formData.adres,
       kdvOrani: parseFloat(formData.kdvOrani), alinanUcret: parseFloat(formData.alinanUcret),
       matrah: hesaplanan.matrah, kdvTutari: hesaplanan.kdvTutari,
@@ -1061,7 +1061,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const addAlisFatura = useCallback(async (formData: AlisFaturaFormData) => {
     const hesaplanan = calculateAlisFatura(formData);
     const yeniFatura: AlisFatura = {
-      id: 'a' + Date.now().toString(),
+      id: 'a' + Date.now().toString() + Math.random().toString(36).substr(2, 5),
       faturaNo: formData.faturaNo, faturaTarihi: formData.faturaTarihi,
       tedarikciAdi: formData.tedarikciAdi, tedarikciVkn: formData.tedarikciVkn,
       malHizmetAdi: formData.malHizmetAdi, toplamTutar: parseFloat(formData.toplamTutar),

@@ -142,11 +142,12 @@ export function AlisFaturaListesi() {
   });
 
   const formatCurrency = (value: number) => {
+    const safeValue = isNaN(value) || value === null || value === undefined ? 0 : value;
     return new Intl.NumberFormat('tr-TR', {
       style: 'currency',
       currency: 'TRY',
       maximumFractionDigits: 0
-    }).format(value);
+    }).format(safeValue);
   };
 
   const formatDate = (dateString: string | null | undefined) => {

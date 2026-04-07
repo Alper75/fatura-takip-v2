@@ -152,7 +152,7 @@ export function SatisFaturaDrawer() {
     closeSatisDrawer();
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (forms.length === 0) {
@@ -161,17 +161,21 @@ export function SatisFaturaDrawer() {
     }
 
     if (validateAll()) {
-      forms.forEach(f => {
-        const hes = getHesaplanan(f);
-        addSatisFatura({
-          ...f.data,
-          alinanUcret: f.tutarTuru === 'dahil' ? parseFloat(f.data.alinanUcret).toString() : hes.toplamNet.toString(),
-          dosyaBase64: uploadedFile?.base64,
-          dosyaAdi: uploadedFile?.name
-        });
-      });
-      toast.success(`${forms.length} adet satış faturası kaydedildi (Medyaları ile birlikte)`);
-      handleClose();
+      try {
+        for (const f of forms) {
+          const hes = getHesaplanan(f);
+          await addSatisFatura({
+            ...f.data,
+            alinanUcret: f.tutarTuru === 'dahil' ? parseFloat(f.data.alinanUcret).toString() : hes.toplamNet.toString(),
+            dosyaBase64: uploadedFile?.base64,
+            dosyaAdi: uploadedFile?.name
+          });
+        }
+        toast.success(`${forms.length} adet satış faturası kaydedildi (Medyaları ile birlikte)`);
+        handleClose();
+      } catch (error: any) {
+        toast.error('Kayıt sırasında bir hata oluştu: ' + error.message);
+      }
     } else {
       toast.error('Lütfen formdaki eksik alanları doldurun.');
     }
