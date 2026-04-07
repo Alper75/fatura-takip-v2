@@ -138,15 +138,33 @@ app.post('/api/invoices/parse-xml', authMiddleware, upload.single('file'), async
 
       const vergiBilgisi = smm['gib:vergiBilgisi']?.['gib:vergi'];
       const vergiler = Array.isArray(vergiBilgisi) ? vergiBilgisi : (vergiBilgisi ? [vergiBilgisi] : []);
-      const kdv = vergiler.find(v => v['gib:vergiKodu'] === '0015')?.['gib:vergiTutari'] || 0;
+      
+      const kdvVergisi = vergiler.find(v => v['gib:vergiKodu'] === '0015');
+      const kdv = kdvVergisi?.['gib:vergiTutari'] || 0;
       const stopaj = vergiler.find(v => v['gib:vergiKodu'] === '0003' || v['gib:vergiKodu'] === '0011')?.['gib:vergiTutari'] || 0;
       
+      // Calculate KDV rate from XML or default to 20
+      const kdvMatrah = parseFloat(kdvVergisi?.['gib:matrah'] || 0);
+      const calculatedKdvOrani = (kdvMatrah > 0 && kdv > 0) ? Math.round((parseFloat(kdv) / kdvMatrah) * 100) : 20;
+
       const tevkifatBilgisi = smm['gib:vergiBilgisi']?.['gib:tevkifat'];
       const tevkifatlar = Array.isArray(tevkifatBilgisi) ? tevkifatBilgisi : (tevkifatBilgisi ? [tevkifatBilgisi] : []);
-      const tevkifat = tevkifatlar[0]; // Usually one tevkifat in SMM
+      const tevkifat = tevkifatlar[0];
+
+      const convertTevkifat = (val) => {
+        if (!val) return '0';
+        const num = parseFloat(val);
+        if (Math.abs(num - 20) < 0.1) return '2/10';
+        if (Math.abs(num - 30) < 0.1) return '3/10';
+        if (Math.abs(num - 40) < 0.1) return '4/10';
+        if (Math.abs(num - 50) < 0.1) return '5/10';
+        if (Math.abs(num - 70) < 0.1) return '7/10';
+        if (Math.abs(num - 90) < 0.1) return '9/10';
+        if (Math.abs(num - 100) < 0.1) return '10/10';
+        return val.toString();
+      };
 
       // Matrah is usually the "Gross" (Bürüt) in SMM
-      // Since SMM typically has one main service line, we pull from malHizmetBilgisi
       const malHizmet = smm['gib:malHizmetBilgisi']?.['gib:malHizmet'];
       const lines = Array.isArray(malHizmet) ? malHizmet : (malHizmet ? [malHizmet] : []);
       const burutUcret = lines.reduce((sum, item) => sum + parseFloat(item['gib:burutUcret'] || 0), 0);
@@ -155,7 +173,7 @@ app.post('/api/invoices/parse-xml', authMiddleware, upload.single('file'), async
         faturaNo: smm['gib:makbuzNo'],
         faturaTarihi: smm['gib:belgeTarihi'],
         supplier: {
-          vkn: '', // User is typically the supplier in SMM exports
+          vkn: '',
           ad: 'Serbest Meslek Erbabı',
           vergiDairesi: '',
           adres: '',
@@ -166,13 +184,13 @@ app.post('/api/invoices/parse-xml', authMiddleware, upload.single('file'), async
           vergiDairesi: alici?.['gib:adres']?.['gib:vDaire'] || '',
           adres: getAddress(alici),
         },
-        matrah: burutUcret || parseFloat(smm['gib:toplamTutar'] || 0),
+        matrah: burutUcret || kdvMatrah || parseFloat(smm['gib:toplamTutar'] || 0),
         toplamTutar: parseFloat(smm['gib:odenecekTutar'] || 0),
         kdvTutari: parseFloat(kdv),
-        kdvOrani: 20,
+        kdvOrani: calculatedKdvOrani,
         stopajTutari: parseFloat(stopaj),
         tevkifatTutari: parseFloat(tevkifat?.['gib:tevkifatTutari'] || 0),
-        tevkifatOrani: tevkifat?.['gib:tevkifatOrani']?.toString() || '',
+        tevkifatOrani: convertTevkifat(tevkifat?.['gib:tevkifatOrani']),
         type: 'e-SMM'
       };
 
