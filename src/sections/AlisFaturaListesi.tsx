@@ -124,10 +124,10 @@ export function AlisFaturaListesi() {
   const filteredFaturalar = alisFaturalari.filter((fatura) => {
     const searchLower = filterValues.search.toLowerCase();
     const matchesSearch = 
-      (fatura.faturaNo || '').toLowerCase().includes(searchLower) ||
-      (fatura.tedarikciAdi || '').toLowerCase().includes(searchLower) ||
-      (fatura.tedarikciVkn || '').toLowerCase().includes(searchLower) ||
-      (fatura.malHizmetAdi || '').toLowerCase().includes(searchLower);
+      String(fatura.faturaNo || '').toLowerCase().includes(searchLower) ||
+      String(fatura.tedarikciAdi || '').toLowerCase().includes(searchLower) ||
+      String(fatura.tedarikciVkn || '').toLowerCase().includes(searchLower) ||
+      String(fatura.malHizmetAdi || '').toLowerCase().includes(searchLower);
 
     const matchesStatus = filterValues.status === 'all' || fatura.odemeDurumu === filterValues.status;
     

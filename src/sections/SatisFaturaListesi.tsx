@@ -126,10 +126,10 @@ export function SatisFaturaListesi() {
   const filteredFaturalar = satisFaturalari.filter((fatura) => {
     const searchLower = filterValues.search.toLowerCase();
     const matchesSearch = 
-      (fatura.tcVkn || '').toLowerCase().includes(searchLower) ||
-      (fatura.ad || '').toLowerCase().includes(searchLower) ||
-      (fatura.soyad || '').toLowerCase().includes(searchLower) ||
-      (fatura.adres || '').toLowerCase().includes(searchLower);
+      String(fatura.tcVkn || '').toLowerCase().includes(searchLower) ||
+      String(fatura.ad || '').toLowerCase().includes(searchLower) ||
+      String(fatura.soyad || '').toLowerCase().includes(searchLower) ||
+      String(fatura.adres || '').toLowerCase().includes(searchLower);
 
     const matchesStatus = filterValues.status === 'all' || fatura.odemeDurumu === filterValues.status;
     

@@ -227,11 +227,12 @@ export function KesilecekFaturalar() {
 
   const filteredInvoices = useMemo(() => {
     if (!kesilecekFaturalar || !Array.isArray(kesilecekFaturalar)) return [];
+    const searchLower = searchTerm.toLowerCase();
     return kesilecekFaturalar
       .filter(f => 
-        (f.ad || "").toLowerCase().includes(searchTerm.toLowerCase()) || 
-        (f.soyad && f.soyad.toLowerCase().includes(searchTerm.toLowerCase())) ||
-        (f.vknTckn || "").includes(searchTerm)
+        String(f.ad || "").toLowerCase().includes(searchLower) || 
+        String(f.soyad || "").toLowerCase().includes(searchLower) ||
+        String(f.vknTckn || "").toLowerCase().includes(searchLower)
       )
       .sort((a, b) => new Date(b.olusturmaTarihi || 0).getTime() - new Date(a.olusturmaTarihi || 0).getTime());
   }, [kesilecekFaturalar, searchTerm]);

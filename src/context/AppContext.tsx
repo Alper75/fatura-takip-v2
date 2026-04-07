@@ -213,7 +213,6 @@ const AppContext = createContext<AppContextType | undefined>(undefined);
 
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
-  console.log('[DEBUG] AppProvider Mounting...');
 
   // ==================== AUTH STATE ====================
   const [isAuthenticated, setIsAuthenticated] = useState(() => !!localStorage.getItem('token'));
@@ -1278,20 +1277,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const loadAllData = useCallback(async () => {
     if (!isAuthenticated) return;
-    console.log('[DEBUG] loadAllData Starting...');
     try {
       const endpoints = [
         '/api/cariler', '/api/cari-hareketler', '/api/satis-faturalari',
         '/api/alis-faturalari', '/api/cek-senetler', '/api/banka-hesaplari',
         '/api/masraf-kurallari', '/api/kesilecek-faturalar', '/api/gider-kategorileri'
       ];
-      console.log('[DEBUG] Fetching endpoints:', endpoints);
       const resData = await Promise.all(endpoints.map(ep => apiFetch(ep)));
-      console.log('[DEBUG] All endpoints fetched. Results count:', resData.length);
       
       resData.forEach((res, index) => {
         if (res?.success) {
-          console.log(`[DEBUG] Endpoint ${endpoints[index]} success, data size:`, Array.isArray(res.data) ? res.data.length : 'N/A');
           const data = Array.isArray(res.data) 
             ? (res.data as any[]).filter(item => item && item.id !== undefined && item.id !== null && String(item.id).trim() !== '') 
             : [];
@@ -1323,14 +1318,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         fetchRequests();
         fetchPointages();
       }
-      console.log('[DEBUG] loadAllData State updates complete.');
     } catch (e) {
-      console.error('[DEBUG] loadAllData CRITICAL ERROR:', e);
+      console.error('Veri yÃ¼kleme hatasÄ±:', e);
     }
   }, [isAuthenticated, user?.role, fetchPersonnel, fetchLeaves, fetchRequests, fetchPointages, fetchMyPersonnel, fetchCompanies]);
 
   useEffect(() => {
-    console.log('[DEBUG] AppProvider UseEffect triggered. isAuthenticated:', isAuthenticated);
     if (isAuthenticated) loadAllData();
   }, [isAuthenticated, loadAllData]);
 
