@@ -631,8 +631,9 @@ export function GenelGiderler() {
                 onChange={(e) => setNewCatName(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
-                    if (newCatName.trim()) {
-                      addGiderKategorisi(newCatName.trim());
+                    const trimmed = String(newCatName || '').trim();
+                    if (trimmed) {
+                      addGiderKategorisi(trimmed);
                       setNewCatName('');
                       toast.success('Kategori eklendi.');
                     }
@@ -642,8 +643,9 @@ export function GenelGiderler() {
               <Button 
                 className="bg-rose-600 hover:bg-rose-700"
                 onClick={() => {
-                  if (newCatName.trim()) {
-                    addGiderKategorisi(newCatName.trim());
+                  const trimmed = String(newCatName || '').trim();
+                  if (trimmed) {
+                    addGiderKategorisi(trimmed);
                     setNewCatName('');
                     toast.success('Kategori eklendi.');
                   }

@@ -277,7 +277,7 @@ export function KesilecekFaturalar() {
       toast.error('Lütfen müşteri adı ve VKN/TC alanlarını doldurun.');
       return;
     }
-    const kalemlerDolu = kalemler.filter(k => k.ad.trim() && k.birimFiyat > 0);
+    const kalemlerDolu = kalemler.filter(k => String(k.ad || '').trim() && (Number(k.birimFiyat) || 0) > 0);
     if (kalemlerDolu.length === 0) {
       toast.error('En az bir kalem ekleyin (ad ve birim fiyat dolu olmalı).');
       return;

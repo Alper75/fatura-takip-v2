@@ -62,8 +62,8 @@ export function CariDrawer() {
 
   const validate = () => {
     const errs: Partial<Record<keyof CariFormData, string>> = {};
-    if (!formData.unvan.trim()) errs.unvan = 'Zorunlu alan';
-    if (!formData.vknTckn.trim()) errs.vknTckn = 'Zorunlu alan';
+    if (!String(formData.unvan || '').trim()) errs.unvan = 'Zorunlu alan';
+    if (!String(formData.vknTckn || '').trim()) errs.vknTckn = 'Zorunlu alan';
     setErrors(errs);
     return Object.keys(errs).length === 0;
   };

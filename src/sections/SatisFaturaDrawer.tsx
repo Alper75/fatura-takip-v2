@@ -132,10 +132,10 @@ export function SatisFaturaDrawer() {
     setForms(prev => prev.map(f => {
       const e: Partial<Record<keyof SatisFaturaFormData, string>> = {};
       const d = f.data;
-      if (!d.tcVkn.trim()) e.tcVkn = 'Zorunlu';
+      if (!String(d.tcVkn || '').trim()) e.tcVkn = 'Zorunlu';
       if (!d.faturaTarihi) e.faturaTarihi = 'Zorunlu';
-      if (!d.ad.trim()) e.ad = 'Zorunlu';
-      if (!d.adres.trim()) e.adres = 'Zorunlu';
+      if (!String(d.ad || '').trim()) e.ad = 'Zorunlu';
+      if (!String(d.adres || '').trim()) e.adres = 'Zorunlu';
       const amountVal = parseFloat(d.alinanUcret);
       if (!d.alinanUcret || isNaN(amountVal) || amountVal <= 0) e.alinanUcret = 'Geçersiz';
 

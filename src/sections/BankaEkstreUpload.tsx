@@ -117,7 +117,7 @@ export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploa
     // 3. Cari Eşleştirme
     for (const cari of cariler) {
       const u = normalizeString(cari.unvan);
-      const v = (cari.vknTckn || '').trim();
+      const v = String(cari.vknTckn || '').trim();
       if ((u && cleanDesc.includes(u)) || (v && cleanDesc.includes(v))) {
         return { 
           tur: tip === 'alacak' ? 'tahsilat' : 'odeme', 

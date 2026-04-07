@@ -136,11 +136,11 @@ export function AlisFaturaDrawer() {
     setForms(prev => prev.map(f => {
       const e: Partial<Record<keyof AlisFaturaFormData, string>> = {};
       const d = f.data;
-      if (!d.faturaNo.trim()) e.faturaNo = 'Zorunlu';
+      if (!String(d.faturaNo || '').trim()) e.faturaNo = 'Zorunlu';
       if (!d.faturaTarihi) e.faturaTarihi = 'Zorunlu';
-      if (!d.tedarikciAdi.trim()) e.tedarikciAdi = 'Zorunlu';
-      if (!d.tedarikciVkn.trim()) e.tedarikciVkn = 'Zorunlu';
-      if (!d.malHizmetAdi.trim()) e.malHizmetAdi = 'Zorunlu';
+      if (!String(d.tedarikciAdi || '').trim()) e.tedarikciAdi = 'Zorunlu';
+      if (!String(d.tedarikciVkn || '').trim()) e.tedarikciVkn = 'Zorunlu';
+      if (!String(d.malHizmetAdi || '').trim()) e.malHizmetAdi = 'Zorunlu';
       if (!d.toplamTutar || parseFloat(d.toplamTutar) <= 0) e.toplamTutar = 'Geçersiz';
 
       if (Object.keys(e).length > 0) isValid = false;
