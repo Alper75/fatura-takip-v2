@@ -1002,7 +1002,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   // ==================== SATIÅ FATURA HESAPLAMA ====================
   const calculateSatisFatura = (formData: SatisFaturaFormData) => {
-    const tutar = parseFloat(formData.alinanUcret);
+    const tutar = parseFloat(formData.alinanUcret) || 0;
     return calculateFaturaHesaplamalari(tutar, formData.kdvOrani, formData.tevkifatOrani, formData.stopajOrani);
   };
 
@@ -1012,10 +1012,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const yeniFatura: SatisFatura = {
       id: 's' + Date.now().toString() + Math.random().toString(36).substr(2, 5),
       tcVkn: formData.tcVkn, ad: formData.ad, soyad: formData.soyad, adres: formData.adres,
-      kdvOrani: parseFloat(formData.kdvOrani), alinanUcret: parseFloat(formData.alinanUcret),
-      matrah: hesaplanan.matrah, kdvTutari: hesaplanan.kdvTutari,
-      tevkifatOrani: formData.tevkifatOrani, tevkifatTutari: hesaplanan.tevkifatTutari,
-      stopajOrani: formData.stopajOrani, stopajTutari: hesaplanan.stopajTutari,
+      kdvOrani: parseFloat(formData.kdvOrani) || 0, alinanUcret: parseFloat(formData.alinanUcret) || 0,
+      matrah: hesaplanan.matrah || 0, kdvTutari: hesaplanan.kdvTutari || 0,
+      tevkifatOrani: formData.tevkifatOrani || '0', tevkifatTutari: hesaplanan.tevkifatTutari || 0,
+      stopajOrani: formData.stopajOrani || '0', stopajTutari: hesaplanan.stopajTutari || 0,
       pdfDosya: formData.dosyaBase64 || null, pdfDosyaAdi: formData.dosyaAdi || undefined,
       faturaTarihi: formData.faturaTarihi, cariId: formData.cariId,
       vadeTarihi: formData.vadeTarihi || null, odemeTarihi: null,
@@ -1029,7 +1029,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const yeniHareket: CariHareket = {
         id: 'ch' + Date.now().toString() + Math.random().toString(36).substr(2, 5),
         cariId: formData.cariId, tarih: formData.faturaTarihi, islemTuru: 'satis_faturasi',
-        tutar: parseFloat(formData.alinanUcret),
+        tutar: parseFloat(formData.alinanUcret) || 0,
         aciklama: `SatÄ±ÅŸ FaturasÄ± (${formData.ad || ''} ${formData.soyad || ''})`.trim(),
         bagliFaturaId: yeniFatura.id, olusturmaTarihi: new Date().toISOString().split('T')[0], dekontDosya: null
       };
@@ -1053,7 +1053,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const calculateAlisFatura = (formData: AlisFaturaFormData) => {
-    const tutar = parseFloat(formData.toplamTutar);
+    const tutar = parseFloat(formData.toplamTutar) || 0;
     return calculateFaturaHesaplamalari(tutar, formData.kdvOrani, formData.tevkifatOrani, formData.stopajOrani);
   };
 
@@ -1064,10 +1064,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       id: 'a' + Date.now().toString() + Math.random().toString(36).substr(2, 5),
       faturaNo: formData.faturaNo, faturaTarihi: formData.faturaTarihi,
       tedarikciAdi: formData.tedarikciAdi, tedarikciVkn: formData.tedarikciVkn,
-      malHizmetAdi: formData.malHizmetAdi, toplamTutar: parseFloat(formData.toplamTutar),
-      kdvOrani: parseFloat(formData.kdvOrani), kdvTutari: hesaplanan.kdvTutari, matrah: hesaplanan.matrah,
-      tevkifatOrani: formData.tevkifatOrani, tevkifatTutari: hesaplanan.tevkifatTutari,
-      stopajOrani: formData.stopajOrani, stopajTutari: hesaplanan.stopajTutari,
+      malHizmetAdi: formData.malHizmetAdi, toplamTutar: parseFloat(formData.toplamTutar) || 0,
+      kdvOrani: parseFloat(formData.kdvOrani) || 0, kdvTutari: hesaplanan.kdvTutari || 0, matrah: hesaplanan.matrah || 0,
+      tevkifatOrani: formData.tevkifatOrani || '0', tevkifatTutari: hesaplanan.tevkifatTutari || 0,
+      stopajOrani: formData.stopajOrani || '0', stopajTutari: hesaplanan.stopajTutari || 0,
       pdfDosya: formData.dosyaBase64 || null, pdfDosyaAdi: formData.dosyaAdi || undefined,
       cariId: formData.cariId, vadeTarihi: formData.vadeTarihi || null,
       odemeTarihi: null, odemeDurumu: 'odenmedi',
@@ -1080,7 +1080,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const yeniHareket: CariHareket = {
         id: 'ch' + Date.now().toString() + Math.random().toString(36).substr(2, 5),
         cariId: formData.cariId, tarih: formData.faturaTarihi, islemTuru: 'alis_faturasi',
-        tutar: parseFloat(formData.toplamTutar),
+        tutar: parseFloat(formData.toplamTutar) || 0,
         aciklama: `AlÄ±ÅŸ FaturasÄ± (${formData.tedarikciAdi})`,
         bagliFaturaId: yeniFatura.id, olusturmaTarihi: new Date().toISOString().split('T')[0], dekontDosya: null
       };

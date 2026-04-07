@@ -136,7 +136,8 @@ export function SatisFaturaDrawer() {
       if (!d.faturaTarihi) e.faturaTarihi = 'Zorunlu';
       if (!d.ad.trim()) e.ad = 'Zorunlu';
       if (!d.adres.trim()) e.adres = 'Zorunlu';
-      if (!d.alinanUcret || parseFloat(d.alinanUcret) <= 0) e.alinanUcret = 'Geçersiz';
+      const amountVal = parseFloat(d.alinanUcret);
+      if (!d.alinanUcret || isNaN(amountVal) || amountVal <= 0) e.alinanUcret = 'Geçersiz';
 
       if (Object.keys(e).length > 0) isValid = false;
       return { ...f, errors: e };

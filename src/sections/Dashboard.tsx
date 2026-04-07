@@ -37,9 +37,9 @@ export function Dashboard() {
 
   // 1. Özet Kart Verileri
   const stats = useMemo(() => {
-    const toplamSatis = satisFaturalari.reduce((sum, f) => sum + f.alinanUcret, 0);
-    const toplamAlis = alisFaturalari.reduce((sum, f) => sum + f.toplamTutar, 0);
-    const toplamBanka = bankaHesaplari.reduce((sum, b) => sum + b.guncelBakiye, 0);
+    const toplamSatis = satisFaturalari.reduce((sum, f) => sum + (Number(f.alinanUcret) || 0), 0);
+    const toplamAlis = alisFaturalari.reduce((sum, f) => sum + (Number(f.toplamTutar) || 0), 0);
+    const toplamBanka = bankaHesaplari.reduce((sum, b) => sum + (Number(b.guncelBakiye) || 0), 0);
     const aktifCari = cariler.length;
 
     return [
@@ -65,14 +65,14 @@ export function Dashboard() {
           const d = new Date(f.faturaTarihi);
           return isWithinInterval(d, { start, end });
         })
-        .reduce((sum, f) => sum + f.alinanUcret, 0);
+        .reduce((sum, f) => sum + (Number(f.alinanUcret) || 0), 0);
 
       const alis = alisFaturalari
         .filter(f => {
           const d = new Date(f.faturaTarihi);
           return isWithinInterval(d, { start, end });
         })
-        .reduce((sum, f) => sum + f.toplamTutar, 0);
+        .reduce((sum, f) => sum + (Number(f.toplamTutar) || 0), 0);
 
       data.push({ month: label, satis, alis });
     }
@@ -112,7 +112,8 @@ export function Dashboard() {
   }, [cariHareketler]);
 
   const formatCurrency = (val: number) => {
-    return new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY', maximumFractionDigits: 0 }).format(val);
+    const safeVal = isNaN(val) || val === null || val === undefined ? 0 : val;
+    return new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY', maximumFractionDigits: 0 }).format(safeVal);
   };
 
   return (
