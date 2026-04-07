@@ -617,7 +617,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [leaves, setLeaves] = useState<any[]>([]);
   const fetchLeaves = useCallback(async () => {
     try {
-      const endpoint = user?.role === 'admin' ? '/api/admin/leaves' : '/api/personnel/leaves';
+      const endpoint = (user?.role === 'admin' || user?.role === 'super_admin') ? '/api/admin/leaves' : '/api/personnel/leaves';
       const data = await apiFetch(endpoint);
       if (data.success) setLeaves(data.data);
     } catch (error) { console.error('Fetch leaves error:', error); }
@@ -652,7 +652,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [pointages, setPointages] = useState<any[]>([]);
   const fetchPointages = useCallback(async () => {
     try {
-      const endpoint = user?.role === 'admin' ? '/api/admin/pointage' : '/api/personnel/pointage';
+      const endpoint = (user?.role === 'admin' || user?.role === 'super_admin') ? '/api/admin/pointage' : '/api/personnel/pointage';
       const data = await apiFetch(endpoint);
       if (data.success) setPointages(data.data);
     } catch (error) { console.error('Fetch pointages error:', error); }
@@ -725,7 +725,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [requests, setRequests] = useState<any[]>([]);
   const fetchRequests = useCallback(async () => {
     try {
-      const endpoint = user?.role === 'admin' ? '/api/admin/requests' : '/api/personnel/requests';
+      const endpoint = (user?.role === 'admin' || user?.role === 'super_admin') ? '/api/admin/requests' : '/api/personnel/requests';
       const data = await apiFetch(endpoint);
       if (data.success) setRequests(data.data);
     } catch (error) { console.error('Fetch requests error:', error); }

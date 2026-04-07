@@ -677,7 +677,7 @@ app.get('/api/personnel/leaves', authMiddleware, async (req, res) => {
       args: [req.user.id, req.user.companyId]
     });
     const p = rsP.rows[0];
-    if (!p) return res.status(404).json({ success: false, message: 'Personel kaydı bulunamadı.' });
+    if (!p) return res.json({ success: true, data: [] });
     const rs = await client.execute({
       sql: 'SELECT * FROM leaves WHERE personnel_id = ? AND company_id = ? ORDER BY created_at DESC',
       args: [p.id, req.user.companyId]
@@ -693,7 +693,7 @@ app.get('/api/personnel/requests', authMiddleware, async (req, res) => {
       args: [req.user.id, req.user.companyId]
     });
     const p = rsP.rows[0];
-    if (!p) return res.status(404).json({ success: false, message: 'Personel kaydı bulunamadı.' });
+    if (!p) return res.json({ success: true, data: [] });
     const rs = await client.execute({
       sql: 'SELECT * FROM requests WHERE personnel_id = ? AND company_id = ? ORDER BY created_at DESC',
       args: [p.id, req.user.companyId]
@@ -709,7 +709,7 @@ app.get('/api/personnel/pointage', authMiddleware, async (req, res) => {
       args: [req.user.id, req.user.companyId]
     });
     const p = rsP.rows[0];
-    if (!p) return res.status(404).json({ success: false, message: 'Personel kaydı bulunamadı.' });
+    if (!p) return res.json({ success: true, data: [] });
     const rs = await client.execute({
       sql: 'SELECT * FROM pointage WHERE personnel_id = ? AND company_id = ?',
       args: [p.id, req.user.companyId]
