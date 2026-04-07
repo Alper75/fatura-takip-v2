@@ -100,6 +100,8 @@ export function SatisFaturaListesi() {
         toast.success('XML başarıyla okundu!', { id: 'xml-upload' });
         // Map the parsed data to the format SatisFaturaFormData expects
         const data = result.data;
+        const stopajOrani = data.stopajTutari && data.matrah ? Math.round((data.stopajTutari / data.matrah) * 100).toString() : '0';
+
         const initialData = {
           tcVkn: data.customer?.vkn || '',
           ad: data.customer?.ad || '',
@@ -107,9 +109,11 @@ export function SatisFaturaListesi() {
           vergiDairesi: data.customer?.vergiDairesi || '',
           adres: data.customer?.adres || '',
           hizmetAdi: data.items?.[0]?.name || 'Muhtelif İşlemler',
-          alinanUcret: data.matrah?.toString() || '',
+          alinanUcret: data.toplamTutar?.toString() || data.matrah?.toString() || '',
           faturaTarihi: data.faturaTarihi || new Date().toISOString().split('T')[0],
-          kdvOrani: data.kdvOrani?.toString() || '20'
+          kdvOrani: data.kdvOrani?.toString() || '20',
+          tevkifatOrani: data.tevkifatOrani || '0',
+          stopajOrani: stopajOrani
         };
         openSatisDrawer(initialData);
       } else {

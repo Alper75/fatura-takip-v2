@@ -64,79 +64,127 @@ app.post('/api/invoices/parse-xml', authMiddleware, upload.single('file'), async
   try {
     const xmlContent = fs.readFileSync(req.file.path, 'utf-8');
     const jsonObj = parser.parse(xmlContent);
-    
-    // UBL-TR 2.1 mapping
-    // Invoice root is usually jsonObj.Invoice
-    const inv = jsonObj.Invoice;
-    if (!inv) throw new Error('Geçersiz XML formatı: Invoice kök etiketi bulunamadı.');
+    let parsedData = null;
 
-    // Party Information (Seller/Buyer based on context, but let's just pull general data)
-    // For Sale Invoice: Buyer (AccountingCustomerParty)
-    // For Purchase Invoice: Seller (AccountingSupplierParty)
-    
-    const supplierParty = inv['cac:AccountingSupplierParty']?.['cac:Party'];
-    const customerParty = inv['cac:AccountingCustomerParty']?.['cac:Party'];
-    
-    // Extract VKN/TCKN
-    const getVkn = (party) => {
-      const id = party?.['cac:PartyIdentification']?.['cbc:ID'];
-      return Array.isArray(id) ? id.find(v => v['@_schemeID'] === 'VKN' || v['@_schemeID'] === 'TCKN')?.['#text'] : id?.['#text'] || id;
-    };
+    // --- CASE 1: Standard UBL-TR Invoice ---
+    if (jsonObj.Invoice) {
+      const inv = jsonObj.Invoice;
+      
+      const supplierParty = inv['cac:AccountingSupplierParty']?.['cac:Party'];
+      const customerParty = inv['cac:AccountingCustomerParty']?.['cac:Party'];
+      
+      const getVkn = (party) => {
+        const id = party?.['cac:PartyIdentification']?.['cbc:ID'];
+        return Array.isArray(id) ? id.find(v => v['@_schemeID'] === 'VKN' || v['@_schemeID'] === 'TCKN')?.['#text'] : id?.['#text'] || id;
+      };
+      const getAd = (party) => party?.['cac:PartyName']?.['cbc:Name'] || party?.['cac:Person']?.['cbc:FirstName'] || '';
+      const getSoyad = (party) => party?.['cac:Person']?.['cbc:FamilyName'] || '';
+      const getTaxOffice = (party) => party?.['cac:PartyTaxScheme']?.['cac:TaxScheme']?.['cbc:Name'] || '';
+      const getAddress = (party) => {
+        const addr = party?.['cac:PostalAddress'];
+        if (!addr) return '';
+        return `${addr['cbc:StreetName'] || ''} ${addr['cbc:BuildingNumber'] || ''} ${addr['cbc:CitySubdivisionName'] || ''} ${addr['cbc:CityName'] || ''}`;
+      };
 
-    const getAd = (party) => {
-      return party?.['cac:PartyName']?.['cbc:Name'] || party?.['cac:Person']?.['cbc:FirstName'] || '';
-    };
+      const monTotal = inv['cac:LegalMonetaryTotal'];
+      const taxTotal = inv['cac:TaxTotal'];
 
-    const getSoyad = (party) => {
-      return party?.['cac:Person']?.['cbc:FamilyName'] || '';
-    };
-    
-    const getTaxOffice = (party) => {
-      return party?.['cac:PartyTaxScheme']?.['cac:TaxScheme']?.['cbc:Name'] || '';
-    };
+      parsedData = {
+        faturaNo: inv['cbc:ID'],
+        faturaTarihi: inv['cbc:IssueDate'],
+        supplier: {
+          vkn: getVkn(supplierParty),
+          ad: getAd(supplierParty),
+          soyad: getSoyad(supplierParty),
+          vergiDairesi: getTaxOffice(supplierParty),
+          adres: getAddress(supplierParty),
+        },
+        customer: {
+          vkn: getVkn(customerParty),
+          ad: getAd(customerParty),
+          soyad: getSoyad(customerParty),
+          vergiDairesi: getTaxOffice(customerParty),
+          adres: getAddress(customerParty),
+        },
+        matrah: parseFloat(monTotal?.['cbc:TaxExclusiveAmount']?.['#text'] || monTotal?.['cbc:TaxExclusiveAmount'] || 0),
+        toplamTutar: parseFloat(monTotal?.['cbc:PayableAmount']?.['#text'] || monTotal?.['cbc:PayableAmount'] || 0),
+        kdvTutari: parseFloat(taxTotal?.['cbc:TaxAmount']?.['#text'] || taxTotal?.['cbc:TaxAmount'] || 0),
+        kdvOrani: 20,
+        type: 'Invoice'
+      };
 
-    const getAddress = (party) => {
-      const addr = party?.['cac:PostalAddress'];
-      if (!addr) return '';
-      return `${addr['cbc:StreetName'] || ''} ${addr['cbc:BuildingNumber'] || ''} ${addr['cbc:CitySubdivisionName'] || ''} ${addr['cbc:CityName'] || ''}`;
-    };
-
-    // Financial Totals
-    const monTotal = inv['cac:LegalMonetaryTotal'];
-    const taxTotal = inv['cac:TaxTotal'];
-
-    const parsedData = {
-      faturaNo: inv['cbc:ID'],
-      faturaTarihi: inv['cbc:IssueDate'],
-      supplier: {
-        vkn: getVkn(supplierParty),
-        ad: getAd(supplierParty),
-        soyad: getSoyad(supplierParty),
-        vergiDairesi: getTaxOffice(supplierParty),
-        adres: getAddress(supplierParty),
-      },
-      customer: {
-        vkn: getVkn(customerParty),
-        ad: getAd(customerParty),
-        soyad: getSoyad(customerParty),
-        vergiDairesi: getTaxOffice(customerParty),
-        adres: getAddress(customerParty),
-      },
-      matrah: parseFloat(monTotal?.['cbc:TaxExclusiveAmount']?.['#text'] || monTotal?.['cbc:TaxExclusiveAmount'] || 0),
-      toplamTutar: parseFloat(monTotal?.['cbc:PayableAmount']?.['#text'] || monTotal?.['cbc:PayableAmount'] || 0),
-      kdvTutari: parseFloat(taxTotal?.['cbc:TaxAmount']?.['#text'] || taxTotal?.['cbc:TaxAmount'] || 0),
-      kdvOrani: 20, // Default KDV, usually extracted from TaxSubtotal if needed
-    };
-
-    // Optionally extract lines (items)
-    const lines = inv['cac:InvoiceLine'];
-    if (lines) {
+      const lines = inv['cac:InvoiceLine'];
+      if (lines) {
         const lineArr = Array.isArray(lines) ? lines : [lines];
         parsedData.items = lineArr.map(l => ({
-            name: l['cac:Item']?.['cbc:Name'],
-            quantity: parseFloat(l['cbc:InvoicedQuantity']?.['#text'] || l['cbc:InvoicedQuantity'] || 0),
-            price: parseFloat(l['cac:Price']?.['cbc:PriceAmount']?.['#text'] || l['cac:Price']?.['cbc:PriceAmount'] || 0),
+          name: l['cac:Item']?.['cbc:Name'],
+          quantity: parseFloat(l['cbc:InvoicedQuantity']?.['#text'] || l['cbc:InvoicedQuantity'] || 0),
+          price: parseFloat(l['cac:Price']?.['cbc:PriceAmount']?.['#text'] || l['cac:Price']?.['cbc:PriceAmount'] || 0),
         }));
+      }
+    } 
+    // --- CASE 2: e-SMM (VoucherSource) ---
+    else if (jsonObj['vch:VoucherSource']?.['gib:eArsivVeriSerbestMeslekMakbuz']) {
+      const smm = jsonObj['vch:VoucherSource']['gib:eArsivVeriSerbestMeslekMakbuz'];
+      const alici = smm['gib:aliciBilgileri'];
+      
+      const getVkn = (a) => a?.['gib:tuzelKisi']?.['gib:vkn'] || a?.['gib:gercekKisi']?.['gib:tckn'] || '';
+      const getAd = (a) => a?.['gib:tuzelKisi']?.['gib:unvan'] || (a?.['gib:gercekKisi']?.['gib:ad'] ? `${a['gib:gercekKisi']['gib:ad']} ${a['gib:gercekKisi']['gib:soyad']}` : '');
+      const getAddress = (a) => {
+        const addr = a?.['gib:adres'];
+        if (!addr) return '';
+        return `${addr['gib:caddeSokak'] || ''} ${addr['gib:semt'] || ''} ${addr['gib:sehir'] || ''}`;
+      };
+
+      const vergiBilgisi = smm['gib:vergiBilgisi']?.['gib:vergi'];
+      const vergiler = Array.isArray(vergiBilgisi) ? vergiBilgisi : (vergiBilgisi ? [vergiBilgisi] : []);
+      const kdv = vergiler.find(v => v['gib:vergiKodu'] === '0015')?.['gib:vergiTutari'] || 0;
+      const stopaj = vergiler.find(v => v['gib:vergiKodu'] === '0003' || v['gib:vergiKodu'] === '0011')?.['gib:vergiTutari'] || 0;
+      
+      const tevkifatBilgisi = smm['gib:vergiBilgisi']?.['gib:tevkifat'];
+      const tevkifatlar = Array.isArray(tevkifatBilgisi) ? tevkifatBilgisi : (tevkifatBilgisi ? [tevkifatBilgisi] : []);
+      const tevkifat = tevkifatlar[0]; // Usually one tevkifat in SMM
+
+      // Matrah is usually the "Gross" (Bürüt) in SMM
+      // Since SMM typically has one main service line, we pull from malHizmetBilgisi
+      const malHizmet = smm['gib:malHizmetBilgisi']?.['gib:malHizmet'];
+      const lines = Array.isArray(malHizmet) ? malHizmet : (malHizmet ? [malHizmet] : []);
+      const burutUcret = lines.reduce((sum, item) => sum + parseFloat(item['gib:burutUcret'] || 0), 0);
+
+      parsedData = {
+        faturaNo: smm['gib:makbuzNo'],
+        faturaTarihi: smm['gib:belgeTarihi'],
+        supplier: {
+          vkn: '', // User is typically the supplier in SMM exports
+          ad: 'Serbest Meslek Erbabı',
+          vergiDairesi: '',
+          adres: '',
+        },
+        customer: {
+          vkn: getVkn(alici),
+          ad: getAd(alici),
+          vergiDairesi: alici?.['gib:adres']?.['gib:vDaire'] || '',
+          adres: getAddress(alici),
+        },
+        matrah: burutUcret || parseFloat(smm['gib:toplamTutar'] || 0),
+        toplamTutar: parseFloat(smm['gib:odenecekTutar'] || 0),
+        kdvTutari: parseFloat(kdv),
+        kdvOrani: 20,
+        stopajTutari: parseFloat(stopaj),
+        tevkifatTutari: parseFloat(tevkifat?.['gib:tevkifatTutari'] || 0),
+        tevkifatOrani: tevkifat?.['gib:tevkifatOrani']?.toString() || '',
+        type: 'e-SMM'
+      };
+
+      if (lines.length > 0) {
+        parsedData.items = lines.map(l => ({
+          name: l['gib:ad'],
+          quantity: 1,
+          price: parseFloat(l['gib:burutUcret'] || 0),
+        }));
+      }
+    } else {
+      throw new Error('Geçersiz XML formatı: Invoice veya e-SMM kök etiketi bulunamadı.');
     }
 
     res.json({ success: true, data: parsedData });
