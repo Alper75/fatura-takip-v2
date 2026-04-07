@@ -23,7 +23,11 @@ import { useApp } from '@/context/AppContext';
 import { cn } from '@/lib/utils';
 import type { ViewType } from '@/types';
 
-export function Sidebar() {
+interface SidebarProps {
+  onItemClick?: () => void;
+}
+
+export function Sidebar({ onItemClick }: SidebarProps) {
   const { user, currentPersonnel, currentView, setCurrentView, openSatisDrawer, openAlisDrawer, logout, companies } = useApp();
   const [isPersonnelOpen, setIsPersonnelOpen] = useState(false);
 
@@ -173,7 +177,7 @@ export function Sidebar() {
   ];
 
   return (
-    <aside className="w-64 bg-white border-r border-slate-200 flex flex-col h-screen sticky top-0">
+    <aside className="w-full bg-white flex flex-col h-full">
       {/* Logo */}
       <div className="p-6 border-b border-slate-100">
         <div className="flex items-center gap-3">
@@ -201,7 +205,10 @@ export function Sidebar() {
               <li key={item.id}>
                 <Button
                   variant="ghost"
-                  onClick={item.onClick}
+                  onClick={() => {
+                    item.onClick();
+                    onItemClick?.();
+                  }}
                   className={cn(
                     "w-full justify-start gap-3 h-11 font-medium transition-all",
                     isActive 
@@ -239,7 +246,10 @@ export function Sidebar() {
                   {personnelSubItems.map((sub) => (
                     <li key={sub.id}>
                       <button
-                        onClick={() => setCurrentView(sub.view)}
+                        onClick={() => {
+                          setCurrentView(sub.view);
+                          onItemClick?.();
+                        }}
                         className={cn(
                           "w-full text-left py-2 px-3 text-sm rounded-md transition-all",
                           currentView === sub.view 
@@ -289,7 +299,10 @@ export function Sidebar() {
         <Button
           variant="outline"
           className="w-full justify-start gap-2 text-slate-600 hover:text-red-600 hover:border-red-200 hover:bg-red-50"
-          onClick={logout}
+          onClick={() => {
+            logout();
+            onItemClick?.();
+          }}
         >
           <LogOut className="w-4 h-4" />
           Çıkış Yap
