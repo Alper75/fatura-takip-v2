@@ -100,8 +100,6 @@ export function AlisFaturaListesi() {
       if (result.success && result.data) {
         toast.success('XML başarıyla okundu!', { id: 'xml-upload' });
         const data = result.data;
-        const stopajOrani = data.stopajTutari && data.matrah ? Math.round((data.stopajTutari / data.matrah) * 100).toString() : '0';
-        
         const initialData = {
           tedarikciVkn: data.supplier?.vkn || '',
           tedarikciAdi: (data.supplier?.ad ? `${data.supplier.ad} ${data.supplier.soyad || ''}`.trim() : '') || 'Bilinmiyor',
@@ -112,7 +110,7 @@ export function AlisFaturaListesi() {
           toplamTutar: data.toplamTutar?.toString() || data.matrah?.toString() || '',
           kdvOrani: data.kdvOrani?.toString() || '20',
           tevkifatOrani: data.tevkifatOrani || '0',
-          stopajOrani: stopajOrani,
+          stopajOrani: data.stopajOrani || '0',
           aciklama: ''
         };
         openAlisDrawer(initialData);

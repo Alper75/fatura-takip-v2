@@ -140,12 +140,16 @@ app.post('/api/invoices/parse-xml', authMiddleware, upload.single('file'), async
       const vergiler = Array.isArray(vergiBilgisi) ? vergiBilgisi : (vergiBilgisi ? [vergiBilgisi] : []);
       
       const kdvVergisi = vergiler.find(v => v['gib:vergiKodu'] === '0015');
-      const kdv = kdvVergisi?.['gib:vergiTutari'] || 0;
-      const stopaj = vergiler.find(v => v['gib:vergiKodu'] === '0003' || v['gib:vergiKodu'] === '0011')?.['gib:vergiTutari'] || 0;
+      const stopajVergisi = vergiler.find(v => v['gib:vergiKodu'] === '0003' || v['gib:vergiKodu'] === '0011' || v['gib:vergiKodu'] === '0015');
       
-      // Calculate KDV rate from XML or default to 20
-      const kdvMatrah = parseFloat(kdvVergisi?.['gib:matrah'] || 0);
-      const calculatedKdvOrani = (kdvMatrah > 0 && kdv > 0) ? Math.round((parseFloat(kdv) / kdvMatrah) * 100) : 20;
+      const kdv = kdvVergisi?.['gib:vergiTutari'] || 0;
+      const stopaj = stopajVergisi?.['gib:vergiTutari'] || 0;
+      
+      // Calculate rates from XML (or default)
+      // User says 0015 means stopaj and should auto-fill the manual %20 field
+      const matrahForCalc = parseFloat(kdvVergisi?.['gib:matrah'] || stopajVergisi?.['gib:matrah'] || 0);
+      const calculatedKdvOrani = (matrahForCalc > 0 && kdv > 0) ? Math.round((parseFloat(kdv) / matrahForCalc) * 100) : 20;
+      const calculatedStopajOrani = (matrahForCalc > 0 && stopaj > 0) ? Math.round((parseFloat(stopaj) / matrahForCalc) * 100) : 20;
 
       const tevkifatBilgisi = smm['gib:vergiBilgisi']?.['gib:tevkifat'];
       const tevkifatlar = Array.isArray(tevkifatBilgisi) ? tevkifatBilgisi : (tevkifatBilgisi ? [tevkifatBilgisi] : []);
@@ -184,11 +188,12 @@ app.post('/api/invoices/parse-xml', authMiddleware, upload.single('file'), async
           vergiDairesi: alici?.['gib:adres']?.['gib:vDaire'] || '',
           adres: getAddress(alici),
         },
-        matrah: burutUcret || kdvMatrah || parseFloat(smm['gib:toplamTutar'] || 0),
+        matrah: burutUcret || matrahForCalc || parseFloat(smm['gib:toplamTutar'] || 0),
         toplamTutar: parseFloat(smm['gib:odenecekTutar'] || 0),
         kdvTutari: parseFloat(kdv),
         kdvOrani: calculatedKdvOrani,
         stopajTutari: parseFloat(stopaj),
+        stopajOrani: calculatedStopajOrani.toString(),
         tevkifatTutari: parseFloat(tevkifat?.['gib:tevkifatTutari'] || 0),
         tevkifatOrani: convertTevkifat(tevkifat?.['gib:tevkifatOrani']),
         type: 'e-SMM'
