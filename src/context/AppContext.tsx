@@ -339,7 +339,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           }
 
           if (degisim !== 0) {
-            return { ...b, guncelBakiye: Number((b.guncelBakiye + degisim).toFixed(2)) };
+            return { 
+              ...b, 
+              guncelBakiye: Number(( (Number(b.guncelBakiye) || 0) + degisim).toFixed(2)) 
+            };
           }
         }
         return b;
@@ -444,10 +447,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     let odenen = 0;
 
     hareketler.forEach(h => {
-      if (h.islemTuru === 'satis_faturasi') toplamBorc += h.tutar;
-      else if (h.islemTuru === 'alis_faturasi') toplamAlacak += h.tutar;
-      else if (h.islemTuru === 'tahsilat') tahsilEdilen += h.tutar;
-      else if (h.islemTuru === 'odeme') odenen += h.tutar;
+      const val = Number(h.tutar) || 0;
+      if (h.islemTuru === 'satis_faturasi') toplamBorc += val;
+      else if (h.islemTuru === 'alis_faturasi') toplamAlacak += val;
+      else if (h.islemTuru === 'tahsilat') tahsilEdilen += val;
+      else if (h.islemTuru === 'odeme') odenen += val;
     });
 
     const guncelBakiye = (toplamBorc - tahsilEdilen) - (toplamAlacak - odenen);

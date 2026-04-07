@@ -41,7 +41,10 @@ export function CariEkstreDrawer() {
     .filter(h => h.cariId === cari.id)
     .sort((a, b) => new Date(b.tarih).getTime() - new Date(a.tarih).getTime());
 
-  const formatCurrency = (val: number) => new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(val);
+  const formatCurrency = (val: number) => {
+    const safeVal = isNaN(val) || val === null || val === undefined ? 0 : val;
+    return new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(safeVal);
+  };
   const formatDate = (dateStr: string) => {
     try {
       return format(new Date(dateStr), 'dd MMM yyyy', { locale: tr });

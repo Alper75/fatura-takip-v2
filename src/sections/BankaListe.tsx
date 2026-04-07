@@ -22,7 +22,10 @@ export function BankaListe() {
   const [bankToDelete, setBankToDelete] = useState<string | null>(null);
   const [selectedBankaForUpload, setSelectedBankaForUpload] = useState<string | null>(null);
 
-  const formatCurrency = (val: number) => new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(val);
+  const formatCurrency = (val: number) => {
+    const safeVal = isNaN(val) || val === null || val === undefined ? 0 : val;
+    return new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(safeVal);
+  };
 
   const handleDelete = (id: string) => {
     deleteBankaHesabi(id);
