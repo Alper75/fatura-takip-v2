@@ -249,7 +249,13 @@ export function Dashboard() {
                         </div>
                         <div>
                           <p className="text-sm font-semibold text-slate-900 truncate max-w-[200px]">{h.aciklama}</p>
-                          <p className="text-xs text-slate-500">{format(new Date(h.tarih), 'dd MMMM yyyy', { locale: tr })}</p>
+                          <p className="text-xs text-slate-500">
+                            {(() => {
+                              const d = new Date(h.tarih);
+                              if (isNaN(d.getTime())) return '-';
+                              return format(d, 'dd MMMM yyyy', { locale: tr });
+                            })()}
+                          </p>
                         </div>
                       </div>
                       <p className={cn("text-sm font-bold", isPositive ? "text-emerald-600" : "text-slate-900")}>
