@@ -152,7 +152,9 @@ export function AlisFaturaListesi() {
 
   const formatDate = (dateString: string | null | undefined) => {
     if (!dateString) return '-';
-    return new Date(dateString).toLocaleDateString('tr-TR', {
+    const d = new Date(dateString);
+    if (isNaN(d.getTime())) return '-';
+    return d.toLocaleDateString('tr-TR', {
       day: '2-digit',
       month: '2-digit',
       year: 'numeric',
@@ -515,7 +517,7 @@ export function AlisFaturaListesi() {
             <CardContent className="p-4">
               <p className="text-sm text-slate-500 mb-1">Toplam Matrah</p>
               <p className="text-xl font-bold text-slate-900">
-                {formatCurrency(filteredFaturalar.reduce((acc, f) => acc + f.matrah, 0))}
+                {formatCurrency(filteredFaturalar.reduce((acc, f) => acc + (Number(f.matrah) || 0), 0))}
               </p>
             </CardContent>
           </Card>
@@ -523,7 +525,7 @@ export function AlisFaturaListesi() {
             <CardContent className="p-4">
               <p className="text-sm text-slate-500 mb-1">Toplam KDV (İndirilecek)</p>
               <p className="text-xl font-bold text-slate-900">
-                {formatCurrency(filteredFaturalar.reduce((acc, f) => acc + f.kdvTutari, 0))}
+                {formatCurrency(filteredFaturalar.reduce((acc, f) => acc + (Number(f.kdvTutari) || 0), 0))}
               </p>
             </CardContent>
           </Card>
@@ -531,7 +533,7 @@ export function AlisFaturaListesi() {
             <CardContent className="p-4">
               <p className="text-sm text-slate-500 mb-1">Genel Toplam</p>
               <p className="text-xl font-bold text-slate-900">
-                {formatCurrency(filteredFaturalar.reduce((acc, f) => acc + f.toplamTutar, 0))}
+                {formatCurrency(filteredFaturalar.reduce((acc, f) => acc + (Number(f.toplamTutar) || 0), 0))}
               </p>
             </CardContent>
           </Card>
@@ -542,7 +544,7 @@ export function AlisFaturaListesi() {
                 {formatCurrency(
                   filteredFaturalar
                     .filter(f => f.odemeDurumu === 'odendi')
-                    .reduce((acc, f) => acc + f.toplamTutar, 0)
+                    .reduce((acc, f) => acc + (Number(f.toplamTutar) || 0), 0)
                 )}
               </p>
             </CardContent>

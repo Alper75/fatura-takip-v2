@@ -91,12 +91,13 @@ export function Dashboard() {
     };
 
     cariHareketler.forEach(h => {
-      if (h.islemTuru.startsWith('vergi_')) counts['Vergi'] += h.tutar;
-      else if (h.islemTuru === 'maas_odemesi') counts['Maaş'] += h.tutar;
-      else if (h.islemTuru === 'kira_odemesi') counts['Kira'] += h.tutar;
-      else if (h.islemTuru === 'ssk_odemesi') counts['SSK/SGK'] += h.tutar;
-      else if (h.islemTuru === 'banka_masrafi') counts['Banka Masrafı'] += h.tutar;
-      else if (h.islemTuru === 'genel_gider') counts['Genel Gider'] += h.tutar;
+      const v = Number(h.tutar) || 0;
+      if (h.islemTuru.startsWith('vergi_')) counts['Vergi'] += v;
+      else if (h.islemTuru === 'maas_odemesi') counts['Maaş'] += v;
+      else if (h.islemTuru === 'kira_odemesi') counts['Kira'] += v;
+      else if (h.islemTuru === 'ssk_odemesi') counts['SSK/SGK'] += v;
+      else if (h.islemTuru === 'banka_masrafi') counts['Banka Masrafı'] += v;
+      else if (h.islemTuru === 'genel_gider') counts['Genel Gider'] += v;
     });
 
     return Object.entries(counts)
@@ -283,8 +284,8 @@ export function Dashboard() {
             <ResponsiveContainer width="100%" height="100%">
               <BarChart
                 data={[
-                  { name: 'Alacaklarımız', tutar: satisFaturalari.reduce((sum, f) => sum + (f.odemeDurumu !== 'odendi' ? f.alinanUcret : 0), 0) },
-                  { name: 'Borçlarımız', tutar: alisFaturalari.reduce((sum, f) => sum + (f.odemeDurumu !== 'odendi' ? f.toplamTutar : 0), 0) }
+                  { name: 'Alacaklarımız', tutar: satisFaturalari.reduce((sum, f) => sum + (f.odemeDurumu !== 'odendi' ? (Number(f.alinanUcret) || 0) : 0), 0) },
+                  { name: 'Borçlarımız', tutar: alisFaturalari.reduce((sum, f) => sum + (f.odemeDurumu !== 'odendi' ? (Number(f.toplamTutar) || 0) : 0), 0) }
                 ]}
                 layout="vertical"
                 margin={{ left: 20, right: 30 }}

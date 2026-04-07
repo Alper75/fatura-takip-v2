@@ -38,8 +38,16 @@ export function VergiRaporu() {
   // Mevcut yılları bul
   const availableYillar = useMemo(() => {
     const yillar = new Set<number>();
-    satisFaturalari.forEach(f => yillar.add(new Date(f.faturaTarihi).getFullYear()));
-    alisFaturalari.forEach(f => yillar.add(new Date(f.faturaTarihi).getFullYear()));
+    satisFaturalari.forEach(f => {
+      const yil = new Date(f.faturaTarihi).getFullYear();
+      if (!isNaN(yil)) yillar.add(yil);
+    });
+    alisFaturalari.forEach(f => {
+      const yil = new Date(f.faturaTarihi).getFullYear();
+      if (!isNaN(yil)) yillar.add(yil);
+    });
+    // Her zaman mevcut yılı ekle
+    yillar.add(new Date().getFullYear());
     return Array.from(yillar).sort((a, b) => b - a);
   }, [satisFaturalari, alisFaturalari]);
 
@@ -48,10 +56,11 @@ export function VergiRaporu() {
   }, [getVergiRaporu, selectedYil, selectedAy]);
 
   const formatCurrency = (value: number) => {
+    const safeValue = isNaN(value) || value === null || value === undefined ? 0 : value;
     return new Intl.NumberFormat('tr-TR', {
       style: 'currency',
       currency: 'TRY',
-    }).format(value);
+    }).format(safeValue);
   };
 
   // Yıllık özet
@@ -62,17 +71,23 @@ export function VergiRaporu() {
     let toplamAlisKDV = 0;
 
     satisFaturalari
-      .filter(f => new Date(f.faturaTarihi).getFullYear() === selectedYil)
+      .filter(f => {
+        const d = new Date(f.faturaTarihi);
+        return !isNaN(d.getTime()) && d.getFullYear() === selectedYil;
+      })
       .forEach(f => {
-        toplamSatisMatrah += f.matrah;
-        toplamSatisKDV += f.kdvTutari;
+        toplamSatisMatrah += (Number(f.matrah) || 0);
+        toplamSatisKDV += (Number(f.kdvTutari) || 0);
       });
 
     alisFaturalari
-      .filter(f => new Date(f.faturaTarihi).getFullYear() === selectedYil)
+      .filter(f => {
+        const d = new Date(f.faturaTarihi);
+        return !isNaN(d.getTime()) && d.getFullYear() === selectedYil;
+      })
       .forEach(f => {
-        toplamAlisMatrah += f.matrah;
-        toplamAlisKDV += f.kdvTutari;
+        toplamAlisMatrah += (Number(f.matrah) || 0);
+        toplamAlisKDV += (Number(f.kdvTutari) || 0);
       });
 
     return {

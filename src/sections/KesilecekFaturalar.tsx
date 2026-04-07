@@ -211,9 +211,17 @@ export function KesilecekFaturalar() {
   // Kalem hesaplamaları
   const kalemToplam = useMemo(() => {
     return kalemler.reduce((sum, k) => {
-      const matrah = k.birimFiyat * k.miktar;
-      const kdv = matrah * (k.kdvOrani / 100);
-      return { matrah: sum.matrah + matrah, kdv: sum.kdv + kdv, toplam: sum.toplam + matrah + kdv };
+      const bFiyat = Number(k.birimFiyat) || 0;
+      const miktar = Number(k.miktar) || 0;
+      const kOran = Number(k.kdvOrani) || 0;
+      
+      const matrah = bFiyat * miktar;
+      const kdv = matrah * (kOran / 100);
+      return { 
+        matrah: sum.matrah + matrah, 
+        kdv: sum.kdv + kdv, 
+        toplam: sum.toplam + matrah + kdv 
+      };
     }, { matrah: 0, kdv: 0, toplam: 0 });
   }, [kalemler]);
 
@@ -313,8 +321,8 @@ export function KesilecekFaturalar() {
             ad: row['Ad (veya Firma)'] || '', soyad: row['Soyad (Şahıs ise)'] || '',
             vknTckn: String(row['VKN / TCKN'] || ''), vergiDairesi: row['Vergi Dairesi'] || '',
             adres: row['Adres'] || '', il: row['İl'] || '', ilce: row['İlçe'] || '',
-            tutar: parseFloat(String(row['Tutar'] || '0').replace(',', '.')),
-            kdvOrani: parseInt(row['KDV Oranı'] || '20'),
+            tutar: parseFloat(String(row['Tutar'] || '0').replace(',', '.')) || 0,
+            kdvOrani: parseInt(row['KDV Oranı'] || '20') || 0,
             faturaTarihi: row['Fatura Tarihi (GG.AA.YYYY)'] || new Date().toISOString().split('T')[0],
             aciklama: row['Açıklama'] || '',
             kdvDahil: (row['KDV Dahil mi? (E/H)'] || 'E').toUpperCase() === 'E',
@@ -380,7 +388,10 @@ export function KesilecekFaturalar() {
     setGibStopajOrani('0');
     setIsGibModalOpen(true);
   };
-  const formatCurrency = (val: number) => new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(val);
+  const formatCurrency = (val: number) => {
+    const safeVal = isNaN(val) || val === null || val === undefined ? 0 : val;
+    return new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(safeVal);
+  };
 
   return (
     <div className="space-y-6">

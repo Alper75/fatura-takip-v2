@@ -1219,15 +1219,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return faturaTarihi.getFullYear() === yil && faturaTarihi.getMonth() + 1 === ay;
     });
 
-    // KDV HesaplamalarÄ±
-    const hesaplananKDV = aylikSatislar.reduce((acc, f) => acc + f.kdvTutari, 0);
-    const indirilecekKDV = aylikAlislar.reduce((acc, f) => acc + f.kdvTutari, 0);
+    // KDV Hesaplamaları
+    const hesaplananKDV = aylikSatislar.reduce((acc, f) => acc + (Number(f.kdvTutari) || 0), 0);
+    const indirilecekKDV = aylikAlislar.reduce((acc, f) => acc + (Number(f.kdvTutari) || 0), 0);
     const odenecekKDV = Math.max(0, hesaplananKDV - indirilecekKDV);
 
-    const toplamSatisTevkifat = aylikSatislar.reduce((acc, f) => acc + (f.tevkifatTutari || 0), 0);
-    const toplamAlisTevkifat = aylikAlislar.reduce((acc, f) => acc + (f.tevkifatTutari || 0), 0);
-    const toplamSatisStopaj = aylikSatislar.reduce((acc, f) => acc + (f.stopajTutari || 0), 0);
-    const toplamAlisStopaj = aylikAlislar.reduce((acc, f) => acc + (f.stopajTutari || 0), 0);
+    const toplamSatisTevkifat = aylikSatislar.reduce((acc, f) => acc + (Number(f.tevkifatTutari) || 0), 0);
+    const toplamAlisTevkifat = aylikAlislar.reduce((acc, f) => acc + (Number(f.tevkifatTutari) || 0), 0);
+    const toplamSatisStopaj = aylikSatislar.reduce((acc, f) => acc + (Number(f.stopajTutari) || 0), 0);
+    const toplamAlisStopaj = aylikAlislar.reduce((acc, f) => acc + (Number(f.stopajTutari) || 0), 0);
 
     // Gelir Vergisi HesaplamasÄ± (KÃ¼mÃ¼latif - yÄ±lbaÅŸÄ±ndan itibaren)
     const yilBasiSatislar = satisFaturalari.filter(f => {
@@ -1235,7 +1235,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return faturaTarihi.getFullYear() === yil && faturaTarihi.getMonth() + 1 <= ay;
     });
 
-    const toplamMatrah = yilBasiSatislar.reduce((acc, f) => acc + f.matrah, 0);
+    const toplamMatrah = yilBasiSatislar.reduce((acc, f) => acc + (Number(f.matrah) || 0), 0);
     const gelirVergisiHesabi = hesaplaGelirVergisi(toplamMatrah);
 
     return {

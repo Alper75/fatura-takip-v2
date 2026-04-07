@@ -44,7 +44,15 @@ export function BildirimWidget() {
 
   const toplamBildirim = vadesiYaklasanlar.length;
 
-  const formatCurrency = (val: number) => new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(val);
+  const formatCurrency = (val: number) => {
+    const safeVal = isNaN(val) || val === null || val === undefined ? 0 : val;
+    return new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(safeVal);
+  };
+
+  const safeFormatDate = (date: Date) => {
+    if (isNaN(date.getTime())) return '-';
+    return format(date, 'dd MMM yyyy', { locale: tr });
+  };
 
   if (toplamBildirim === 0) return null;
 
@@ -85,13 +93,13 @@ export function BildirimWidget() {
                   {alinanlar.map((item: any, i) => {
                     const tutar = item.alinanUcret;
                     const vDate = new Date(item.vadeTarihi);
-                    const isGecmis = vDate < new Date(new Date().setHours(0,0,0,0));
+                    const isGecmis = !isNaN(vDate.getTime()) && vDate < new Date(new Date().setHours(0,0,0,0));
                     return (
                       <div key={'al'+i} className={cn("p-3 bg-white border rounded-xl shadow-sm hover:shadow-md transition-shadow", isGecmis ? "border-red-200" : "border-slate-100")}>
                         <div className="flex justify-between items-start mb-1">
                           <span className="text-[10px] font-bold text-slate-600 bg-slate-100 px-2 py-0.5 rounded">{item.baslik}</span>
                           <span className={cn("text-xs font-bold", isGecmis ? "text-red-600" : "text-amber-600")}>
-                            {format(vDate, 'dd MMM yyyy', { locale: tr })} {isGecmis && "(Geçti)"}
+                            {safeFormatDate(vDate)} {isGecmis && "(Geçti)"}
                           </span>
                         </div>
                         <p className="text-sm font-semibold text-slate-900 truncate mt-1">{item.cariIsmi}</p>
@@ -128,13 +136,13 @@ export function BildirimWidget() {
                   {verilenler.map((item: any, i) => {
                     const tutar = item.toplamTutar;
                     const vDate = new Date(item.vadeTarihi);
-                    const isGecmis = vDate < new Date(new Date().setHours(0,0,0,0));
+                    const isGecmis = !isNaN(vDate.getTime()) && vDate < new Date(new Date().setHours(0,0,0,0));
                     return (
                       <div key={'ve'+i} className={cn("p-3 bg-white border rounded-xl shadow-sm hover:shadow-md transition-shadow", isGecmis ? "border-red-200" : "border-slate-100")}>
                         <div className="flex justify-between items-start mb-1">
                           <span className="text-[10px] font-bold text-slate-600 bg-slate-100 px-2 py-0.5 rounded">{item.baslik}</span>
                           <span className={cn("text-xs font-bold", isGecmis ? "text-red-600" : "text-amber-600")}>
-                            {format(vDate, 'dd MMM yyyy', { locale: tr })} {isGecmis && "(Geçti)"}
+                            {safeFormatDate(vDate)} {isGecmis && "(Geçti)"}
                           </span>
                         </div>
                         <p className="text-sm font-semibold text-slate-900 truncate mt-1">{item.cariIsmi}</p>

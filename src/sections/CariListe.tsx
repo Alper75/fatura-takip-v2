@@ -180,7 +180,10 @@ export function CariListe() {
                           return (
                             <div className={cn("font-bold tracking-wide", bakiyeDurumu === 'borclu' ? 'text-indigo-600' : 'text-orange-600')}>
                               {bakiyeDurumu === 'borclu' ? '+ ' : '- '}
-                              {new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(guncelBakiye)}
+                              {(() => {
+                                const safeVal = isNaN(guncelBakiye) || guncelBakiye === null || guncelBakiye === undefined ? 0 : guncelBakiye;
+                                return new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(safeVal);
+                              })()}
                             </div>
                           );
                         })()}
