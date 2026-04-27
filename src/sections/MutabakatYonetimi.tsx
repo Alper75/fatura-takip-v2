@@ -7,8 +7,9 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { 
-  FileSignature, FileUp, CheckCircle2, XCircle, 
-  Clock, FileText, UploadCloud, Loader2, Sparkles, AlertTriangle
+  FileSignature, FileUp, Download, CheckCircle2, XCircle, 
+  Clock, FileText, UploadCloud, Loader2, Sparkles, AlertTriangle,
+  Trash2, Eye
 } from 'lucide-react';
 import { 
   Dialog, DialogContent, DialogHeader, DialogTitle, 
@@ -17,6 +18,7 @@ import {
 import { useApp } from '@/context/AppContext';
 import { toast } from 'sonner';
 import * as XLSX from 'xlsx';
+import { Checkbox } from '@/components/ui/checkbox';
 
 export function MutabakatYonetimi() {
   const { apiFetch } = useApp();
@@ -28,6 +30,15 @@ export function MutabakatYonetimi() {
   const [geminiKey, setGeminiKey] = useState('');
   const [isSavingKey, setIsSavingKey] = useState(false);
   
+  // Selection state
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  
+  // Progress state
+  const [sendProgress, setSendProgress] = useState<{ total: number, current: number, logs: string[] } | null>(null);
+  
+  // Detail Dialog state
+  const [viewDetail, setViewDetail] = useState<any>(null);
+
   // Detaylı / Basit mode
   const [importMode, setImportMode] = useState<'basit' | 'detayli'>('basit');
   
@@ -87,6 +98,42 @@ export function MutabakatYonetimi() {
     }
   }, [activeTab]);
 
+  const handleDelete = async (id: string) => {
+    if (!confirm('Bu mutabakat kaydını silmek istediğinize emin misiniz?')) return;
+    try {
+      const res = await apiFetch(`/api/mutabakatlar/${id}`, { method: 'DELETE' });
+      if (res.success) {
+        toast.success('Mutabakat silindi.');
+        setMutabakatlar(prev => prev.filter(m => m.id !== id));
+        setSelectedIds(prev => prev.filter(sid => sid !== id));
+      }
+    } catch (e: any) {
+      toast.error('Silme hatası: ' + e.message);
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedIds.length === 0) return;
+    if (!confirm(`${selectedIds.length} adet mutabakatı silmek istediğinize emin misiniz?`)) return;
+    
+    setIsLoading(true);
+    try {
+      const res = await apiFetch('/api/mutabakatlar/bulk-delete', {
+        method: 'POST',
+        body: JSON.stringify({ ids: selectedIds })
+      });
+      if (res.success) {
+        toast.success('Seçili mutabakatlar silindi.');
+        setMutabakatlar(prev => prev.filter(m => !selectedIds.includes(m.id)));
+        setSelectedIds([]);
+      }
+    } catch (e: any) {
+      toast.error('Toplu silme hatası: ' + e.message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleAIAnalyze = async (id: string, existingResult?: string) => {
     if (existingResult) {
       try {
@@ -112,24 +159,6 @@ export function MutabakatYonetimi() {
     } finally {
       setIsAnalyzing(null);
     }
-  };
-
-  const handleDownloadMizanTemplate = () => {
-    const ws = XLSX.utils.json_to_sheet([
-      { 'Muhasebe Kodu': '120.01.001', 'Vergi veya T.C. No': '1234567890', 'Dönem': '2026/04', 'Müşteri/Tedarikçi Adı': 'Örnek Firma A.Ş.', 'Borç': 50000, 'Alacak': 10000, 'Bakiye': 40000, 'Açıklama': '1. Çeyrek Mutabakatı' }
-    ]);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Mutabakat Aktarım");
-    XLSX.writeFile(wb, "mutabakat_mizan_sablonu.xlsx");
-  };
-
-  const handleDownloadMuavinTemplate = () => {
-    const ws = XLSX.utils.json_to_sheet([
-      { 'Tarih': '2026-04-01', 'Evrak No': 'FTR12345', 'Açıklama': 'Satış Faturası', 'Borç': 10000, 'Alacak': 0, 'Bakiye': 10000 }
-    ]);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Muavin");
-    XLSX.writeFile(wb, "kendi_muavin_sablonu.xlsx");
   };
 
   const processAndSendMutabakat = async () => {
@@ -174,6 +203,7 @@ export function MutabakatYonetimi() {
         return;
       }
 
+      // Step 1: Create records
       const res = await apiFetch('/api/mutabakatlar/bulk', {
         method: 'POST',
         body: JSON.stringify({ 
@@ -182,16 +212,36 @@ export function MutabakatYonetimi() {
         })
       });
 
-      if (res.success) {
-        let msg = `${res.sentCount} adet mutabakat maili başarıyla gönderildi!`;
-        if (res.totalRows > 0) msg = `İşlenen ${res.totalRows} satırdan ${res.sentCount} tanesi gönderildi.`;
-        if (res.notFoundCount > 0) msg += ` (${res.notFoundCount} cari sistemde bulunamadı)`;
-        if (res.noEmailCount > 0) msg += ` (${res.noEmailCount} carinin e-postası eksik)`;
+      if (res.success && res.created && res.created.length > 0) {
+        const createdList = res.created;
+        setSendProgress({ total: createdList.length, current: 0, logs: [] });
         
-        toast.success(msg);
+        // Step 2: Loop and send emails
+        for (let i = 0; i < createdList.length; i++) {
+          const item = createdList[i];
+          setSendProgress(prev => ({
+            ...prev!,
+            current: i + 1,
+            logs: [`${item.unvan} için mail gönderiliyor...`, ...(prev?.logs || [])]
+          }));
+
+          try {
+            await apiFetch(`/api/mutabakatlar/${item.id}/send-mail`, { method: 'POST' });
+          } catch (err: any) {
+             setSendProgress(prev => ({
+               ...prev!,
+               logs: [`HATA: ${item.unvan} maili gönderilemedi.`, ...(prev?.logs || [])]
+             }));
+          }
+        }
+        
+        toast.success(`${createdList.length} adet mutabakat oluşturuldu ve mailler gönderildi.`);
         setMizanFile(null);
         setMuavinFile(null);
-        setActiveTab('liste');
+        setTimeout(() => {
+          setSendProgress(null);
+          setActiveTab('liste');
+        }, 2000);
       } else {
         toast.error(res.message || 'Gönderim sırasında hata oluştu.');
       }
@@ -210,6 +260,36 @@ export function MutabakatYonetimi() {
     }
   };
 
+  const handleDownloadMizanTemplate = () => {
+    const ws = XLSX.utils.json_to_sheet([
+      { 'Muhasebe Kodu': '120.01.001', 'Vergi veya T.C. No': '1234567890', 'Dönem': '2026/04', 'Müşteri/Tedarikçi Adı': 'Örnek Firma A.Ş.', 'Borç': 50000, 'Alacak': 10000, 'Bakiye': 40000, 'Açıklama': '1. Çeyrek Mutabakatı' }
+    ]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Mutabakat Aktarım");
+    XLSX.writeFile(wb, "mutabakat_mizan_sablonu.xlsx");
+  };
+
+  const handleDownloadMuavinTemplate = () => {
+    const ws = XLSX.utils.json_to_sheet([
+      { 'Tarih': '2026-04-01', 'Evrak No': 'FTR12345', 'Açıklama': 'Satış Faturası', 'Borç': 10000, 'Alacak': 0, 'Bakiye': 10000 }
+    ]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Muavin");
+    XLSX.writeFile(wb, "kendi_muavin_sablonu.xlsx");
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.length === mutabakatlar.length) {
+      setSelectedIds([]);
+    } else {
+      setSelectedIds(mutabakatlar.map(m => m.id));
+    }
+  };
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -220,6 +300,11 @@ export function MutabakatYonetimi() {
           </h2>
           <p className="text-sm text-slate-500 mt-1">Carilerinize e-mutabakat formları gönderin ve cevaplarını otomatik takip edin.</p>
         </div>
+        {selectedIds.length > 0 && (
+          <Button variant="destructive" size="sm" onClick={handleBulkDelete} className="gap-2">
+            <Trash2 className="w-4 h-4" /> {selectedIds.length} Seçiliyi Sil
+          </Button>
+        )}
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
@@ -234,15 +319,23 @@ export function MutabakatYonetimi() {
           <Card className="border-0 shadow-sm">
             <CardHeader className="pb-3 border-b flex flex-row items-center justify-between">
               <CardTitle className="text-lg">Gönderilen Mutabakatlar</CardTitle>
-              <Button variant="outline" size="sm" onClick={fetchMutabakatlar} disabled={isLoading}>
-                {isLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2"/> : null}
-                Yenile
-              </Button>
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" onClick={fetchMutabakatlar} disabled={isLoading}>
+                  {isLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2"/> : null}
+                  Yenile
+                </Button>
+              </div>
             </CardHeader>
             <CardContent className="p-0">
               <Table>
                 <TableHeader>
                   <TableRow className="bg-slate-50">
+                    <TableHead className="w-10">
+                      <Checkbox 
+                        checked={selectedIds.length > 0 && selectedIds.length === mutabakatlar.length}
+                        onCheckedChange={toggleSelectAll}
+                      />
+                    </TableHead>
                     <TableHead>Tarih & Dönem</TableHead>
                     <TableHead>Cari (Muhatap)</TableHead>
                     <TableHead>E-Posta</TableHead>
@@ -254,10 +347,16 @@ export function MutabakatYonetimi() {
                 <TableBody>
                   {mutabakatlar.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={6} className="h-32 text-center text-slate-500">Gönderilmiş bir mutabakat bulunmuyor.</TableCell>
+                      <TableCell colSpan={7} className="h-32 text-center text-slate-500">Gönderilmiş bir mutabakat bulunmuyor.</TableCell>
                     </TableRow>
                   ) : mutabakatlar.map(m => (
-                    <TableRow key={m.id}>
+                    <TableRow key={m.id} className={selectedIds.includes(m.id) ? 'bg-indigo-50/30' : ''}>
+                      <TableCell>
+                        <Checkbox 
+                          checked={selectedIds.includes(m.id)}
+                          onCheckedChange={() => toggleSelect(m.id)}
+                        />
+                      </TableCell>
                       <TableCell>
                         <div className="font-medium">{new Date(m.gonderim_tarihi).toLocaleDateString('tr-TR')}</div>
                         <div className="text-xs text-slate-500">Dönem: {m.donem}</div>
@@ -279,18 +378,28 @@ export function MutabakatYonetimi() {
                         )}
                       </TableCell>
                       <TableCell className="text-right">
-                        {m.durum === 'Onaysız' && (
-                          <Button 
-                            size="sm" 
-                            variant="outline" 
-                            disabled={isAnalyzing === m.id}
-                            onClick={() => handleAIAnalyze(m.id, m.ai_analiz_sonucu)}
-                            className="text-xs h-7 border-indigo-200 text-indigo-700 bg-indigo-50 hover:bg-indigo-100"
-                          >
-                            {isAnalyzing === m.id ? <Loader2 className="w-3 h-3 animate-spin"/> : <Sparkles className="w-3 h-3 mr-1"/>}
-                            {m.ai_analiz_sonucu ? 'Analizi Gör' : 'AI Analiz'}
+                        <div className="flex justify-end gap-1.5">
+                          <Button size="icon" variant="ghost" className="h-8 w-8 text-slate-400 hover:text-indigo-600" onClick={() => setViewDetail(m)}>
+                            <Eye className="w-4 h-4" />
                           </Button>
-                        )}
+                          
+                          {m.durum === 'Onaysız' && (
+                            <Button 
+                              size="sm" 
+                              variant="outline" 
+                              disabled={isAnalyzing === m.id}
+                              onClick={() => handleAIAnalyze(m.id, m.ai_analiz_sonucu)}
+                              className="text-xs h-8 border-indigo-200 text-indigo-700 bg-indigo-50 hover:bg-indigo-100"
+                            >
+                              {isAnalyzing === m.id ? <Loader2 className="w-3 h-3 animate-spin"/> : <Sparkles className="w-3 h-3 mr-1"/>}
+                              {m.ai_analiz_sonucu ? 'Analizi Gör' : 'AI Analiz'}
+                            </Button>
+                          )}
+
+                          <Button size="icon" variant="ghost" className="h-8 w-8 text-slate-400 hover:text-red-600" onClick={() => handleDelete(m.id)}>
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -300,56 +409,8 @@ export function MutabakatYonetimi() {
           </Card>
         </TabsContent>
 
-        <TabsContent value="ayarlar">
-           <Card className="border-0 shadow-sm max-w-2xl mx-auto">
-             <CardHeader className="border-b">
-               <CardTitle className="flex items-center gap-2">
-                 <Sparkles className="w-5 h-5 text-indigo-600" />
-                 Yapay Zeka Ayarları
-               </CardTitle>
-               <CardDescription>
-                 Muavin karşılaştırma ve uyuşmazlık analizi için Google Gemini API anahtarınızı tanımlayın.
-               </CardDescription>
-             </CardHeader>
-             <CardContent className="p-6 space-y-6">
-                <div className="space-y-3">
-                  <Label className="text-sm font-semibold">Gemini API Key</Label>
-                  <div className="flex gap-2">
-                    <Input 
-                      type="password" 
-                      placeholder="AIzaSy..." 
-                      value={geminiKey}
-                      onChange={(e) => setGeminiKey(e.target.value)}
-                      className="font-mono"
-                    />
-                    <Button 
-                      onClick={handleSaveGeminiKey} 
-                      disabled={isSavingKey}
-                    >
-                      {isSavingKey ? <Loader2 className="w-4 h-4 animate-spin"/> : 'Kaydet'}
-                    </Button>
-                  </div>
-                  <p className="text-[11px] text-slate-500 leading-relaxed">
-                    API anahtarınızı <a href="https://aistudio.google.com/app/apikey" target="_blank" className="text-indigo-600 hover:underline font-medium">Google AI Studio</a> üzerinden ücretsiz olarak alabilirsiniz.
-                  </p>
-                </div>
-
-                <div className="bg-amber-50 border border-amber-100 p-4 rounded-xl flex gap-3">
-                  <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
-                  <div className="text-xs text-amber-800 space-y-1">
-                    <p className="font-bold">Önemli Hatırlatma:</p>
-                    <p>Yapay zeka analizi, müşterileriniz reddettiğinde ve kendi muavin dosyalarını yüklediklerinde aktif olur. Basit mutabakatlarda AI kullanılmaz.</p>
-                  </div>
-                </div>
-             </CardContent>
-           </Card>
-        </TabsContent>
-
-        {/* ... (Other TabsContent stay same as previously written) */}
         <TabsContent value="gonder">
-          {/* Reuse the previous logic for 'gonder' tab content */}
           <Card className="border-0 shadow-sm max-w-4xl mx-auto">
-            {/* Same as before... but integrated here */}
             <CardHeader className="border-b">
               <CardTitle>Toplu Mutabakat Gönderimi</CardTitle>
               <CardDescription>
@@ -400,7 +461,8 @@ export function MutabakatYonetimi() {
                </div>
 
                <Button onClick={processAndSendMutabakat} disabled={isLoading} className="w-full h-12 text-base font-bold bg-indigo-600 hover:bg-indigo-700 shadow-md">
-                 {isLoading ? 'Gönderiliyor...' : "Mutabakat Mail'lerini Başlat"}
+                 {isLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2"/> : <FileUp className="w-4 h-4 mr-2" />}
+                 Mutabakat Mail'lerini Başlat
                </Button>
             </CardContent>
           </Card>
@@ -422,7 +484,129 @@ export function MutabakatYonetimi() {
              </CardContent>
            </Card>
         </TabsContent>
+        
+        <TabsContent value="ayarlar">
+           <Card className="border-0 shadow-sm max-w-2xl mx-auto">
+             <CardHeader className="border-b">
+               <CardTitle className="flex items-center gap-2">
+                 <Sparkles className="w-5 h-5 text-indigo-600" />
+                 Yapay Zeka Ayarları
+               </CardTitle>
+               <CardDescription>
+                 Muavin karşılaştırma ve uyuşmazlık analizi için Google Gemini API anahtarınızı tanımlayın.
+               </CardDescription>
+             </CardHeader>
+             <CardContent className="p-6 space-y-6">
+                <div className="space-y-3">
+                  <Label className="text-sm font-semibold">Gemini API Key</Label>
+                  <div className="flex gap-2">
+                    <Input 
+                      type="password" 
+                      placeholder="AIzaSy..." 
+                      value={geminiKey}
+                      onChange={(e) => setGeminiKey(e.target.value)}
+                      className="font-mono"
+                    />
+                    <Button 
+                      onClick={handleSaveGeminiKey} 
+                      disabled={isSavingKey}
+                    >
+                      {isSavingKey ? <Loader2 className="w-4 h-4 animate-spin"/> : 'Kaydet'}
+                    </Button>
+                  </div>
+                  <p className="text-[11px] text-slate-500 leading-relaxed">
+                    API anahtarınızı <a href="https://aistudio.google.com/app/apikey" target="_blank" className="text-indigo-600 hover:underline font-medium">Google AI Studio</a> üzerinden ücretsiz olarak alabilirsiniz.
+                  </p>
+                </div>
+
+                <div className="bg-amber-50 border border-amber-100 p-4 rounded-xl flex gap-3">
+                  <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+                  <div className="text-xs text-amber-800 space-y-1">
+                    <p className="font-bold">Önemli Hatırlatma:</p>
+                    <p>Yapay zeka analizi, müşterileriniz reddettiğinde ve kendi muavin dosyalarını yüklediklerinde aktif olur. Basit mutabakatlarda AI kullanılmaz.</p>
+                  </div>
+                </div>
+             </CardContent>
+           </Card>
+        </TabsContent>
       </Tabs>
+
+      {/* Progress Modal */}
+      <Dialog open={!!sendProgress} onOpenChange={() => {}}>
+        <DialogContent className="sm:max-w-md text-center py-10">
+          <div className="w-20 h-20 rounded-full bg-indigo-50 flex items-center justify-center mx-auto mb-6">
+             <div className="relative w-12 h-12">
+                <Loader2 className="w-12 h-12 text-indigo-600 animate-spin" />
+                <div className="absolute inset-0 flex items-center justify-center text-[10px] font-bold text-indigo-600">
+                   %{sendProgress ? Math.round((sendProgress.current / sendProgress.total) * 100) : 0}
+                </div>
+             </div>
+          </div>
+          <DialogTitle className="text-xl font-bold text-slate-900 mb-2">Mutabakatlar Gönderiliyor</DialogTitle>
+          <DialogDescription className="text-slate-500 font-medium">
+             Lütfen pencereyi kapatmayın. ({sendProgress?.current} / {sendProgress?.total})
+          </DialogDescription>
+          
+          <div className="mt-6 bg-slate-50 rounded-xl p-4 h-32 overflow-y-auto text-left space-y-2 border border-slate-100">
+             {sendProgress?.logs.map((log, idx) => (
+               <div key={idx} className={`text-xs ${log.startsWith('HATA') ? 'text-red-500' : 'text-slate-600'} animate-in fade-in slide-in-from-left-2`}>
+                  {log}
+               </div>
+             ))}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Detail Dialog */}
+      <Dialog open={!!viewDetail} onOpenChange={(open) => !open && setViewDetail(null)}>
+        <DialogContent className="max-w-xl">
+          <DialogHeader>
+            <DialogTitle>Mutabakat Detayları</DialogTitle>
+            <DialogDescription>{viewDetail?.cariUnvan} - {viewDetail?.donem}</DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-6 py-4">
+             <div className="grid grid-cols-2 gap-4">
+                <div className="p-4 bg-slate-50 rounded-xl border">
+                   <p className="text-[10px] uppercase font-bold text-slate-400 mb-1">Durum</p>
+                   {viewDetail && getDurumBadge(viewDetail.durum)}
+                </div>
+                <div className="p-4 bg-slate-50 rounded-xl border">
+                   <p className="text-[10px] uppercase font-bold text-slate-400 mb-1">Bakiye</p>
+                   <p className="font-bold text-slate-900">
+                      {viewDetail && new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(viewDetail.bakiye)}
+                   </p>
+                </div>
+             </div>
+
+             <div className="space-y-2">
+                <p className="text-sm font-semibold text-slate-900">Müşteri Açıklaması</p>
+                <div className="p-4 bg-white border rounded-xl min-h-[80px] text-sm text-slate-600">
+                   {viewDetail?.aciklama || "Müşteri tarafından henüz bir açıklama eklenmedi."}
+                </div>
+             </div>
+
+             {viewDetail?.karsi_muavin_path && (
+               <div className="p-4 bg-emerald-50 border border-emerald-100 rounded-xl flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                     <FileSpreadsheet className="w-8 h-8 text-emerald-600" />
+                     <div>
+                        <p className="text-sm font-bold text-emerald-900">Müşteri Muavin Dosyası</p>
+                        <p className="text-[10px] text-emerald-600">Bu dosya yapay zeka analizi için kullanılabilir.</p>
+                     </div>
+                  </div>
+                  <Button variant="outline" size="sm" className="bg-white border-emerald-200 text-emerald-700 hover:bg-emerald-100" onClick={() => window.open(`/uploads/${viewDetail.karsi_muavin_path}`, '_blank')}>
+                     <Download className="w-4 h-4 mr-2" /> İndir
+                  </Button>
+               </div>
+             )}
+          </div>
+          
+          <DialogFooter>
+             <Button variant="outline" onClick={() => setViewDetail(null)} className="w-full">Kapat</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* AI Analysis Dialog */}
       <Dialog open={!!selectedAnalysis} onOpenChange={(open) => !open && setSelectedAnalysis(null)}>
@@ -488,5 +672,13 @@ export function MutabakatYonetimi() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+function FileSpreadsheet({ className }: { className?: string }) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" /><polyline points="14 2 14 8 20 8" /><path d="M8 13h2" /><path d="M8 17h2" /><path d="M14 13h2" /><path d="M14 17h2" />
+    </svg>
   );
 }

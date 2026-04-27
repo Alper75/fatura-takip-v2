@@ -2801,14 +2801,43 @@ app.get('/api/mutabakatlar', authMiddleware, async (req, res) => {
   }
 });
 
-app.post('/api/mutabakatlar/bulk', authMiddleware, async (req, res) => {
-  const { mutabakatlar, bizeAitMuavinBase64 } = req.body;
-  if (!mutabakatlar || !Array.isArray(mutabakatlar)) {
-    return res.status(400).json({ success: false, message: 'Veri geçersiz.' });
-  }
-
+app.delete('/api/mutabakatlar/:id', authMiddleware, async (req, res) => {
   try {
-    // 1. SMTP Ayarlarını Çek
+    await client.execute({
+      sql: 'DELETE FROM mutabakatlar WHERE id = ? AND company_id = ?',
+      args: [req.params.id, req.user.companyId]
+    });
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ success: false, message: e.message });
+  }
+});
+
+app.post('/api/mutabakatlar/bulk-delete', authMiddleware, async (req, res) => {
+  const { ids } = req.body;
+  if (!ids || !Array.isArray(ids)) return res.status(400).json({ success: false, message: 'Geçersiz ID listesi.' });
+  try {
+    const placeholders = ids.map(() => '?').join(',');
+    await client.execute({
+      sql: `DELETE FROM mutabakatlar WHERE id IN (${placeholders}) AND company_id = ?`,
+      args: [...ids, req.user.companyId]
+    });
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ success: false, message: e.message });
+  }
+});
+
+app.post('/api/mutabakatlar/:id/send-mail', authMiddleware, async (req, res) => {
+  try {
+    const rs = await client.execute({
+      sql: 'SELECT m.*, c.unvan, c.eposta FROM mutabakatlar m JOIN cariler c ON m.cari_id = c.id WHERE m.id = ? AND m.company_id = ?',
+      args: [req.params.id, req.user.companyId]
+    });
+
+    if (rs.rows.length === 0) return res.status(404).json({ success: false, message: 'Bulunamadı.' });
+    const mutabakat = rs.rows[0];
+
     const rsSettings = await client.execute({
       sql: 'SELECT * FROM company_settings WHERE company_id = ?',
       args: [req.user.companyId]
@@ -2816,6 +2845,51 @@ app.post('/api/mutabakatlar/bulk', authMiddleware, async (req, res) => {
     const config = {};
     rsSettings.rows.forEach(r => { config[r.setting_key] = r.setting_value; });
 
+    const transporter = nodemailer.createTransport({
+      host: config.smtp_host,
+      port: parseInt(config.smtp_port) || 465,
+      secure: config.smtp_secure === 'true' || config.smtp_port == '465',
+      auth: { user: config.smtp_user, pass: config.smtp_pass }
+    });
+
+    const publicUrl = `${req.get('origin') || 'http://localhost:5173'}/?mutabakat=${mutabakat.token}`;
+    await transporter.sendMail({
+      from: config.smtp_user,
+      to: mutabakat.eposta,
+      subject: `${config.company_name || 'Şirket'} - Mutabakat Formu (${mutabakat.donem})`,
+      html: `
+        <div style="font-family: sans-serif; padding: 20px; color: #334155;">
+          <h2 style="color: #4f46e5;">Mutabakat Talebi</h2>
+          <p>Sayın <b>${mutabakat.unvan}</b>,</p>
+          <p>Sizlerle olan <b>${mutabakat.donem}</b> dönemine ait cari hesap bakiyemiz aşağıdadır:</p>
+          <div style="background: #f8fafc; padding: 15px; border-radius: 8px; border: 1px solid #e2e8f0; margin: 20px 0;">
+            <p style="margin: 5px 0;"><b>Bakiye:</b> ${new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(mutabakat.bakiye)}</p>
+          </div>
+          <p>Mutabakat işlemini onaylamak veya reddetmek için lütfen aşağıdaki butona tıklayınız:</p>
+          <a href="${publicUrl}" style="display: inline-block; background: #4f46e5; color: white; padding: 12px 25px; border-radius: 6px; text-decoration: none; font-weight: bold; margin-top: 10px;">Mutabakatı Görüntüle</a>
+          <p style="margin-top: 30px; font-size: 12px; color: #64748b;">Bu e-posta otomatik olarak gönderilmiştir.</p>
+        </div>
+      `
+    });
+
+    await client.execute({
+      sql: 'UPDATE mutabakatlar SET gonderim_tarihi = CURRENT_TIMESTAMP WHERE id = ?',
+      args: [mutabakat.id]
+    });
+
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ success: false, message: e.message });
+  }
+});
+
+app.post('/api/mutabakatlar/bulk', authMiddleware, async (req, res) => {
+  const { mutabakatlar, bizeAitMuavinBase64 } = req.body;
+  if (!mutabakatlar || !Array.isArray(mutabakatlar)) {
+    return res.status(400).json({ success: false, message: 'Veri geçersiz.' });
+  }
+
+  try {
     let muavinPath = null;
     if (bizeAitMuavinBase64) {
       const fileName = `biz_muavin_${Date.now()}_${Math.random().toString(36).substr(2, 5)}.xlsx`;
@@ -2825,26 +2899,11 @@ app.post('/api/mutabakatlar/bulk', authMiddleware, async (req, res) => {
       muavinPath = fileName;
     }
 
-    let sentCount = 0;
+    const created = [];
     let notFoundCount = 0;
     let noEmailCount = 0;
 
-    const transporter = (config.smtp_host && config.smtp_user && config.smtp_pass) ? nodemailer.createTransport({
-      host: config.smtp_host,
-      port: parseInt(config.smtp_port) || 465,
-      secure: config.smtp_secure === 'true' || config.smtp_port == '465',
-      auth: { user: config.smtp_user, pass: config.smtp_pass }
-    }) : null;
-
-    if (!transporter) {
-       return res.status(400).json({ 
-         success: false, 
-         message: 'SMTP ayarları (Mail sunucusu) yapılandırılmamış. Lütfen Ayarlar sayfasından mail bilgilerinizi girin.' 
-       });
-    }
-
     for (const row of mutabakatlar) {
-      // Cari Bul (Muhasebe Kodu veya VKN ile)
       const rsCari = await client.execute({
         sql: 'SELECT id, unvan, eposta FROM cariler WHERE (muhasebe_kodu = ? OR vkn_tckn = ? OR vkn_tckn = ?) AND company_id = ?',
         args: [row.muhasebeKodu, row.muhasebeKodu, row.vknTckn || '', req.user.companyId]
@@ -2852,7 +2911,6 @@ app.post('/api/mutabakatlar/bulk', authMiddleware, async (req, res) => {
 
       if (rsCari.rows.length > 0) {
         const cari = rsCari.rows[0];
-        
         if (!cari.eposta) {
           noEmailCount++;
           continue;
@@ -2867,30 +2925,7 @@ app.post('/api/mutabakatlar/bulk', authMiddleware, async (req, res) => {
           args: [id, req.user.companyId, cari.id, row.donem, 'CARI', row.borc, row.alacak, row.bakiye, token, row.aciklama || '', muavinPath, 'Bekliyor']
         });
 
-        try {
-          const publicUrl = `${req.get('origin') || 'http://localhost:5173'}/?mutabakat=${token}`;
-          await transporter.sendMail({
-            from: config.smtp_user,
-            to: cari.eposta,
-            subject: `${config.company_name || 'Şirket'} - Mutabakat Formu (${row.donem})`,
-            html: `
-              <div style="font-family: sans-serif; padding: 20px; color: #334155;">
-                <h2 style="color: #4f46e5;">Mutabakat Talebi</h2>
-                <p>Sayın <b>${cari.unvan}</b>,</p>
-                <p>Sizlerle olan <b>${row.donem}</b> dönemine ait cari hesap bakiyemiz aşağıdadır:</p>
-                <div style="background: #f8fafc; padding: 15px; border-radius: 8px; margin: 20px 0;">
-                  <p style="margin: 5px 0;">Bakiye: <b>${new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(row.bakiye)}</b></p>
-                </div>
-                <p>Mutabık olup olmadığınızı aşağıdaki butona tıklayarak bildirebilirsiniz:</p>
-                <a href="${publicUrl}" style="display: inline-block; padding: 12px 24px; background: #4f46e5; color: white; text-decoration: none; border-radius: 6px; font-weight: bold;">Yanıtla / Detayları Gör</a>
-                <p style="margin-top: 30px; font-size: 12px; color: #94a3b8;">Bu mail sistem tarafından otomatik gönderilmiştir.</p>
-              </div>
-            `
-          });
-          sentCount++;
-        } catch (mErr) {
-          console.error("Mail Error for row:", cari.unvan, mErr);
-        }
+        created.push({ id, unvan: cari.unvan, eposta: cari.eposta });
       } else {
         notFoundCount++;
       }
@@ -2898,10 +2933,10 @@ app.post('/api/mutabakatlar/bulk', authMiddleware, async (req, res) => {
 
     res.json({ 
       success: true, 
-      sentCount, 
-      notFoundCount, 
+      created,
+      notFoundCount,
       noEmailCount,
-      totalRows: mutabakatlar.length 
+      totalRows: mutabakatlar.length
     });
   } catch (e) {
     console.error("Bulk Mutabakat error:", e);
