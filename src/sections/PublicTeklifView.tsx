@@ -3,10 +3,8 @@ import { useApp } from '@/context/AppContext';
 import { 
   CheckCircle2, 
   XCircle, 
-  Download, 
   Printer, 
   Building2, 
-  Calendar, 
   FileText,
   AlertCircle,
   Loader2,

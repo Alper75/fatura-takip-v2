@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
-import { CheckCircle2, XCircle, FileText, UploadCloud, Loader2, Building2, Calendar, AlertCircle, FileSignature } from 'lucide-react';
+import { CheckCircle2, XCircle, UploadCloud, Loader2, Building2, Calendar, AlertCircle, FileSignature } from 'lucide-react';
 import { toast } from 'sonner';
 import { apiFetch } from '@/lib/api';
 

@@ -6,7 +6,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useApp } from '@/context/AppContext';
-import { Plus, Trash2, FileText, Upload, Download, CreditCard, Calendar, BarChart3, AlertCircle, Trash, Info, CheckCircle2, Save, X, Banknote, Sparkles, Loader2 } from 'lucide-react';
+import { Plus, Trash2, FileText, CheckCircle2, Save, X, Banknote, Sparkles, Loader2 } from 'lucide-react';
 import { LucaAccountSelect } from '@/components/LucaAccountSelect';
 import type { SatisFaturaFormData } from '@/types';
 import { toast } from 'sonner';

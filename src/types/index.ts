@@ -34,6 +34,7 @@ export interface SatisFatura {
   // Vade Takibi
   vadeTarihi?: string | null;
   aciklama?: string;
+  stokKalemleri?: any[];
 }
 
 export interface SatisFaturaFormData {
@@ -103,6 +104,8 @@ export interface AlisFatura {
   tevkifatTutari?: number;
   stopajOrani?: string;
   stopajTutari?: number;
+  tevkifatKodu?: string;
+  stopajKodu?: string;
   muhasebeKodu?: string;
   // PDF
   pdfDosya?: string | null;
@@ -133,7 +136,7 @@ export interface AlisFaturaFormData {
   stopajOrani?: string;
   muhasebeKodu?: string;
   dosyaBase64?: string;
-鼓  dosyaAdi?: string;
+  dosyaAdi?: string;
   cariId?: string;
   vadeTarihi?: string;
   aciklama?: string;
@@ -157,6 +160,7 @@ export interface CariHareket {
   dekontDosya?: string | null;
   bankaId?: string | null;
   kategoriId?: string | null;
+  muhasebeKodu?: string;
 }
 
 export interface CariBakiyeOzet {

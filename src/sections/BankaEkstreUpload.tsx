@@ -4,7 +4,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 // Select bileşenleri performans için native ama shadcn stiliyle giydirilmiştir.
 import { useApp } from '@/context/AppContext';
-import { Upload, FileSpreadsheet, CheckCircle2, AlertCircle, Search, Landmark, X, Sparkles, Loader2 } from 'lucide-react';
+import { Upload, FileSpreadsheet, CheckCircle2, AlertCircle, Search, Landmark, Sparkles, Loader2 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';

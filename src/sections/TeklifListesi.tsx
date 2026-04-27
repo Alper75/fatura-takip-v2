@@ -9,7 +9,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -20,33 +20,29 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useApp } from '@/context/AppContext';
 import { 
-  FileSignature, 
   Plus, 
   Search, 
-  MoreHorizontal, 
   Share2, 
   FileText, 
   FileSpreadsheet, 
-  ExternalLink,
   Trash2,
   CheckCircle,
   Clock,
   XCircle,
   MessageCircle,
-  Mail
+  Mail,
+  FileSignature
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
 import { TeklifDrawer } from './TeklifDrawer';
-import { format } from 'date-fns';
-import { tr } from 'date-fns/locale';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { TeklifMailDialog } from './TeklifMailDialog';
 
 export function TeklifListesi() {
-  const { teklifler, deleteTeklif, user } = useApp();
+  const { teklifler, deleteTeklif } = useApp();
   const [searchTerm, setSearchTerm] = useState('');
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [editingTeklif, setEditingTeklif] = useState<any>(null);

@@ -7,8 +7,8 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { 
-  FileSignature, FileUp, Download, CheckCircle2, XCircle, 
-  Clock, FileText, UploadCloud, Search, Loader2, Sparkles, AlertTriangle
+  FileSignature, FileUp, CheckCircle2, XCircle, 
+  Clock, FileText, UploadCloud, Loader2, Sparkles, AlertTriangle
 } from 'lucide-react';
 import { 
   Dialog, DialogContent, DialogHeader, DialogTitle, 
@@ -19,7 +19,7 @@ import { toast } from 'sonner';
 import * as XLSX from 'xlsx';
 
 export function MutabakatYonetimi() {
-  const { apiFetch, cariler } = useApp();
+  const { apiFetch } = useApp();
   const [mutabakatlar, setMutabakatlar] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState<string | null>(null);

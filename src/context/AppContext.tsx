@@ -24,7 +24,9 @@ import type {
   KesilecekFatura,
   Personnel,
   GiderKategorisi,
-  Company
+  Company,
+  Teklif,
+  Siparis
 } from '@/types';
 import { AYLAR, GELIR_VERGISI_DILIMLERI } from '@/types';
 
@@ -43,7 +45,7 @@ interface AppContextType {
   // ==================== CARÄ°LER ====================
   cariler: Cari[];
   addCari: (data: CariFormData) => void;
-  updateCari: (id: string, data: CariFormData) => void;
+  updateCari: (id: string, data: Partial<CariFormData>) => void;
   deleteCari: (id: string) => void;
 
   // ==================== CARÄ° HAREKET (LEDGER) ====================
@@ -170,7 +172,7 @@ interface AppContextType {
   deleteCompany: (id: number) => Promise<{ success: boolean; message?: string }>;
   
   // ==================== LUCA ENTEGRASYON ====================
-  lucaAccounts: { code: string; name: string }[];
+  lucaAccounts: { kod: string; ad: string; tur?: string }[];
   syncLucaAccounts: () => void;
 
   // ==================== TEKLİFLER ====================

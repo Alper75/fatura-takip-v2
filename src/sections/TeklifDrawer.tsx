@@ -20,7 +20,7 @@ import {
 import { Card } from '@/components/ui/card';
 import { useApp } from '@/context/AppContext';
 import { useUrunler } from '@/modules/stok/hooks/useStokQuery';
-import { Plus, Trash2, Calculator, Save, X, Search, Clock } from 'lucide-react';
+import { Plus, Trash2, Calculator, Save, Search, Clock } from 'lucide-react';
 import { toast } from 'sonner';
 import { apiFetch } from '@/lib/api';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -107,8 +107,8 @@ export function TeklifDrawer({ isOpen, onClose, initialData }: TeklifDrawerProps
       ...newKalemler[index],
       urun_id: urun.id,
       urun_adi: urun.urunAdi,
-      birim: urun.anaBirim || urun.birim || 'Adet',
-      birim_fiyat: Number(urun.birimFiyat) || Number(urun.satisFiyati) || 0, // Fallbacks
+      birim: urun.anaBirim || 'Adet',
+      birim_fiyat: Number(urun.birimFiyat) || 0,
     };
     calculateRowTotal(newKalemler, index);
   };
