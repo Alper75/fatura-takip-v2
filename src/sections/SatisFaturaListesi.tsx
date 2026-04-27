@@ -57,6 +57,7 @@ import { toast } from 'sonner';
 import { ODEME_DURUMU_LABELS, ODEME_DURUMU_COLORS } from '@/types';
 import { FilterBar } from '@/components/FilterBar';
 import type { FilterValues } from '@/components/FilterBar';
+import { useUrunler } from '../modules/stok/hooks/useStokQuery';
 
 export function SatisFaturaListesi() {
   const { 
@@ -69,8 +70,11 @@ export function SatisFaturaListesi() {
     updateSatisFaturaOdeme,
     openSatisDrawer,
     parseInvoiceXml,
-    bankaHesaplari
+    bankaHesaplari,
+    addSatisFatura
   } = useApp();
+  
+  const { data: urunler } = useUrunler();
   
   const [faturaToDelete, setFaturaToDelete] = useState<string | null>(null);
   const [odemeDialogOpen, setOdemeDialogOpen] = useState(false);
@@ -87,20 +91,29 @@ export function SatisFaturaListesi() {
     status: 'all',
   });
   
+  // Batch XML States
+  const [batchItems, setBatchItems] = useState<any[]>([]);
+  const [isBatchOpen, setIsBatchOpen] = useState(false);
+  const [isProcessingBatch, setIsProcessingBatch] = useState(false);
+  
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const dekontInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const xmlInputRef = useRef<HTMLInputElement | null>(null);
 
   const handleXmlFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file) {
+    const files = event.target.files;
+    if (!files || files.length === 0) return;
+
+    const filesArray = Array.from(files);
+    
+    // Single file flow (keep existing behavior of opening drawer if only one)
+    if (filesArray.length === 1) {
+      const file = filesArray[0];
       toast.info('XML dosyası işleniyor...', { id: 'xml-upload' });
       const result = await parseInvoiceXml(file);
       if (result.success && result.data) {
         toast.success('XML başarıyla okundu!', { id: 'xml-upload' });
-        // Map the parsed data to the format SatisFaturaFormData expects
         const data = result.data;
-
         const initialData = {
           tcVkn: data.customer?.vkn || '',
           ad: data.customer?.ad || '',
@@ -112,14 +125,89 @@ export function SatisFaturaListesi() {
           faturaTarihi: data.faturaTarihi || new Date().toISOString().split('T')[0],
           kdvOrani: data.kdvOrani?.toString() || '20',
           tevkifatOrani: data.tevkifatOrani || '0',
-          stopajOrani: data.stopajOrani || '0'
+          tevkifatKodu: data.tevkifatKodu || '',
+          stopajOrani: data.stopajOrani || '0',
+          stopajKodu: data.stopajKodu || '',
+          faturaNo: data.faturaNo
         };
         openSatisDrawer(initialData);
       } else {
         toast.error(result.message || 'XML okunamadı.', { id: 'xml-upload' });
       }
-      // Reset input
-      if (xmlInputRef.current) xmlInputRef.current.value = '';
+    } else {
+      // Multiple files flow
+      toast.info(`${filesArray.length} XML dosyası hazırlanıyor...`, { id: 'xml-upload' });
+      const results = [];
+      for (const file of filesArray) {
+        const result = await parseInvoiceXml(file);
+        if (result.success && result.data) {
+          results.push({
+            ...result.data,
+            fileName: file.name,
+            status: 'pending' // pending, saved, exists, error
+          });
+        }
+      }
+      setBatchItems(results);
+      setIsBatchOpen(true);
+      toast.dismiss('xml-upload');
+    }
+
+    // Reset input
+    if (xmlInputRef.current) xmlInputRef.current.value = '';
+  };
+
+  const handleSaveBatch = async (itemsToSave?: any[]) => {
+    setIsProcessingBatch(true);
+    const targetItems = itemsToSave || batchItems.filter(item => item.status === 'pending');
+    
+    let savedCount = 0;
+    let skippedCount = 0;
+    let errorCount = 0;
+
+    for (const item of targetItems) {
+      // Duplicate check
+      const exists = satisFaturalari.some(f => f.faturaNo === item.faturaNo);
+      if (exists) {
+        item.status = 'exists';
+        skippedCount++;
+        continue;
+      }
+
+      try {
+        const initialData = {
+          tcVkn: item.customer?.vkn || '',
+          ad: item.customer?.ad || '',
+          soyad: item.customer?.soyad || '',
+          vergiDairesi: item.customer?.vergiDairesi || '',
+          adres: item.customer?.adres || '',
+          hizmetAdi: item.items?.[0]?.name || 'Muhtelif İşlemler',
+          alinanUcret: item.toplamTutar?.toString() || item.matrah?.toString() || '',
+          faturaTarihi: item.faturaTarihi || new Date().toISOString().split('T')[0],
+          kdvOrani: item.kdvOrani?.toString() || '20',
+          tevkifatOrani: item.tevkifatOrani || '0',
+          tevkifatKodu: item.tevkifatKodu || '',
+          stopajOrani: item.stopajOrani || '0',
+          stopajKodu: item.stopajKodu || '',
+          faturaNo: item.faturaNo // Important for batch
+        };
+        
+        await addSatisFatura(initialData as any);
+        
+        item.status = 'saved';
+        savedCount++;
+      } catch (err) {
+        console.error('Batch error:', err);
+        item.status = 'error';
+        errorCount++;
+      }
+    }
+
+    setBatchItems([...batchItems]);
+    setIsProcessingBatch(false);
+    
+    if (savedCount > 0 || skippedCount > 0) {
+      toast.success(`${savedCount} fatura eklendi, ${skippedCount} fatura atlandı.`);
     }
   };
 
@@ -191,6 +279,30 @@ export function SatisFaturaListesi() {
     deleteSatisFatura(id);
     setFaturaToDelete(null);
     toast.success('Fatura silindi');
+  };
+
+  const handleEdit = (fatura: typeof satisFaturalari[0] & { stokKalemleri?: any[] }) => {
+    const initialData = {
+      id: fatura.id,
+      faturaNo: fatura.faturaNo,
+      tcVkn: fatura.tcVkn,
+      ad: fatura.ad,
+      soyad: fatura.soyad,
+      vergiDairesi: '', // We don't store VD in the main object but it's in the form
+      adres: fatura.adres,
+      hizmetAdi: '', // Usually not stored directly but we can leave it empty
+      alinanUcret: fatura.alinanUcret.toString(),
+      faturaTarihi: fatura.faturaTarihi,
+      kdvOrani: fatura.kdvOrani.toString(),
+      tevkifatOrani: fatura.tevkifatOrani || '0',
+      tevkifatKodu: fatura.tevkifatKodu || '',
+      stopajOrani: fatura.stopajOrani || '0',
+      stopajKodu: fatura.stopajKodu || '',
+      aciklama: fatura.aciklama || '',
+      cariId: fatura.cariId,
+      stokKalemleri: fatura.stokKalemleri
+    };
+    openSatisDrawer(initialData as any);
   };
 
   const openOdemeDialog = (fatura: typeof satisFaturalari[0]) => {
@@ -282,7 +394,8 @@ export function SatisFaturaListesi() {
               </Button>
 
               <input 
-                type="file" 
+                type="file"
+                multiple
                 accept=".xml" 
                 ref={xmlInputRef} 
                 onChange={handleXmlFileSelect} 
@@ -318,9 +431,10 @@ export function SatisFaturaListesi() {
             <Table>
               <TableHeader>
                 <TableRow className="bg-slate-50/50 hover:bg-slate-50/50">
-                  <TableHead className="font-semibold text-slate-700">Fatura Tarihi</TableHead>
+                  <TableHead className="font-semibold text-slate-700">Belge No / Tarih</TableHead>
                   <TableHead className="font-semibold text-slate-700">T.C. / VKN</TableHead>
                   <TableHead className="font-semibold text-slate-700">Ad Soyad</TableHead>
+                  <TableHead className="font-semibold text-slate-700">Stok Kalemleri</TableHead>
                   <TableHead className="font-semibold text-slate-700 text-right">Matrah</TableHead>
                   <TableHead className="font-semibold text-slate-700 text-right">KDV</TableHead>
                   <TableHead className="font-semibold text-slate-700 text-right">Toplam</TableHead>
@@ -341,11 +455,31 @@ export function SatisFaturaListesi() {
                   </TableRow>
                 ) : (
                   filteredFaturalar.map((fatura) => (
-                    <TableRow key={fatura.id} className="group">
+                    <TableRow 
+                      key={fatura.id} 
+                      className="group"
+                      data-luca-no={fatura.faturaNo || ''}
+                      data-luca-tarih={fatura.faturaTarihi}
+                      data-luca-unvan={`${fatura.ad || ''} ${fatura.soyad || ''}`}
+                      data-luca-vkn={fatura.tcVkn}
+                      data-luca-matrah={fatura.matrah}
+                      data-luca-kdv={fatura.kdvTutari}
+                      data-luca-kdv-oran={fatura.kdvOrani}
+                      data-luca-toplam={fatura.alinanUcret}
+                      data-luca-tevkifat-kodu={fatura.tevkifatKodu || ''}
+                      data-luca-tevkifat-oran={fatura.tevkifatOrani || ''}
+                      data-luca-stopaj-kodu={fatura.stopajKodu || ''}
+                    >
                       <TableCell className="text-slate-600">
-                        <div className="flex items-center gap-1">
-                          <Calendar className="w-3.5 h-3.5 text-slate-400" />
-                          {formatDate(fatura.faturaTarihi)}
+                        <div className="flex flex-col gap-1">
+                          <div className="flex items-center gap-1 font-medium text-slate-900">
+                            <FileText className="w-3.5 h-3.5 text-slate-400" />
+                            {fatura.faturaNo || '-'}
+                          </div>
+                          <div className="flex items-center gap-1 text-xs text-slate-500">
+                            <Calendar className="w-3 h-3 text-slate-400" />
+                            {formatDate(fatura.faturaTarihi)}
+                          </div>
                         </div>
                       </TableCell>
                       <TableCell className="font-medium text-slate-900">
@@ -366,6 +500,23 @@ export function SatisFaturaListesi() {
                               </span>
                             )}
                           </div>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex flex-col gap-1 max-w-[200px]">
+                          {(fatura as any).stokKalemleri && (fatura as any).stokKalemleri.length > 0 ? (
+                            (fatura as any).stokKalemleri.map((sk: any, idx: number) => {
+                              const ad = urunler?.find(u => u.id === sk.urunId)?.urunAdi || 'İsimsiz Ürün';
+                              return (
+                                <div key={idx} className="text-xs flex items-center justify-between bg-slate-50 border rounded px-1.5 py-0.5">
+                                  <span className="truncate max-w-[120px]" title={ad}>{ad}</span>
+                                  <span className="font-medium text-slate-600 bg-white px-1 rounded border shadow-sm ml-2">x{sk.miktar}</span>
+                                </div>
+                              )
+                            })
+                          ) : (
+                            <span className="text-[10px] text-slate-400 italic">Stok bağlantısı yok</span>
+                          )}
                         </div>
                       </TableCell>
                       <TableCell className="text-right font-medium text-slate-700">
@@ -478,8 +629,19 @@ export function SatisFaturaListesi() {
                             variant="ghost"
                             size="sm"
                             onClick={() => openOdemeDialog(fatura)}
-                            className="text-slate-400 hover:text-blue-600 hover:bg-blue-50"
+                            className="text-slate-400 hover:text-emerald-600 hover:bg-emerald-50"
                             title="Ödeme Düzenle"
+                          >
+                            <CreditCard className="w-4 h-4" />
+                          </Button>
+
+                          {/* Düzenle Butonu */}
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleEdit(fatura)}
+                            className="text-slate-400 hover:text-indigo-600 hover:bg-indigo-50"
+                            title="Faturayı Düzenle"
                           >
                             <Edit className="w-4 h-4" />
                           </Button>
@@ -623,6 +785,68 @@ export function SatisFaturaListesi() {
               İptal
             </Button>
             <Button onClick={saveOdeme}>Kaydet</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Toplu İşlem Dialog */}
+      <Dialog open={isBatchOpen} onOpenChange={setIsBatchOpen}>
+        <DialogContent className="sm:max-w-4xl max-h-[90vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Upload className="w-5 h-5 text-indigo-600" />
+              Toplu XML İçe Aktarma
+            </DialogTitle>
+            <DialogDescription>
+              Seçilen {batchItems.length} XML dosyası ayrıştırıldı. İnceleyip kaydedebilirsiniz.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex-1 overflow-auto py-4">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Numara</TableHead>
+                  <TableHead>Tarih</TableHead>
+                  <TableHead>Ünvan</TableHead>
+                  <TableHead className="text-right">Tutar</TableHead>
+                  <TableHead className="text-center">Durum</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {batchItems.map((item, idx) => (
+                  <TableRow key={idx}>
+                    <TableCell className="font-mono text-xs">{item.faturaNo}</TableCell>
+                    <TableCell className="text-xs">{item.faturaTarihi}</TableCell>
+                    <TableCell className="text-xs font-medium truncate max-w-[200px]" title={item.customer?.ad}>
+                      {item.customer?.ad} {item.customer?.soyad}
+                    </TableCell>
+                    <TableCell className="text-right font-medium">
+                      {formatCurrency(item.toplamTutar || item.matrah)}
+                    </TableCell>
+                    <TableCell className="text-center">
+                      {item.status === 'pending' && <Badge variant="outline">Bekliyor</Badge>}
+                      {item.status === 'saved' && <Badge className="bg-green-100 text-green-700">Kaydedildi</Badge>}
+                      {item.status === 'exists' && <Badge className="bg-orange-100 text-orange-700">Mevcut (Atlandı)</Badge>}
+                      {item.status === 'error' && <Badge className="bg-red-100 text-red-700">Hata</Badge>}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setIsBatchOpen(false)}>
+              Kapat
+            </Button>
+            <Button 
+              onClick={() => handleSaveBatch()} 
+              disabled={isProcessingBatch || !batchItems.some(i => i.status === 'pending')}
+              className="bg-indigo-600 hover:bg-indigo-700"
+            >
+              {isProcessingBatch ? 'İşleniyor...' : 'Hepsini Kaydet (Mevcut olanlar atlanır)'}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

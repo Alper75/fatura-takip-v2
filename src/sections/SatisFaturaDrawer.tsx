@@ -6,11 +6,13 @@ import { Textarea } from '@/components/ui/textarea';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useApp } from '@/context/AppContext';
-import { Save, X, Banknote, FileText, Sparkles, Loader2, CheckCircle2, Plus, Trash2 } from 'lucide-react';
+import { Plus, Trash2, FileText, Upload, Download, CreditCard, Calendar, BarChart3, AlertCircle, Trash, Info, CheckCircle2, Save, X, Banknote, Sparkles, Loader2 } from 'lucide-react';
+import { LucaAccountSelect } from '@/components/LucaAccountSelect';
 import type { SatisFaturaFormData } from '@/types';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { useUrunler } from '@/modules/stok/hooks/useStokQuery';
+
 const KDV_ORANLARI = ['0', '1', '8', '10', '18', '20'];
 const TEVKIFAT_ORANLARI = ['0', '2/10', '3/10', '4/10', '5/10', '7/10', '9/10', '10/10'];
 
@@ -24,8 +26,18 @@ const INITIAL_FORM: SatisFaturaFormData = {
   faturaTarihi: new Date().toISOString().split('T')[0],
   vadeTarihi: '',
   tevkifatOrani: '0',
+  tevkifatKodu: '',
   stopajOrani: '0',
+  stopajKodu: '',
   aciklama: ''
+};
+
+type StokKalemi = {
+  id: string;
+  urunId: string;
+  miktar: number;
+  birimFiyat: number;
+  urunAdi?: string;
 };
 
 type FormEntry = {
@@ -33,6 +45,7 @@ type FormEntry = {
   data: SatisFaturaFormData;
   tutarTuru: 'dahil' | 'haric';
   errors: Partial<Record<keyof SatisFaturaFormData, string>>;
+  stokKalemleri: StokKalemi[];
 };
 
 type UploadedFile = {
@@ -42,22 +55,58 @@ type UploadedFile = {
 };
 
 export function SatisFaturaDrawer() {
-  const { isSatisDrawerOpen, closeSatisDrawer, addSatisFatura, cariler, satisInitialData } = useApp();
+  const { isSatisDrawerOpen, closeSatisDrawer, addSatisFatura, updateSatisFatura, cariler, satisInitialData, lucaAccounts } = useApp();
   const { data: urunler } = useUrunler();
 
   useEffect(() => {
     if (isSatisDrawerOpen && satisInitialData) {
+      let mergedData = { ...INITIAL_FORM, ...satisInitialData };
+      
+      // cariId varsa ama VKN/Ad eksikse, cariler listesinden çek
+      if (mergedData.cariId && cariler) {
+        const cari = cariler.find(c => String(c.id) === String(mergedData.cariId));
+        if (cari) {
+          if (!mergedData.tcVkn) mergedData.tcVkn = cari.vknTckn || '';
+          if (!mergedData.ad) mergedData.ad = cari.unvan || '';
+          if (!mergedData.adres) mergedData.adres = cari.adres || '';
+        }
+      }
+      
+      // Stok kalemlerini hazırla
+      let initialStokKalemleri: StokKalemi[] = [];
+      const initData = satisInitialData as any;
+      if (initData.stokKalemleri && initData.stokKalemleri.length > 0) {
+        initialStokKalemleri = initData.stokKalemleri.map((sk: any) => ({
+          id: sk.id || ('sk' + Date.now() + Math.random().toString(36).slice(2)),
+          urunId: sk.urunId || sk.urun_id || '',
+          miktar: sk.miktar || 1,
+          birimFiyat: sk.birimFiyat || sk.birim_fiyat || 0,
+          urunAdi: sk.urunAdi || sk.urun_adi || '',
+        }));
+      } else if (mergedData.urunId && mergedData.urunId !== 'yok') {
+        // Tek ürün varsa stok kalemine dönüştür
+        const urun = urunler?.find(u => u.id === mergedData.urunId);
+        initialStokKalemleri = [{
+          id: 'sk' + Date.now(),
+          urunId: mergedData.urunId,
+          miktar: 1,
+          birimFiyat: urun?.birimFiyat || 0,
+          urunAdi: urun?.urunAdi || '',
+        }];
+      }
+      
       setForms([{
         id: Date.now(),
-        data: { ...INITIAL_FORM, ...satisInitialData },
+        data: mergedData,
         tutarTuru: 'dahil',
-        errors: {}
+        errors: {},
+        stokKalemleri: initialStokKalemleri,
       }]);
     }
-  }, [isSatisDrawerOpen, satisInitialData]);
+  }, [isSatisDrawerOpen, satisInitialData, cariler]);
 
   const [forms, setForms] = useState<FormEntry[]>([
-    { id: Date.now(), data: INITIAL_FORM, tutarTuru: 'dahil', errors: {} }
+    { id: Date.now(), data: INITIAL_FORM, tutarTuru: 'dahil', errors: {}, stokKalemleri: [] }
   ]);
 
   // AI States
@@ -120,7 +169,7 @@ export function SatisFaturaDrawer() {
   };
 
   const addNewForm = () => {
-    setForms(prev => [...prev, { id: Date.now(), data: { ...INITIAL_FORM, faturaTarihi: prev[0]?.data.faturaTarihi || INITIAL_FORM.faturaTarihi }, tutarTuru: 'dahil', errors: {} }]);
+    setForms(prev => [...prev, { id: Date.now(), data: { ...INITIAL_FORM, faturaTarihi: prev[0]?.data.faturaTarihi || INITIAL_FORM.faturaTarihi }, tutarTuru: 'dahil', errors: {}, stokKalemleri: [] }]);
   };
 
   const removeForm = (id: number) => {
@@ -146,7 +195,7 @@ export function SatisFaturaDrawer() {
   };
 
   const handleClose = () => {
-    setForms([{ id: Date.now(), data: INITIAL_FORM, tutarTuru: 'dahil', errors: {} }]);
+    setForms([{ id: Date.now(), data: INITIAL_FORM, tutarTuru: 'dahil', errors: {}, stokKalemleri: [] }]);
     setUploadedFile(null);
     setAiAddedCount(0);
     setIsScanning(false);
@@ -165,14 +214,22 @@ export function SatisFaturaDrawer() {
       try {
         for (const f of forms) {
           const hes = getHesaplanan(f);
-          await addSatisFatura({
+          const dataToSave = {
             ...f.data,
             alinanUcret: f.tutarTuru === 'dahil' ? parseFloat(f.data.alinanUcret).toString() : hes.toplamNet.toString(),
             dosyaBase64: uploadedFile?.base64,
-            dosyaAdi: uploadedFile?.name
-          });
+            dosyaAdi: uploadedFile?.name,
+            // Çoklu stok kalemleri
+            stokKalemleri: f.stokKalemleri.filter(sk => sk.urunId && sk.urunId !== 'yok'),
+          };
+
+          if ((f.data as any).id) {
+            await updateSatisFatura((f.data as any).id, dataToSave);
+          } else {
+            await addSatisFatura(dataToSave);
+          }
         }
-        toast.success(`${forms.length} adet satış faturası kaydedildi (Medyaları ile birlikte)`);
+        toast.success(`${forms.length} adet satış faturası ${forms.some(f => (f.data as any).id) ? 'güncellendi' : 'kaydedildi'}`);
         handleClose();
       } catch (error: any) {
         toast.error('Kayıt sırasında bir hata oluştu: ' + error.message);
@@ -208,6 +265,10 @@ export function SatisFaturaDrawer() {
     const prompt = `Bu dosyada BİRDEN FAZLA ayrı SATIŞ faturası veya fişi olabilir. Lütfen bulduğun TÜM belgeleri çıkar.
 Eğer AYNI belgenin içinde KDV oranları parçalanmışsa faturayı kendi içinde farklı oranlara göre böl.
 Ayrıca belgede Stopaj (Kesinti) veya KDV Tevkifatı varsa bu oranları da tespit et.
+
+ÖNEMLİ: Aşağıdaki LUCA HESAP PLANI listesinden bu faturanın açıklamasına/türüne en uygun "kod"u seçerek "muhasebe_kodu" alanına yaz:
+${lucaAccounts.map(a => `${a.kod}: ${a.ad}`).join('\n')}
+
 SADECE JSON döndür:
 {
   "faturalar": [
@@ -222,7 +283,8 @@ SADECE JSON döndür:
       "kdv_orani": "kdv yüzdesi (0, 1, 8, 10, 18, 20 gibi değerler. Bulamazsan 20)",
       "tevkifat_orani": "kdv tevkifat oranı (varsa '2/10', '9/10' gibi kesirli format, yoksa '0')",
       "stopaj_orani": "stopaj kesinti yüzdesi (varsa 20, 10 gibi sadece sayı, yoksa '0')",
-      "aciklama": "varsa fatura üzerindeki not veya açıklama"
+      "aciklama": "varsa fatura üzerindeki not veya açıklama",
+      "muhasebe_kodu": "Yukarıdaki listeden seçilen en uygun hesap kodu"
     }
   ]
 }
@@ -256,7 +318,15 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
       } else {
         const fList = parsed.faturalar || [parsed];
         const newForms: FormEntry[] = fList.map((f: any, idx: number) => {
-          const matchedCari = (cariler || []).find(c => c && c.vknTckn === f.tcVkn && c.vknTckn && c.vknTckn.length > 5);
+          // 1. VKN/TCKN ile eşleşen cari bul
+          let matchedCari = (cariler || []).find(c => c && c.vknTckn === f.tcVkn && c.vknTckn && c.vknTckn.length > 5);
+          
+          // 2. VKN yoksa isimden (fuzzy match benzeri) ara
+          if (!matchedCari && f.ad) {
+            const searchName = f.ad.toLowerCase();
+            matchedCari = cariler.find(c => c.unvan && c.unvan.toLowerCase().includes(searchName));
+          }
+
           return {
             id: Date.now() + idx,
             tutarTuru: f.tutar_tur || 'dahil',
@@ -273,7 +343,8 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
               tevkifatOrani: f.tevkifat_orani?.toString() || '0',
               stopajOrani: f.stopaj_orani?.toString() || '0',
               aciklama: f.aciklama || '',
-              cariId: matchedCari ? matchedCari.id : undefined
+              cariId: matchedCari ? matchedCari.id : undefined,
+              muhasebeKodu: f.muhasebe_kodu || ''
             }
           };
         });
@@ -479,10 +550,14 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-4 mb-4">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
                       <div className="space-y-2">
                         <Label className="text-xs font-medium text-slate-500">VKN / T.C. <span className="text-red-500">*</span></Label>
                         <Input value={form.data.tcVkn} onChange={(e) => handleVknChange(form.id, e.target.value)} className={form.errors.tcVkn ? 'border-red-500 h-9' : 'h-9'} />
+                      </div>
+                      <div className="space-y-2">
+                        <Label className="text-xs font-medium text-slate-500">Belge / Fatura No <span className="text-slate-400 text-[10px]">(Opsiyonel)</span></Label>
+                        <Input value={form.data.faturaNo || ''} onChange={(e) => updateForm(form.id, 'faturaNo', e.target.value)} className="h-9" placeholder="Örn: ABC20230001" />
                       </div>
                       <div className="space-y-2">
                         <Label className="text-xs font-medium text-slate-500">Fatura Tarihi <span className="text-red-500">*</span></Label>
@@ -506,38 +581,123 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
                       <Input value={form.data.aciklama} onChange={(e) => updateForm(form.id, 'aciklama', e.target.value)} placeholder="Örn: 2024 Mart ayı hakediş bedeli" className="h-9" />
                     </div>
 
-                    {/* Stoktan Ürün Seçimi */}
-                    <div className="mb-4 p-3 bg-emerald-50/50 border border-emerald-100 rounded-lg space-y-2">
-                      <Label className="text-xs font-semibold text-emerald-700">📦 Stoktan Ürün Bağla (Opsiyonel)</Label>
-                      <Select
-                        value={form.data.urunId || 'yok'}
-                        onValueChange={(val) => {
-                          const selectedUrun = urunler?.find(u => u.id === val);
-                          updateForm(form.id, 'urunId', val === 'yok' ? '' : val);
-                          if (selectedUrun) {
-                            if (!form.data.aciklama) updateForm(form.id, 'aciklama', selectedUrun.urunAdi || '');
-                            if (selectedUrun.birimFiyat && !form.data.alinanUcret) {
-                              updateForm(form.id, 'alinanUcret', String(selectedUrun.birimFiyat));
-                            }
-                          }
-                        }}
-                      >
-                        <SelectTrigger className="h-9 bg-white border-emerald-100">
-                          <SelectValue placeholder="Stok kartından seçin..." />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="yok">Bağlama Yapma</SelectItem>
-                          {(!urunler || urunler.length === 0) ? (
-                            <SelectItem value="none" disabled className="text-slate-400 italic">Sistemde hiç stok kartınız yok</SelectItem>
-                          ) : urunler.map(u => (
-                            <SelectItem key={u.id} value={u.id}>
-                              {u.urunAdi || 'İsimsiz'} ({u.stokKodu}){u.birimFiyat ? ` — ${new Intl.NumberFormat('tr-TR', {style:'currency',currency:'TRY'}).format(u.birimFiyat)}` : ''}
-                            </SelectItem>
+                    {/* Luca Muhasebe Kodu Seçimi */}
+                    <div className="space-y-2 mb-4">
+                      <Label className="text-xs font-semibold text-indigo-700">🔍 Luca Muhasebe Kodu</Label>
+                      <LucaAccountSelect 
+                        value={form.data.muhasebeKodu || ''} 
+                        onChange={(val) => updateForm(form.id, 'muhasebeKodu', val)}
+                        placeholder="Ana hesap kodu seçin (örn: 600.01.001)..."
+                      />
+                    </div>
+
+                    {/* Stoktan Ürün Seçimi - Çoklu Kalem */}
+                    <div className="mb-4 p-3 bg-emerald-50/50 border border-emerald-100 rounded-lg space-y-3">
+                      <div className="flex items-center justify-between">
+                        <Label className="text-xs font-semibold text-emerald-700">📦 Stok Kalemleri (Opsiyonel)</Label>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="h-7 text-xs gap-1 border-emerald-200 text-emerald-700 hover:bg-emerald-100"
+                          onClick={() => {
+                            setForms(prev => prev.map(fp => fp.id === form.id ? {
+                              ...fp,
+                              stokKalemleri: [...fp.stokKalemleri, { id: 'sk' + Date.now(), urunId: '', miktar: 1, birimFiyat: 0 }]
+                            } : fp));
+                          }}
+                        >
+                          <Plus className="w-3 h-3" /> Stok Kalemi Ekle
+                        </Button>
+                      </div>
+
+                      {form.stokKalemleri.length === 0 ? (
+                        <p className="text-[10px] text-slate-400 italic">Henüz stok kalemi eklenmedi. Yukarıdaki butona tıklayarak ürün ekleyebilirsiniz.</p>
+                      ) : (
+                        <div className="space-y-2">
+                          {form.stokKalemleri.map((sk) => (
+                            <div key={sk.id} className="flex items-center gap-2 bg-white rounded-md border border-emerald-100 p-2">
+                              <div className="flex-1">
+                                <Select
+                                  value={sk.urunId || 'yok'}
+                                  onValueChange={(val) => {
+                                    const selectedUrun = urunler?.find(u => u.id === val);
+                                    setForms(prev => prev.map(fp => fp.id === form.id ? {
+                                      ...fp,
+                                      stokKalemleri: fp.stokKalemleri.map(s => s.id === sk.id ? {
+                                        ...s,
+                                        urunId: val === 'yok' ? '' : val,
+                                        birimFiyat: selectedUrun?.birimFiyat || s.birimFiyat,
+                                        urunAdi: selectedUrun?.urunAdi || '',
+                                      } : s)
+                                    } : fp));
+                                  }}
+                                >
+                                  <SelectTrigger className="h-8 text-xs bg-white">
+                                    <SelectValue placeholder="Ürün seçin..." />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="yok">-- Seçin --</SelectItem>
+                                    {urunler?.map(u => (
+                                      <SelectItem key={u.id} value={u.id}>
+                                        {u.urunAdi || 'İsimsiz'} ({u.stokKodu})
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                              <div className="w-20">
+                                <Input
+                                  type="number"
+                                  min="0.01"
+                                  step="0.01"
+                                  value={sk.miktar}
+                                  onChange={(e) => {
+                                    setForms(prev => prev.map(fp => fp.id === form.id ? {
+                                      ...fp,
+                                      stokKalemleri: fp.stokKalemleri.map(s => s.id === sk.id ? { ...s, miktar: parseFloat(e.target.value) || 0 } : s)
+                                    } : fp));
+                                  }}
+                                  className="h-8 text-xs"
+                                  placeholder="Miktar"
+                                />
+                              </div>
+                              <div className="w-24">
+                                <Input
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  value={sk.birimFiyat || ''}
+                                  onChange={(e) => {
+                                    setForms(prev => prev.map(fp => fp.id === form.id ? {
+                                      ...fp,
+                                      stokKalemleri: fp.stokKalemleri.map(s => s.id === sk.id ? { ...s, birimFiyat: parseFloat(e.target.value) || 0 } : s)
+                                    } : fp));
+                                  }}
+                                  className="h-8 text-xs"
+                                  placeholder="B.Fiyat"
+                                />
+                              </div>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 text-red-400 hover:text-red-600 hover:bg-red-50"
+                                onClick={() => {
+                                  setForms(prev => prev.map(fp => fp.id === form.id ? {
+                                    ...fp,
+                                    stokKalemleri: fp.stokKalemleri.filter(s => s.id !== sk.id)
+                                  } : fp));
+                                }}
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </Button>
+                            </div>
                           ))}
-                        </SelectContent>
-                      </Select>
-                      {form.data.urunId && form.data.urunId !== 'yok' && (
-                        <p className="text-[10px] text-emerald-600">✅ Stok kartı bağlandı. Fatura kaydedilince stok hareketine çıkış olarak işlenecektir.</p>
+                          <div className="text-[10px] text-emerald-600 mt-1">
+                            ✅ {form.stokKalemleri.filter(sk => sk.urunId).length} stok kalemi bağlandı. Fatura kaydedilince stok hareketine otomatik işlenecektir.
+                          </div>
+                        </div>
                       )}
                     </div>
 
@@ -585,7 +745,33 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
                       </div>
                     </div>
 
-                    {/* Sonuç Özeti Inline */}
+                    {/* Tevkifat Kodu ve Stopaj Kodu — Luca aktarımı için */}
+                    {((form.data.tevkifatOrani && form.data.tevkifatOrani !== '0') || (form.data.stopajOrani && form.data.stopajOrani !== '0')) && (
+                      <div className="grid grid-cols-2 gap-4 mb-4 p-3 bg-amber-50/60 border border-amber-100 rounded-lg">
+                        <p className="col-span-2 text-[10px] font-bold text-amber-700 uppercase tracking-wider">🔗 Luca Aktarım Kodları</p>
+                        {form.data.tevkifatOrani && form.data.tevkifatOrani !== '0' && (
+                          <div className="space-y-1">
+                            <Label className="text-xs font-medium text-slate-600">Tevkifat Kodu <span className="text-slate-400 font-normal">(XML'den — örn: 616)</span></Label>
+                            <Input
+                              value={form.data.tevkifatKodu || ''}
+                              onChange={(e) => updateForm(form.id, 'tevkifatKodu', e.target.value)}
+                              placeholder="Örn: 616"
+                              className="h-8 font-mono"
+                            />
+                          </div>
+                        )}
+                        {form.data.stopajOrani && form.data.stopajOrani !== '0' && (
+                          <div className="space-y-1">
+                            <Label className="text-xs font-medium text-slate-600">Stopaj Kodu <span className="text-slate-400 font-normal">(SMM için: 022)</span></Label>
+                            <LucaAccountSelect
+                              value={form.data.stopajKodu || ''}
+                              onChange={(val) => updateForm(form.id, 'stopajKodu', val)}
+                              placeholder="Kodu seçin..."
+                            />
+                          </div>
+                        )}
+                      </div>
+                    )}
                     {(hes.matrah > 0 || hes.kdvTutari > 0) && (
                       <div className="bg-slate-50 rounded p-3 text-xs flex flex-wrap gap-4 border items-center">
                         <div className="text-slate-500">Brüt Matrah: <strong className="text-slate-900">{formatCurrency(hes.matrah)}</strong></div>
@@ -610,7 +796,7 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
             <div className="flex gap-3 pt-4 border-t sticky bottom-0 bg-white pb-6 mt-6 z-10">
               <Button type="button" variant="outline" className="flex-1 h-12" onClick={handleClose}>İptal</Button>
               <Button type="submit" className={cn("flex-1 h-12", aiAddedCount > 0 && "bg-indigo-600 hover:bg-indigo-700 text-white")}>
-                <Save className="w-5 h-5 mr-2" /> Kaydet ve Ekle ({forms.length})
+                <Save className="w-5 h-5 mr-2" /> {forms.length === 1 && (forms[0].data as any).id ? 'Değişiklikleri Kaydet' : `Kaydet ve Ekle (${forms.length})`}
               </Button>
             </div>
           </form>

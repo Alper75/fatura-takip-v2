@@ -25,12 +25,14 @@ import { useApp } from '@/context/AppContext';
 import { Plus, Trash2, Edit, Users, MapPin, Phone, Mail, FileText } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import { CariExcelAktarDrawer } from './CariExcelAktarDrawer';
 import { FilterBar } from '@/components/FilterBar';
 import type { FilterValues } from '@/components/FilterBar';
 
 export function CariListe() {
-  const { cariler, deleteCari, openCariDrawer, openCariEkstreDrawer, hesaplaCariBakiye } = useApp();
+  const { cariler, deleteCari, openCariDrawer, openCariEkstreDrawer, hesaplaCariBakiye, fetchCariler } = useApp();
   const [cariToDelete, setCariToDelete] = useState<string | null>(null);
+  const [isExcelDrawerOpen, setIsExcelDrawerOpen] = useState(false);
   const [filterValues, setFilterValues] = useState<FilterValues>({
     search: '',
     startDate: '',
@@ -89,6 +91,10 @@ export function CariListe() {
               </p>
             </div>
             <div className="flex items-center gap-3">
+              <Button onClick={() => setIsExcelDrawerOpen(true)} variant="outline" className="gap-2 border-indigo-200 text-indigo-700 bg-indigo-50/50 hover:bg-indigo-100">
+                <FileText className="w-4 h-4" />
+                <span className="hidden sm:inline">Excel'den Aktar</span>
+              </Button>
               <Button onClick={() => openCariDrawer()} className="gap-2">
                 <Plus className="w-4 h-4" />
                 <span className="hidden sm:inline">Yeni Cari Ekle</span>
@@ -249,6 +255,12 @@ export function CariListe() {
           </div>
         </CardContent>
       </Card>
+
+      <CariExcelAktarDrawer 
+        isOpen={isExcelDrawerOpen} 
+        onClose={() => setIsExcelDrawerOpen(false)} 
+        onSuccess={() => fetchCariler()} 
+      />
     </div>
   );
 }

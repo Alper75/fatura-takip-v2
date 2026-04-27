@@ -7,22 +7,12 @@ import type {
   IStokKategori
 } from '../types/stok.types';
 
-const API_BASE = '/api/stok';
-const getToken = () => localStorage.getItem('token') || '';
+import { apiFetch } from '@/lib/api';
+
+const STOK_BASE = '/api/stok';
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const headers: any = {
-    'Authorization': `Bearer ${getToken()}`,
-    'Content-Type': 'application/json',
-    ...(options?.headers || {})
-  };
-
-  const response = await fetch(`${API_BASE}${path}`, {
-    ...options,
-    headers
-  });
-
-  const result = await response.json();
+  const result = await apiFetch(`${STOK_BASE}${path}`, options);
   if (!result.success) {
     throw new Error(result.message || 'Bir hata oluştu');
   }

@@ -29,6 +29,7 @@ export function SuperAdminPanel() {
     tax_no: '',
     address: '',
     email: '',
+    company_type: 'BİLANÇO',
     admin_tc: '',
     admin_password: '',
     status: 'active' as 'active' | 'passive'
@@ -47,13 +48,14 @@ export function SuperAdminPanel() {
         tax_no: company.tax_no || '',
         address: company.address || '',
         email: company.email || '',
+        company_type: company.company_type || 'BİLANÇO',
         admin_tc: '',
         admin_password: '',
         status: company.status || 'active'
       });
     } else {
       setEditingCompany(null);
-      setFormData({ name: '', tax_no: '', address: '', email: '', admin_tc: '', admin_password: '', status: 'active' });
+      setFormData({ name: '', tax_no: '', address: '', email: '', company_type: 'BİLANÇO', admin_tc: '', admin_password: '', status: 'active' });
     }
     setIsModalOpen(true);
   };
@@ -172,7 +174,12 @@ export function SuperAdminPanel() {
                           {company.name[0]}
                         </div>
                         <div>
-                          <p className="font-semibold text-slate-900">{company.name}</p>
+                          <p className="font-semibold text-slate-900 flex items-center gap-2">
+                            {company.name}
+                            <span className="text-[10px] font-bold bg-primary/10 text-primary px-2 py-0.5 rounded-md uppercase">
+                              {company.company_type || 'BİLANÇO'}
+                            </span>
+                          </p>
                           <p className="text-xs text-slate-500 flex items-center gap-1">
                             <FileText className="w-3 h-3" />
                             {company.tax_no || 'VKN Belirtilmemiş'}
@@ -239,15 +246,29 @@ export function SuperAdminPanel() {
               </Button>
             </div>
             <form onSubmit={handleSubmit} className="p-6 space-y-4">
-              <div className="space-y-2">
-                <label className="text-sm font-semibold text-slate-700">Şirket Adı</label>
-                <Input 
-                  value={formData.name}
-                  onChange={(e) => setFormData({...formData, name: e.target.value})}
-                  placeholder="Örn: ABC Yazılım Ltd. Şti." 
-                  className="rounded-xl"
-                  required
-                />
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-sm font-semibold text-slate-700">Şirket Adı</label>
+                  <Input 
+                    value={formData.name}
+                    onChange={(e) => setFormData({...formData, name: e.target.value})}
+                    placeholder="Örn: ABC Yazılım Ltd. Şti." 
+                    className="rounded-xl"
+                    required
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-semibold text-slate-700">Şirket Türü</label>
+                  <select 
+                    className="w-full rounded-xl border border-input bg-transparent px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    value={formData.company_type}
+                    onChange={(e) => setFormData({...formData, company_type: e.target.value})}
+                  >
+                    <option value="BİLANÇO">BİLANÇO</option>
+                    <option value="İŞLETME DEFTERİ">İŞLETME DEFTERİ</option>
+                    <option value="SERBEST MESLEK MENSUBU">SERBEST MESLEK MENSUBU</option>
+                  </select>
+                </div>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">

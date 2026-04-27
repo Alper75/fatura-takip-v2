@@ -6,12 +6,14 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import xlsx from 'xlsx';
+import nodemailer from 'nodemailer';
 import { v4 as uuidv4 } from 'uuid';
 import { createInvoiceAndGetHTML } from 'fatura';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 
 import { XMLParser } from 'fast-xml-parser';
+import crypto from 'crypto';
 
 import { client, initDb } from './db.js';
 import { generateToken, authMiddleware, adminMiddleware, superAdminMiddleware, bcrypt } from './auth.js';
@@ -21,6 +23,9 @@ const __dirname = dirname(__filename);
 
 // We now call initDb() automatically to ensure the new 'status' column is added.
 initDb().catch(e => console.error('Startup DB Init Error:', e));
+
+// BigInt Serialization Fix for LibSQL
+BigInt.prototype.toJSON = function() { return this.toString() };
 
 const app = express();
 app.use(cors());
@@ -56,6 +61,8 @@ const upload = multer({ storage });
 const parser = new XMLParser({
   ignoreAttributes: false,
   attributeNamePrefix: "@_",
+  removeNSPrefix: true,
+  parseTagValue: false, // IDs like VKN/TCKN won't be converted to numbers (prevents .0)
 });
 
 app.post('/api/invoices/parse-xml', authMiddleware, upload.single('file'), async (req, res) => {
@@ -70,28 +77,29 @@ app.post('/api/invoices/parse-xml', authMiddleware, upload.single('file'), async
     if (jsonObj.Invoice) {
       const inv = jsonObj.Invoice;
       
-      const supplierParty = inv['cac:AccountingSupplierParty']?.['cac:Party'];
-      const customerParty = inv['cac:AccountingCustomerParty']?.['cac:Party'];
+      const supplierParty = inv['AccountingSupplierParty']?.['Party'];
+      const customerParty = inv['AccountingCustomerParty']?.['Party'];
       
       const getVkn = (party) => {
-        const id = party?.['cac:PartyIdentification']?.['cbc:ID'];
-        return Array.isArray(id) ? id.find(v => v['@_schemeID'] === 'VKN' || v['@_schemeID'] === 'TCKN')?.['#text'] : id?.['#text'] || id;
+        const id = party?.['PartyIdentification']?.['ID'];
+        const val = Array.isArray(id) ? id.find(v => v['@_schemeID'] === 'VKN' || v['@_schemeID'] === 'TCKN')?.['#text'] : id?.['#text'] || id;
+        return val ? String(val).replace('.0', '') : '';
       };
-      const getAd = (party) => party?.['cac:PartyName']?.['cbc:Name'] || party?.['cac:Person']?.['cbc:FirstName'] || '';
-      const getSoyad = (party) => party?.['cac:Person']?.['cbc:FamilyName'] || '';
-      const getTaxOffice = (party) => party?.['cac:PartyTaxScheme']?.['cac:TaxScheme']?.['cbc:Name'] || '';
+      const getAd = (party) => party?.['PartyName']?.['Name'] || party?.['Person']?.['FirstName'] || '';
+      const getSoyad = (party) => party?.['Person']?.['FamilyName'] || '';
+      const getTaxOffice = (party) => party?.['PartyTaxScheme']?.['TaxScheme']?.['Name'] || '';
       const getAddress = (party) => {
-        const addr = party?.['cac:PostalAddress'];
+        const addr = party?.['PostalAddress'];
         if (!addr) return '';
-        return `${addr['cbc:StreetName'] || ''} ${addr['cbc:BuildingNumber'] || ''} ${addr['cbc:CitySubdivisionName'] || ''} ${addr['cbc:CityName'] || ''}`;
+        return `${addr['StreetName'] || ''} ${addr['BuildingNumber'] || ''} ${addr['CitySubdivisionName'] || ''} ${addr['CityName'] || ''}`;
       };
 
-      const monTotal = inv['cac:LegalMonetaryTotal'];
-      const taxTotal = inv['cac:TaxTotal'];
+      const monTotal = inv['LegalMonetaryTotal'];
+      const taxTotal = inv['TaxTotal'];
 
       parsedData = {
-        faturaNo: inv['cbc:ID'],
-        faturaTarihi: inv['cbc:IssueDate'],
+        faturaNo: inv['ID'],
+        faturaTarihi: inv['IssueDate'],
         supplier: {
           vkn: getVkn(supplierParty),
           ad: getAd(supplierParty),
@@ -106,53 +114,56 @@ app.post('/api/invoices/parse-xml', authMiddleware, upload.single('file'), async
           vergiDairesi: getTaxOffice(customerParty),
           adres: getAddress(customerParty),
         },
-        matrah: parseFloat(monTotal?.['cbc:TaxExclusiveAmount']?.['#text'] || monTotal?.['cbc:TaxExclusiveAmount'] || 0),
-        toplamTutar: parseFloat(monTotal?.['cbc:PayableAmount']?.['#text'] || monTotal?.['cbc:PayableAmount'] || 0),
-        kdvTutari: parseFloat(taxTotal?.['cbc:TaxAmount']?.['#text'] || taxTotal?.['cbc:TaxAmount'] || 0),
+        matrah: parseFloat(monTotal?.['TaxExclusiveAmount']?.['#text'] || monTotal?.['TaxExclusiveAmount'] || 0),
+        toplamTutar: parseFloat(monTotal?.['PayableAmount']?.['#text'] || monTotal?.['PayableAmount'] || 0),
+        kdvTutari: parseFloat(taxTotal?.['TaxAmount']?.['#text'] || taxTotal?.['TaxAmount'] || 0),
         kdvOrani: 20,
         type: 'Invoice'
       };
 
-      const lines = inv['cac:InvoiceLine'];
+      const lines = inv['InvoiceLine'];
       if (lines) {
         const lineArr = Array.isArray(lines) ? lines : [lines];
         parsedData.items = lineArr.map(l => ({
-          name: l['cac:Item']?.['cbc:Name'],
-          quantity: parseFloat(l['cbc:InvoicedQuantity']?.['#text'] || l['cbc:InvoicedQuantity'] || 0),
-          price: parseFloat(l['cac:Price']?.['cbc:PriceAmount']?.['#text'] || l['cac:Price']?.['cbc:PriceAmount'] || 0),
+          name: l['Item']?.['Name'],
+          quantity: parseFloat(l['InvoicedQuantity']?.['#text'] || l['InvoicedQuantity'] || 0),
+          price: parseFloat(l['Price']?.['PriceAmount']?.['#text'] || l['Price']?.['PriceAmount'] || 0),
         }));
       }
     } 
     // --- CASE 2: e-SMM (VoucherSource) ---
-    else if (jsonObj['vch:VoucherSource']?.['gib:eArsivVeriSerbestMeslekMakbuz']) {
-      const smm = jsonObj['vch:VoucherSource']['gib:eArsivVeriSerbestMeslekMakbuz'];
-      const alici = smm['gib:aliciBilgileri'];
+    else if (jsonObj['VoucherSource']?.['eArsivVeriSerbestMeslekMakbuz']) {
+      const smm = jsonObj['VoucherSource']['eArsivVeriSerbestMeslekMakbuz'];
+      const alici = smm['aliciBilgileri'];
       
-      const getVkn = (a) => a?.['gib:tuzelKisi']?.['gib:vkn'] || a?.['gib:gercekKisi']?.['gib:tckn'] || '';
-      const getAd = (a) => a?.['gib:tuzelKisi']?.['gib:unvan'] || (a?.['gib:gercekKisi']?.['gib:ad'] ? `${a['gib:gercekKisi']['gib:ad']} ${a['gib:gercekKisi']['gib:soyad']}` : '');
+      const getVkn = (a) => {
+        const val = a?.['tuzelKisi']?.['vkn'] || a?.['gercekKisi']?.['tckn'] || '';
+        return val ? String(val).replace('.0', '') : '';
+      };
+      const getAd = (a) => a?.['tuzelKisi']?.['unvan'] || (a?.['gercekKisi']?.['ad'] ? `${a['gercekKisi']['ad']} ${a['gercekKisi']['soyad']}` : '');
       const getAddress = (a) => {
-        const addr = a?.['gib:adres'];
+        const addr = a?.['adres'];
         if (!addr) return '';
-        return `${addr['gib:caddeSokak'] || ''} ${addr['gib:semt'] || ''} ${addr['gib:sehir'] || ''}`;
+        return `${addr['caddeSokak'] || ''} ${addr['semt'] || ''} ${addr['sehir'] || ''}`;
       };
 
-      const vergiBilgisi = smm['gib:vergiBilgisi']?.['gib:vergi'];
+      const vergiBilgisi = smm['vergiBilgisi']?.['vergi'];
       const vergiler = Array.isArray(vergiBilgisi) ? vergiBilgisi : (vergiBilgisi ? [vergiBilgisi] : []);
       
-      const kdvVergisi = vergiler.find(v => v['gib:vergiKodu'] === '0015');
-      const stopajVergisi = vergiler.find(v => v['gib:vergiKodu'] === '0003' || v['gib:vergiKodu'] === '0011');
+      const kdvVergisi = vergiler.find(v => v['vergiKodu'] === '0015');
+      const stopajVergisi = vergiler.find(v => v['vergiKodu'] === '0003' || v['vergiKodu'] === '0011');
       
-      const kdv = kdvVergisi?.['gib:vergiTutari'] || 0;
-      const stopaj = stopajVergisi?.['gib:vergiTutari'] || 0;
+      const kdv = kdvVergisi?.['vergiTutari'] || 0;
+      const stopaj = stopajVergisi?.['vergiTutari'] || 0;
       
       // Calculate rates from XML (or default)
-      const kdvMatrah = parseFloat(kdvVergisi?.['gib:matrah'] || 0);
+      const kdvMatrah = parseFloat(kdvVergisi?.['matrah'] || 0);
       const calculatedKdvOrani = (kdvMatrah > 0 && kdv > 0) ? Math.round((parseFloat(kdv) / kdvMatrah) * 100) : 20;
       
-      const stopajMatrah = parseFloat(stopajVergisi?.['gib:matrah'] || 0);
-      const calculatedStopajOrani = (stopajMatrah > 0 && stopaj > 0) ? Math.round((parseFloat(stopaj) / stopajMatrah) * 100) : 20;
+      const stopajMatrah = parseFloat(stopajVergisi?.['matrah'] || 0);
+      const calculatedStopajOrani = (stopajMatrah > 0 && stopaj > 0) ? Math.round((parseFloat(stopaj) / stopajMatrah) * 100) : 0;
 
-      const tevkifatBilgisi = smm['gib:vergiBilgisi']?.['gib:tevkifat'];
+      const tevkifatBilgisi = smm['vergiBilgisi']?.['tevkifat'];
       const tevkifatlar = Array.isArray(tevkifatBilgisi) ? tevkifatBilgisi : (tevkifatBilgisi ? [tevkifatBilgisi] : []);
       const tevkifat = tevkifatlar[0];
 
@@ -170,13 +181,16 @@ app.post('/api/invoices/parse-xml', authMiddleware, upload.single('file'), async
       };
 
       // Matrah is usually the "Gross" (Bürüt) in SMM
-      const malHizmet = smm['gib:malHizmetBilgisi']?.['gib:malHizmet'];
+      const malHizmet = smm['malHizmetBilgisi']?.['malHizmet'];
       const lines = Array.isArray(malHizmet) ? malHizmet : (malHizmet ? [malHizmet] : []);
-      const burutUcret = lines.reduce((sum, item) => sum + parseFloat(item['gib:burutUcret'] || 0), 0);
+      const burutUcret = lines.reduce((sum, item) => sum + parseFloat(item['burutUcret'] || 0), 0);
+
+      const stopajVergiKodu = stopajVergisi?.['vergiKodu'];
+      const stopajKodu = stopajVergisi ? (stopajVergiKodu === '0003' ? '022' : stopajVergiKodu) : '';
 
       parsedData = {
-        faturaNo: smm['gib:makbuzNo'],
-        faturaTarihi: smm['gib:belgeTarihi'],
+        faturaNo: smm['makbuzNo'],
+        faturaTarihi: smm['belgeTarihi'],
         supplier: {
           vkn: '',
           ad: 'Serbest Meslek Erbabı',
@@ -186,25 +200,27 @@ app.post('/api/invoices/parse-xml', authMiddleware, upload.single('file'), async
         customer: {
           vkn: getVkn(alici),
           ad: getAd(alici),
-          vergiDairesi: alici?.['gib:adres']?.['gib:vDaire'] || '',
+          vergiDairesi: alici?.['adres']?.['vDaire'] || '',
           adres: getAddress(alici),
         },
-        matrah: burutUcret || kdvMatrah || parseFloat(smm['gib:toplamTutar'] || 0),
-        toplamTutar: parseFloat(smm['gib:odenecekTutar'] || 0),
+        matrah: burutUcret || kdvMatrah || parseFloat(smm['toplamTutar'] || 0),
+        toplamTutar: parseFloat(smm['odenecekTutar'] || 0),
         kdvTutari: parseFloat(kdv),
         kdvOrani: calculatedKdvOrani,
         stopajTutari: parseFloat(stopaj),
         stopajOrani: calculatedStopajOrani.toString(),
-        tevkifatTutari: parseFloat(tevkifat?.['gib:tevkifatTutari'] || 0),
-        tevkifatOrani: convertTevkifat(tevkifat?.['gib:tevkifatOrani']),
+        stopajKodu: stopajKodu,
+        tevkifatTutari: parseFloat(tevkifat?.['tevkifatTutari'] || 0),
+        tevkifatOrani: convertTevkifat(tevkifat?.['tevkifatOrani']),
+        tevkifatKodu: tevkifat ? (tevkifat['tevkifatKodu'] || '') : '',
         type: 'e-SMM'
       };
 
       if (lines.length > 0) {
         parsedData.items = lines.map(l => ({
-          name: l['gib:ad'],
+          name: l['ad'],
           quantity: 1,
-          price: parseFloat(l['gib:burutUcret'] || 0),
+          price: parseFloat(l['burutUcret'] || 0),
         }));
       }
     } else {
@@ -299,15 +315,15 @@ app.get('/api/super/companies', authMiddleware, superAdminMiddleware, async (req
 
 // Add new company with its first admin
 app.post('/api/super/companies', authMiddleware, superAdminMiddleware, async (req, res) => {
-  const { name, tax_no, address, email, admin_tc, admin_password, status } = req.body;
+  const { name, tax_no, address, email, admin_tc, admin_password, status, company_type } = req.body;
   
   if (!name) return res.status(400).json({ success: false, message: 'Şirket adı gereklidir.' });
 
   try {
     // 1. Create Company
     const compResult = await client.execute({
-      sql: 'INSERT INTO companies (name, tax_no, address, email, status) VALUES (?, ?, ?, ?, ?)',
-      args: [name, n(tax_no), n(address), n(email), status || 'active']
+      sql: 'INSERT INTO companies (name, tax_no, address, email, status, company_type) VALUES (?, ?, ?, ?, ?, ?)',
+      args: [name, n(tax_no), n(address), n(email), status || 'active', company_type || 'BİLANÇO']
     });
     const newCompanyId = Number(compResult.lastInsertRowid);
 
@@ -329,11 +345,11 @@ app.post('/api/super/companies', authMiddleware, superAdminMiddleware, async (re
 // Update company
 app.put('/api/super/companies/:id', authMiddleware, superAdminMiddleware, async (req, res) => {
   const { id } = req.params;
-  const { name, tax_no, address, email, status } = req.body;
+  const { name, tax_no, address, email, status, company_type } = req.body;
   try {
     await client.execute({
-      sql: 'UPDATE companies SET name = ?, tax_no = ?, address = ?, email = ?, status = ? WHERE id = ?',
-      args: [name, n(tax_no), n(address), n(email), status || 'active', id]
+      sql: 'UPDATE companies SET name = ?, tax_no = ?, address = ?, email = ?, status = ?, company_type = ? WHERE id = ?',
+      args: [name, n(tax_no), n(address), n(email), status || 'active', company_type || 'BİLANÇO', id]
     });
     res.json({ success: true, message: 'Şirket bilgileri güncellendi.' });
   } catch (error) {
@@ -893,7 +909,10 @@ app.post('/api/admin/pointage/bulk-upload', authMiddleware, adminMiddleware, upl
 // --- YARDIMCI METOD ---
 // JSON.stringify undefined değerleri yoksaydığı için, req.body'den gelen undefined'ları null'a çevirir
 // SQLite TypeError fırlatmasını (Bind parameter is undefined) engeller.
-const n = (val) => val === undefined ? null : val;
+const n = (val) => {
+  if (val === undefined || val === null || val === '' || (typeof val === 'number' && isNaN(val))) return null;
+  return val;
+};
 
 // ============================================================
 // --- CARİLER ---
@@ -904,7 +923,18 @@ app.get('/api/cariler', authMiddleware, async (req, res) => {
       sql: 'SELECT * FROM cariler WHERE company_id = ? ORDER BY olusturma_tarihi DESC',
       args: [req.user.companyId]
     });
-    const mapped = rs.rows.map(r => ({ id: r.id, tip: r.tip, unvan: r.unvan, vknTckn: r.vkn_tckn, vergiDairesi: r.vergi_dairesi, adres: r.adres, telefon: r.telefon, eposta: r.eposta, olusturmaTarihi: r.olusturma_tarihi }));
+    const mapped = rs.rows.map(r => ({ 
+      id: r.id, 
+      tip: r.tip, 
+      unvan: r.unvan, 
+      vknTckn: r.vkn_tckn, 
+      vergiDairesi: r.vergi_dairesi, 
+      adres: r.adres, 
+      telefon: r.telefon, 
+      eposta: r.eposta, 
+      muhasebeKodu: r.muhasebe_kodu,
+      olusturmaTarihi: r.olusturma_tarihi 
+    }));
     res.json({ success: true, data: mapped });
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }
 });
@@ -913,19 +943,65 @@ app.post('/api/cariler', authMiddleware, async (req, res) => {
   const f = req.body;
   try {
     await client.execute({
-      sql: 'INSERT INTO cariler (id,tip,unvan,vkn_tckn,vergi_dairesi,adres,telefon,eposta,olusturma_tarihi,company_id) VALUES (?,?,?,?,?,?,?,?,?,?)',
-      args: [n(f.id), n(f.tip), n(f.unvan), n(f.vknTckn), n(f.vergiDairesi), n(f.adres), n(f.telefon), n(f.eposta), n(f.olusturmaTarihi), req.user.companyId]
+      sql: 'INSERT INTO cariler (id,tip,unvan,vkn_tckn,vergi_dairesi,adres,telefon,eposta,muhasebe_kodu,olusturma_tarihi,company_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+      args: [n(f.id), n(f.tip), n(f.unvan), n(f.vknTckn), n(f.vergiDairesi), n(f.adres), n(f.telefon), n(f.eposta), n(f.muhasebeKodu), n(f.olusturmaTarihi), req.user.companyId]
     });
     res.json({ success: true });
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+});
+app.post('/api/cariler/bulk-import', authMiddleware, async (req, res) => {
+  const { cariler } = req.body;
+  if (!cariler || !Array.isArray(cariler)) {
+    return res.status(400).json({ success: false, message: 'Geçersiz veri formatı' });
+  }
+
+  try {
+    let successCount = 0;
+    for (const cari of cariler) {
+      if (!cari.unvan) continue;
+      
+      const id = 'c' + Date.now() + Math.random().toString(36).substr(2, 5);
+      const tip = cari.tip || 'musteri';
+      
+      // VKN veya muhasebe kodu ile eşleşen var mı kontrol et
+      let targetId = null;
+      if (cari.muhasebeKodu) {
+        const rs = await client.execute({ sql: 'SELECT id FROM cariler WHERE muhasebe_kodu = ? AND company_id = ?', args: [cari.muhasebeKodu, req.user.companyId] });
+        if (rs.rows.length > 0) targetId = rs.rows[0].id;
+      }
+      
+      if (!targetId && cari.vknTckn) {
+        const rs = await client.execute({ sql: 'SELECT id FROM cariler WHERE vkn_tckn = ? AND company_id = ?', args: [cari.vknTckn, req.user.companyId] });
+        if (rs.rows.length > 0) targetId = rs.rows[0].id;
+      }
+
+      if (targetId) {
+        // Mevcut cariyi güncelle (adres, eposta ve muhasebe kodu boş değilse üzerine yaz)
+        await client.execute({
+          sql: 'UPDATE cariler SET unvan = COALESCE(?, unvan), vkn_tckn = COALESCE(nullif(?, \'\'), vkn_tckn), adres = COALESCE(nullif(?, \'\'), adres), eposta = COALESCE(nullif(?, \'\'), eposta), muhasebe_kodu = COALESCE(nullif(?, \'\'), muhasebe_kodu) WHERE id = ? AND company_id = ?',
+          args: [n(cari.unvan), n(cari.vknTckn), n(cari.adres), n(cari.eposta), n(cari.muhasebeKodu), targetId, req.user.companyId]
+        });
+      } else {
+        // Yeni ekle
+        await client.execute({
+          sql: 'INSERT INTO cariler (id,tip,unvan,vkn_tckn,vergi_dairesi,adres,telefon,eposta,muhasebe_kodu,olusturma_tarihi,company_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+          args: [id, tip, n(cari.unvan), n(cari.vknTckn), null, n(cari.adres), null, n(cari.eposta), n(cari.muhasebeKodu), new Date().toISOString().split('T')[0], req.user.companyId]
+        });
+      }
+      successCount++;
+    }
+    res.json({ success: true, count: successCount });
+  } catch (e) {
+    res.status(500).json({ success: false, message: e.message });
+  }
 });
 
 app.put('/api/cariler/:id', authMiddleware, async (req, res) => {
   const f = req.body;
   try {
     await client.execute({
-      sql: 'UPDATE cariler SET tip=?,unvan=?,vkn_tckn=?,vergi_dairesi=?,adres=?,telefon=?,eposta=? WHERE id=? AND company_id = ?',
-      args: [n(f.tip), n(f.unvan), n(f.vknTckn), n(f.vergiDairesi), n(f.adres), n(f.telefon), n(f.eposta), req.params.id, req.user.companyId]
+      sql: 'UPDATE cariler SET tip=?,unvan=?,vkn_tckn=?,vergi_dairesi=?,adres=?,telefon=?,eposta=?,muhasebe_kodu=? WHERE id=? AND company_id = ?',
+      args: [n(f.tip), n(f.unvan), n(f.vknTckn), n(f.vergiDairesi), n(f.adres), n(f.telefon), n(f.eposta), n(f.muhasebeKodu), req.params.id, req.user.companyId]
     });
     res.json({ success: true });
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }
@@ -1041,8 +1117,41 @@ app.delete('/api/cari-hareketler/:id', authMiddleware, async (req, res) => {
 // ============================================================
 app.get('/api/satis-faturalari', authMiddleware, async (req, res) => {
   try {
-    const rs = await client.execute('SELECT * FROM satis_faturalari ORDER BY olusturma_tarihi DESC');
-    const mapped = rs.rows.map(r => ({ id: r.id, tcVkn: r.tc_vkn, ad: r.ad, soyad: r.soyad, adres: r.adres, kdvOrani: r.kdv_orani, alinanUcret: r.alinan_ucret, matrah: r.matrah, kdvTutari: r.kdv_tutari, tevkifatOrani: r.tevkifat_orani, tevkifatTutari: r.tevkifat_tutari, stopajOrani: r.stopaj_orani, stopajTutari: r.stopaj_tutari, pdfDosya: r.pdf_dosya, pdfDosyaAdi: r.pdf_dosya_adi, faturaTarihi: r.fatura_tarihi, odemeTarihi: r.odeme_tarihi, odemeDurumu: r.odeme_durumu, odemeDekontu: r.odeme_dekontu, odemeDekontuAdi: r.odeme_dekontu_adi, cariId: r.cari_id, vadeTarihi: r.vade_tarihi, aciklama: r.aciklama, olusturmaTarihi: r.olusturma_tarihi }));
+    const rs = await client.execute({
+      sql: 'SELECT * FROM satis_faturalari WHERE company_id = ? ORDER BY olusturma_tarihi DESC',
+      args: [req.user.companyId]
+    });
+    
+    // Stok hareketlerini de çek
+    const stokRs = await client.execute({
+      sql: 'SELECT * FROM stok_hareketler WHERE company_id = ? AND tip = ?',
+      args: [req.user.companyId, 'CIKIS']
+    });
+    
+    const stokHareketler = stokRs.rows;
+    
+    const mapped = rs.rows.map(r => {
+      // Bu faturaya bağlı stok kalemlerini bul
+      const bagliStoklar = stokHareketler.filter(sh => sh.bagli_fatura_id === r.id).map(sh => ({
+        id: sh.id,
+        urunId: sh.urun_id,
+        miktar: sh.miktar,
+        birimFiyat: sh.birim_fiyat
+      }));
+      
+      return { 
+        id: r.id, faturaNo: r.fatura_no, tcVkn: r.tc_vkn, ad: r.ad, soyad: r.soyad, adres: r.adres, 
+        kdvOrani: r.kdv_orani, alinanUcret: r.alinan_ucret, matrah: r.matrah, kdvTutari: r.kdv_tutari, 
+        tevkifatOrani: r.tevkifat_orani, tevkifatTutari: r.tevkifat_tutari, tevkifatKodu: r.tevkifat_kodu, 
+        stopajOrani: r.stopaj_orani, stopajTutari: r.stopaj_tutari, stopajKodu: r.stopaj_kodu, 
+        muhasebeKodu: r.muhasebe_kodu, pdfDosya: r.pdf_dosya, pdfDosyaAdi: r.pdf_dosya_adi, 
+        faturaTarihi: r.fatura_tarihi, odemeTarihi: r.odeme_tarihi, odemeDurumu: r.odeme_durumu, 
+        odemeDekontu: r.odeme_dekontu, odemeDekontuAdi: r.odeme_dekontu_adi, cariId: r.cari_id, 
+        vadeTarihi: r.vade_tarihi, aciklama: r.aciklama, olusturmaTarihi: r.olusturma_tarihi, 
+        urunId: r.urun_id, depoId: r.depo_id,
+        stokKalemleri: bagliStoklar.length > 0 ? bagliStoklar : undefined
+      };
+    });
     res.json({ success: true, data: mapped });
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }
 });
@@ -1051,9 +1160,41 @@ app.post('/api/satis-faturalari', authMiddleware, async (req, res) => {
   const f = req.body;
   try {
     await client.execute({
-      sql: 'INSERT INTO satis_faturalari (id,tc_vkn,ad,soyad,adres,kdv_orani,alinan_ucret,matrah,kdv_tutari,tevkifat_orani,tevkifat_tutari,stopaj_orani,stopaj_tutari,pdf_dosya,pdf_dosya_adi,fatura_tarihi,odeme_tarihi,odeme_durumu,odeme_dekontu,odeme_dekontu_adi,cari_id,vade_tarihi,aciklama,olusturma_tarihi) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
-      args: [n(f.id),n(f.tcVkn),n(f.ad),n(f.soyad),n(f.adres),n(f.kdvOrani),n(f.alinanUcret),n(f.matrah),n(f.kdvTutari),n(f.tevkifatOrani),n(f.tevkifatTutari),n(f.stopajOrani),n(f.stopajTutari),n(f.pdfDosya),n(f.pdfDosyaAdi),n(f.faturaTarihi),n(f.odemeTarihi),n(f.odemeDurumu||'odenmedi'),n(f.odemeDekontu),n(f.odemeDekontuAdi),n(f.cariId),n(f.vadeTarihi),n(f.aciklama),n(f.olusturmaTarihi)]
+      sql: 'INSERT INTO satis_faturalari (id,fatura_no,tc_vkn,ad,soyad,adres,kdv_orani,alinan_ucret,matrah,kdv_tutari,tevkifat_orani,tevkifat_tutari,tevkifat_kodu,stopaj_orani,stopaj_tutari,stopaj_kodu,muhasebe_kodu,pdf_dosya,pdf_dosya_adi,fatura_tarihi,odeme_tarihi,odeme_durumu,odeme_dekontu,odeme_dekontu_adi,cari_id,vade_tarihi,aciklama,olusturma_tarihi,company_id,urun_id,depo_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+      args: [n(f.id),n(f.faturaNo),n(f.tcVkn),n(f.ad),n(f.soyad),n(f.adres),n(f.kdvOrani),n(f.alinanUcret),n(f.matrah),n(f.kdvTutari),n(f.tevkifatOrani),n(f.tevkifatTutari),n(f.tevkifatKodu),n(f.stopajOrani),n(f.stopajTutari),n(f.stopajKodu),n(f.muhasebeKodu),n(f.pdfDosya),n(f.pdfDosyaAdi),n(f.faturaTarihi),n(f.odemeTarihi),n(f.odemeDurumu||'odenmedi'),n(f.odemeDekontu),n(f.odemeDekontuAdi),n(f.cariId),n(f.vadeTarihi),n(f.aciklama),n(f.olusturmaTarihi),req.user.companyId,n(f.urunId),n(f.depoId)]
     });
+    
+    // Çoklu stok hareketleri oluştur
+    const stokKalemleri = f.stokKalemleri || [];
+    // Geriye uyumluluk: tek urunId varsa ve stokKalemleri boşsa, onu kullan
+    if (stokKalemleri.length === 0 && f.urunId && f.urunId !== 'yok' && f.urunId !== '') {
+      stokKalemleri.push({ urunId: f.urunId, miktar: 1, birimFiyat: parseFloat(f.matrah) || parseFloat(f.alinanUcret) || 0 });
+    }
+    
+    if (stokKalemleri.length > 0) {
+      // Varsayılan depoyu bul
+      let targetDepoId = f.depoId || null;
+      if (!targetDepoId) {
+        const depRs = await client.execute({ sql: 'SELECT id FROM stok_depolar WHERE company_id = ? AND varsayilan = 1 LIMIT 1', args: [req.user.companyId] });
+        if (depRs.rows.length > 0) targetDepoId = depRs.rows[0].id;
+        else {
+          const depRs2 = await client.execute({ sql: 'SELECT id FROM stok_depolar WHERE company_id = ? LIMIT 1', args: [req.user.companyId] });
+          if (depRs2.rows.length > 0) targetDepoId = depRs2.rows[0].id;
+        }
+      }
+      if (targetDepoId) {
+        for (const sk of stokKalemleri) {
+          if (!sk.urunId || sk.urunId === 'yok') continue;
+          const miktar = parseFloat(sk.miktar) || 1;
+          const birimFiyat = parseFloat(sk.birimFiyat) || 0;
+          await client.execute({
+            sql: 'INSERT INTO stok_hareketler (id, urun_id, depo_id, tip, miktar, birim_fiyat, tutar, tarih, aciklama, referans_no, bagli_fatura_id, company_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            args: [uuidv4(), sk.urunId, targetDepoId, 'CIKIS', miktar, birimFiyat, birimFiyat * miktar, f.faturaTarihi || new Date().toISOString(), 'Satış Faturası - Otomatik Stok Çıkışı', n(f.faturaNo), n(f.id), req.user.companyId]
+          });
+        }
+      }
+    }
+    
     res.json({ success: true });
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }
 });
@@ -1062,19 +1203,60 @@ app.put('/api/satis-faturalari/:id', authMiddleware, async (req, res) => {
   const f = req.body;
   try {
     await client.execute({
-      sql: 'UPDATE satis_faturalari SET odeme_tarihi=?,odeme_durumu=?,odeme_dekontu=?,odeme_dekontu_adi=?,pdf_dosya=?,pdf_dosya_adi=? WHERE id=? AND company_id = ?',
-      args: [n(f.odemeTarihi),n(f.odemeDurumu),n(f.odemeDekontu),n(f.odemeDekontuAdi),n(f.pdfDosya),n(f.pdfDosyaAdi),req.params.id, req.user.companyId]
+      sql: 'UPDATE satis_faturalari SET fatura_no=?,odeme_tarihi=?,odeme_durumu=?,odeme_dekontu=?,odeme_dekontu_adi=?,pdf_dosya=?,pdf_dosya_adi=?,muhasebe_kodu=?,tc_vkn=?,ad=?,soyad=?,adres=?,aciklama=?,urun_id=?,depo_id=? WHERE id=? AND company_id = ?',
+      args: [n(f.faturaNo),n(f.odemeTarihi),n(f.odemeDurumu),n(f.odemeDekontu),n(f.odemeDekontuAdi),n(f.pdfDosya),n(f.pdfDosyaAdi),n(f.muhasebeKodu),n(f.tcVkn),n(f.ad),n(f.soyad),n(f.adres),n(f.aciklama),n(f.urunId),n(f.depoId),req.params.id, req.user.companyId]
     });
+
+    // Stok hareketlerini güncelle (Önce eskileri sil, sonra yenileri ekle)
+    await client.execute({
+      sql: 'DELETE FROM stok_hareketler WHERE bagli_fatura_id = ? AND company_id = ? AND tip = ?',
+      args: [req.params.id, req.user.companyId, 'CIKIS']
+    });
+
+    const stokKalemleri = f.stokKalemleri || [];
+    if (stokKalemleri.length === 0 && f.urunId && f.urunId !== 'yok' && f.urunId !== '') {
+      stokKalemleri.push({ urunId: f.urunId, miktar: 1, birimFiyat: parseFloat(f.matrah) || parseFloat(f.alinanUcret) || 0 });
+    }
+
+    if (stokKalemleri.length > 0) {
+      let targetDepoId = f.depoId || null;
+      if (!targetDepoId) {
+        const depRs = await client.execute({ sql: 'SELECT id FROM stok_depolar WHERE company_id = ? AND varsayilan = 1 LIMIT 1', args: [req.user.companyId] });
+        if (depRs.rows.length > 0) targetDepoId = depRs.rows[0].id;
+        else {
+          const depRs2 = await client.execute({ sql: 'SELECT id FROM stok_depolar WHERE company_id = ? LIMIT 1', args: [req.user.companyId] });
+          if (depRs2.rows.length > 0) targetDepoId = depRs2.rows[0].id;
+        }
+      }
+      if (targetDepoId) {
+        for (const sk of stokKalemleri) {
+          if (!sk.urunId || sk.urunId === 'yok') continue;
+          const miktar = parseFloat(sk.miktar) || 1;
+          const birimFiyat = parseFloat(sk.birimFiyat) || 0;
+          await client.execute({
+            sql: 'INSERT INTO stok_hareketler (id, urun_id, depo_id, tip, miktar, birim_fiyat, tutar, tarih, aciklama, referans_no, bagli_fatura_id, company_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            args: [uuidv4(), sk.urunId, targetDepoId, 'CIKIS', miktar, birimFiyat, birimFiyat * miktar, f.faturaTarihi || new Date().toISOString(), 'Satış Faturası - Stok Çıkışı (Güncellendi)', n(f.faturaNo), req.params.id, req.user.companyId]
+          });
+        }
+      }
+    }
+
     res.json({ success: true });
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }
 });
 
 app.delete('/api/satis-faturalari/:id', authMiddleware, async (req, res) => {
   try {
-    await client.execute({
-      sql: 'DELETE FROM satis_faturalari WHERE id=? AND company_id = ?',
-      args: [req.params.id, req.user.companyId]
-    });
+    await client.batch([
+      {
+        sql: 'DELETE FROM stok_hareketler WHERE bagli_fatura_id = ? AND company_id = ?',
+        args: [req.params.id, req.user.companyId]
+      },
+      {
+        sql: 'DELETE FROM satis_faturalari WHERE id=? AND company_id = ?',
+        args: [req.params.id, req.user.companyId]
+      }
+    ], "write");
     res.json({ success: true });
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }
 });
@@ -1087,7 +1269,36 @@ app.get('/api/alis-faturalari', authMiddleware, async (req, res) => {
       sql: 'SELECT * FROM alis_faturalari WHERE company_id = ? ORDER BY olusturma_tarihi DESC',
       args: [req.user.companyId]
     });
-    const mapped = rs.rows.map(r => ({ id: r.id, faturaNo: r.fatura_no, faturaTarihi: r.fatura_tarihi, tedarikciAdi: r.tedarikci_adi, tedarikciVkn: r.tedarikci_vkn, malHizmetAdi: r.mal_hizmet_adi, toplamTutar: r.toplam_tutar, kdvOrani: r.kdv_orani, kdvTutari: r.kdv_tutari, matrah: r.matrah, tevkifatOrani: r.tevkifat_orani, tevkifatTutari: r.tevkifat_tutari, stopajOrani: r.stopaj_orani, stopajTutari: r.stopaj_tutari, pdfDosya: r.pdf_dosya, pdfDosyaAdi: r.pdf_dosya_adi, odemeTarihi: r.odeme_tarihi, odemeDurumu: r.odeme_durumu, odemeDekontu: r.odeme_dekontu, odemeDekontuAdi: r.odeme_dekontu_adi, cariId: r.cari_id, vadeTarihi: r.vade_tarihi, aciklama: r.aciklama, olusturmaTarihi: r.olusturma_tarihi }));
+    
+    // Stok hareketlerini de çek
+    const stokRs = await client.execute({
+      sql: 'SELECT * FROM stok_hareketler WHERE company_id = ? AND tip = ?',
+      args: [req.user.companyId, 'GIRIS']
+    });
+    
+    const stokHareketler = stokRs.rows;
+    
+    const mapped = rs.rows.map(r => {
+      // Bu faturaya bağlı stok kalemlerini bul
+      const bagliStoklar = stokHareketler.filter(sh => sh.bagli_fatura_id === r.id).map(sh => ({
+        id: sh.id,
+        urunId: sh.urun_id,
+        miktar: sh.miktar,
+        birimFiyat: sh.birim_fiyat
+      }));
+      
+      return { 
+        id: r.id, faturaNo: r.fatura_no, faturaTarihi: r.fatura_tarihi, tedarikciAdi: r.tedarikci_adi, 
+        tedarikciVkn: r.tedarikci_vkn, malHizmetAdi: r.mal_hizmet_adi, toplamTutar: r.toplam_tutar, 
+        kdvOrani: r.kdv_orani, kdvTutari: r.kdv_tutari, matrah: r.matrah, tevkifatOrani: r.tevkifat_orani, 
+        tevkifatTutari: r.tevkifat_tutari, stopajOrani: r.stopaj_orani, stopajTutari: r.stopaj_tutari, 
+        muhasebeKodu: r.muhasebe_kodu, pdfDosya: r.pdf_dosya, pdfDosyaAdi: r.pdf_dosya_adi, 
+        odemeTarihi: r.odeme_tarihi, odemeDurumu: r.odeme_durumu, odemeDekontu: r.odeme_dekontu, 
+        odemeDekontuAdi: r.odeme_dekontu_adi, cariId: r.cari_id, vadeTarihi: r.vade_tarihi, 
+        aciklama: r.aciklama, olusturmaTarihi: r.olusturma_tarihi, urunId: r.urun_id, depoId: r.depo_id,
+        stokKalemleri: bagliStoklar.length > 0 ? bagliStoklar : undefined
+      };
+    });
     res.json({ success: true, data: mapped });
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }
 });
@@ -1096,9 +1307,39 @@ app.post('/api/alis-faturalari', authMiddleware, async (req, res) => {
   const f = req.body;
   try {
     await client.execute({
-      sql: 'INSERT INTO alis_faturalari (id,fatura_no,fatura_tarihi,tedarikci_adi,tedarikci_vkn,mal_hizmet_adi,toplam_tutar,kdv_orani,kdv_tutari,matrah,tevkifat_orani,tevkifat_tutari,stopaj_orani,stopaj_tutari,pdf_dosya,pdf_dosya_adi,odeme_tarihi,odeme_durumu,odeme_dekontu,odeme_dekontu_adi,cari_id,vade_tarihi,aciklama,olusturma_tarihi,company_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
-      args: [n(f.id),n(f.faturaNo),n(f.faturaTarihi),n(f.tedarikciAdi),n(f.tedarikciVkn),n(f.malHizmetAdi),n(f.toplamTutar),n(f.kdvOrani),n(f.kdvTutari),n(f.matrah),n(f.tevkifatOrani),n(f.tevkifatTutari),n(f.stopajOrani),n(f.stopajTutari),n(f.pdfDosya),n(f.pdfDosyaAdi),n(f.odemeTarihi),n(f.odemeDurumu||'odenmedi'),n(f.odemeDekontu),n(f.odemeDekontuAdi),n(f.cariId),n(f.vadeTarihi),n(f.aciklama),n(f.olusturmaTarihi),req.user.companyId]
+      sql: 'INSERT INTO alis_faturalari (id,fatura_no,fatura_tarihi,tedarikci_adi,tedarikci_vkn,mal_hizmet_adi,toplam_tutar,kdv_orani,kdv_tutari,matrah,tevkifat_orani,tevkifat_tutari,stopaj_orani,stopaj_tutari,muhasebe_kodu,pdf_dosya,pdf_dosya_adi,odeme_tarihi,odeme_durumu,odeme_dekontu,odeme_dekontu_adi,cari_id,vade_tarihi,aciklama,olusturma_tarihi,company_id,urun_id,depo_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+      args: [n(f.id),n(f.faturaNo),n(f.faturaTarihi),n(f.tedarikciAdi),n(f.tedarikciVkn),n(f.malHizmetAdi),n(f.toplamTutar),n(f.kdvOrani),n(f.kdvTutari),n(f.matrah),n(f.tevkifatOrani),n(f.tevkifatTutari),n(f.stopajOrani),n(f.stopajTutari),n(f.muhasebeKodu),n(f.pdfDosya),n(f.pdfDosyaAdi),n(f.odemeTarihi),n(f.odemeDurumu||'odenmedi'),n(f.odemeDekontu),n(f.odemeDekontuAdi),n(f.cariId),n(f.vadeTarihi),n(f.aciklama),n(f.olusturmaTarihi),req.user.companyId,n(f.urunId),n(f.depoId)]
     });
+    
+    // Çoklu stok hareketleri oluştur (GIRIS - alış = stoğa giriş)
+    const stokKalemleriAlis = f.stokKalemleri || [];
+    if (stokKalemleriAlis.length === 0 && f.urunId && f.urunId !== 'yok' && f.urunId !== '') {
+      stokKalemleriAlis.push({ urunId: f.urunId, miktar: 1, birimFiyat: parseFloat(f.matrah) || parseFloat(f.toplamTutar) || 0 });
+    }
+    
+    if (stokKalemleriAlis.length > 0) {
+      let targetDepoId = f.depoId || null;
+      if (!targetDepoId) {
+        const depRs = await client.execute({ sql: 'SELECT id FROM stok_depolar WHERE company_id = ? AND varsayilan = 1 LIMIT 1', args: [req.user.companyId] });
+        if (depRs.rows.length > 0) targetDepoId = depRs.rows[0].id;
+        else {
+          const depRs2 = await client.execute({ sql: 'SELECT id FROM stok_depolar WHERE company_id = ? LIMIT 1', args: [req.user.companyId] });
+          if (depRs2.rows.length > 0) targetDepoId = depRs2.rows[0].id;
+        }
+      }
+      if (targetDepoId) {
+        for (const sk of stokKalemleriAlis) {
+          if (!sk.urunId || sk.urunId === 'yok') continue;
+          const miktar = parseFloat(sk.miktar) || 1;
+          const birimFiyat = parseFloat(sk.birimFiyat) || 0;
+          await client.execute({
+            sql: 'INSERT INTO stok_hareketler (id, urun_id, depo_id, tip, miktar, birim_fiyat, tutar, tarih, aciklama, referans_no, bagli_fatura_id, company_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            args: [uuidv4(), sk.urunId, targetDepoId, 'GIRIS', miktar, birimFiyat, birimFiyat * miktar, f.faturaTarihi || new Date().toISOString(), 'Alış Faturası - Otomatik Stok Girişi', n(f.faturaNo), n(f.id), req.user.companyId]
+          });
+        }
+      }
+    }
+    
     res.json({ success: true });
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }
 });
@@ -1303,14 +1544,14 @@ app.get('/api/super/companies', authMiddleware, superAdminMiddleware, async (req
 });
 
 app.post('/api/super/companies', authMiddleware, superAdminMiddleware, async (req, res) => {
-  const { name, tax_no, address, email, admin_tc, admin_password } = req.body;
+  const { name, tax_no, address, email, admin_tc, admin_password, company_type } = req.body;
   if (!name) return res.status(400).json({ success: false, message: 'Şirket adı zorunludur.' });
 
   try {
     // 1. Create Company
     const compResult = await client.execute({
-      sql: 'INSERT INTO companies (name, tax_no, address, email, status) VALUES (?, ?, ?, ?, ?) RETURNING id',
-      args: [n(name), n(tax_no), n(address), n(email), 'active']
+      sql: 'INSERT INTO companies (name, tax_no, address, email, status, company_type) VALUES (?, ?, ?, ?, ?, ?) RETURNING id',
+      args: [n(name), n(tax_no), n(address), n(email), 'active', company_type || 'BİLANÇO']
     });
     
     const newCompanyId = compResult.rows[0].id;
@@ -1332,11 +1573,11 @@ app.post('/api/super/companies', authMiddleware, superAdminMiddleware, async (re
 
 app.put('/api/super/companies/:id', authMiddleware, superAdminMiddleware, async (req, res) => {
   const { id } = req.params;
-  const { name, tax_no, address, email, status } = req.body;
+  const { name, tax_no, address, email, status, company_type } = req.body;
   try {
     await client.execute({
-      sql: 'UPDATE companies SET name = ?, tax_no = ?, address = ?, email = ?, status = ? WHERE id = ?',
-      args: [n(name), n(tax_no), n(address), n(email), n(status), id]
+      sql: 'UPDATE companies SET name = ?, tax_no = ?, address = ?, email = ?, status = ?, company_type = ? WHERE id = ?',
+      args: [n(name), n(tax_no), n(address), n(email), n(status), company_type || 'BİLANÇO', id]
     });
     res.json({ success: true, message: 'Şirket güncellendi.' });
   } catch (error) { res.status(500).json({ success: false, message: error.message }); }
@@ -1697,9 +1938,12 @@ const ensureId = (id) => id || uuidv4();
 // Categories
 app.get('/api/stok/kategoriler', authMiddleware, async (req, res) => {
   try {
+    const companyId = n(req.user?.companyId);
     const rs = await client.execute({
-      sql: 'SELECT * FROM stok_kategoriler WHERE company_id = ? ORDER BY ad ASC',
-      args: [req.user.companyId]
+      sql: `SELECT * FROM stok_kategoriler 
+            WHERE company_id = ? OR (? IS NULL AND company_id IS NULL)
+            ORDER BY ad ASC`,
+      args: [companyId, companyId]
     });
     res.json({ success: true, data: rs.rows });
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }
@@ -1861,33 +2105,57 @@ app.get('/api/stok/hareketler', authMiddleware, async (req, res) => {
 
 app.post('/api/stok/hareketler', authMiddleware, async (req, res) => {
   const h = req.body;
+  console.log('[Stok API] Hareket Kaydı İsteği:', JSON.stringify(h, null, 2));
   try {
+    const companyId = n(req.user?.companyId) || 1;
+    
     if (h.tip === 'TRANSFER') {
       const transId1 = uuidv4();
       const transId2 = uuidv4();
-      const refNo = h.referansNo || `TRA-${Date.now().toString().slice(-6)}`;
+      const refNo = n(h.referansNo) || n(h.referans) || `TRA-${Date.now().toString().slice(-6)}`;
       
-      await client.batch([
+      const stmts = [
         {
-          sql: `INSERT INTO stok_hareketler (id, urun_id, depo_id, tip, miktar, birim_fiyat, tutar, tarih, aciklama, referans_no, company_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          args: [transId1, h.urunId, h.depoId, 'TRANSFER_CIKIS', h.miktar, h.birimFiyat || 0, h.tutar || 0, h.tarih, h.aciklama, refNo, req.user.companyId]
+          sql: `INSERT INTO stok_hareketler (id, urun_id, depo_id, tip, miktar, birim_fiyat, tutar, tarih, aciklama, referans_no, lot_no, son_kullanma_tarihi, company_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          args: [
+            n(transId1), n(h.urunId), n(h.depoId), 'TRANSFER_CIKIS', n(h.miktar) || 0, 
+            n(h.birimFiyat) || 0, n(h.tutar) || 0, n(h.tarih) || new Date().toISOString(), 
+            n(h.aciklama), n(refNo), n(h.lotNo), n(h.sonKullanmaTarihi), companyId
+          ]
         },
         {
-          sql: `INSERT INTO stok_hareketler (id, urun_id, depo_id, tip, miktar, birim_fiyat, tutar, tarih, aciklama, referans_no, company_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          args: [transId2, h.urunId, h.hedefDepoId, 'TRANSFER_GIRIS', h.miktar, h.birimFiyat || 0, h.tutar || 0, h.tarih, h.aciklama, refNo, req.user.companyId]
+          sql: `INSERT INTO stok_hareketler (id, urun_id, depo_id, tip, miktar, birim_fiyat, tutar, tarih, aciklama, referans_no, lot_no, son_kullanma_tarihi, company_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          args: [
+            n(transId2), n(h.urunId), n(h.hedefDepoId), 'TRANSFER_GIRIS', n(h.miktar) || 0, 
+            n(h.birimFiyat) || 0, n(h.tutar) || 0, n(h.tarih) || new Date().toISOString(), 
+            n(h.aciklama), n(refNo), n(h.lotNo), n(h.sonKullanmaTarihi), companyId
+          ]
         }
-      ], "write");
+      ];
+      console.log('[Stok API] Transfer Batch Strt:' , JSON.stringify(stmts, null, 2));
+      await client.batch(stmts, "write");
     } else {
+      const args = [
+        ensureId(h.id), n(h.urunId), n(h.depoId), n(h.tip), n(h.miktar) || 0, 
+        n(h.birimFiyat) || 0, n(h.tutar) || 0, n(h.tarih) || new Date().toISOString(), 
+        n(h.aciklama), n(h.referansNo) || n(h.referans), n(h.lotNo), 
+        n(h.sonKullanmaTarihi), n(h.bagliFaturaId), companyId
+      ];
+      console.log('[Stok API] Normal Hareket Args:', args);
+
       await client.execute({
-        sql: `INSERT INTO stok_hareketler (id, urun_id, depo_id, tip, miktar, birim_fiyat, tutar, tarih, aciklama, referans_no, bagli_fatura_id, company_id)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        args: [ensureId(h.id), h.urunId, h.depoId, h.tip, h.miktar, h.birimFiyat || 0, h.tutar || 0, h.tarih, h.aciklama, h.referansNo, h.bagliFaturaId || null, req.user.companyId]
+        sql: `INSERT INTO stok_hareketler (id, urun_id, depo_id, tip, miktar, birim_fiyat, tutar, tarih, aciklama, referans_no, lot_no, son_kullanma_tarihi, bagli_fatura_id, company_id)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: args
       });
     }
     res.json({ success: true });
-  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+  } catch (e) { 
+    console.error('[Stok API] Hata:', e);
+    res.status(500).json({ success: false, message: e.message }); 
+  }
 });
 
 // Inventory Sessions (Sayım)
@@ -2162,22 +2430,610 @@ app.get('/api/debug/health', (req, res) => {
     } 
   });
 });
-// Emergency Repair Route (Public with Secret)
-app.get('/api/admin/repair', async (req, res) => {
-  const secret = req.query.secret;
-  if (secret !== 'repair_99') return res.status(401).json({ success: false, message: 'Unauthorized' });
+// --- QUOTATIONS (TEKLIFLER) ---
+app.get('/api/teklifler', authMiddleware, async (req, res) => {
   try {
-    await initDb();
-    // Aggressive status column add
-    try { 
-      await client.execute("ALTER TABLE companies ADD COLUMN status TEXT DEFAULT 'active'"); 
-      console.log('Status column forcefully checked/added.');
-    } catch(e) {
-      console.warn('Status column already exists or add failed:', e.message);
+    const rs = await client.execute({
+      sql: 'SELECT * FROM teklifler WHERE company_id = ? ORDER BY created_at DESC',
+      args: [req.user.companyId]
+    });
+    const teklifler = rs.rows;
+    
+    // Her teklif için kalemleri de getir
+    const data = [];
+    for (const t of teklifler) {
+      const kalemlerRs = await client.execute({
+        sql: 'SELECT * FROM teklif_kalemleri WHERE teklif_id = ?',
+        args: [t.id]
+      });
+      data.push({ ...t, kalemler: kalemlerRs.rows });
     }
-    res.json({ success: true, message: 'DB Repair Successful. Status column added if missing.' });
-  } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    
+    res.json({ success: true, data });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+});
+
+app.post('/api/teklifler', authMiddleware, async (req, res) => {
+  const { tarih, vade_tarihi, cari_id, musteri_adi, musteri_vkn, musteri_vergi_dairesi, musteri_adres, musteri_eposta, musteri_telefon, notlar, kalemler } = req.body;
+  const companyId = req.user.companyId;
+
+  try {
+    // 1. Otomatik No Üret: TK-YYYY-XXXX
+    const year = new Date().getFullYear();
+    const countRs = await client.execute({
+      sql: "SELECT COUNT(*) as count FROM teklifler WHERE company_id = ? AND teklif_no LIKE ?",
+      args: [companyId, `TK-${year}-%`]
+    });
+    const nextNum = (Number(countRs.rows[0].count) + 1).toString().padStart(4, '0');
+    const teklifNo = `TK-${year}-${nextNum}`;
+    
+    // 2. Onay Token Üret
+    const token = crypto.randomBytes(32).toString('hex');
+    const totalTutar = kalemler.reduce((sum, k) => sum + (Number(k.toplam_tutar) || 0), 0);
+
+    const result = await client.execute({
+      sql: `INSERT INTO teklifler (teklif_no, tarih, vade_tarihi, cari_id, musteri_adi, musteri_vkn, musteri_vergi_dairesi, musteri_adres, musteri_eposta, musteri_telefon, toplam_tutar, durum, notlar, onay_token, company_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [teklifNo, n(tarih), n(vade_tarihi), n(cari_id), n(musteri_adi), n(musteri_vkn), n(musteri_vergi_dairesi), n(musteri_adres), n(musteri_eposta), n(musteri_telefon), totalTutar, 'Bekliyor', n(notlar), token, companyId]
+    });
+    
+    const teklifId = result.lastInsertRowid;
+
+    // 3. Kalemleri Ekle
+    if (kalemler && kalemler.length > 0) {
+      const stmts = kalemler.map(k => ({
+        sql: `INSERT INTO teklif_kalemleri (teklif_id, urun_id, urun_adi, miktar, birim, birim_fiyat, iskonto_orani, iskonto_tutari, kdv_orani, toplam_tutar)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: [
+           teklifId, n(k.urun_id), n(k.urun_adi), n(k.miktar), n(k.birim) || 'Adet', 
+           n(k.birim_fiyat), n(k.iskonto_orani) || 0, n(k.iskonto_tutari) || 0, 
+           n(k.kdv_orani), n(k.toplam_tutar)
+        ]
+      }));
+      await client.batch(stmts, "write");
+    }
+
+    res.json({ success: true, id: teklifId, teklif_no: teklifNo, token });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+});
+
+app.put('/api/teklifler/:id', authMiddleware, async (req, res) => {
+  const { id } = req.params;
+  const { durum, notlar } = req.body;
+  try {
+    await client.execute({
+      sql: 'UPDATE teklifler SET durum = ?, notlar = ? WHERE id = ? AND company_id = ?',
+      args: [durum, n(notlar), id, req.user.companyId]
+    });
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+});
+
+app.delete('/api/teklifler/:id', authMiddleware, async (req, res) => {
+  try {
+    await client.execute({
+      sql: 'DELETE FROM teklifler WHERE id = ? AND company_id = ?',
+      args: [req.params.id, req.user.companyId]
+    });
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+});
+
+// --- PUBLIC TEKLIF ROUTES ---
+app.get('/api/public/teklif/:token', async (req, res) => {
+  const { token } = req.params;
+  try {
+    const rs = await client.execute({
+      sql: 'SELECT * FROM teklifler WHERE onay_token = ?',
+      args: [token]
+    });
+    const t = rs.rows[0];
+    if (!t) return res.status(404).json({ success: false, message: 'Teklif bulunamadı.' });
+
+    const kalemlerRs = await client.execute({
+      sql: 'SELECT * FROM teklif_kalemleri WHERE teklif_id = ?',
+      args: [t.id]
+    });
+
+    const companyRs = await client.execute({
+      sql: 'SELECT id, name, address, tax_no, email FROM companies WHERE id = ?',
+      args: [t.company_id]
+    });
+
+    res.json({ success: true, teklif: t, kalemler: kalemlerRs.rows, company: companyRs.rows[0] });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+});
+
+app.post('/api/public/teklif/:token/approve', async (req, res) => {
+  const { token } = req.params;
+  try {
+    // 1. Teklifi Bul
+    const rsT = await client.execute({
+      sql: 'SELECT * FROM teklifler WHERE onay_token = ?',
+      args: [token]
+    });
+    const t = rsT.rows[0];
+    if (!t) return res.status(404).json({ success: false, message: 'Teklif bulunamadı.' });
+    if (t.durum !== 'Bekliyor') return res.status(400).json({ success: false, message: 'Bu teklif zaten işlem görmüş.' });
+
+    // 2. Sipariş No Üret: S-YYYY-XXXX
+    const year = new Date().getFullYear();
+    const countRs = await client.execute({
+      sql: "SELECT COUNT(*) as count FROM siparisler WHERE company_id = ? AND siparis_no LIKE ?",
+      args: [t.company_id, `S-${year}-%`]
+    });
+    const nextNum = (Number(countRs.rows[0].count) + 1).toString().padStart(4, '0');
+    const siparisNo = `S-${year}-${nextNum}`;
+
+    // 3. Sipariş Oluştur
+    const resS = await client.execute({
+      sql: `INSERT INTO siparisler (siparis_no, teklif_id, tarih, cari_id, musteri_adi, toplam_tutar, durum, company_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [siparisNo, t.id, new Date().toISOString().split('T')[0], n(t.cari_id), n(t.musteri_adi), t.toplam_tutar, 'Bekliyor', t.company_id]
+    });
+    const siparisId = resS.lastInsertRowid;
+
+    // 4. Sipariş Kalemlerini Aktar
+    const kalemlerRs = await client.execute({
+      sql: 'SELECT * FROM teklif_kalemleri WHERE teklif_id = ?',
+      args: [t.id]
+    });
+    
+    const sipStmts = kalemlerRs.rows.map(k => ({
+      sql: `INSERT INTO siparis_kalemleri (siparis_id, urun_id, urun_adi, miktar, birim, birim_fiyat, kdv_orani, toplam_tutar)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [siparisId, n(k.urun_id), n(k.urun_adi), n(k.miktar), n(k.birim), n(k.birim_fiyat), n(k.kdv_orani), n(k.toplam_tutar)]
+    }));
+    await client.batch(sipStmts, "write");
+
+    // 5. Teklif Durumunu Güncelle
+    await client.execute({
+      sql: "UPDATE teklifler SET durum = 'Onaylandı (Siparişe Dönüştü)' WHERE id = ?",
+      args: [t.id]
+    });
+
+    res.json({ success: true, siparis_no: siparisNo });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+});
+
+// --- ORDERS (SIPARISLER) ---
+app.get('/api/siparisler', authMiddleware, async (req, res) => {
+  try {
+    const rs = await client.execute({
+      sql: 'SELECT * FROM siparisler WHERE company_id = ? ORDER BY created_at DESC',
+      args: [req.user.companyId]
+    });
+    const siparisler = rs.rows;
+    const data = [];
+    for (const s of siparisler) {
+      const kalemlerRs = await client.execute({
+        sql: 'SELECT * FROM siparis_kalemleri WHERE siparis_id = ?',
+        args: [s.id]
+      });
+      data.push({ ...s, kalemler: kalemlerRs.rows });
+    }
+    res.json({ success: true, data });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+});
+
+app.put('/api/siparisler/:id', authMiddleware, async (req, res) => {
+  const { id } = req.params;
+  const { durum } = req.body;
+  try {
+    await client.execute({
+      sql: 'UPDATE siparisler SET durum = ? WHERE id = ? AND company_id = ?',
+      args: [durum, id, req.user.companyId]
+    });
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+});
+
+app.delete('/api/siparisler/:id', authMiddleware, async (req, res) => {
+  try {
+    await client.execute({
+      sql: 'DELETE FROM siparisler WHERE id = ? AND company_id = ?',
+      args: [req.params.id, req.user.companyId]
+    });
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+});
+
+// --- LUCA HESAP PLANI ENTEGRASYONU ---
+app.get('/api/luca/hesap-plani', authMiddleware, async (req, res) => {
+  console.log(`[Backend] Luca hesap planı isteği alındı. User: ${req.user.tc}`);
+  try {
+    const rs = await client.execute({
+      sql: 'SELECT kod, ad, tur FROM luca_hesap_plani WHERE company_id = ? ORDER BY kod ASC',
+      args: [req.user.companyId]
+    });
+    console.log(`[Backend] Bulunan hesap sayısı: ${rs.rows.length}`);
+    res.json({ success: true, data: rs.rows || [] });
+  } catch (e) { 
+    console.error('[Backend] Luca Get Error:', e);
+    res.status(500).json({ success: false, message: 'Veritabanı hatası: ' + e.message }); 
+  }
+});
+
+app.post('/api/luca/hesap-plani/sync', authMiddleware, async (req, res) => {
+  const { accounts } = req.body; // [{kod, ad, tur}, ...]
+  if (!accounts || !Array.isArray(accounts)) return res.status(400).json({ success: false, message: 'Geçersiz veri formatı.' });
+
+  try {
+    // Toplu ekleme (Batch Insert/Upsert)
+    // Turso/LibSQL supports batch. We can use it or a single transaction.
+    // Since we have MANY accounts, we use batch and REPLACE (or IGNORE then UPDATE).
+    // SQLite doesn't have UPSERT (INSERT ... ON CONFLICT) in older versions, but libSQL does.
+    
+    const statements = accounts.map(a => ({
+      sql: 'INSERT INTO luca_hesap_plani (company_id, kod, ad, tur) VALUES (?, ?, ?, ?) ON CONFLICT(company_id, kod) DO UPDATE SET ad=excluded.ad, tur=excluded.tur',
+      args: [req.user.companyId, a.kod, a.ad, a.tur || '']
+    }));
+
+    await client.batch(statements, "write");
+    console.log(`[Backend] Başarılı: ${accounts.length} hesap Luca'dan senkronize edildi.`);
+    res.json({ success: true, count: accounts.length });
+  } catch (e) {
+    console.error('Luca Sync Error:', e);
+    res.status(500).json({ success: false, message: e.message });
+  }
+});
+
+// --- SMTP AYARLARI & MAIL GÖNDERİMİ ---
+app.get('/api/settings/smtp', authMiddleware, async (req, res) => {
+  try {
+    const rs = await client.execute({
+      sql: 'SELECT setting_key, setting_value FROM company_settings WHERE company_id = ?',
+      args: [req.user.companyId]
+    });
+    
+    let settings = {};
+    rs.rows.forEach(r => { settings[r.setting_key] = r.setting_value; });
+    res.json({ success: true, settings });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+});
+
+app.post('/api/settings/smtp', authMiddleware, async (req, res) => {
+  const settings = req.body; // { smtp_host: '...', smtp_user: '...' } vb.
+  try {
+    const stmts = Object.keys(settings).map(key => ({
+      sql: 'INSERT INTO company_settings (company_id, setting_key, setting_value) VALUES (?, ?, ?) ON CONFLICT(company_id, setting_key) DO UPDATE SET setting_value=excluded.setting_value',
+      args: [req.user.companyId, key, settings[key]]
+    }));
+    if (stmts.length > 0) {
+      await client.batch(stmts, "write");
+    }
+    res.json({ success: true });
+  } catch (e) { console.error(e); res.status(500).json({ success: false, message: e.message }); }
+});
+
+app.post('/api/teklifler/:id/send-email', authMiddleware, async (req, res) => {
+  const { to, subject, message } = req.body;
+  const { id } = req.params;
+  
+  try {
+    // 1. SMTP Ayarlarını Çek
+    const configRs = await client.execute({
+      sql: "SELECT setting_key, setting_value FROM company_settings WHERE company_id = ? AND setting_key IN ('smtp_host','smtp_port','smtp_user','smtp_pass', 'smtp_secure')",
+      args: [req.user.companyId]
+    });
+    
+    let config = {};
+    configRs.rows.forEach(r => { config[r.setting_key] = r.setting_value; });
+    
+    if (!config.smtp_host || !config.smtp_user || !config.smtp_pass) {
+      return res.status(400).json({ success: false, message: 'SMTP ayarları eksik. Lütfen önce "Ayarlar" sekmesinden e-posta bilgilerinizi tanımlayın.' });
+    }
+
+    // 2. Teklif token bilgisini ve şirket bilgisini çek (Gerekirse link olarak konacak, zaten ön yüzden hazır metin dönüyor ama backend de bilebilir)
+    const teklifRs = await client.execute({
+      sql: 'SELECT onay_token FROM teklifler WHERE id = ? AND company_id = ?',
+      args: [id, req.user.companyId]
+    });
+    
+    if (!teklifRs.rows.length) return res.status(404).json({ success: false, message: 'Teklif bulunamadı.' });
+    
+    const transporter = nodemailer.createTransport({
+      host: config.smtp_host,
+      port: parseInt(config.smtp_port) || 465,
+      secure: config.smtp_secure === 'true' || config.smtp_port == '465',
+      auth: {
+        user: config.smtp_user,
+        pass: config.smtp_pass
+      }
+    });
+
+    const mailOptions = {
+      from: config.smtp_user,
+      to,
+      subject,
+      text: message, // Sadece metin gönderimi (Veya gelişmiş HTML yapabiliriz)
+      html: message.replace(/\\n/g, '<br/>') // Frontend'den gelen alt satırları <br> yaparız
+    };
+
+    const info = await transporter.sendMail(mailOptions);
+    res.json({ success: true, info });
+
+  } catch (e) {
+    console.error("Mail Send Error: ", e);
+    res.status(500).json({ success: false, message: e.message || "E-posta gönderilirken teknik bir hata oluştu." });
+  }
+});
+
+app.get('/api/stok/:id/history', authMiddleware, async (req, res) => {
+  const { id } = req.params;
+  try {
+    // 1. Get history (Only inputs to see costs, e.g. GIRIS types)
+    const historyRs = await client.execute({
+      sql: 'SELECT tip, miktar, birim_fiyat, tarih FROM stok_hareketler WHERE urun_id = ? AND company_id = ? AND (tip = ? OR tip = ?) ORDER BY tarih DESC',
+      args: [id, req.user.companyId, 'GIRIS', 'DEVIR']
+    });
+    
+    // 2. Calculate remaining stock across all active inventory
+    const totalRs = await client.execute({
+      sql: "SELECT SUM(CASE WHEN tip IN ('GIRIS', 'TRANSFER_GIRIS', 'SAYIM_GIRIS', 'DEVIR') THEN miktar ELSE -miktar END) as kalan_stok FROM stok_hareketler WHERE urun_id = ? AND company_id = ? AND iptal = 0",
+      args: [id, req.user.companyId]
+    });
+    
+    const kalan_stok = totalRs.rows[0]?.kalan_stok || 0;
+    
+    res.json({ success: true, history: historyRs.rows, kalan_stok });
+  } catch (e) {
+    console.error("Stok History Error:", e);
+    res.status(500).json({ success: false, message: e.message });
+  }
+});
+
+app.get('/api/mutabakatlar', authMiddleware, async (req, res) => {
+  try {
+    const rs = await client.execute({
+      sql: `
+        SELECT m.*, c.unvan as cariUnvan, c.vkn_tckn as cariVkn, c.eposta as cariEposta 
+        FROM mutabakatlar m
+        LEFT JOIN cariler c ON m.cari_id = c.id
+        WHERE m.company_id = ?
+        ORDER BY m.olusturma_tarihi DESC
+      `,
+      args: [req.user.companyId]
+    });
+    res.json({ success: true, data: rs.rows });
+  } catch (e) {
+    res.status(500).json({ success: false, message: e.message });
+  }
+});
+
+app.post('/api/mutabakatlar/bulk', authMiddleware, async (req, res) => {
+  const { mutabakatlar, bizeAitMuavinBase64 } = req.body;
+  if (!mutabakatlar || !Array.isArray(mutabakatlar)) {
+    return res.status(400).json({ success: false, message: 'Veri geçersiz.' });
+  }
+
+  try {
+    // 1. SMTP Ayarlarını Çek
+    const rsSettings = await client.execute({
+      sql: 'SELECT * FROM company_settings WHERE company_id = ?',
+      args: [req.user.companyId]
+    });
+    const config = {};
+    rsSettings.rows.forEach(r => { config[r.setting_key] = r.setting_value; });
+
+    let muavinPath = null;
+    if (bizeAitMuavinBase64) {
+      const fileName = `biz_muavin_${Date.now()}_${Math.random().toString(36).substr(2, 5)}.xlsx`;
+      const filePath = path.join(uploadsDir, fileName);
+      const base64Data = bizeAitMuavinBase64.replace(/^data:.*?;base64,/, "");
+      fs.writeFileSync(filePath, base64Data, 'base64');
+      muavinPath = fileName;
+    }
+
+    let sentCount = 0;
+    let notFoundCount = 0;
+    let noEmailCount = 0;
+
+    const transporter = (config.smtp_host && config.smtp_user && config.smtp_pass) ? nodemailer.createTransport({
+      host: config.smtp_host,
+      port: parseInt(config.smtp_port) || 465,
+      secure: config.smtp_secure === 'true' || config.smtp_port == '465',
+      auth: { user: config.smtp_user, pass: config.smtp_pass }
+    }) : null;
+
+    if (!transporter) {
+       return res.status(400).json({ 
+         success: false, 
+         message: 'SMTP ayarları (Mail sunucusu) yapılandırılmamış. Lütfen Ayarlar sayfasından mail bilgilerinizi girin.' 
+       });
+    }
+
+    for (const row of mutabakatlar) {
+      // Cari Bul (Muhasebe Kodu veya VKN ile)
+      const rsCari = await client.execute({
+        sql: 'SELECT id, unvan, eposta FROM cariler WHERE (muhasebe_kodu = ? OR vkn_tckn = ? OR vkn_tckn = ?) AND company_id = ?',
+        args: [row.muhasebeKodu, row.muhasebeKodu, row.vknTckn || '', req.user.companyId]
+      });
+
+      if (rsCari.rows.length > 0) {
+        const cari = rsCari.rows[0];
+        
+        if (!cari.eposta) {
+          noEmailCount++;
+          continue;
+        }
+
+        const token = crypto.randomBytes(32).toString('hex');
+        const id = 'm' + Date.now() + Math.random().toString(36).substr(2, 5);
+
+        await client.execute({
+          sql: `INSERT INTO mutabakatlar (id, company_id, cari_id, donem, tip, borc, alacak, bakiye, token, aciklama, kullanici_muavin_path, durum) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          args: [id, req.user.companyId, cari.id, row.donem, 'CARI', row.borc, row.alacak, row.bakiye, token, row.aciklama || '', muavinPath, 'Bekliyor']
+        });
+
+        try {
+          const publicUrl = `${req.get('origin') || 'http://localhost:5173'}/?mutabakat=${token}`;
+          await transporter.sendMail({
+            from: config.smtp_user,
+            to: cari.eposta,
+            subject: `${config.company_name || 'Şirket'} - Mutabakat Formu (${row.donem})`,
+            html: `
+              <div style="font-family: sans-serif; padding: 20px; color: #334155;">
+                <h2 style="color: #4f46e5;">Mutabakat Talebi</h2>
+                <p>Sayın <b>${cari.unvan}</b>,</p>
+                <p>Sizlerle olan <b>${row.donem}</b> dönemine ait cari hesap bakiyemiz aşağıdadır:</p>
+                <div style="background: #f8fafc; padding: 15px; border-radius: 8px; margin: 20px 0;">
+                  <p style="margin: 5px 0;">Bakiye: <b>${new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(row.bakiye)}</b></p>
+                </div>
+                <p>Mutabık olup olmadığınızı aşağıdaki butona tıklayarak bildirebilirsiniz:</p>
+                <a href="${publicUrl}" style="display: inline-block; padding: 12px 24px; background: #4f46e5; color: white; text-decoration: none; border-radius: 6px; font-weight: bold;">Yanıtla / Detayları Gör</a>
+                <p style="margin-top: 30px; font-size: 12px; color: #94a3b8;">Bu mail sistem tarafından otomatik gönderilmiştir.</p>
+              </div>
+            `
+          });
+          sentCount++;
+        } catch (mErr) {
+          console.error("Mail Error for row:", cari.unvan, mErr);
+        }
+      } else {
+        notFoundCount++;
+      }
+    }
+
+    res.json({ 
+      success: true, 
+      sentCount, 
+      notFoundCount, 
+      noEmailCount,
+      totalRows: mutabakatlar.length 
+    });
+  } catch (e) {
+    console.error("Bulk Mutabakat error:", e);
+    res.status(500).json({ success: false, message: e.message });
+  }
+});
+
+// Mutabakat Public View
+app.get('/api/public/mutabakat/:token', async (req, res) => {
+  const { token } = req.params;
+  try {
+    const rs = await client.execute({
+      sql: `SELECT m.*, c.unvan, co.name as company_name, co.tax_no as company_vkn, co.address as company_address
+            FROM mutabakatlar m 
+            JOIN cariler c ON m.cari_id = c.id 
+            JOIN companies co ON m.company_id = co.id
+            WHERE m.token = ?`,
+      args: [token]
+    });
+    if (rs.rows.length === 0) return res.status(404).json({ success: false, message: 'Mutabakat bulunamadı veya link geçersiz.' });
+    res.json({ success: true, data: rs.rows[0] });
+  } catch (e) {
+    res.status(500).json({ success: false, message: e.message });
+  }
+});
+
+app.post('/api/public/mutabakat/:token/respond', async (req, res) => {
+  const { token } = req.params;
+  const { durum, aciklama, muavinBase64 } = req.body;
+
+  try {
+    let muavinPath = null;
+    if (muavinBase64) {
+      const fileName = `karsi_muavin_${Date.now()}_${Math.random().toString(36).substr(2, 5)}.xlsx`;
+      const filePath = path.join(uploadsDir, fileName);
+      const base64Data = muavinBase64.replace(/^data:.*?;base64,/, "");
+      fs.writeFileSync(filePath, base64Data, 'base64');
+      muavinPath = fileName;
+    }
+
+    await client.execute({
+      sql: 'UPDATE mutabakatlar SET durum = ?, aciklama = ?, karsi_muavin_path = COALESCE(?, karsi_muavin_path), yanit_tarihi = CURRENT_TIMESTAMP WHERE token = ?',
+      args: [durum, aciklama || '', muavinPath, token]
+    });
+
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ success: false, message: e.message });
+  }
+});
+
+app.post('/api/mutabakatlar/analyze/:id', authMiddleware, async (req, res) => {
+  const { id } = req.params;
+  try {
+    const rs = await client.execute({
+      sql: 'SELECT * FROM mutabakatlar WHERE id = ? AND company_id = ?',
+      args: [id, req.user.companyId]
+    });
+    if (rs.rows.length === 0) return res.status(404).json({ success: false, message: 'Mutabakat bulunamadı.' });
+    const mutabakat = rs.rows[0];
+
+    if (!mutabakat.kullanici_muavin_path || !mutabakat.karsi_muavin_path) {
+      return res.status(400).json({ success: false, message: 'Karşılaştırma için her iki muavin dosyası da mevcut olmalıdır. Lütfen karşı tarafın bir dosya yüklediğinden emin olun.' });
+    }
+
+    // 1. Gemini Key Çek
+    const rsSettings = await client.execute({
+      sql: "SELECT setting_value FROM company_settings WHERE company_id = ? AND setting_key = 'gemini_api_key'",
+      args: [req.user.companyId]
+    });
+    const apiKey = rsSettings.rows[0]?.setting_value || process.env.GEMINI_API_KEY;
+    
+    if (!apiKey) {
+      return res.status(400).json({ success: false, message: 'Yapay zeka anahtarı (Gemini API Key) bulunamadı. Lütfen ayarlardan tanımlayın.' });
+    }
+
+    // 2. Dosyaları Oku ve Parse Et
+    const bizPath = path.join(uploadsDir, mutabakat.kullanici_muavin_path);
+    const karsiPath = path.join(uploadsDir, mutabakat.karsi_muavin_path);
+
+    if (!fs.existsSync(bizPath) || !fs.existsSync(karsiPath)) {
+      return res.status(404).json({ success: false, message: 'Muavin dosyalarından biri sunucuda bulunamadı.' });
+    }
+
+    const bizWb = xlsx.readFile(bizPath);
+    const karsiWb = xlsx.readFile(karsiPath);
+
+    const bizRows = xlsx.utils.sheet_to_json(bizWb.Sheets[bizWb.SheetNames[0]]);
+    const karsiRows = xlsx.utils.sheet_to_json(karsiWb.Sheets[karsiWb.SheetNames[0]]);
+
+    // 3. AI Analiz Promptu
+    const prompt = `
+      Sana iki farklı firmadan gelen cari hesap "muavin" (hesap dökümü) satırlarını gönderiyorum. 
+      Senin görevin bu iki tabloyu karşılaştırıp uyuşmazlıkları (farklılıkları) bulmaktır. 
+      Aşağıdaki durumları tolere etmelisin ve eşleşmiş saymalısın:
+      - Tarih formatı farklılıkları (Örn: 01.12 vs 2024-12-01).
+      - Açıklama farklılıkları (Örn: "Fatura 123" vs "123 No'lu Satış Faturası").
+      - Evrak numarasındaki sıfır eksikleri (Örn: "0001" vs "1").
+      - Bir ayın sonundaki işlemin diğer ayın başında gözükmesi (Aralık sonundaki faturanın Ocak'ta işlenmesi).
+
+      Tablo 1 (Bizim Kayıtlar): ${JSON.stringify(bizRows.slice(0, 150))} 
+      Tablo 2 (Müşterinin Kayıtları): ${JSON.stringify(karsiRows.slice(0, 150))}
+
+      Lütfen sonucu şu formatta JSON olarak dön:
+      {
+        "uyusmazliklar": [
+          {"tarih": "...", "aciklama": "...", "tutar": "...", "sebep": "Bizde var müşteride yok / Tutar farklı / Müşteride var bizde yok"}
+        ],
+        "ozet": "Genel bir değerlendirme..."
+      }
+      Sadece JSON objesini döndür, başka açıklama yapma.
+    `;
+
+    // 4. Gemini API Çağrısı
+    const geminiRes = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
+      contents: [{ parts: [{ text: prompt }] }]
+    }, { timeout: 30000 });
+
+    const aiText = geminiRes.data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
+    const jsonMatch = aiText.match(/\{[\s\S]*\}/);
+    const aiResult = jsonMatch ? jsonMatch[0] : aiText;
+
+    // 5. Sonucu Kaydet
+    await client.execute({
+      sql: 'UPDATE mutabakatlar SET ai_analiz_sonucu = ? WHERE id = ?',
+      args: [aiResult, id]
+    });
+
+    res.json({ success: true, analysis: JSON.parse(aiResult) });
+  } catch (e) {
+    console.error("AI Analysis Error:", e);
+    res.status(500).json({ success: false, message: e.message });
   }
 });
 
@@ -2185,7 +3041,11 @@ app.use('/uploads', express.static(uploadsDir));
 
 if (process.env.NODE_ENV !== 'production') {
   const PORT = process.env.PORT || 5000;
-  app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+  app.listen(PORT, () => {
+    console.log('--------------------------------------------------');
+    console.log(`🚀 LUCA & FATURA BACKEND ÇALIŞIYOR: http://localhost:${PORT}`);
+    console.log('--------------------------------------------------');
+  });
 }
 
 export default app;

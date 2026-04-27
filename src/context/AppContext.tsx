@@ -1,47 +1,7 @@
 import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import { toast } from 'sonner';
 
-const API_BASE = '';
-const getToken = () => localStorage.getItem('token') || '';
-
-
-async function apiFetch(path: string, options?: RequestInit) {
-  const isFormData = options?.body instanceof FormData;
-  const headers: any = { 
-    Authorization: `Bearer ${getToken()}`,
-    ...(options?.headers || {})
-  };
-  if (!isFormData && !headers['Content-Type'] && options?.body) {
-    headers['Content-Type'] = 'application/json';
-  }
-
-  const res = await fetch(`${API_BASE}${path}`, { 
-    ...options, 
-    headers 
-  });
-  
-  if (!res.ok) {
-    const errorText = await res.text();
-    try {
-      const errorJson = JSON.parse(errorText);
-      return { success: false, message: errorJson.message || 'API Hatası' };
-    } catch {
-      return { success: false, message: `Sunucu Hatası (${res.status}): ${errorText.substring(0, 50)}...` };
-    }
-  }
-
-  const contentType = res.headers.get('content-type');
-  if (contentType && contentType.includes('application/json')) {
-    const data = await res.json();
-    // Eğer data {success, data} şeklinde değilse ama başarılı ise, sarmallayabiliriz veya olduğu gibi döneriz.
-    // Ancak AppContext loadAllData success kontrolü yaptığı için standartlaştırmak daha güvenli:
-    if (data && typeof data === 'object' && !Array.isArray(data) && 'success' in data) {
-      return data;
-    }
-    return { success: true, data };
-  } else {
-    return { success: false, message: 'Sunucudan beklenmeyen bir yanıt formatı alındı.' };
-  }
-}
+import { apiFetch } from '@/lib/api';
 import type {
   SatisFatura,
   SatisFaturaFormData,
@@ -96,6 +56,7 @@ interface AppContextType {
   // ==================== SATIÅ FATURALARI ====================
   satisFaturalari: SatisFatura[];
   addSatisFatura: (fatura: SatisFaturaFormData) => void;
+  updateSatisFatura: (id: string, data: SatisFaturaFormData) => void;
   updateSatisFaturaOdeme: (id: string, odemeTarihi: string, durum: OdemeDurumu, bankaId?: string) => void;
   uploadSatisPdf: (faturaId: string, file: File) => void;
   uploadSatisDekont: (faturaId: string, file: File) => void;
@@ -207,6 +168,25 @@ interface AppContextType {
   addCompany: (data: Omit<Company, 'id'>) => Promise<{ success: boolean; message?: string }>;
   updateCompany: (id: number, data: Partial<Company>) => Promise<{ success: boolean; message?: string }>;
   deleteCompany: (id: number) => Promise<{ success: boolean; message?: string }>;
+  
+  // ==================== LUCA ENTEGRASYON ====================
+  lucaAccounts: { code: string; name: string }[];
+  syncLucaAccounts: () => void;
+
+  // ==================== TEKLİFLER ====================
+  teklifler: Teklif[];
+  addTeklif: (data: any) => Promise<{ success: boolean; data?: any; message?: string }>;
+  updateTeklif: (id: string, data: any) => Promise<{ success: boolean; message?: string }>;
+  deleteTeklif: (id: string) => Promise<{ success: boolean; message?: string }>;
+  fetchPublicTeklif: (token: string) => Promise<{ success: boolean; data?: any; message?: string }>;
+  approvePublicTeklif: (token: string) => Promise<{ success: boolean; data?: any; message?: string }>;
+
+  // ==================== SİPARİŞLER ====================
+  siparisler: Siparis[];
+  updateSiparis: (id: string, data: any) => Promise<{ success: boolean; message?: string }>;
+  deleteSiparis: (id: string) => Promise<{ success: boolean; message?: string }>;
+  apiFetch: (path: string, options?: RequestInit) => Promise<any>;
+  fetchCariler: () => Promise<void>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -261,20 +241,88 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // ==================== SUPER ADMIN STATE ====================
   const [companies, setCompanies] = useState<Company[]>([]);
 
+  // ==================== LUCA STATE ====================
+  const [lucaAccounts, setLucaAccounts] = useState<{ kod: string; ad: string; tur?: string }[]>([]);
+
+  // ==================== TEKLİF & SİPARİŞ STATE ====================
+  const [teklifler, setTeklifler] = useState<Teklif[]>([]);
+  const [siparisler, setSiparisler] = useState<Siparis[]>([]);
+
+  const fetchLucaAccounts = useCallback(async () => {
+    try {
+      const data = await apiFetch('/api/luca/hesap-plani');
+      if (data.success) setLucaAccounts(data.data);
+    } catch (e) {
+      console.error('Fetch Luca accounts error:', e);
+    }
+  }, []);
+
+  const syncLucaAccounts = useCallback(() => {
+    // Eklentiye sinyal gönder
+    window.dispatchEvent(new CustomEvent('FATURA_APP_LUCA_SYNC_REQUEST'));
+  }, []);
+
+  useEffect(() => {
+    const handleLucaResponse = async (e: any) => {
+      const response = e.detail;
+      console.log("[Luca Sync] Response received in AppContext:", response);
+      if (response && response.status === 'success' && response.data) {
+        // Gelen veriyi normalize et (kod/ad vs code/name karışıklığını önle)
+        const normalizedData = (response.data || []).map((acc: any) => ({
+          kod: acc.kod || acc.code || '',
+          ad: acc.ad || acc.name || '',
+          tur: acc.tur || ''
+        })).filter((acc: any) => acc.kod);
+
+        toast.success(`${normalizedData.length} hesap Luca'dan alındı. Kaydediliyor...`);
+        
+        // Önce yerel durumu güncelle ki anında görünsün
+        setLucaAccounts(normalizedData);
+
+        // Arka plana senkronize et
+        try {
+          const res = await apiFetch('/api/luca/hesap-plani/sync', {
+            method: 'POST',
+            body: JSON.stringify({ accounts: normalizedData })
+          });
+          if (res.success) {
+            toast.success("Hesap planı sunucuya başarıyla kaydedildi.");
+          } else {
+            toast.error("Sunucu kaydı başarısız: " + (res.message || "Bilinmeyen hata"));
+          }
+        } catch (err: any) {
+          console.error('Sync to backend failed:', err);
+          toast.error("Sunucu kaydı sırasında hata oluştu.");
+        }
+      } else if (response && response.status === 'error') {
+        console.error('Extension sync error:', response.message);
+        toast.error("Luca Senkronizasyon Hatası: " + response.message);
+      }
+    };
+    window.addEventListener('FATURA_APP_LUCA_ACCOUNTS_RECEIVED', handleLucaResponse);
+    return () => window.removeEventListener('FATURA_APP_LUCA_ACCOUNTS_RECEIVED', handleLucaResponse);
+  }, [fetchLucaAccounts]);
+
   // ==================== VERÄ° YÃœKLEME (API'DAN) ====================
 
   // ==================== CARÄ° CRUD ====================
   const addCari = useCallback(async (data: CariFormData) => {
     const yeniCari: Cari = { ...data, id: 'c' + Date.now().toString(), olusturmaTarihi: new Date().toISOString().split('T')[0] };
     setCariler(prev => [yeniCari, ...prev]);
-    try { await apiFetch('/api/cariler', { method: 'POST', body: JSON.stringify(yeniCari) }); }
+    try { 
+      const res = await apiFetch('/api/cariler', { method: 'POST', body: JSON.stringify(yeniCari) }); 
+      if (!res.success) toast.error("Cari sunucuya kaydedilemedi: " + res.message);
+    }
     catch (e) { console.error('Cari eklenemedi:', e); }
   }, []);
 
-  const updateCari = useCallback(async (id: string, data: CariFormData) => {
+  const updateCari = useCallback(async (id: string, data: Partial<CariFormData>) => {
     setCariler(prev => prev.map(c => c.id === id ? { ...c, ...data } : c));
-    try { await apiFetch(`/api/cariler/${id}`, { method: 'PUT', body: JSON.stringify(data) }); }
-    catch (e) { console.error('Cari gÃ¼ncellenemedi:', e); }
+    try { 
+      const res = await apiFetch(`/api/cariler/${id}`, { method: 'PUT', body: JSON.stringify(data) }); 
+      if (!res.success) toast.error("Güncelleme sunucuya kaydedilemedi.");
+    }
+    catch (e) { console.error('Cari güncellenemedi:', e); }
   }, []);
 
   const deleteCari = useCallback(async (id: string) => {
@@ -1015,19 +1063,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const hesaplanan = calculateSatisFatura(formData);
     const yeniFatura: SatisFatura = {
       id: 's' + Date.now().toString() + Math.random().toString(36).substr(2, 5),
+      faturaNo: formData.faturaNo,
       tcVkn: formData.tcVkn, ad: formData.ad, soyad: formData.soyad, adres: formData.adres,
       kdvOrani: parseFloat(formData.kdvOrani) || 0, alinanUcret: parseFloat(formData.alinanUcret) || 0,
       matrah: hesaplanan.matrah || 0, kdvTutari: hesaplanan.kdvTutari || 0,
       tevkifatOrani: formData.tevkifatOrani || '0', tevkifatTutari: hesaplanan.tevkifatTutari || 0,
+      tevkifatKodu: formData.tevkifatKodu || '',
       stopajOrani: formData.stopajOrani || '0', stopajTutari: hesaplanan.stopajTutari || 0,
+      stopajKodu: formData.stopajKodu || '',
       pdfDosya: formData.dosyaBase64 || null, pdfDosyaAdi: formData.dosyaAdi || undefined,
       faturaTarihi: formData.faturaTarihi, cariId: formData.cariId,
       vadeTarihi: formData.vadeTarihi || null, odemeTarihi: null,
       odemeDurumu: 'odenmedi', odemeDekontu: null,
-      olusturmaTarihi: new Date().toISOString().split('T')[0]
+      olusturmaTarihi: new Date().toISOString().split('T')[0],
+      stokKalemleri: (formData as any).stokKalemleri || []
     };
     setSatisFaturalari(prev => [yeniFatura, ...prev]);
-    try { await apiFetch('/api/satis-faturalari', { method: 'POST', body: JSON.stringify(yeniFatura) }); }
+    // stokKalemleri backend'e gonderilmeli
+    const bodyToSend = { ...yeniFatura, stokKalemleri: (formData as any).stokKalemleri || [], urunId: formData.urunId, depoId: formData.depoId };
+    try { await apiFetch('/api/satis-faturalari', { method: 'POST', body: JSON.stringify(bodyToSend) }); }
     catch (e) { console.error('SatÄ±ÅŸ fatura eklenemedi:', e); }
     if (formData.cariId) {
       const yeniHareket: CariHareket = {
@@ -1043,10 +1097,52 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  const updateSatisFaturaOdeme = useCallback(async (id: string, odemeTarihi: string, odemeDurumu: 'odenmedi' | 'odendi' | 'bekliyor') => {
+  const updateSatisFatura = useCallback(async (id: string, formData: SatisFaturaFormData) => {
+    const hesaplanan = calculateSatisFatura(formData);
+    setSatisFaturalari(prev => prev.map(f => f.id === id ? { 
+      ...f, 
+      faturaNo: formData.faturaNo,
+      tcVkn: formData.tcVkn, ad: formData.ad, soyad: formData.soyad, adres: formData.adres,
+      kdvOrani: parseFloat(formData.kdvOrani) || 0, alinanUcret: parseFloat(formData.alinanUcret) || 0,
+      matrah: hesaplanan.matrah || 0, kdvTutari: hesaplanan.kdvTutari || 0,
+      tevkifatOrani: formData.tevkifatOrani || '0', tevkifatTutari: hesaplanan.tevkifatTutari || 0,
+      tevkifatKodu: formData.tevkifatKodu || '',
+      stopajOrani: formData.stopajOrani || '0', stopajTutari: hesaplanan.stopajTutari || 0,
+      stopajKodu: formData.stopajKodu || '',
+      faturaTarihi: formData.faturaTarihi, cariId: formData.cariId,
+      vadeTarihi: formData.vadeTarihi || null,
+      aciklama: formData.aciklama,
+      stokKalemleri: (formData as any).stokKalemleri || f.stokKalemleri
+    } : f));
+
+    try {
+      await apiFetch(`/api/satis-faturalari/${id}`, { 
+        method: 'PUT', 
+        body: JSON.stringify({
+          faturaNo: formData.faturaNo,
+          tcVkn: formData.tcVkn, ad: formData.ad, soyad: formData.soyad, adres: formData.adres,
+          kdvOrani: parseFloat(formData.kdvOrani), alinanUcret: parseFloat(formData.alinanUcret),
+          matrah: hesaplanan.matrah, kdvTutari: hesaplanan.kdvTutari,
+          tevkifatOrani: formData.tevkifatOrani, tevkifatTutari: hesaplanan.tevkifatTutari,
+          tevkifatKodu: formData.tevkifatKodu,
+          stopajOrani: formData.stopajOrani, stopajTutari: hesaplanan.stopajTutari,
+          stopajKodu: formData.stopajKodu,
+          faturaTarihi: formData.faturaTarihi, cariId: formData.cariId,
+          vadeTarihi: formData.vadeTarihi, aciklama: formData.aciklama,
+          stokKalemleri: (formData as any).stokKalemleri || [],
+          urunId: formData.urunId,
+          depoId: formData.depoId
+        }) 
+      });
+    } catch (e) {
+      console.error('Satış fatura güncellenemedi:', e);
+    }
+  }, []);
+
+  const updateSatisFaturaOdeme = useCallback(async (id: string, odemeTarihi: string, odemeDurumu: 'odenmedi' | 'odendi' | 'bekliyor', bankaId?: string) => {
     setSatisFaturalari(prev => prev.map(f => f.id === id ? { ...f, odemeTarihi, odemeDurumu } : f));
-    try { await apiFetch(`/api/satis-faturalari/${id}`, { method: 'PUT', body: JSON.stringify({ odemeTarihi, odemeDurumu }) }); }
-    catch (e) { console.error('SatÄ±ÅŸ Ã¶deme gÃ¼ncellenemedi:', e); }
+    try { await apiFetch(`/api/satis-faturalari/${id}`, { method: 'PUT', body: JSON.stringify({ odemeTarihi, odemeDurumu, bankaId }) }); }
+    catch (e) { console.error('Satış ödeme güncellenemedi:', e); }
   }, []);
 
   const deleteSatisFatura = useCallback(async (id: string) => {
@@ -1274,6 +1370,124 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     catch (e) { console.error('Kategori silinemedi:', e); }
   }, []);
 
+  // ==================== SİPARİŞ CRUD ====================
+  const fetchSiparisler = useCallback(async () => {
+    try {
+      const res = await apiFetch('/api/siparisler');
+      if (res.success) setSiparisler(res.data);
+    } catch (e) { console.error('fetchSiparisler error:', e); }
+  }, []);
+
+  const updateSiparis = useCallback(async (id: string, data: any) => {
+    try {
+      const res = await apiFetch(`/api/siparisler/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+      if (res.success) {
+        toast.success('Sipariş güncellendi.');
+        fetchSiparisler();
+        return { success: true };
+      }
+      return { success: false, message: res.message };
+    } catch (e: any) {
+      return { success: false, message: e.message };
+    }
+  }, [fetchSiparisler]);
+
+  const deleteSiparis = useCallback(async (id: string) => {
+    try {
+      const res = await apiFetch(`/api/siparisler/${id}`, { method: 'DELETE' });
+      if (res.success) {
+        toast.success('Sipariş silindi.');
+        setSiparisler(prev => prev.filter(s => s.id !== id));
+        return { success: true };
+      }
+      return { success: false, message: res.message };
+    } catch (e: any) {
+      return { success: false, message: e.message };
+    }
+  }, []);
+
+  // ==================== TEKLİF CRUD ====================
+  const fetchTeklifler = useCallback(async () => {
+    try {
+      const res = await apiFetch('/api/teklifler');
+      if (res.success) setTeklifler(res.data);
+    } catch (e) { console.error('fetchTeklifler error:', e); }
+  }, []);
+
+  const addTeklif = useCallback(async (data: any) => {
+    try {
+      const res = await apiFetch('/api/teklifler', { method: 'POST', body: JSON.stringify(data) });
+      if (res.success) {
+        toast.success('Teklif başarıyla oluşturuldu.');
+        fetchTeklifler();
+        return res;
+      }
+      toast.error(res.message || 'Teklif oluşturulamadı.');
+      return res;
+    } catch (e: any) {
+      toast.error(e.message);
+      return { success: false, message: e.message };
+    }
+  }, [fetchTeklifler]);
+
+  const updateTeklif = useCallback(async (id: string, data: any) => {
+    try {
+      const res = await apiFetch(`/api/teklifler/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+      if (res.success) {
+        toast.success('Teklif durumu güncellendi.');
+        fetchTeklifler();
+        return { success: true };
+      }
+      return { success: false, message: res.message };
+    } catch (e: any) {
+      return { success: false, message: e.message };
+    }
+  }, [fetchTeklifler]);
+
+  const deleteTeklif = useCallback(async (id: string) => {
+    try {
+      const res = await apiFetch(`/api/teklifler/${id}`, { method: 'DELETE' });
+      if (res.success) {
+        toast.success('Teklif silindi.');
+        setTeklifler(prev => prev.filter(t => t.id !== id));
+        return { success: true };
+      }
+      return { success: false, message: res.message };
+    } catch (e: any) {
+      return { success: false, message: e.message };
+    }
+  }, []);
+
+  const fetchPublicTeklif = useCallback(async (token: string) => {
+    return await apiFetch(`/api/public/teklif/${token}`);
+  }, []);
+
+  const approvePublicTeklif = useCallback(async (token: string) => {
+    try {
+      const res = await apiFetch(`/api/public/teklif/${token}/approve`, { method: 'POST' });
+      if (res.success) {
+        toast.success(`Teklif onaylandı! Yeni Sipariş No: ${res.siparis_no}`);
+        fetchSiparisler();
+        fetchTeklifler();
+        return res;
+      }
+      return res;
+    } catch (e: any) {
+      return { success: false, message: e.message };
+    }
+  }, [fetchSiparisler, fetchTeklifler]);
+
+
+  const fetchCariler = useCallback(async () => {
+    try {
+      const res = await apiFetch('/api/cariler');
+      if (res.success) {
+        setCariler(Array.isArray(res.data) ? res.data : []);
+      }
+    } catch (e) {
+      console.error("fetchCariler error:", e);
+    }
+  }, []);
 
   const loadAllData = useCallback(async () => {
     if (!isAuthenticated) return;
@@ -1281,7 +1495,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const endpoints = [
         '/api/cariler', '/api/cari-hareketler', '/api/satis-faturalari',
         '/api/alis-faturalari', '/api/cek-senetler', '/api/banka-hesaplari',
-        '/api/masraf-kurallari', '/api/kesilecek-faturalar', '/api/gider-kategorileri'
+        '/api/masraf-kurallari', '/api/kesilecek-faturalar', '/api/gider-kategorileri',
+        '/api/luca/hesap-plani', '/api/teklifler', '/api/siparisler'
       ];
       const resData = await Promise.all(endpoints.map(ep => apiFetch(ep)));
       
@@ -1300,6 +1515,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             case 6: setMasrafKurallari(data); break;
             case 7: setKesilecekFaturalar(data); break;
             case 8: setGiderKategorileri(data); break;
+            case 9: setLucaAccounts(data); break;
+            case 10: setTeklifler(data); break;
+            case 11: setSiparisler(data); break;
           }
         }
       });
@@ -1318,10 +1536,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         fetchRequests();
         fetchPointages();
       }
+      fetchLucaAccounts();
     } catch (e) {
       console.error('Veri yÃ¼kleme hatasÄ±:', e);
     }
-  }, [isAuthenticated, user?.role, fetchPersonnel, fetchLeaves, fetchRequests, fetchPointages, fetchMyPersonnel, fetchCompanies]);
+  }, [isAuthenticated, user?.role, fetchPersonnel, fetchLeaves, fetchRequests, fetchPointages, fetchMyPersonnel, fetchCompanies, fetchLucaAccounts, fetchTeklifler, fetchSiparisler]);
 
   useEffect(() => {
     if (isAuthenticated) loadAllData();
@@ -1348,6 +1567,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         hesaplaCariBakiye,
         satisFaturalari,
         addSatisFatura,
+        updateSatisFatura,
         updateSatisFaturaOdeme,
         uploadSatisPdf,
         uploadSatisDekont,
@@ -1436,7 +1656,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         fetchCompanies,
         addCompany,
         updateCompany,
-        deleteCompany
+        deleteCompany,
+        lucaAccounts,
+        syncLucaAccounts,
+        teklifler,
+        addTeklif,
+        updateTeklif,
+        deleteTeklif,
+        fetchPublicTeklif,
+        approvePublicTeklif,
+        siparisler,
+        updateSiparis,
+        deleteSiparis,
+        apiFetch,
+        fetchCariler
       }}
     >
       {children}

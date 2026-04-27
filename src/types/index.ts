@@ -3,6 +3,7 @@
 // ==================== SATIŞ FATURASI ====================
 export interface SatisFatura {
   id: string;
+  faturaNo?: string;
   tcVkn: string;
   ad: string;
   soyad: string;
@@ -13,8 +14,11 @@ export interface SatisFatura {
   kdvTutari: number;
   tevkifatOrani?: string;
   tevkifatTutari?: number;
+  tevkifatKodu?: string;    // Luca tevkifat kodu (örn: 616)
   stopajOrani?: string;
   stopajTutari?: number;
+  stopajKodu?: string;      // SMM stopaj kodu (örn: 022)
+  muhasebeKodu?: string;    // Luca ana hesap kodu
   // PDF ve Tarih Bilgileri
   pdfDosya?: string | null;
   pdfDosyaAdi?: string;
@@ -33,6 +37,7 @@ export interface SatisFatura {
 }
 
 export interface SatisFaturaFormData {
+  faturaNo?: string;
   tcVkn: string;
   ad: string;
   soyad: string;
@@ -41,7 +46,10 @@ export interface SatisFaturaFormData {
   alinanUcret: string;
   faturaTarihi: string;
   tevkifatOrani?: string;
+  tevkifatKodu?: string;    // Luca tevkifat kodu (örn: 616)
   stopajOrani?: string;
+  stopajKodu?: string;      // SMM stopaj kodu (örn: 022)
+  muhasebeKodu?: string;    // Luca ana hesap kodu
   dosyaBase64?: string;
   dosyaAdi?: string;
   cariId?: string;
@@ -64,6 +72,7 @@ export interface Cari {
   adres?: string;
   telefon?: string;
   eposta?: string;
+  muhasebeKodu?: string;
   olusturmaTarihi: string;
 }
 
@@ -75,6 +84,7 @@ export interface CariFormData {
   adres?: string;
   telefon?: string;
   eposta?: string;
+  muhasebeKodu?: string;
 }
 
 // ==================== ALIŞ FATURASI ====================
@@ -93,6 +103,7 @@ export interface AlisFatura {
   tevkifatTutari?: number;
   stopajOrani?: string;
   stopajTutari?: number;
+  muhasebeKodu?: string;
   // PDF
   pdfDosya?: string | null;
   pdfDosyaAdi?: string;
@@ -120,8 +131,9 @@ export interface AlisFaturaFormData {
   kdvOrani: string;
   tevkifatOrani?: string;
   stopajOrani?: string;
+  muhasebeKodu?: string;
   dosyaBase64?: string;
-  dosyaAdi?: string;
+鼓  dosyaAdi?: string;
   cariId?: string;
   vadeTarihi?: string;
   aciklama?: string;
@@ -203,6 +215,7 @@ export interface Company {
   tax_no?: string;
   address?: string;
   email?: string;
+  company_type?: string;
   status: 'active' | 'passive';
 }
 
@@ -382,6 +395,67 @@ export interface KesilecekFatura {
   cariId?: string;
 }
 
+// ==================== TEKLİFLER ====================
+export interface TeklifKalemi {
+  id?: string;
+  teklif_id?: string;
+  urun_id?: string;
+  urun_adi: string;
+  miktar: number;
+  birim: string;
+  birim_fiyat: number;
+  kdv_orani: number;
+  toplam_tutar: number;
+}
+
+export interface Teklif {
+  id: string;
+  teklif_no: string;
+  tarih: string;
+  vade_tarihi?: string | null;
+  cari_id?: string | null;
+  musteri_adi?: string | null;
+  musteri_vkn?: string | null;
+  musteri_vergi_dairesi?: string | null;
+  musteri_adres?: string | null;
+  musteri_eposta?: string | null;
+  musteri_telefon?: string | null;
+  toplam_tutar: number;
+  durum: string;
+  notlar?: string | null;
+  onay_token: string;
+  company_id: number;
+  created_at: string;
+  kalemler?: TeklifKalemi[];
+}
+
+// ==================== SİPARİŞLER ====================
+export interface SiparisKalemi {
+  id?: string;
+  siparis_id?: string;
+  urun_id?: string;
+  urun_adi: string;
+  miktar: number;
+  birim: string;
+  birim_fiyat: number;
+  kdv_orani: number;
+  toplam_tutar: number;
+}
+
+export interface Siparis {
+  id: string;
+  siparis_no: string;
+  teklif_id?: string | null;
+  tarih: string;
+  cari_id?: string | null;
+  musteri_adi?: string | null;
+  toplam_tutar: number;
+  durum: string;
+  company_id: number;
+  created_at: string;
+  kalemler?: SiparisKalemi[];
+}
+
 // ==================== VIEW TYPES ====================
 export type ViewType = 
   | 'dashboard' 
@@ -404,7 +478,11 @@ export type ViewType =
   | 'personel-masraflarim'
   | 'kisisel-puantaj'
   | 'stok-yonetimi'
-  | 'super-admin';
+  | 'super-admin'
+  | 'luca-ayarlari'
+  | 'teklif-liste'
+  | 'siparis-liste'
+  | 'mutabakat-yonetimi';
 
 // ==================== FATURA DURUMU ====================
 export type OdemeDurumu = 'odenmedi' | 'odendi' | 'bekliyor';
@@ -445,3 +523,30 @@ export const GELIR_VERGISI_DILIMLERI = [
   { limit: 3000000, oran: 35 },
   { limit: Infinity, oran: 40 },
 ];
+
+// ==================== MUTABAKAT ====================
+export type MutabakatDurum = 'Bekliyor' | 'Mutabık' | 'Onaysız';
+
+export interface Mutabakat {
+  id: string;
+  cariId?: string;
+  donem: string;
+  tip: 'CARI';
+  borc: number;
+  alacak: number;
+  bakiye: number;
+  durum: MutabakatDurum;
+  token: string;
+  gonderimTarihi: string;
+  yanitTarihi?: string;
+  aciklama?: string;
+  kullaniciMuavinPath?: string;
+  karsiMuavinPath?: string;
+  aiAnalizSonucu?: string;
+  olusturmaTarihi: string;
+  
+  // Joins (UI representation)
+  cariUnvan?: string;
+  cariVkn?: string;
+  cariEposta?: string;
+}

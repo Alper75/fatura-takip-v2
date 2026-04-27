@@ -15,6 +15,7 @@ const verifyToken = (token) => {
   try {
     return jwt.verify(token, JWT_SECRET);
   } catch (error) {
+    console.error('[Auth] Token Validation Error:', error.message);
     return null;
   }
 };

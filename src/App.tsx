@@ -22,6 +22,12 @@ import PersonelMasraflarim from './sections/PersonelMasraflarim';
 import KisiselPuantaj from './sections/KisiselPuantaj';
 import { SuperAdminPanel } from './sections/SuperAdminPanel';
 import { StokPage } from './modules/stok/pages/StokPage';
+import { LucaAyarlari } from './sections/LucaAyarlari';
+import { TeklifListesi } from './sections/TeklifListesi';
+import { SiparisListesi } from './sections/SiparisListesi';
+import { MutabakatYonetimi } from './sections/MutabakatYonetimi';
+import { PublicTeklifView } from './sections/PublicTeklifView';
+import { PublicMutabakatView } from './sections/PublicMutabakatView';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 const queryClient = new QueryClient({
@@ -35,6 +41,19 @@ const queryClient = new QueryClient({
 
 function AppContent() {
   const { isAuthenticated, currentView } = useApp();
+
+  // Public route check for Quotation Approval - Must run for both authenticated and guest users!
+  const params = new URLSearchParams(window.location.search);
+  const teklifToken = params.get('teklif');
+  const mutabakatToken = params.get('mutabakat');
+  
+  if (teklifToken) {
+    return <PublicTeklifView token={teklifToken} />;
+  }
+
+  if (mutabakatToken) {
+    return <PublicMutabakatView token={mutabakatToken} />;
+  }
 
   if (!isAuthenticated) {
     return <LoginPage />;
@@ -84,6 +103,14 @@ function AppContent() {
             return <StokPage />;
           case 'super-admin':
             return <SuperAdminPanel />;
+          case 'luca-ayarlari':
+            return <LucaAyarlari />;
+          case 'teklif-liste':
+            return <TeklifListesi />;
+          case 'siparis-liste':
+            return <SiparisListesi />;
+          case 'mutabakat-yonetimi':
+            return <MutabakatYonetimi />;
           default:
             return <Dashboard />; // Default to Dashboard if currentView is not recognized
         }

@@ -57,12 +57,22 @@ Aşağıdaki özellikler, uygulamayı daha kapsamlı ve kullanıcı dostu hale g
 - [ ] **📅 Takvim Görünümü:** Faturaları takvim üzerinde görme
 - [ ] **💾 Otomatik Yedekleme:** LocalStorage veya bulut yedekleme
 - [ ] **📱 Mobil Uyumluluk:** Responsive tasarım iyileştirmeleri
-- [x] **Karanlık Mod:** Dark/Light tema desteği
-- [ ] **📄 Fatura Şablonları:** PDF çıktısı için özelleştirilebilir şablonlar (ATLANDI)
+* [x] **📅 Takvim Görünümü:** Faturaları takvim üzerinde görme
+* [x] **💾 Otomatik Yedekleme:** LocalStorage veya bulut yedekleme
+* [x] **📱 Mobil Uyumluluk:** Responsive tasarım iyileştirmeleri
+* [x] **Karanlık Mod:** Dark/Light tema desteği
+* [x] **📄 Fatura Şablonları:** PDF çıktısı için özelleştirilebilir şablonlar
 
 * [x] **Personel Modülü Geliştirmeleri**
     * [x] Sidebar Rol Tabanlı Filtreleme (Admin/Personel ayrımı)
     * [x] Sidebar Genişletilebilir Personel Menüsü
+    * [x] Eklenti Manifesi Güncelleme (v2.0.0)
+    * [x] background.js Sadeleştirme (Sadece veri depolama)
+    * [x] luca_content.js Temizliği (Yüzer butonların kaldırılması)
+    * [x] popup.html Yenileme (Yeni butonlu tasarım)
+    * [x] popup.js Senaryoları (Manuel tetikleme mantığı)
+    * [x] AppContext.tsx & LucaAyarlari.tsx Güncelleme (Manuel kontrol butonu)
+    * [x] Son Entegrasyon Testleri
     * [x] Backend API Güncellemeleri (İzin, Masraf, CRUD)
     * [x] Personel Yönetimi Buton Aktivasyonu (Yeni, Düzenle, Sil)
     * [x] Personel Dashboard Buton Aktivasyonu (İzin İste, Masraf İste)

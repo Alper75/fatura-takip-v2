@@ -336,7 +336,33 @@ export function KesilecekFaturalar() {
   };
 
   const convertToRealInvoice = (f: KesilecekFatura) => {
-    openSatisDrawer({ ad: f.ad, soyad: f.soyad || '', tcVkn: f.vknTckn, adres: f.adres, alinanUcret: String(f.tutar), aciklama: f.aciklama });
+    // Tüm kalemleri stokKalemleri formatına dönüştür
+    const stokKalemleri = (f.kalemler || [])
+      .filter(k => k.urunId)
+      .map(k => ({
+        id: k.id || ('sk' + Date.now() + Math.random().toString(36).slice(2)),
+        urunId: k.urunId || '',
+        miktar: k.miktar || 1,
+        birimFiyat: k.birimFiyat || 0,
+        urunAdi: k.ad || '',
+      }));
+    
+    const aciklamaList = (f.kalemler || []).map(k => `${k.miktar}x ${k.ad}`).join(', ');
+    
+    openSatisDrawer({
+      // Cari / Müşteri bilgileri
+      ad: f.ad,
+      soyad: f.soyad || '-',
+      tcVkn: f.vknTckn,
+      adres: f.adres || '',
+      // Cari ID — SatisFaturaDrawer'daki açılır listede otomatik seçer
+      cariId: f.cariId,
+      // Tutar ve açıklama
+      alinanUcret: String(f.tutar),
+      aciklama: f.aciklama || aciklamaList || '',
+      // Çoklu stok kalemleri (miktar + fiyat dahil)
+      stokKalemleri,
+    } as any);
     updateKesilecekFatura(f.id, { durum: 'kesildi' });
   };
 

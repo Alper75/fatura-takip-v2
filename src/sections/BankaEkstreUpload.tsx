@@ -4,7 +4,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 // Select bileşenleri performans için native ama shadcn stiliyle giydirilmiştir.
 import { useApp } from '@/context/AppContext';
-import { Upload, FileSpreadsheet, CheckCircle2, AlertCircle, Search, Landmark, X } from 'lucide-react';
+import { Upload, FileSpreadsheet, CheckCircle2, AlertCircle, Search, Landmark, X, Sparkles, Loader2 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -25,6 +25,7 @@ interface EkstreSatiri {
   önerilenTur: IslemTuru;
   durum: 'success' | 'warning' | 'pending';
   transferBankaId?: string | null;
+  muhasebeKodu?: string;
 }
 
 const CLASSIFICATION_KEYWORDS: Record<string, IslemTuru> = {
@@ -56,9 +57,10 @@ const CLASSIFICATION_KEYWORDS: Record<string, IslemTuru> = {
 };
 
 export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploadProps) {
-  const { cariler, bankaHesaplari, addCariHareket, masrafKurallari } = useApp();
+  const { cariler, bankaHesaplari, addCariHareket, masrafKurallari, lucaAccounts } = useApp();
   const [satirlar, setSatirlar] = useState<EkstreSatiri[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isAiAnalyzing, setIsAiAnalyzing] = useState(false);
   const [visibleCount, setVisibleCount] = useState(50);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -300,17 +302,162 @@ export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploa
         islemTuru: s.önerilenTur,
         tutar: s.tutar,
         aciklama: finalAciklama,
-        bankaId: bankaId
+        bankaId: bankaId,
+        muhasebeKodu: s.muhasebeKodu
       });
-
-      // Eğer virman ise ve diğer taraf da sistemdeyse, oraya da karşı kaydı atabiliriz.
-      // Ancak mükerrerlikten kaçınmak için şimdilik sadece mevcut bankayı işliyoruz.
-      // Kullanıcı diğer bankanın ekstresini yüklediğinde o da buradaki mantıkla işlenecek.
     });
     toast.success('Banka ekstresi başarıyla işlendi.');
     onClose();
     setSatirlar([]);
     setVisibleCount(50);
+  };
+
+  const analyzeBatchWithAI = async () => {
+    if (satirlar.length === 0) return;
+    setIsAiAnalyzing(true);
+
+    try {
+      const apiKey = import.meta.env.VITE_GEMINI_API_KEY || '';
+      const sampleAccounts = lucaAccounts.map(a => `${a.kod}: ${a.ad}`).join('\n');
+      const sampleCariler = cariler.map(c => `${c.unvan} (${c.vknTckn || 'VKN YOK'})`).join('\n');
+
+      const transactionsToAnalyze = satirlar.map((s, i) => ({
+        id: i,
+        aciklama: s.aciklama,
+        tip: s.tip,
+        tutar: s.tutar
+      }));
+
+      const prompt = `Aşağıdaki banka hareketlerini analiz et ve her biri için en uygun Luca Muhasebe Kodunu ve İşlem Türünü belirle.
+Ayrıca eğer kayıtlı Cariler listesinde bir eşleşme bulursan (isimden de bakabilirsin), ilgili Cari Unvanını döndür.
+
+LUCA HESAP PLANI:
+${sampleAccounts}
+
+KAYITLI CARİLER:
+${sampleCariler}
+
+ANALİZ EDİLECEK HAREKETLER:
+${JSON.stringify(transactionsToAnalyze)}
+
+SADECE JSON döndür. Beklenen format:
+{
+  "sonuclar": [
+    {
+      "id": 0,
+      "muhasebeKodu": "600.01.001",
+      "islemTuru": "tahsilat",
+      "cariUnvan": "Eşleşen Cari Unvanı veya null"
+    }
+  ]
+}
+
+İşlem Türleri şunlardan biri olmalı: tahsilat, odeme, vergi_kdv, maas_odemesi, banka_masrafi, kredi_karti_odemesi, genel_gider. 
+Girişler (alacak) genellikle tahsilat, çıkışlar (borç) genellikle odeme veya giderdir.`;
+
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { responseMimeType: "application/json" }
+        })
+      });
+
+      const data = await response.json();
+      const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      const clean = text.replace(/```json|```/g, '').trim();
+      const parsed = JSON.parse(clean);
+
+      if (parsed.sonuclar) {
+        setSatirlar(prev => {
+          const newState = [...prev];
+          parsed.sonuclar.forEach((res: any) => {
+            const idx = res.id;
+            if (newState[idx]) {
+              let cariId = newState[idx].eslesenCariId;
+              if (!cariId && res.cariUnvan) {
+                const found = cariler.find(c => c.unvan === res.cariUnvan);
+                if (found) cariId = found.id;
+              }
+
+              newState[idx] = {
+                ...newState[idx],
+                muhasebeKodu: res.muhasebeKodu,
+                önerilenTur: res.islemTuru,
+                eslesenCariId: cariId,
+                durum: 'success'
+              };
+            }
+          });
+          return newState;
+        });
+        toast.success('Toplu AI analizi tamamlandı.');
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error('AI analizi sırasında hata oluştu.');
+    } finally {
+      setIsAiAnalyzing(false);
+    }
+  };
+
+  const analyzeRowWithAI = async (index: number) => {
+    const satir = satirlar[index];
+    if (!satir) return;
+
+    // Satır bazlı analiz için de aynı mantığı tek satır için çalıştırabiliriz.
+    // Ancak kullanıcı arayüzünde hızlıca bir spinner göstermek için durum güncelleyelim.
+    updateSatir(index, { durum: 'pending' });
+
+    try {
+      const apiKey = import.meta.env.VITE_GEMINI_API_KEY || '';
+      const sampleAccounts = lucaAccounts.map(a => `${a.kod}: ${a.ad}`).join('\n');
+      
+      const prompt = `Bu banka hareketini analiz et: "${satir.aciklama}" (Tutar: ${satir.tutar}, Tip: ${satir.tip}).
+Aşağıdaki Luca Hesap Planından en uygun kodu seç ve işlem türünü belirle.
+
+${sampleAccounts}
+
+SADECE JSON döndür:
+{
+  "muhasebeKodu": "kod",
+  "islemTuru": "tur",
+  "cariUnvan": "Tahmin edilen cari veya null"
+}
+İşlem Türleri: tahsilat, odeme, vergi_kdv, maas_odemesi, banka_masrafi, kredi_karti_odemesi, genel_gider.`;
+
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { responseMimeType: "application/json" }
+        })
+      });
+
+      const data = await response.json();
+      const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      const clean = text.replace(/```json|```/g, '').trim();
+      const res = JSON.parse(clean);
+
+      let cariId = satir.eslesenCariId;
+      if (!cariId && res.cariUnvan) {
+        const found = cariler.find(c => c.unvan && c.unvan.toLowerCase().includes(res.cariUnvan.toLowerCase()));
+        if (found) cariId = found.id;
+      }
+
+      updateSatir(index, {
+        muhasebeKodu: res.muhasebeKodu,
+        önerilenTur: res.islemTuru,
+        eslesenCariId: cariId,
+        durum: 'success'
+      });
+      toast.success('Satır analizi tamamlandı.');
+    } catch (err) {
+      console.error(err);
+      updateSatir(index, { durum: 'warning' });
+    }
   };
 
   const updateSatir = (index: number, updates: Partial<EkstreSatiri>) => {
@@ -357,10 +504,11 @@ export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploa
                   </div>
                 </div>
                 <div className="flex gap-2">
-                  <Button variant="outline" size="sm" onClick={() => setSatirlar([])} disabled={isProcessing}>
-                    <X className="w-4 h-4 mr-2" /> Temizle
+                  <Button size="sm" variant="secondary" onClick={analyzeBatchWithAI} disabled={isAiAnalyzing || isProcessing} className="bg-amber-100 text-amber-900 border-amber-200 hover:bg-amber-200">
+                    {isAiAnalyzing ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Sparkles className="w-4 h-4 mr-2" />}
+                    AI ile Tümünü Analiz Et
                   </Button>
-                  <Button size="sm" onClick={handleConfirm} className="bg-indigo-600 hover:bg-indigo-700 border-0" disabled={isProcessing}>
+                  <Button size="sm" onClick={handleConfirm} className="bg-indigo-600 hover:bg-indigo-700 border-0" disabled={isProcessing || isAiAnalyzing}>
                     <CheckCircle2 className="w-4 h-4 mr-2" /> Onayla ve Kaydet
                   </Button>
                 </div>
@@ -372,8 +520,9 @@ export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploa
                     <TableRow className="bg-slate-50">
                       <TableHead className="w-24">Tarih</TableHead>
                       <TableHead>Açıklama</TableHead>
-                      <TableHead className="text-right">Tutar</TableHead>
+                       <TableHead className="text-right">Tutar</TableHead>
                       <TableHead className="w-48">Cari / Hesap</TableHead>
+                      <TableHead className="w-40">Muhasebe Kodu</TableHead>
                       <TableHead className="w-10"></TableHead>
                     </TableRow>
                   </TableHeader>
@@ -451,6 +600,27 @@ export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploa
                                 <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6"/></svg>
                               </div>
                             </div>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <input 
+                              type="text"
+                              value={s.muhasebeKodu || ''}
+                              placeholder="Koda eşle..."
+                              className="w-full h-8 text-[11px] bg-slate-50 border border-slate-200 rounded-md px-2 outline-none focus:border-indigo-500 transition-all font-mono"
+                              onChange={(e) => updateSatir(idx, { muhasebeKodu: e.target.value })}
+                            />
+                             <Button 
+                              variant="ghost" 
+                              size="icon" 
+                              className="h-8 w-8 hover:bg-indigo-50 text-indigo-400"
+                              onClick={() => analyzeRowWithAI(idx)}
+                              disabled={isAiAnalyzing}
+                              title="Yapay Zeka ile Analiz Et"
+                            >
+                              <Sparkles className="w-3.5 h-3.5" />
+                            </Button>
                           </div>
                         </TableCell>
                         <TableCell>

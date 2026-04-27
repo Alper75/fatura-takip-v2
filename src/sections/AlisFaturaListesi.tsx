@@ -58,6 +58,7 @@ import { toast } from 'sonner';
 import { ODEME_DURUMU_LABELS, ODEME_DURUMU_COLORS } from '@/types';
 import { FilterBar } from '@/components/FilterBar';
 import type { FilterValues } from '@/components/FilterBar';
+import { useUrunler } from '../modules/stok/hooks/useStokQuery';
 
 export function AlisFaturaListesi() {
   const { 
@@ -72,6 +73,8 @@ export function AlisFaturaListesi() {
     parseInvoiceXml,
     bankaHesaplari
   } = useApp();
+  
+  const { data: urunler } = useUrunler();
   
   const [faturaToDelete, setFaturaToDelete] = useState<string | null>(null);
   const [odemeDialogOpen, setOdemeDialogOpen] = useState(false);
@@ -304,6 +307,7 @@ export function AlisFaturaListesi() {
                   <TableHead className="font-semibold text-slate-700">Tarih</TableHead>
                   <TableHead className="font-semibold text-slate-700">Tedarikçi</TableHead>
                   <TableHead className="font-semibold text-slate-700">Mal/Hizmet</TableHead>
+                  <TableHead className="font-semibold text-slate-700">Stok Kalemleri</TableHead>
                   <TableHead className="font-semibold text-slate-700 text-right">Matrah</TableHead>
                   <TableHead className="font-semibold text-slate-700 text-right">KDV</TableHead>
                   <TableHead className="font-semibold text-slate-700 text-right">Toplam</TableHead>
@@ -324,7 +328,21 @@ export function AlisFaturaListesi() {
                   </TableRow>
                 ) : (
                   filteredFaturalar.map((fatura) => (
-                    <TableRow key={fatura.id} className="group">
+                    <TableRow 
+                      key={fatura.id} 
+                      className="group"
+                      data-luca-no={fatura.faturaNo}
+                      data-luca-tarih={fatura.faturaTarihi}
+                      data-luca-unvan={fatura.tedarikciAdi}
+                      data-luca-vkn={fatura.tedarikciVkn}
+                      data-luca-matrah={fatura.matrah}
+                      data-luca-kdv={fatura.kdvTutari}
+                      data-luca-kdv-oran={fatura.kdvOrani}
+                      data-luca-toplam={fatura.toplamTutar}
+                      data-luca-tevkifat-kodu={fatura.tevkifatKodu || ''}
+                      data-luca-tevkifat-oran={fatura.tevkifatOrani || ''}
+                      data-luca-stopaj-kodu={fatura.stopajKodu || ''}
+                    >
                       <TableCell className="font-medium text-slate-900">
                         {fatura.faturaNo}
                       </TableCell>
@@ -352,6 +370,23 @@ export function AlisFaturaListesi() {
                       </TableCell>
                       <TableCell className="text-slate-600 max-w-xs truncate">
                         {fatura.malHizmetAdi}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex flex-col gap-1 max-w-[200px]">
+                          {(fatura as any).stokKalemleri && (fatura as any).stokKalemleri.length > 0 ? (
+                            (fatura as any).stokKalemleri.map((sk: any, idx: number) => {
+                              const ad = urunler?.find(u => u.id === sk.urunId)?.urunAdi || 'İsimsiz Ürün';
+                              return (
+                                <div key={idx} className="text-xs flex items-center justify-between bg-slate-50 border rounded px-1.5 py-0.5">
+                                  <span className="truncate max-w-[120px]" title={ad}>{ad}</span>
+                                  <span className="font-medium text-slate-600 bg-white px-1 rounded border shadow-sm ml-2">x{sk.miktar}</span>
+                                </div>
+                              )
+                            })
+                          ) : (
+                            <span className="text-[10px] text-slate-400 italic">Stok bağlantısı yok</span>
+                          )}
+                        </div>
                       </TableCell>
                       <TableCell className="text-right font-medium text-slate-700">
                         {formatCurrency(fatura.matrah)}

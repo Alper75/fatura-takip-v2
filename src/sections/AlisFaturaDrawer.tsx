@@ -12,6 +12,7 @@ import { cn } from '@/lib/utils';
 import { useUrunler, useDepolar } from '../modules/stok/hooks/useStokQuery';
 import { UrunForm } from '../modules/stok/components/UrunForm';
 import { stokApi } from '../modules/stok/services/stokApi';
+import { LucaAccountSelect } from '@/components/LucaAccountSelect';
 
 const KDV_ORANLARI = ['0', '1', '8', '10', '18', '20'];
 const TEVKIFAT_ORANLARI = ['0', '2/10', '3/10', '4/10', '5/10', '7/10', '9/10', '10/10'];
@@ -44,7 +45,7 @@ type UploadedFile = {
 };
 
 export function AlisFaturaDrawer() {
-  const { isAlisDrawerOpen, closeAlisDrawer, addAlisFatura, cariler, alisInitialData } = useApp();
+  const { isAlisDrawerOpen, closeAlisDrawer, addAlisFatura, cariler, alisInitialData, lucaAccounts } = useApp();
   const { data: urunler } = useUrunler();
   const { data: depolar } = useDepolar();
 
@@ -173,6 +174,7 @@ export function AlisFaturaDrawer() {
           const invoiceId = await addAlisFatura({
             ...f.data,
             toplamTutar: f.tutarTuru === 'dahil' ? parseFloat(f.data.toplamTutar).toString() : hes.toplamNet.toString(),
+            muhasebeKodu: f.data.muhasebeKodu,
             dosyaBase64: uploadedFile?.base64,
             dosyaAdi: uploadedFile?.name
           });
@@ -217,7 +219,6 @@ export function AlisFaturaDrawer() {
     };
     reader.readAsDataURL(file);
   };
-
   const scanImage = async () => {
     if (!uploadedFile) return;
 
@@ -226,6 +227,10 @@ export function AlisFaturaDrawer() {
 
     const prompt = `Bu dosyada BİRDEN FAZLA ayrı fiş veya fatura olabilir. 
 Lütfen bulduğun TÜM fiş/faturaları çıkar ve aşağıdaki JSON DİZİSİ formatında döndür. 
+
+ÖNEMLİ: Aşağıdaki LUCA HESAP PLANI listesinden bu faturanın açıklamasına/türüne en uygun "kod"u seçerek "muhasebe_kodu" alanına yaz:
+${lucaAccounts.map(a => `${a.kod}: ${a.ad}`).join('\n')}
+
 SADECE JSON döndür:
 {
   "faturalar": [
@@ -240,10 +245,12 @@ SADECE JSON döndür:
       "kdv_orani": "18",
       "tevkifat_orani": "0",
       "stopaj_orani": "0",
-      "aciklama": ""
+      "aciklama": "",
+      "muhasebe_kodu": "Yukarıdaki listeden seçilen en uygun hesap kodu"
     }
   ]
-}`;
+}
+Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
 
     try {
       const apiKey = import.meta.env.VITE_GEMINI_API_KEY || '';
@@ -273,7 +280,15 @@ SADECE JSON döndür:
       } else {
         const fList = parsed.faturalar || [parsed];
         const newForms: FormEntry[] = fList.map((f: any, idx: number) => {
-          const matchedCari = (cariler || []).find(c => c && c.vknTckn === f.tedarikciVkn && c.vknTckn && c.vknTckn.length > 5);
+          // 1. VKN ile eşleşen cari bul
+          let matchedCari = (cariler || []).find(c => c && c.vknTckn === f.tedarikciVkn && c.vknTckn && c.vknTckn.length > 5);
+          
+          // 2. VKN eşleşmezse isimden ara
+          if (!matchedCari && f.tedarikciAdi) {
+            const searchName = f.tedarikciAdi.toLowerCase();
+            matchedCari = cariler.find(c => c.unvan && c.unvan.toLowerCase().includes(searchName));
+          }
+
           return {
             id: Date.now() + idx,
             tutarTuru: f.tutar_tur || 'dahil',
@@ -291,7 +306,8 @@ SADECE JSON döndür:
               stopajOrani: f.stopaj_orani?.toString() || '0',
               aciklama: f.aciklama || '',
               cariId: matchedCari ? matchedCari.id : undefined,
-              depoId: varsayilanDepoId
+              depoId: varsayilanDepoId,
+              muhasebeKodu: f.muhasebe_kodu || ''
             }
           };
         });
@@ -568,6 +584,16 @@ SADECE JSON döndür:
                     <div className="space-y-2 mb-4">
                       <Label className="text-xs font-medium text-slate-500">Belge Notu / Genel Açıklama</Label>
                       <Input value={form.data.aciklama} onChange={(e) => updateForm(form.id, 'aciklama', e.target.value)} placeholder="Örn: Proje bazlı alım" className="h-9" />
+                    </div>
+
+                    {/* Luca Muhasebe Kodu Seçimi */}
+                    <div className="space-y-2 mb-4">
+                      <Label className="text-xs font-semibold text-indigo-700 block">🔍 Luca Muhasebe Kodu</Label>
+                      <LucaAccountSelect 
+                        value={form.data.muhasebeKodu || ''} 
+                        onChange={(val) => updateForm(form.id, 'muhasebeKodu', val)}
+                        placeholder="Ana hesap kodu seçin (örn: 153.01.001)..."
+                      />
                     </div>
 
                     <div className="grid grid-cols-2 gap-4 mb-4">

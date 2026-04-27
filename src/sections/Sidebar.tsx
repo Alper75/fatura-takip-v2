@@ -17,7 +17,9 @@ import {
   Briefcase,
   ShieldCheck,
   Building2,
-  Package
+  Package,
+  FileSignature,
+  ClipboardList
 } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
 import { cn } from '@/lib/utils';
@@ -111,6 +113,14 @@ export function Sidebar({ onItemClick }: SidebarProps) {
       adminOnly: true
     },
     {
+      id: 'mutabakat-yonetimi',
+      label: 'Mutabakat Yönetimi',
+      icon: FileSignature,
+      onClick: () => setCurrentView('mutabakat-yonetimi'),
+      view: 'mutabakat-yonetimi',
+      adminOnly: true
+    },
+    {
       id: 'cek-senet-liste',
       label: 'Çek / Senet',
       icon: CreditCard,
@@ -156,6 +166,30 @@ export function Sidebar({ onItemClick }: SidebarProps) {
       icon: Package,
       onClick: () => setCurrentView('stok-yonetimi'),
       view: 'stok-yonetimi',
+      adminOnly: true
+    },
+    {
+      id: 'luca-ayarlari',
+      label: 'Luca Entegrasyonu',
+      icon: Calculator,
+      onClick: () => setCurrentView('luca-ayarlari'),
+      view: 'luca-ayarlari',
+      adminOnly: true
+    },
+    {
+      id: 'teklif-liste',
+      label: 'Teklif Yönetimi',
+      icon: FileSignature,
+      onClick: () => setCurrentView('teklif-liste'),
+      view: 'teklif-liste',
+      adminOnly: true
+    },
+    {
+      id: 'siparis-liste',
+      label: 'Sipariş Yönetimi',
+      icon: ClipboardList,
+      onClick: () => setCurrentView('siparis-liste'),
+      view: 'siparis-liste',
       adminOnly: true
     }
   ].filter(item => {
