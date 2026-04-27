@@ -379,10 +379,34 @@ export function MutabakatYonetimi() {
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-1.5">
-                          <Button size="icon" variant="ghost" className="h-8 w-8 text-slate-400 hover:text-indigo-600" onClick={() => setViewDetail(m)}>
+                          <Button 
+                            size="icon" 
+                            variant="ghost" 
+                            className="h-8 w-8 text-slate-400 hover:text-indigo-600" 
+                            onClick={() => setViewDetail(m)}
+                            title="Detayları Gör"
+                          >
                             <Eye className="w-4 h-4" />
                           </Button>
                           
+                          {m.karsi_muavin_path && (
+                            <Button 
+                              size="icon" 
+                              variant="ghost" 
+                              className="h-8 w-8 text-emerald-600 hover:bg-emerald-50" 
+                              onClick={() => {
+                                const link = document.createElement('a');
+                                link.href = `/uploads/${m.karsi_muavin_path}`;
+                                link.download = m.karsi_muavin_path;
+                                link.target = '_blank';
+                                link.click();
+                              }}
+                              title="Muavin İndir"
+                            >
+                              <Download className="w-4 h-4" />
+                            </Button>
+                          )}
+
                           {m.durum === 'Onaysız' && (
                             <Button 
                               size="sm" 
@@ -396,7 +420,7 @@ export function MutabakatYonetimi() {
                             </Button>
                           )}
 
-                          <Button size="icon" variant="ghost" className="h-8 w-8 text-slate-400 hover:text-red-600" onClick={() => handleDelete(m.id)}>
+                          <Button size="icon" variant="ghost" className="h-8 w-8 text-slate-400 hover:text-red-600" onClick={() => handleDelete(m.id)} title="Sil">
                             <Trash2 className="w-4 h-4" />
                           </Button>
                         </div>
@@ -595,7 +619,18 @@ export function MutabakatYonetimi() {
                         <p className="text-[10px] text-emerald-600">Bu dosya yapay zeka analizi için kullanılabilir.</p>
                      </div>
                   </div>
-                  <Button variant="outline" size="sm" className="bg-white border-emerald-200 text-emerald-700 hover:bg-emerald-100" onClick={() => window.open(`/uploads/${viewDetail.karsi_muavin_path}`, '_blank')}>
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    className="bg-white border-emerald-200 text-emerald-700 hover:bg-emerald-100" 
+                    onClick={() => {
+                      const link = document.createElement('a');
+                      link.href = `/uploads/${viewDetail.karsi_muavin_path}`;
+                      link.download = viewDetail.karsi_muavin_path;
+                      link.target = '_blank';
+                      link.click();
+                    }}
+                  >
                      <Download className="w-4 h-4 mr-2" /> İndir
                   </Button>
                </div>
