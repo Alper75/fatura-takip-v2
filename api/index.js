@@ -3072,6 +3072,17 @@ app.post('/api/mutabakatlar/analyze/:id', authMiddleware, async (req, res) => {
   }
 });
 
+app.get('/api/download/:filename', (req, res) => {
+  const fileName = req.params.filename;
+  const filePath = path.join(uploadsDir, fileName);
+
+  if (fs.existsSync(filePath)) {
+    res.download(filePath, fileName);
+  } else {
+    res.status(404).json({ success: false, message: 'Dosya bulunamadı.' });
+  }
+});
+
 app.use('/uploads', express.static(uploadsDir));
 
 if (process.env.NODE_ENV !== 'production') {

@@ -396,7 +396,7 @@ export function MutabakatYonetimi() {
                               className="h-8 w-8 text-emerald-600 hover:bg-emerald-50" 
                               onClick={() => {
                                 const link = document.createElement('a');
-                                link.href = `/uploads/${m.karsi_muavin_path}`;
+                                link.href = `/api/download/${m.karsi_muavin_path}`;
                                 link.download = m.karsi_muavin_path;
                                 link.target = '_blank';
                                 link.click();
@@ -625,7 +625,7 @@ export function MutabakatYonetimi() {
                     className="bg-white border-emerald-200 text-emerald-700 hover:bg-emerald-100" 
                     onClick={() => {
                       const link = document.createElement('a');
-                      link.href = `/uploads/${viewDetail.karsi_muavin_path}`;
+                      link.href = `/api/download/${viewDetail.karsi_muavin_path}`;
                       link.download = viewDetail.karsi_muavin_path;
                       link.target = '_blank';
                       link.click();
