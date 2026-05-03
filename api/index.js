@@ -2965,6 +2965,15 @@ app.post('/api/public/mutabakat/:token/respond', async (req, res) => {
   const { durum, aciklama, muavinBase64, muavinFileName } = req.body;
 
   try {
+    // Ensure new columns exist (safe migration on first access)
+    try {
+      const colInfo = await client.execute('PRAGMA table_info(mutabakatlar)');
+      const cols = colInfo.rows.map(r => r.name);
+      if (!cols.includes('karsi_muavin_data')) await client.execute('ALTER TABLE mutabakatlar ADD COLUMN karsi_muavin_data TEXT');
+      if (!cols.includes('karsi_muavin_filename')) await client.execute('ALTER TABLE mutabakatlar ADD COLUMN karsi_muavin_filename TEXT');
+      if (!cols.includes('kullanici_muavin_data')) await client.execute('ALTER TABLE mutabakatlar ADD COLUMN kullanici_muavin_data TEXT');
+    } catch (_) { /* already exist */ }
+
     // Store file as base64 in DB (survives Vercel restarts)
     let muavinData = null;
     let muavinName = null;
@@ -3083,8 +3092,23 @@ app.post('/api/mutabakatlar/analyze/:id', authMiddleware, async (req, res) => {
 // ID-based download: reads from DB first, fallback to disk
 app.get('/api/mutabakatlar/:id/download-muavin', authMiddleware, async (req, res) => {
   try {
+    // Ensure new columns exist (safe migration on first access)
+    try {
+      const colInfo = await client.execute('PRAGMA table_info(mutabakatlar)');
+      const cols = colInfo.rows.map(r => r.name);
+      if (!cols.includes('karsi_muavin_data')) {
+        await client.execute('ALTER TABLE mutabakatlar ADD COLUMN karsi_muavin_data TEXT');
+      }
+      if (!cols.includes('karsi_muavin_filename')) {
+        await client.execute('ALTER TABLE mutabakatlar ADD COLUMN karsi_muavin_filename TEXT');
+      }
+      if (!cols.includes('kullanici_muavin_data')) {
+        await client.execute('ALTER TABLE mutabakatlar ADD COLUMN kullanici_muavin_data TEXT');
+      }
+    } catch (_) { /* columns already exist */ }
+
     const rs = await client.execute({
-      sql: 'SELECT karsi_muavin_data, karsi_muavin_filename, karsi_muavin_path FROM mutabakatlar WHERE id = ? AND company_id = ?',
+      sql: 'SELECT id, karsi_muavin_data, karsi_muavin_filename, karsi_muavin_path FROM mutabakatlar WHERE id = ? AND company_id = ?',
       args: [req.params.id, req.user.companyId]
     });
     if (rs.rows.length === 0) return res.status(404).json({ success: false, message: 'Mutabakat bulunamadı.' });
@@ -3092,19 +3116,20 @@ app.get('/api/mutabakatlar/:id/download-muavin', authMiddleware, async (req, res
 
     if (m.karsi_muavin_data) {
       // Serve from DB
-      const pureBase64 = m.karsi_muavin_data.replace(/^data:.*?;base64,/, '');
+      const pureBase64 = String(m.karsi_muavin_data).replace(/^data:.*?;base64,/, '');
       const buffer = Buffer.from(pureBase64, 'base64');
       const fileName = m.karsi_muavin_filename || 'muavin.xlsx';
-      res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+      res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(fileName)}"`);
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
       return res.send(buffer);
     } else if (m.karsi_muavin_path) {
       // Legacy: serve from disk
-      const filePath = path.join(uploadsDir, m.karsi_muavin_path);
-      if (fs.existsSync(filePath)) return res.download(filePath, m.karsi_muavin_path);
+      const filePath = path.join(uploadsDir, String(m.karsi_muavin_path));
+      if (fs.existsSync(filePath)) return res.download(filePath, String(m.karsi_muavin_path));
     }
     res.status(404).json({ success: false, message: 'Muavin dosyası bulunamadı. Müşteri bu mutabakat için bir dosya yüklememiş olabilir.' });
   } catch (e) {
+    console.error('download-muavin error:', e);
     res.status(500).json({ success: false, message: e.message });
   }
 });
