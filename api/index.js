@@ -2890,13 +2890,10 @@ app.post('/api/mutabakatlar/bulk', authMiddleware, async (req, res) => {
   }
 
   try {
-    let muavinPath = null;
+    // Store admin muavin as base64 in DB (survives Vercel restarts)
+    let muavinData = null;
     if (bizeAitMuavinBase64) {
-      const fileName = `biz_muavin_${Date.now()}_${Math.random().toString(36).substr(2, 5)}.xlsx`;
-      const filePath = path.join(uploadsDir, fileName);
-      const base64Data = bizeAitMuavinBase64.replace(/^data:.*?;base64,/, "");
-      fs.writeFileSync(filePath, base64Data, 'base64');
-      muavinPath = fileName;
+      muavinData = bizeAitMuavinBase64;
     }
 
     const created = [];
@@ -2920,9 +2917,9 @@ app.post('/api/mutabakatlar/bulk', authMiddleware, async (req, res) => {
         const id = 'm' + Date.now() + Math.random().toString(36).substr(2, 5);
 
         await client.execute({
-          sql: `INSERT INTO mutabakatlar (id, company_id, cari_id, donem, tip, borc, alacak, bakiye, token, aciklama, kullanici_muavin_path, durum) 
+          sql: `INSERT INTO mutabakatlar (id, company_id, cari_id, donem, tip, borc, alacak, bakiye, token, aciklama, kullanici_muavin_data, durum) 
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          args: [id, req.user.companyId, cari.id, row.donem, 'CARI', row.borc, row.alacak, row.bakiye, token, row.aciklama || '', muavinPath, 'Bekliyor']
+          args: [id, req.user.companyId, cari.id, row.donem, 'CARI', row.borc, row.alacak, row.bakiye, token, row.aciklama || '', muavinData, 'Bekliyor']
         });
 
         created.push({ id, unvan: cari.unvan, eposta: cari.eposta });
@@ -2965,21 +2962,25 @@ app.get('/api/public/mutabakat/:token', async (req, res) => {
 
 app.post('/api/public/mutabakat/:token/respond', async (req, res) => {
   const { token } = req.params;
-  const { durum, aciklama, muavinBase64 } = req.body;
+  const { durum, aciklama, muavinBase64, muavinFileName } = req.body;
 
   try {
-    let muavinPath = null;
+    // Store file as base64 in DB (survives Vercel restarts)
+    let muavinData = null;
+    let muavinName = null;
     if (muavinBase64) {
-      const fileName = `karsi_muavin_${Date.now()}_${Math.random().toString(36).substr(2, 5)}.xlsx`;
-      const filePath = path.join(uploadsDir, fileName);
-      const base64Data = muavinBase64.replace(/^data:.*?;base64,/, "");
-      fs.writeFileSync(filePath, base64Data, 'base64');
-      muavinPath = fileName;
+      muavinData = muavinBase64; // keep full data URI including header
+      muavinName = muavinFileName || `karsi_muavin_${Date.now()}.xlsx`;
     }
 
     await client.execute({
-      sql: 'UPDATE mutabakatlar SET durum = ?, aciklama = ?, karsi_muavin_path = COALESCE(?, karsi_muavin_path), yanit_tarihi = CURRENT_TIMESTAMP WHERE token = ?',
-      args: [durum, aciklama || '', muavinPath, token]
+      sql: `UPDATE mutabakatlar 
+            SET durum = ?, aciklama = ?, 
+                karsi_muavin_data = COALESCE(?, karsi_muavin_data),
+                karsi_muavin_filename = COALESCE(?, karsi_muavin_filename),
+                yanit_tarihi = CURRENT_TIMESTAMP 
+            WHERE token = ?`,
+      args: [durum, aciklama || '', muavinData, muavinName, token]
     });
 
     res.json({ success: true });
@@ -2998,7 +2999,11 @@ app.post('/api/mutabakatlar/analyze/:id', authMiddleware, async (req, res) => {
     if (rs.rows.length === 0) return res.status(404).json({ success: false, message: 'Mutabakat bulunamadı.' });
     const mutabakat = rs.rows[0];
 
-    if (!mutabakat.kullanici_muavin_path || !mutabakat.karsi_muavin_path) {
+    // Check if at least the customer muavin is available (in DB or on disk)
+    const hasKarsiMuavin = mutabakat.karsi_muavin_data || (mutabakat.karsi_muavin_path && fs.existsSync(path.join(uploadsDir, mutabakat.karsi_muavin_path)));
+    const hasBizMuavin = mutabakat.kullanici_muavin_data || (mutabakat.kullanici_muavin_path && fs.existsSync(path.join(uploadsDir, mutabakat.kullanici_muavin_path)));
+
+    if (!hasKarsiMuavin || !hasBizMuavin) {
       return res.status(400).json({ success: false, message: 'Karşılaştırma için her iki muavin dosyası da mevcut olmalıdır. Lütfen karşı tarafın bir dosya yüklediğinden emin olun.' });
     }
 
@@ -3013,19 +3018,22 @@ app.post('/api/mutabakatlar/analyze/:id', authMiddleware, async (req, res) => {
       return res.status(400).json({ success: false, message: 'Yapay zeka anahtarı (Gemini API Key) bulunamadı. Lütfen ayarlardan tanımlayın.' });
     }
 
-    // 2. Dosyaları Oku ve Parse Et
-    const bizPath = path.join(uploadsDir, mutabakat.kullanici_muavin_path);
-    const karsiPath = path.join(uploadsDir, mutabakat.karsi_muavin_path);
+    // 2. Dosyaları Oku ve Parse Et (DB base64 öncelikli, fallback to disk)
+    const readXlsxRows = (base64Data, filePath) => {
+      if (base64Data) {
+        const pureBase64 = base64Data.replace(/^data:.*?;base64,/, '');
+        const buffer = Buffer.from(pureBase64, 'base64');
+        const wb = xlsx.read(buffer, { type: 'buffer' });
+        return xlsx.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
+      } else if (filePath && fs.existsSync(filePath)) {
+        const wb = xlsx.readFile(filePath);
+        return xlsx.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
+      }
+      return [];
+    };
 
-    if (!fs.existsSync(bizPath) || !fs.existsSync(karsiPath)) {
-      return res.status(404).json({ success: false, message: 'Muavin dosyalarından biri sunucuda bulunamadı.' });
-    }
-
-    const bizWb = xlsx.readFile(bizPath);
-    const karsiWb = xlsx.readFile(karsiPath);
-
-    const bizRows = xlsx.utils.sheet_to_json(bizWb.Sheets[bizWb.SheetNames[0]]);
-    const karsiRows = xlsx.utils.sheet_to_json(karsiWb.Sheets[karsiWb.SheetNames[0]]);
+    const bizRows = readXlsxRows(mutabakat.kullanici_muavin_data, path.join(uploadsDir, mutabakat.kullanici_muavin_path || ''));
+    const karsiRows = readXlsxRows(mutabakat.karsi_muavin_data, path.join(uploadsDir, mutabakat.karsi_muavin_path || ''));
 
     // 3. AI Analiz Promptu
     const prompt = `
@@ -3072,10 +3080,38 @@ app.post('/api/mutabakatlar/analyze/:id', authMiddleware, async (req, res) => {
   }
 });
 
+// ID-based download: reads from DB first, fallback to disk
+app.get('/api/mutabakatlar/:id/download-muavin', authMiddleware, async (req, res) => {
+  try {
+    const rs = await client.execute({
+      sql: 'SELECT karsi_muavin_data, karsi_muavin_filename, karsi_muavin_path FROM mutabakatlar WHERE id = ? AND company_id = ?',
+      args: [req.params.id, req.user.companyId]
+    });
+    if (rs.rows.length === 0) return res.status(404).json({ success: false, message: 'Mutabakat bulunamadı.' });
+    const m = rs.rows[0];
+
+    if (m.karsi_muavin_data) {
+      // Serve from DB
+      const pureBase64 = m.karsi_muavin_data.replace(/^data:.*?;base64,/, '');
+      const buffer = Buffer.from(pureBase64, 'base64');
+      const fileName = m.karsi_muavin_filename || 'muavin.xlsx';
+      res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      return res.send(buffer);
+    } else if (m.karsi_muavin_path) {
+      // Legacy: serve from disk
+      const filePath = path.join(uploadsDir, m.karsi_muavin_path);
+      if (fs.existsSync(filePath)) return res.download(filePath, m.karsi_muavin_path);
+    }
+    res.status(404).json({ success: false, message: 'Muavin dosyası bulunamadı. Müşteri bu mutabakat için bir dosya yüklememiş olabilir.' });
+  } catch (e) {
+    res.status(500).json({ success: false, message: e.message });
+  }
+});
+
 app.get('/api/download/:filename', (req, res) => {
   const fileName = req.params.filename;
   const filePath = path.join(uploadsDir, fileName);
-
   if (fs.existsSync(filePath)) {
     res.download(filePath, fileName);
   } else {

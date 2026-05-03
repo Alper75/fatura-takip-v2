@@ -29,6 +29,7 @@ export function MutabakatYonetimi() {
   const [selectedAnalysis, setSelectedAnalysis] = useState<any>(null);
   const [geminiKey, setGeminiKey] = useState('');
   const [isSavingKey, setIsSavingKey] = useState(false);
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
   
   // Selection state
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -46,6 +47,34 @@ export function MutabakatYonetimi() {
   const muavinFileRef = useRef<HTMLInputElement>(null);
   const [mizanFile, setMizanFile] = useState<File | null>(null);
   const [muavinFile, setMuavinFile] = useState<File | null>(null);
+
+
+  // Auth-aware download helper — direct link.click() doesn't send Bearer token
+  const downloadMuavin = async (mutabakatId: string, fileName: string) => {
+    setDownloadingId(mutabakatId);
+    try {
+      const token = localStorage.getItem('token') || '';
+      const response = await fetch(`/api/mutabakatlar/${mutabakatId}/download-muavin`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({ message: 'İndirme başarısız.' }));
+        toast.error(err.message || 'Dosya indirilemedi.');
+        return;
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = fileName || 'muavin.xlsx';
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (e: any) {
+      toast.error('İndirme hatası: ' + e.message);
+    } finally {
+      setDownloadingId(null);
+    }
+  };
 
   const fetchSettings = async () => {
     try {
@@ -389,21 +418,18 @@ export function MutabakatYonetimi() {
                             <Eye className="w-4 h-4" />
                           </Button>
                           
-                          {m.karsi_muavin_path && (
+                          {(m.karsi_muavin_data || m.karsi_muavin_path) && (
                             <Button 
                               size="icon" 
                               variant="ghost" 
-                              className="h-8 w-8 text-emerald-600 hover:bg-emerald-50" 
-                              onClick={() => {
-                                const link = document.createElement('a');
-                                link.href = `/api/download/${m.karsi_muavin_path}`;
-                                link.download = m.karsi_muavin_path;
-                                link.target = '_blank';
-                                link.click();
-                              }}
+                              className="h-8 w-8 text-emerald-600 hover:bg-emerald-50"
+                              disabled={downloadingId === m.id}
+                              onClick={() => downloadMuavin(m.id, m.karsi_muavin_filename || 'muavin.xlsx')}
                               title="Muavin İndir"
                             >
-                              <Download className="w-4 h-4" />
+                              {downloadingId === m.id 
+                                ? <Loader2 className="w-4 h-4 animate-spin" />
+                                : <Download className="w-4 h-4" />}
                             </Button>
                           )}
 
@@ -610,29 +636,27 @@ export function MutabakatYonetimi() {
                 </div>
              </div>
 
-             {viewDetail?.karsi_muavin_path && (
+             {(viewDetail?.karsi_muavin_data || viewDetail?.karsi_muavin_path) && (
                <div className="p-4 bg-emerald-50 border border-emerald-100 rounded-xl flex items-center justify-between">
                   <div className="flex items-center gap-3">
                      <FileSpreadsheet className="w-8 h-8 text-emerald-600" />
                      <div>
                         <p className="text-sm font-bold text-emerald-900">Müşteri Muavin Dosyası</p>
-                        <p className="text-[10px] text-emerald-600">Bu dosya yapay zeka analizi için kullanılabilir.</p>
+                        <p className="text-[10px] text-emerald-600">{viewDetail?.karsi_muavin_filename || 'muavin.xlsx'}</p>
                      </div>
                   </div>
                   <Button 
                     variant="outline" 
-                    size="sm" 
+                    size="sm"
+                    disabled={downloadingId === viewDetail?.id}
                     className="bg-white border-emerald-200 text-emerald-700 hover:bg-emerald-100" 
-                    onClick={() => {
-                      const link = document.createElement('a');
-                      link.href = `/api/download/${viewDetail.karsi_muavin_path}`;
-                      link.download = viewDetail.karsi_muavin_path;
-                      link.target = '_blank';
-                      link.click();
-                    }}
+                    onClick={() => downloadMuavin(viewDetail.id, viewDetail.karsi_muavin_filename || 'muavin.xlsx')}
                   >
-                     <Download className="w-4 h-4 mr-2" /> İndir
-                  </Button>
+                     {downloadingId === viewDetail?.id 
+                       ? <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                       : <Download className="w-4 h-4 mr-2" />}
+                     İndir
+                   </Button>
                </div>
              )}
           </div>

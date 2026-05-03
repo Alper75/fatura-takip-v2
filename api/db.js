@@ -328,6 +328,20 @@ export async function initDb() {
       }
     } catch (e) {}
 
+    // Mutabakatlar - store file as base64 in DB to survive server restarts
+    try {
+      const mutInfo = await client.execute(`PRAGMA table_info(mutabakatlar)`);
+      if (!mutInfo.rows.some(col => col.name === 'karsi_muavin_data')) {
+        await client.execute(`ALTER TABLE mutabakatlar ADD COLUMN karsi_muavin_data TEXT`);
+      }
+      if (!mutInfo.rows.some(col => col.name === 'karsi_muavin_filename')) {
+        await client.execute(`ALTER TABLE mutabakatlar ADD COLUMN karsi_muavin_filename TEXT`);
+      }
+      if (!mutInfo.rows.some(col => col.name === 'kullanici_muavin_data')) {
+        await client.execute(`ALTER TABLE mutabakatlar ADD COLUMN kullanici_muavin_data TEXT`);
+      }
+    } catch (e) { console.error('mutabakatlar column sync error:', e); }
+
     // Satis_faturalari sync for urun_id, depo_id
     try {
       const sfInfo2 = await client.execute(`PRAGMA table_info(satis_faturalari)`);

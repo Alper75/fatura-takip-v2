@@ -56,7 +56,8 @@ export function PublicMutabakatView({ token }: PublicMutabakatViewProps) {
         body: JSON.stringify({
           durum,
           aciklama,
-          muavinBase64
+          muavinBase64,
+          muavinFileName: muavinFileName  // send filename so server can store it
         })
       });
 
