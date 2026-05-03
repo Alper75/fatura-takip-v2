@@ -2890,6 +2890,15 @@ app.post('/api/mutabakatlar/bulk', authMiddleware, async (req, res) => {
   }
 
   try {
+    // Ensure new columns exist (safe migration on first access)
+    try {
+      const colInfo = await client.execute('PRAGMA table_info(mutabakatlar)');
+      const cols = colInfo.rows.map(r => r.name);
+      if (!cols.includes('karsi_muavin_data')) await client.execute('ALTER TABLE mutabakatlar ADD COLUMN karsi_muavin_data TEXT');
+      if (!cols.includes('karsi_muavin_filename')) await client.execute('ALTER TABLE mutabakatlar ADD COLUMN karsi_muavin_filename TEXT');
+      if (!cols.includes('kullanici_muavin_data')) await client.execute('ALTER TABLE mutabakatlar ADD COLUMN kullanici_muavin_data TEXT');
+    } catch (_) { /* already exist */ }
+
     // Store admin muavin as base64 in DB (survives Vercel restarts)
     let muavinData = null;
     if (bizeAitMuavinBase64) {
