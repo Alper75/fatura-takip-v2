@@ -27,6 +27,12 @@ export async function apiFetch(path: string, options?: RequestInit) {
     
     // Auto-logout or other systemic behaviors could be added here if needed
     
+    if (res.status === 401) {
+      localStorage.removeItem('token');
+      window.location.href = '/login';
+      return { success: false, message: 'Oturum süreniz doldu, lütfen tekrar giriş yapın.' };
+    }
+
     if (!res.ok) {
       const errorText = await res.text();
       try {

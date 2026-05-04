@@ -2678,6 +2678,29 @@ app.post('/api/luca/hesap-plani/sync', authMiddleware, async (req, res) => {
   }
 });
 
+// --- GENEL AYARLAR ---
+app.get('/api/settings/:key', authMiddleware, async (req, res, next) => {
+  if (req.params.key === 'smtp') return next(); // Skip 'smtp' to hit the specific route below if needed
+  try {
+    const rs = await client.execute({
+      sql: 'SELECT setting_value FROM company_settings WHERE company_id = ? AND setting_key = ?',
+      args: [req.user.companyId, req.params.key]
+    });
+    res.json({ success: true, value: rs.rows.length > 0 ? rs.rows[0].setting_value : null });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+});
+
+app.post('/api/settings/:key', authMiddleware, async (req, res, next) => {
+  if (req.params.key === 'smtp') return next();
+  try {
+    await client.execute({
+      sql: 'INSERT INTO company_settings (company_id, setting_key, setting_value) VALUES (?, ?, ?) ON CONFLICT(company_id, setting_key) DO UPDATE SET setting_value=excluded.setting_value',
+      args: [req.user.companyId, req.params.key, req.body.value]
+    });
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+});
+
 // --- SMTP AYARLARI & MAIL GÖNDERİMİ ---
 app.get('/api/settings/smtp', authMiddleware, async (req, res) => {
   try {
