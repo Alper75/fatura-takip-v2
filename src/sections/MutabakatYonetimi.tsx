@@ -19,6 +19,7 @@ import { useApp } from '@/context/AppContext';
 import { toast } from 'sonner';
 import * as XLSX from 'xlsx';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 export function MutabakatYonetimi() {
   const { apiFetch } = useApp();
@@ -28,6 +29,7 @@ export function MutabakatYonetimi() {
   const [activeTab, setActiveTab] = useState('liste');
   const [selectedAnalysis, setSelectedAnalysis] = useState<any>(null);
   const [geminiKey, setGeminiKey] = useState('');
+  const [geminiModel, setGeminiModel] = useState('gemini-1.5-flash');
   const [isSavingKey, setIsSavingKey] = useState(false);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   
@@ -79,8 +81,12 @@ export function MutabakatYonetimi() {
   const fetchSettings = async () => {
     try {
       const resKey = await apiFetch('/api/settings/gemini_api_key');
+      const resModel = await apiFetch('/api/settings/gemini_model');
       if (resKey.success) {
         setGeminiKey(resKey.value || '');
+      }
+      if (resModel.success && resModel.value) {
+        setGeminiModel(resModel.value);
       }
     } catch (e) {}
   };
@@ -92,7 +98,12 @@ export function MutabakatYonetimi() {
         method: 'POST',
         body: JSON.stringify({ value: geminiKey })
       });
-      if (res.success) {
+      const resModel = await apiFetch('/api/settings/gemini_model', {
+        method: 'POST',
+        body: JSON.stringify({ value: geminiModel })
+      });
+      
+      if (res.success && resModel.success) {
         toast.success('Yapay zeka anahtarı kaydedildi.');
       } else {
         toast.error(res.message);
@@ -566,6 +577,23 @@ export function MutabakatYonetimi() {
                   </div>
                   <p className="text-[11px] text-slate-500 leading-relaxed">
                     API anahtarınızı <a href="https://aistudio.google.com/app/apikey" target="_blank" className="text-indigo-600 hover:underline font-medium">Google AI Studio</a> üzerinden ücretsiz olarak alabilirsiniz.
+                  </p>
+                </div>
+
+                <div className="space-y-3">
+                  <Label className="text-sm font-semibold">Gemini Modeli</Label>
+                  <Select value={geminiModel} onValueChange={setGeminiModel}>
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Model seçin" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="gemini-1.5-flash">Gemini 1.5 Flash (Önerilen - Hızlı & Ekonomik)</SelectItem>
+                      <SelectItem value="gemini-1.5-pro">Gemini 1.5 Pro (Daha Zeki, Ancak Yavaş)</SelectItem>
+                      <SelectItem value="gemini-1.5-flash-8b">Gemini 1.5 Flash-8B (En Hızlı)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-[11px] text-slate-500 leading-relaxed">
+                    Karmaşık uyuşmazlıklar veya farklı dillerdeki analizler için "Pro" sürümünü seçebilirsiniz, ancak basit hesap karşılaştırmaları için "Flash" idealdir.
                   </p>
                 </div>
 

@@ -3048,12 +3048,19 @@ app.post('/api/mutabakatlar/analyze/:id', authMiddleware, async (req, res) => {
       return res.status(400).json({ success: false, message: 'Karşılaştırma için her iki muavin dosyası da mevcut olmalıdır. Lütfen karşı tarafın bir dosya yüklediğinden emin olun.' });
     }
 
-    // 1. Gemini Key Çek
+    // 1. Gemini Key & Model Çek
     const rsSettings = await client.execute({
-      sql: "SELECT setting_value FROM company_settings WHERE company_id = ? AND setting_key = 'gemini_api_key'",
+      sql: "SELECT setting_key, setting_value FROM company_settings WHERE company_id = ? AND setting_key IN ('gemini_api_key', 'gemini_model')",
       args: [req.user.companyId]
     });
-    const apiKey = rsSettings.rows[0]?.setting_value || process.env.GEMINI_API_KEY;
+    
+    let apiKey = process.env.GEMINI_API_KEY;
+    let aiModel = 'gemini-1.5-flash'; // default model
+    
+    rsSettings.rows.forEach(r => {
+      if (r.setting_key === 'gemini_api_key') apiKey = r.setting_value || apiKey;
+      if (r.setting_key === 'gemini_model' && r.setting_value) aiModel = r.setting_value;
+    });
     
     if (!apiKey) {
       return res.status(400).json({ success: false, message: 'Yapay zeka anahtarı (Gemini API Key) bulunamadı. Lütfen ayarlardan tanımlayın.' });
@@ -3100,7 +3107,7 @@ app.post('/api/mutabakatlar/analyze/:id', authMiddleware, async (req, res) => {
     `;
 
     // 4. Gemini API Çağrısı
-    const geminiRes = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${apiKey.trim()}`, {
+    const geminiRes = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/${aiModel}:generateContent?key=${apiKey.trim()}`, {
       contents: [{ parts: [{ text: prompt }] }]
     }, { timeout: 30000 });
 
