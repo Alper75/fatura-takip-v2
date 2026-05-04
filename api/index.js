@@ -3100,7 +3100,7 @@ app.post('/api/mutabakatlar/analyze/:id', authMiddleware, async (req, res) => {
     `;
 
     // 4. Gemini API Çağrısı
-    const geminiRes = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
+    const geminiRes = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${apiKey.trim()}`, {
       contents: [{ parts: [{ text: prompt }] }]
     }, { timeout: 30000 });
 
@@ -3116,8 +3116,9 @@ app.post('/api/mutabakatlar/analyze/:id', authMiddleware, async (req, res) => {
 
     res.json({ success: true, analysis: JSON.parse(aiResult) });
   } catch (e) {
-    console.error("AI Analysis Error:", e);
-    res.status(500).json({ success: false, message: e.message });
+    console.error("AI Analysis Error:", e.response?.data || e.message);
+    const apiError = e.response?.data?.error?.message;
+    res.status(500).json({ success: false, message: apiError ? \`Gemini API Hatası: \${apiError}\` : e.message });
   }
 });
 
