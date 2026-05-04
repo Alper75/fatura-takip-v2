@@ -3118,7 +3118,7 @@ app.post('/api/mutabakatlar/analyze/:id', authMiddleware, async (req, res) => {
   } catch (e) {
     console.error("AI Analysis Error:", e.response?.data || e.message);
     const apiError = e.response?.data?.error?.message;
-    res.status(500).json({ success: false, message: apiError ? \`Gemini API Hatası: \${apiError}\` : e.message });
+    res.status(500).json({ success: false, message: apiError ? `Gemini API Hatası: ${apiError}` : e.message });
   }
 });
 
