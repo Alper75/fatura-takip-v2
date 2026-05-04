@@ -3107,7 +3107,10 @@ app.post('/api/mutabakatlar/analyze/:id', authMiddleware, async (req, res) => {
     `;
 
     // 4. Gemini API Çağrısı
-    const geminiRes = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/${aiModel}:generateContent?key=${apiKey.trim()}`, {
+    const safeModelName = aiModel ? aiModel.trim() : 'gemini-1.5-flash';
+    const safeApiKey = apiKey ? apiKey.trim() : '';
+    
+    const geminiRes = await axios.post(`https://generativelanguage.googleapis.com/v1/models/${safeModelName}:generateContent?key=${safeApiKey}`, {
       contents: [{ parts: [{ text: prompt }] }]
     }, { timeout: 30000 });
 
