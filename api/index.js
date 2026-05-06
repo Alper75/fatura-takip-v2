@@ -3055,7 +3055,7 @@ app.post('/api/mutabakatlar/analyze/:id', authMiddleware, async (req, res) => {
     });
     
     let apiKey = process.env.GEMINI_API_KEY;
-    let aiModel = 'gemini-1.5-flash'; // default model
+    let aiModel = 'gemini-2.5-flash'; // default model
     
     rsSettings.rows.forEach(r => {
       if (r.setting_key === 'gemini_api_key') apiKey = r.setting_value || apiKey;
@@ -3107,10 +3107,10 @@ app.post('/api/mutabakatlar/analyze/:id', authMiddleware, async (req, res) => {
     `;
 
     // 4. Gemini API Çağrısı
-    const safeModelName = aiModel ? aiModel.trim() : 'gemini-1.5-flash';
+    const safeModelName = aiModel ? aiModel.trim() : 'gemini-2.5-flash';
     const safeApiKey = apiKey ? apiKey.trim() : '';
     
-    const geminiRes = await axios.post(`https://generativelanguage.googleapis.com/v1/models/${safeModelName}:generateContent?key=${safeApiKey}`, {
+    const geminiRes = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/${safeModelName}:generateContent?key=${safeApiKey}`, {
       contents: [{ parts: [{ text: prompt }] }]
     }, { timeout: 30000 });
 
