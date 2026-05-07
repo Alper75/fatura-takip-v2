@@ -4,7 +4,7 @@ import { apiFetch } from '@/lib/api';
 import { toast } from 'sonner';
 import { 
   Folder, File, UploadCloud, ChevronRight, Download, Trash2, 
-  Plus, ArrowLeft, Loader2, FileText, Image as ImageIcon, 
+  ArrowLeft, Loader2, FileText, Image as ImageIcon, 
   FileSpreadsheet, FileArchive, FolderPlus, FilePlus
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
