@@ -98,6 +98,10 @@ interface AppContextType {
   openCariEkstreDrawer: (id: string) => void;
   closeCariEkstreDrawer: () => void;
   selectedCariId: string | null;
+
+  isSirketBilgileriOpen: boolean;
+  openSirketBilgileri: () => void;
+  closeSirketBilgileri: () => void;
   setSelectedCariId: (id: string | null) => void;
 
   // ==================== Ã‡EK / SENET ====================
@@ -223,6 +227,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [isAlisDrawerOpen, setIsAlisDrawerOpen] = useState(false);
   const [isCariDrawerOpen, setIsCariDrawerOpen] = useState(false);
   const [isCariEkstreDrawerOpen, setIsCariEkstreDrawerOpen] = useState(false);
+  const [isSirketBilgileriOpen, setIsSirketBilgileriOpen] = useState(false);
   const [selectedCariId, setSelectedCariId] = useState<string | null>(null);
   const [satisInitialData, setSatisInitialData] = useState<Partial<SatisFaturaFormData> | null>(null);
   const [alisInitialData, setAlisInitialData] = useState<Partial<AlisFaturaFormData> | null>(null);
@@ -905,6 +910,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setIsCariEkstreDrawerOpen(false);
     setTimeout(() => setSelectedCariId(null), 300);
   }, []);
+
+  const openSirketBilgileri = () => setIsSirketBilgileriOpen(true);
+  const closeSirketBilgileri = () => setIsSirketBilgileriOpen(false);
 
   // ==================== Ã‡EK SENET CRUD ====================
   const openCekSenetDrawer = useCallback((id?: string) => {
@@ -1618,6 +1626,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         closeCariEkstreDrawer,
         selectedCariId,
         setSelectedCariId,
+        isSirketBilgileriOpen,
+        openSirketBilgileri,
+        closeSirketBilgileri,
         getVergiRaporu,
         giderKategorileri,
         addGiderKategorisi,

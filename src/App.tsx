@@ -28,6 +28,7 @@ import { SiparisListesi } from './sections/SiparisListesi';
 import { MutabakatYonetimi } from './sections/MutabakatYonetimi';
 import { PublicTeklifView } from './sections/PublicTeklifView';
 import { PublicMutabakatView } from './sections/PublicMutabakatView';
+import { SirketDosyalari } from './sections/SirketDosyalari';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 const queryClient = new QueryClient({
@@ -111,6 +112,8 @@ function AppContent() {
             return <SiparisListesi />;
           case 'mutabakat-yonetimi':
             return <MutabakatYonetimi />;
+          case 'sirket-dosyalari':
+            return <SirketDosyalari />;
           default:
             return <Dashboard />; // Default to Dashboard if currentView is not recognized
         }

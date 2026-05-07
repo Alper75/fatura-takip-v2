@@ -223,6 +223,24 @@ export interface Company {
   status: 'active' | 'passive';
 }
 
+export interface CompanyFolder {
+  id: string;
+  company_id: number;
+  parent_id?: string | null;
+  name: string;
+  created_at: string;
+}
+
+export interface CompanyFile {
+  id: string;
+  company_id: number;
+  folder_id?: string | null;
+  name: string;
+  size: number;
+  type: string;
+  created_at: string;
+}
+
 // ==================== PERSONEL MODÜLÜ ====================
 
 export interface Personnel {
@@ -486,7 +504,8 @@ export type ViewType =
   | 'luca-ayarlari'
   | 'teklif-liste'
   | 'siparis-liste'
-  | 'mutabakat-yonetimi';
+  | 'mutabakat-yonetimi'
+  | 'sirket-dosyalari';
 
 // ==================== FATURA DURUMU ====================
 export type OdemeDurumu = 'odenmedi' | 'odendi' | 'bekliyor';

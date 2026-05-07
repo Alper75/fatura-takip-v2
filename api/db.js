@@ -137,6 +137,35 @@ export async function initDb() {
     `);
 
     // --- STOK MODÜLÜ TABLOLARI ---
+
+    // Şirket Dosya Klasörleri
+    await client.execute(`
+      CREATE TABLE IF NOT EXISTS company_folders (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        company_id INTEGER NOT NULL,
+        parent_id INTEGER,
+        name TEXT NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE,
+        FOREIGN KEY (parent_id) REFERENCES company_folders(id) ON DELETE CASCADE
+      );
+    `);
+
+    // Şirket Dosyaları
+    await client.execute(`
+      CREATE TABLE IF NOT EXISTS company_files (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        company_id INTEGER NOT NULL,
+        folder_id INTEGER,
+        name TEXT NOT NULL,
+        size INTEGER,
+        type TEXT,
+        file_data TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE,
+        FOREIGN KEY (folder_id) REFERENCES company_folders(id) ON DELETE CASCADE
+      );
+    `);
     
     // Firma Ayarları
     await client.execute(`

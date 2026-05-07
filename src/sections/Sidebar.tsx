@@ -30,7 +30,7 @@ interface SidebarProps {
 }
 
 export function Sidebar({ onItemClick }: SidebarProps) {
-  const { user, currentPersonnel, currentView, setCurrentView, openSatisDrawer, openAlisDrawer, logout, companies } = useApp();
+  const { user, currentPersonnel, currentView, setCurrentView, openSatisDrawer, openAlisDrawer, logout, companies, openSirketBilgileri } = useApp();
   const [isPersonnelOpen, setIsPersonnelOpen] = useState(false);
 
   useEffect(() => {
@@ -150,6 +150,14 @@ export function Sidebar({ onItemClick }: SidebarProps) {
       icon: Receipt,
       onClick: () => setCurrentView('expense-liste'),
       view: 'expense-liste',
+      adminOnly: true
+    },
+    {
+      id: 'sirket-dosyalari',
+      label: 'Şirket Dosyaları',
+      icon: Briefcase,
+      onClick: () => setCurrentView('sirket-dosyalari'),
+      view: 'sirket-dosyalari',
       adminOnly: true
     },
     {
@@ -322,11 +330,17 @@ export function Sidebar({ onItemClick }: SidebarProps) {
 
         {/* Company Badge */}
         {!isSuperAdmin && (
-          <div className="mx-3 mb-4 p-2 bg-slate-50 border border-slate-100 rounded-lg flex items-center gap-2">
-            <Building2 className="w-3.5 h-3.5 text-slate-400" />
-            <span className="text-[10px] font-semibold text-slate-600 truncate">
-              {companies.find(c => c.id === user?.companyId)?.name || 'Aktif Şirket'}
-            </span>
+          <div 
+            className="mx-3 mb-4 p-2 bg-slate-50 border border-slate-100 rounded-lg flex items-center gap-2 cursor-pointer hover:bg-slate-100 hover:border-slate-200 transition-all group"
+            onClick={openSirketBilgileri}
+          >
+            <Building2 className="w-4 h-4 text-slate-400 group-hover:text-primary transition-colors" />
+            <div className="flex-1 min-w-0">
+              <span className="block text-[11px] font-bold text-slate-700 truncate group-hover:text-primary transition-colors">
+                {companies.find(c => c.id === user?.companyId)?.name || 'Aktif Şirket'}
+              </span>
+              <span className="block text-[9px] text-slate-400">Şirket bilgilerini gör</span>
+            </div>
           </div>
         )}
 

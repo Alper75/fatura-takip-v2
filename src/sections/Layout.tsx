@@ -6,6 +6,7 @@ import { CariDrawer } from './CariDrawer';
 import { CariEkstreDrawer } from './CariEkstreDrawer';
 import { CekSenetDrawer } from './CekSenetDrawer';
 import { BankaDrawer } from './BankaDrawer';
+import { SirketBilgileriDrawer } from './SirketBilgileriDrawer';
 import { BildirimWidget } from './BildirimWidget';
 import { 
   Sheet, 
@@ -87,6 +88,7 @@ export function Layout({ children }: LayoutProps) {
       <CariEkstreDrawer />
       <CekSenetDrawer />
       <BankaDrawer />
+      <SirketBilgileriDrawer />
       <BildirimWidget />
     </div>
   );

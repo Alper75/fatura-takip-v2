@@ -3177,6 +3177,133 @@ app.get('/api/mutabakatlar/:id/download-muavin', authMiddleware, async (req, res
   }
 });
 
+// ==========================================
+// ŞİRKET DOSYALARI (COMPANY FILES)
+// ==========================================
+
+// Get Folders
+app.get('/api/company/folders', authMiddleware, async (req, res) => {
+  const { parentId } = req.query;
+  try {
+    let sql = 'SELECT * FROM company_folders WHERE company_id = ?';
+    let args = [req.user.companyId];
+    
+    if (parentId && parentId !== 'null' && parentId !== 'undefined') {
+      sql += ' AND parent_id = ?';
+      args.push(parentId);
+    } else {
+      sql += ' AND parent_id IS NULL';
+    }
+    
+    sql += ' ORDER BY name ASC';
+    const rs = await client.execute({ sql, args });
+    res.json({ success: true, data: rs.rows });
+  } catch (e) {
+    res.status(500).json({ success: false, message: e.message });
+  }
+});
+
+// Create Folder
+app.post('/api/company/folders', authMiddleware, async (req, res) => {
+  const { name, parentId } = req.body;
+  if (!name) return res.status(400).json({ success: false, message: 'Klasör adı zorunludur' });
+  
+  try {
+    const rs = await client.execute({
+      sql: 'INSERT INTO company_folders (company_id, parent_id, name) VALUES (?, ?, ?)',
+      args: [req.user.companyId, parentId || null, name]
+    });
+    res.json({ success: true, id: rs.lastInsertRowid.toString() });
+  } catch (e) {
+    res.status(500).json({ success: false, message: e.message });
+  }
+});
+
+// Delete Folder
+app.delete('/api/company/folders/:id', authMiddleware, async (req, res) => {
+  try {
+    await client.execute({
+      sql: 'DELETE FROM company_folders WHERE id = ? AND company_id = ?',
+      args: [req.params.id, req.user.companyId]
+    });
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ success: false, message: e.message });
+  }
+});
+
+// Get Files
+app.get('/api/company/files', authMiddleware, async (req, res) => {
+  const { folderId } = req.query;
+  try {
+    let sql = 'SELECT id, company_id, folder_id, name, size, type, created_at FROM company_files WHERE company_id = ?';
+    let args = [req.user.companyId];
+    
+    if (folderId && folderId !== 'null' && folderId !== 'undefined') {
+      sql += ' AND folder_id = ?';
+      args.push(folderId);
+    } else {
+      sql += ' AND folder_id IS NULL';
+    }
+    
+    sql += ' ORDER BY name ASC';
+    const rs = await client.execute({ sql, args });
+    res.json({ success: true, data: rs.rows });
+  } catch (e) {
+    res.status(500).json({ success: false, message: e.message });
+  }
+});
+
+// Create File (Base64)
+app.post('/api/company/files', authMiddleware, async (req, res) => {
+  const { name, size, type, file_data, folderId } = req.body;
+  if (!name || !file_data) return res.status(400).json({ success: false, message: 'Dosya adı ve içeriği zorunludur' });
+  
+  try {
+    const rs = await client.execute({
+      sql: 'INSERT INTO company_files (company_id, folder_id, name, size, type, file_data) VALUES (?, ?, ?, ?, ?, ?)',
+      args: [req.user.companyId, folderId || null, name, size, type, file_data]
+    });
+    res.json({ success: true, id: rs.lastInsertRowid.toString() });
+  } catch (e) {
+    res.status(500).json({ success: false, message: e.message });
+  }
+});
+
+// Delete File
+app.delete('/api/company/files/:id', authMiddleware, async (req, res) => {
+  try {
+    await client.execute({
+      sql: 'DELETE FROM company_files WHERE id = ? AND company_id = ?',
+      args: [req.params.id, req.user.companyId]
+    });
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ success: false, message: e.message });
+  }
+});
+
+// Download File (Get Base64)
+app.get('/api/company/files/download/:id', authMiddleware, async (req, res) => {
+  try {
+    const rs = await client.execute({
+      sql: 'SELECT file_data, name, type FROM company_files WHERE id = ? AND company_id = ?',
+      args: [req.params.id, req.user.companyId]
+    });
+    
+    if (rs.rows.length === 0) return res.status(404).json({ success: false, message: 'Dosya bulunamadı' });
+    
+    res.json({ 
+      success: true, 
+      file_data: rs.rows[0].file_data,
+      name: rs.rows[0].name,
+      type: rs.rows[0].type
+    });
+  } catch (e) {
+    res.status(500).json({ success: false, message: e.message });
+  }
+});
+
 app.get('/api/download/:filename', (req, res) => {
   const fileName = req.params.filename;
   const filePath = path.join(uploadsDir, fileName);
