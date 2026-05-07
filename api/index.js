@@ -3186,7 +3186,7 @@ app.get('/api/company/folders', authMiddleware, async (req, res) => {
   const { parentId } = req.query;
   try {
     let sql = 'SELECT * FROM company_folders WHERE company_id = ?';
-    let args = [req.user.companyId];
+    let args = [req.user.companyId || 1];
     
     if (parentId && parentId !== 'null' && parentId !== 'undefined') {
       sql += ' AND parent_id = ?';
@@ -3211,7 +3211,7 @@ app.post('/api/company/folders', authMiddleware, async (req, res) => {
   try {
     const rs = await client.execute({
       sql: 'INSERT INTO company_folders (company_id, parent_id, name) VALUES (?, ?, ?)',
-      args: [req.user.companyId, parentId || null, name]
+      args: [req.user.companyId || 1, parentId || null, name || 'Adsız Klasör']
     });
     res.json({ success: true, id: rs.lastInsertRowid.toString() });
   } catch (e) {
@@ -3224,7 +3224,7 @@ app.delete('/api/company/folders/:id', authMiddleware, async (req, res) => {
   try {
     await client.execute({
       sql: 'DELETE FROM company_folders WHERE id = ? AND company_id = ?',
-      args: [req.params.id, req.user.companyId]
+      args: [req.params.id || null, req.user.companyId || 1]
     });
     res.json({ success: true });
   } catch (e) {
@@ -3237,7 +3237,7 @@ app.get('/api/company/files', authMiddleware, async (req, res) => {
   const { folderId } = req.query;
   try {
     let sql = 'SELECT id, company_id, folder_id, name, size, type, created_at FROM company_files WHERE company_id = ?';
-    let args = [req.user.companyId];
+    let args = [req.user.companyId || 1];
     
     if (folderId && folderId !== 'null' && folderId !== 'undefined') {
       sql += ' AND folder_id = ?';
@@ -3262,7 +3262,7 @@ app.post('/api/company/files', authMiddleware, async (req, res) => {
   try {
     const rs = await client.execute({
       sql: 'INSERT INTO company_files (company_id, folder_id, name, size, type, file_data) VALUES (?, ?, ?, ?, ?, ?)',
-      args: [req.user.companyId, folderId || null, name, size, type, file_data]
+      args: [req.user.companyId || 1, folderId || null, name || 'Adsız Dosya', size || 0, type || 'application/octet-stream', file_data]
     });
     res.json({ success: true, id: rs.lastInsertRowid.toString() });
   } catch (e) {
@@ -3275,7 +3275,7 @@ app.delete('/api/company/files/:id', authMiddleware, async (req, res) => {
   try {
     await client.execute({
       sql: 'DELETE FROM company_files WHERE id = ? AND company_id = ?',
-      args: [req.params.id, req.user.companyId]
+      args: [req.params.id || null, req.user.companyId || 1]
     });
     res.json({ success: true });
   } catch (e) {
@@ -3288,7 +3288,7 @@ app.get('/api/company/files/download/:id', authMiddleware, async (req, res) => {
   try {
     const rs = await client.execute({
       sql: 'SELECT file_data, name, type FROM company_files WHERE id = ? AND company_id = ?',
-      args: [req.params.id, req.user.companyId]
+      args: [req.params.id || null, req.user.companyId || 1]
     });
     
     if (rs.rows.length === 0) return res.status(404).json({ success: false, message: 'Dosya bulunamadı' });
