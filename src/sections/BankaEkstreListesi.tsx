@@ -177,6 +177,14 @@ export function BankaEkstreListesi() {
 
   return (
     <div className="space-y-6">
+      <style>{`
+        .bluca-checkbox-injected, 
+        [class*="bluca-checkbox"],
+        [class*="bluca-button"],
+        #bluca-floating-button {
+          display: none !important;
+        }
+      `}</style>
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h2 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
