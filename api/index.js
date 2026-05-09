@@ -1085,7 +1085,8 @@ app.get('/api/cari-hareketler', authMiddleware, async (req, res) => {
       bankaId: r.banka_id, 
       dekontDosya: r.dekont_dosya, 
       olusturmaTarihi: r.olusturma_tarihi,
-      kategoriId: r.kategori_id
+      kategoriId: r.kategori_id,
+      muhasebeKodu: r.muhasebe_kodu
     }));
     res.json({ success: true, data: mapped });
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }
@@ -1095,8 +1096,8 @@ app.post('/api/cari-hareketler', authMiddleware, async (req, res) => {
   const f = req.body;
   try {
     await client.execute({
-      sql: 'INSERT INTO cari_hareketler (id,cari_id,tarih,islem_turu,tutar,aciklama,bagli_fatura_id,banka_id,dekont_dosya,olusturma_tarihi,kategori_id,company_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
-      args: [n(f.id), n(f.cariId), n(f.tarih), n(f.islemTuru), n(f.tutar), n(f.aciklama), n(f.bagliFaturaId), n(f.bankaId), n(f.dekontDosya), n(f.olusturmaTarihi), n(f.kategoriId), req.user.companyId]
+      sql: 'INSERT INTO cari_hareketler (id,cari_id,tarih,islem_turu,tutar,aciklama,bagli_fatura_id,banka_id,dekont_dosya,olusturma_tarihi,kategori_id,company_id,muhasebe_kodu) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
+      args: [n(f.id), n(f.cariId), n(f.tarih), n(f.islemTuru), n(f.tutar), n(f.aciklama), n(f.bagliFaturaId), n(f.bankaId), n(f.dekontDosya), n(f.olusturmaTarihi), n(f.kategoriId), req.user.companyId, n(f.muhasebeKodu)]
     });
     
     // BANKA BAKİYESİ GÜNCELLE
@@ -1125,8 +1126,8 @@ app.put('/api/cari-hareketler/:id', authMiddleware, async (req, res) => {
   const f = req.body;
   try {
     await client.execute({
-      sql: 'UPDATE cari_hareketler SET cari_id=?,tarih=?,islem_turu=?,tutar=?,aciklama=?,bagli_fatura_id=?,banka_id=?,dekont_dosya=?,kategori_id=? WHERE id=? AND company_id = ?',
-      args: [n(f.cariId), n(f.tarih), n(f.islemTuru), n(f.tutar), n(f.aciklama), n(f.bagliFaturaId), n(f.bankaId), n(f.dekontDosya), n(f.kategoriId), req.params.id, req.user.companyId]
+      sql: 'UPDATE cari_hareketler SET cari_id=?,tarih=?,islem_turu=?,tutar=?,aciklama=?,bagli_fatura_id=?,banka_id=?,dekont_dosya=?,kategori_id=?,muhasebe_kodu=? WHERE id=? AND company_id = ?',
+      args: [n(f.cariId), n(f.tarih), n(f.islemTuru), n(f.tutar), n(f.aciklama), n(f.bagliFaturaId), n(f.bankaId), n(f.dekontDosya), n(f.kategoriId), n(f.muhasebeKodu), req.params.id, req.user.companyId]
     });
     res.json({ success: true });
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }

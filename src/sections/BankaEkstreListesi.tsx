@@ -55,6 +55,7 @@ import {
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import type { CariHareket } from '@/types';
+import { LucaAccountSelect } from '@/components/LucaAccountSelect';
 
 export function BankaEkstreListesi() {
   const { 
@@ -112,6 +113,7 @@ export function BankaEkstreListesi() {
         'Açıklama': h.aciklama,
         'Cari': cari?.unvan || 'Diğer',
         'Kategori': kategori?.ad || h.islemTuru,
+        'Luca Kodu': h.muhasebeKodu || '',
         'Tutar': h.tutar,
         'Yön': (h.islemTuru === 'tahsilat' || h.islemTuru === 'satis_faturasi' || (h.islemTuru === 'transfer' && h.aciklama.includes('GELEN'))) ? 'GİRİŞ' : 'ÇIKIŞ'
       };
@@ -312,6 +314,7 @@ export function BankaEkstreListesi() {
                   <TableHead className="min-w-[200px]">Açıklama</TableHead>
                   <TableHead>Cari</TableHead>
                   <TableHead>Kategori / Tür</TableHead>
+                  <TableHead className="w-[180px]">Luca Kodu</TableHead>
                   <TableHead className="text-right">Tutar</TableHead>
                   <TableHead className="w-24"></TableHead>
                 </TableRow>
@@ -385,23 +388,45 @@ export function BankaEkstreListesi() {
                             <span className="font-semibold text-indigo-700 px-2 py-0.5 bg-indigo-50 rounded w-fit max-w-[150px] truncate block" title={cari.unvan}>
                               {cari.unvan}
                             </span>
+                          ) : kategori ? (
+                            <span className="font-semibold text-rose-700 px-2 py-0.5 bg-rose-50 rounded w-fit max-w-[150px] truncate block" title={kategori.ad}>
+                              {kategori.ad} (Masraf)
+                            </span>
                           ) : (
                             <span className="text-slate-300 italic">-</span>
                           )}
                         </TableCell>
                         <TableCell className="text-xs">
                           <div className="flex flex-col gap-1">
-                            {kategori ? (
+                             {kategori ? (
                               <span className="font-bold text-rose-700 px-2 py-0.5 bg-rose-50 rounded w-fit border border-rose-100 flex items-center gap-1">
                                 <Tag className="w-3 h-3" />
                                 {kategori.ad}
                               </span>
                             ) : (
-                              <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 bg-slate-100 text-slate-500 rounded border border-slate-200 w-fit">
-                                {(h.islemTuru || '').replace(/_/g, ' ')}
-                              </span>
+                              <Select 
+                                value={h.kategoriId || 'none'} 
+                                onValueChange={(val) => updateCariHareket(h.id, { kategoriId: val === 'none' ? null : val })}
+                              >
+                                <SelectTrigger className="h-7 text-[10px] w-32 bg-slate-50 border-slate-200">
+                                  <SelectValue placeholder="Kategori Seç" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="none">Seçilmedi</SelectItem>
+                                  {giderKategorileri.map(k => (
+                                    <SelectItem key={k.id} value={k.id}>{k.ad}</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
                             )}
                           </div>
+                        </TableCell>
+                        <TableCell>
+                          <LucaAccountSelect 
+                            value={h.muhasebeKodu || ''} 
+                            onSelect={(code) => updateCariHareket(h.id, { muhasebeKodu: code })}
+                            className="h-8 text-[11px]"
+                          />
                         </TableCell>
                         <TableCell className={cn(
                           "text-right font-bold text-sm tabular-nums",
@@ -507,6 +532,31 @@ export function BankaEkstreListesi() {
                   <option value="none">Seçilmedi</option>
                   {cariler.map(c => (
                     <option key={c.id} value={c.id}>{c.unvan}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="muhasebeKodu" className="text-right text-xs">Luca Kodu</Label>
+              <div className="col-span-3">
+                <LucaAccountSelect 
+                  value={editForm.muhasebeKodu || ''} 
+                  onSelect={(code) => setEditForm({...editForm, muhasebeKodu: code})}
+                  className="h-9"
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="kategori" className="text-right text-xs">Kategori</Label>
+              <div className="col-span-3">
+                <select 
+                  className="w-full h-9 bg-white border border-slate-200 rounded-md px-3 text-sm outline-none focus:border-indigo-500"
+                  value={editForm.kategoriId || 'none'} 
+                  onChange={(e) => setEditForm({...editForm, kategoriId: e.target.value === 'none' ? null : e.target.value})}
+                >
+                  <option value="none">Seçilmedi</option>
+                  {giderKategorileri.map(k => (
+                    <option key={k.id} value={k.id}>{k.ad}</option>
                   ))}
                 </select>
               </div>
