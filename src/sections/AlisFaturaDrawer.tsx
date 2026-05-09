@@ -45,7 +45,9 @@ type UploadedFile = {
 };
 
 export function AlisFaturaDrawer() {
-  const { isAlisDrawerOpen, closeAlisDrawer, addAlisFatura, cariler, alisInitialData, lucaAccounts } = useApp();
+  const { isAlisDrawerOpen, closeAlisDrawer, addAlisFatura, cariler, alisInitialData, lucaAccounts, companies, user } = useApp();
+  const activeCompany = companies.find(c => c.id === (user?.companyId || 1));
+  const hasCommercialVehicle = activeCompany?.vehicles?.some(v => v.type === 'commercial');
   const { data: urunler } = useUrunler();
   const { data: depolar } = useDepolar();
 
@@ -171,8 +173,44 @@ export function AlisFaturaDrawer() {
         for (const f of forms) {
           const hes = getHesaplanan(f);
           
+          // Gider Kısıtlaması Mantığı (70/30)
+          let finalData = { ...f.data };
+          const isFuel = /akaryakıt|yakıt|benzin|motorin/i.test(f.data.malHizmetAdi);
+          const isOtherVehicleExpense = /bakım|onarım|otopark|yıkama/i.test(f.data.malHizmetAdi);
+          
+          let applySplit = false;
+          
+          if (f.data.vehiclePlate) {
+            const matchedVehicle = activeCompany?.vehicles?.find(v => v.plate.replace(/\s+/g, '') === f.data.vehiclePlate?.replace(/\s+/g, ''));
+            if (matchedVehicle && matchedVehicle.type === 'passenger') {
+              applySplit = true;
+            }
+          } else if (isFuel || isOtherVehicleExpense) {
+            if (!hasCommercialVehicle) {
+              applySplit = true;
+            } else {
+              // Ticari araç var, kullanıcıya sormak lazım ama loop içinde confirm zor.
+              // Şimdilik plaka yoksa ve ticari araç varsa split yapma (veya uyarı ver)
+              const userConfirm = confirm(`${f.data.tedarikciAdi} faturası bir araç gideri gibi görünüyor. Binek araç gider kısıtlaması (%70/%30) uygulansın mı?`);
+              if (userConfirm) applySplit = true;
+            }
+          }
+
+          if (applySplit) {
+            const matrah = hes.matrah;
+            const kdv = hes.kdvTutari;
+            const giderPayi = Math.round(matrah * 0.7 * 100) / 100;
+            const kkegPayi = Math.round(matrah * 0.3 * 100) / 100;
+            const kdvGiderPayi = Math.round(kdv * 0.7 * 100) / 100;
+            const kdvKkegPayi = Math.round(kdv * 0.3 * 100) / 100;
+
+            // Faturayı kaydet ama açıklmaya not düş
+            finalData.aciklama = (finalData.aciklama || '') + ` [%70 Gider: ${giderPayi + kdvGiderPayi} TL, %30 KKEG: ${kkegPayi + kdvKkegPayi} TL]`;
+            toast.info(`${f.data.faturaNo} nolu faturaya %70/%30 gider kısıtı uygulandı.`);
+          }
+
           const invoiceId = await addAlisFatura({
-            ...f.data,
+            ...finalData,
             toplamTutar: f.tutarTuru === 'dahil' ? parseFloat(f.data.toplamTutar).toString() : hes.toplamNet.toString(),
             muhasebeKodu: f.data.muhasebeKodu,
             dosyaBase64: uploadedFile?.base64,
@@ -194,7 +232,7 @@ export function AlisFaturaDrawer() {
             });
           }
         }
-        toast.success(`${forms.length} adet alış faturası kaydedildi (Stok hareketleri ile birlikte)`);
+        toast.success(`${forms.length} adet alış faturası kaydedildi.`);
         handleClose();
       } catch (error: any) {
         toast.error('Kayıt sırasında bir hata oluştu: ' + error.message);
@@ -228,7 +266,8 @@ export function AlisFaturaDrawer() {
     const prompt = `Bu dosyada BİRDEN FAZLA ayrı fiş veya fatura olabilir. 
 Lütfen bulduğun TÜM fiş/faturaları çıkar ve aşağıdaki JSON DİZİSİ formatında döndür. 
 
-ÖNEMLİ: Aşağıdaki LUCA HESAP PLANI listesinden bu faturanın açıklamasına/türüne en uygun "kod"u seçerek "muhasebe_kodu" alanına yaz:
+ÖNEMLİ: Eğer bu bir akaryakıt fişi/faturası ise, fatura üzerinde yazan ARAÇ PLAKASINI mutlaka "plate" alanına yaz. 
+Ayrıca aşağıdaki LUCA HESAP PLANI listesinden bu faturanın açıklamasına/türüne en uygun "kod"u seçerek "muhasebe_kodu" alanına yaz:
 ${lucaAccounts.map(a => `${a.kod}: ${a.ad}`).join('\n')}
 
 SADECE JSON döndür:
@@ -246,7 +285,8 @@ SADECE JSON döndür:
       "tevkifat_orani": "0",
       "stopaj_orani": "0",
       "aciklama": "",
-      "muhasebe_kodu": "Yukarıdaki listeden seçilen en uygun hesap kodu"
+      "muhasebe_kodu": "Yukarıdaki listeden seçilen en uygun hesap kodu",
+      "plate": "Eğer varsa araç plakası (34ABC123 formatında)"
     }
   ]
 }
@@ -289,6 +329,9 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
             matchedCari = cariler.find(c => c.unvan && c.unvan.toLowerCase().includes(searchName));
           }
 
+          // Plaka temizleme
+          const rawPlate = f.plate ? f.plate.toUpperCase().replace(/\s+/g, '') : '';
+
           return {
             id: Date.now() + idx,
             tutarTuru: f.tutar_tur || 'dahil',
@@ -307,7 +350,8 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
               aciklama: f.aciklama || '',
               cariId: matchedCari ? matchedCari.id : undefined,
               depoId: varsayilanDepoId,
-              muhasebeKodu: f.muhasebe_kodu || ''
+              muhasebeKodu: f.muhasebe_kodu || '',
+              vehiclePlate: rawPlate
             }
           };
         });
@@ -581,9 +625,28 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
                       <Input value={form.data.malHizmetAdi} onChange={(e) => updateForm(form.id, 'malHizmetAdi', e.target.value)} className={form.errors.malHizmetAdi ? 'border-red-500 h-9' : 'h-9'} />
                     </div>
 
-                    <div className="space-y-2 mb-4">
-                      <Label className="text-xs font-medium text-slate-500">Belge Notu / Genel Açıklama</Label>
-                      <Input value={form.data.aciklama} onChange={(e) => updateForm(form.id, 'aciklama', e.target.value)} placeholder="Örn: Proje bazlı alım" className="h-9" />
+                    <div className="grid grid-cols-2 gap-4 mb-4">
+                      <div className="space-y-2">
+                        <Label className="text-xs font-medium text-slate-500">Belge Notu / Genel Açıklama</Label>
+                        <Input value={form.data.aciklama} onChange={(e) => updateForm(form.id, 'aciklama', e.target.value)} placeholder="Örn: Proje bazlı alım" className="h-9" />
+                      </div>
+                      <div className="space-y-2">
+                        <Label className="text-xs font-medium text-indigo-600">Araç Plakası (Gider Kısıtı İçin)</Label>
+                        <Select
+                          value={form.data.vehiclePlate || 'yok'}
+                          onValueChange={(val) => updateForm(form.id, 'vehiclePlate', val === 'yok' ? '' : val)}
+                        >
+                          <SelectTrigger className="h-9 border-indigo-100 bg-indigo-50/20">
+                            <SelectValue placeholder="Plaka seçiniz..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="yok">Araçsız / Diğer</SelectItem>
+                            {activeCompany?.vehicles?.map(v => (
+                              <SelectItem key={v.id} value={v.plate}>{v.plate} ({v.type === 'passenger' ? 'Binek' : 'Ticari'})</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
                     </div>
 
                     {/* Luca Muhasebe Kodu Seçimi */}

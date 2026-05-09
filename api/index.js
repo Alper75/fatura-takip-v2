@@ -309,7 +309,45 @@ app.get('/api/my-company', authMiddleware, async (req, res) => {
       args: [req.user.companyId || 1]
     });
     if (rs.rows.length === 0) return res.status(404).json({ success: false, message: 'Şirket bulunamadı.' });
-    res.json({ success: true, data: rs.rows[0] });
+    
+    // Araçları getir
+    const vRs = await client.execute({
+      sql: 'SELECT * FROM company_vehicles WHERE company_id = ?',
+      args: [req.user.companyId || 1]
+    });
+    
+    const company = rs.rows[0];
+    company.vehicles = vRs.rows;
+
+    res.json({ success: true, data: company });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// --- VEHICLES ---
+app.post('/api/vehicles', authMiddleware, async (req, res) => {
+  const { plate, type, brand_model } = req.body;
+  if (!plate || !type) return res.status(400).json({ success: false, message: 'Plaka ve araç türü gereklidir.' });
+  try {
+    await client.execute({
+      sql: 'INSERT INTO company_vehicles (company_id, plate, type, brand_model) VALUES (?, ?, ?, ?)',
+      args: [req.user.companyId, plate.toUpperCase().replace(/\s+/g, ''), type, brand_model || '']
+    });
+    res.json({ success: true, message: 'Araç kaydedildi.' });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+app.delete('/api/vehicles/:id', authMiddleware, async (req, res) => {
+  const { id } = req.params;
+  try {
+    await client.execute({
+      sql: 'DELETE FROM company_vehicles WHERE id = ? AND company_id = ?',
+      args: [id, req.user.companyId]
+    });
+    res.json({ success: true, message: 'Araç silindi.' });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -1310,6 +1348,7 @@ app.get('/api/alis-faturalari', authMiddleware, async (req, res) => {
         odemeTarihi: r.odeme_tarihi, odemeDurumu: r.odeme_durumu, odemeDekontu: r.odeme_dekontu, 
         odemeDekontuAdi: r.odeme_dekontu_adi, cariId: r.cari_id, vadeTarihi: r.vade_tarihi, 
         aciklama: r.aciklama, olusturmaTarihi: r.olusturma_tarihi, urunId: r.urun_id, depoId: r.depo_id,
+        vehiclePlate: r.vehicle_plate,
         stokKalemleri: bagliStoklar.length > 0 ? bagliStoklar : undefined
       };
     });
@@ -1321,8 +1360,8 @@ app.post('/api/alis-faturalari', authMiddleware, async (req, res) => {
   const f = req.body;
   try {
     await client.execute({
-      sql: 'INSERT INTO alis_faturalari (id,fatura_no,fatura_tarihi,tedarikci_adi,tedarikci_vkn,mal_hizmet_adi,toplam_tutar,kdv_orani,kdv_tutari,matrah,tevkifat_orani,tevkifat_tutari,stopaj_orani,stopaj_tutari,muhasebe_kodu,pdf_dosya,pdf_dosya_adi,odeme_tarihi,odeme_durumu,odeme_dekontu,odeme_dekontu_adi,cari_id,vade_tarihi,aciklama,olusturma_tarihi,company_id,urun_id,depo_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
-      args: [n(f.id),n(f.faturaNo),n(f.faturaTarihi),n(f.tedarikciAdi),n(f.tedarikciVkn),n(f.malHizmetAdi),n(f.toplamTutar),n(f.kdvOrani),n(f.kdvTutari),n(f.matrah),n(f.tevkifatOrani),n(f.tevkifatTutari),n(f.stopajOrani),n(f.stopajTutari),n(f.muhasebeKodu),n(f.pdfDosya),n(f.pdfDosyaAdi),n(f.odemeTarihi),n(f.odemeDurumu||'odenmedi'),n(f.odemeDekontu),n(f.odemeDekontuAdi),n(f.cariId),n(f.vadeTarihi),n(f.aciklama),n(f.olusturmaTarihi),req.user.companyId,n(f.urunId),n(f.depoId)]
+      sql: 'INSERT INTO alis_faturalari (id,fatura_no,fatura_tarihi,tedarikci_adi,tedarikci_vkn,mal_hizmet_adi,toplam_tutar,kdv_orani,kdv_tutari,matrah,tevkifat_orani,tevkifat_tutari,stopaj_orani,stopaj_tutari,muhasebe_kodu,pdf_dosya,pdf_dosya_adi,odeme_tarihi,odeme_durumu,odeme_dekontu,odeme_dekontu_adi,cari_id,vade_tarihi,aciklama,olusturma_tarihi,company_id,urun_id,depo_id,vehicle_plate) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+      args: [n(f.id),n(f.faturaNo),n(f.faturaTarihi),n(f.tedarikciAdi),n(f.tedarikciVkn),n(f.malHizmetAdi),n(f.toplamTutar),n(f.kdvOrani),n(f.kdvTutari),n(f.matrah),n(f.tevkifatOrani),n(f.tevkifatTutari),n(f.stopajOrani),n(f.stopajTutari),n(f.muhasebeKodu),n(f.pdfDosya),n(f.pdfDosyaAdi),n(f.odemeTarihi),n(f.odemeDurumu||'odenmedi'),n(f.odemeDekontu),n(f.odemeDekontuAdi),n(f.cariId),n(f.vadeTarihi),n(f.aciklama),n(f.olusturmaTarihi),req.user.companyId,n(f.urunId),n(f.depoId),n(f.vehiclePlate)]
     });
     
     // Çoklu stok hareketleri oluştur (GIRIS - alış = stoğa giriş)
@@ -1362,8 +1401,8 @@ app.put('/api/alis-faturalari/:id', authMiddleware, async (req, res) => {
   const f = req.body;
   try {
     await client.execute({
-      sql: 'UPDATE alis_faturalari SET odeme_tarihi=?,odeme_durumu=?,odeme_dekontu=?,odeme_dekontu_adi=?,pdf_dosya=?,pdf_dosya_adi=? WHERE id=? AND company_id = ?',
-      args: [n(f.odemeTarihi),n(f.odemeDurumu),n(f.odemeDekontu),n(f.odemeDekontuAdi),n(f.pdfDosya),n(f.pdfDosyaAdi),req.params.id, req.user.companyId]
+      sql: 'UPDATE alis_faturalari SET odeme_tarihi=?,odeme_durumu=?,odeme_dekontu=?,odeme_dekontu_adi=?,pdf_dosya=?,pdf_dosya_adi=?,vehicle_plate=? WHERE id=? AND company_id = ?',
+      args: [n(f.odemeTarihi),n(f.odemeDurumu),n(f.odemeDekontu),n(f.odemeDekontuAdi),n(f.pdfDosya),n(f.pdfDosyaAdi),n(f.vehiclePlate),req.params.id, req.user.companyId]
     });
     res.json({ success: true });
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }

@@ -180,6 +180,19 @@ export async function initDb() {
       );
     `);
 
+    // Şirket Araçları (Binek/Ticari)
+    await client.execute(`
+      CREATE TABLE IF NOT EXISTS company_vehicles (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        company_id INTEGER NOT NULL,
+        plate TEXT NOT NULL,
+        type TEXT CHECK(type IN ('passenger', 'commercial')) NOT NULL DEFAULT 'passenger',
+        brand_model TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE
+      );
+    `);
+
     // Stok Kategorileri
     await client.execute(`
       CREATE TABLE IF NOT EXISTS stok_kategoriler (
@@ -354,6 +367,9 @@ export async function initDb() {
       }
       if (!afInfo.rows.some(col => col.name === 'depo_id')) {
         await client.execute(`ALTER TABLE alis_faturalari ADD COLUMN depo_id TEXT`);
+      }
+      if (!afInfo.rows.some(col => col.name === 'vehicle_plate')) {
+        await client.execute(`ALTER TABLE alis_faturalari ADD COLUMN vehicle_plate TEXT`);
       }
     } catch (e) {}
 

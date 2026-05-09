@@ -175,6 +175,10 @@ interface AppContextType {
   updateCompany: (id: number, data: Partial<Company>) => Promise<{ success: boolean; message?: string }>;
   deleteCompany: (id: number) => Promise<{ success: boolean; message?: string }>;
   
+  // ==================== ARAÇ YÖNETİMİ ====================
+  addVehicle: (data: Omit<Vehicle, 'id'>) => Promise<{ success: boolean; message?: string }>;
+  deleteVehicle: (id: number) => Promise<{ success: boolean; message?: string }>;
+
   // ==================== LUCA ENTEGRASYON ====================
   lucaAccounts: { kod: string; ad: string; tur?: string }[];
   syncLucaAccounts: () => void;
@@ -875,6 +879,28 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const deleteCompany = useCallback(async (id: number) => {
     try {
       const result = await apiFetch(`/api/super/companies/${id}`, {
+        method: 'DELETE'
+      });
+      if (result.success) fetchCompanies();
+      return result;
+    } catch (error: any) { return { success: false, message: error.message }; }
+  }, [fetchCompanies]);
+
+  // ==================== ARAÇ YÖNETİMİ ====================
+  const addVehicle = useCallback(async (data: Omit<Vehicle, 'id'>) => {
+    try {
+      const result = await apiFetch('/api/vehicles', {
+        method: 'POST',
+        body: JSON.stringify(data)
+      });
+      if (result.success) fetchCompanies();
+      return result;
+    } catch (error: any) { return { success: false, message: error.message }; }
+  }, [fetchCompanies]);
+
+  const deleteVehicle = useCallback(async (id: number) => {
+    try {
+      const result = await apiFetch(`/api/vehicles/${id}`, {
         method: 'DELETE'
       });
       if (result.success) fetchCompanies();
@@ -1673,6 +1699,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         addCompany,
         updateCompany,
         deleteCompany,
+        addVehicle,
+        deleteVehicle,
         lucaAccounts,
         syncLucaAccounts,
         teklifler,

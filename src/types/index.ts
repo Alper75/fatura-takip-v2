@@ -122,6 +122,7 @@ export interface AlisFatura {
   // Stok Entegrasyonu
   urunId?: string;
   depoId?: string;
+  vehiclePlate?: string;
 }
 
 export interface AlisFaturaFormData {
@@ -143,6 +144,7 @@ export interface AlisFaturaFormData {
   // Stok Entegrasyonu
   urunId?: string;
   depoId?: string;
+  vehiclePlate?: string;
 }
 
 // ==================== CARİ HAREKET (Bakiye / Ekstre İşlemleri) ====================
@@ -213,6 +215,13 @@ export interface User {
   companyId?: number;
 }
 
+export interface Vehicle {
+  id: number;
+  plate: string;
+  type: 'passenger' | 'commercial';
+  brand_model?: string;
+}
+
 export interface Company {
   id: number;
   name: string;
@@ -221,6 +230,7 @@ export interface Company {
   email?: string;
   company_type?: string;
   status: 'active' | 'passive';
+  vehicles?: Vehicle[];
 }
 
 export interface CompanyFolder {
