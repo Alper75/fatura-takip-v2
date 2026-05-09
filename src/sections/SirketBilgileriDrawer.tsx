@@ -16,7 +16,8 @@ export function SirketBilgileriDrawer() {
   const [newVehicle, setNewVehicle] = useState({ plate: '', type: 'passenger' as 'passenger' | 'commercial', brand_model: '' });
   
   // Bulunulan kullanıcıya ait aktif şirketi bul
-  const activeCompany = companies.find(c => c.id === user?.companyId);
+  // Eğer tam eşleşme bulunamazsa (id tipi uyuşmazlığı vb.), listedeki ilk şirketi kullan
+  const activeCompany = companies.find(c => Number(c.id) === Number(user?.companyId)) || (companies.length > 0 ? companies[0] : null);
 
   if (!activeCompany) return null;
 

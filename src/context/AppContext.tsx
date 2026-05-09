@@ -1713,6 +1713,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         siparisler,
         updateSiparis,
         deleteSiparis,
+        isSirketBilgileriOpen,
+        openSirketBilgileri,
+        closeSirketBilgileri,
         apiFetch,
         fetchCariler
       }}
