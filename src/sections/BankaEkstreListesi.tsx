@@ -76,6 +76,9 @@ export function BankaEkstreListesi() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<Partial<CariHareket>>({});
 
+  // Toplu İşlem State'i
+  const [selectedHareketIds, setSelectedHareketIds] = useState<string[]>([]);
+
   const filteredHareketler = useMemo(() => {
     return cariHareketler
       .filter(h => h.bankaId !== null && h.bankaId !== undefined)
@@ -120,6 +123,28 @@ export function BankaEkstreListesi() {
   };
 
   const formatCurrency = (val: number) => new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(val);
+
+  const toggleSelection = (id: string) => {
+    setSelectedHareketIds(prev => 
+      prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
+    );
+  };
+
+  const toggleAll = () => {
+    if (selectedHareketIds.length === filteredHareketler.length) {
+      setSelectedHareketIds([]);
+    } else {
+      setSelectedHareketIds(filteredHareketler.map(h => h.id));
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    for (const id of selectedHareketIds) {
+      deleteCariHareket(id);
+    }
+    toast.success(`${selectedHareketIds.length} hareket başarıyla silindi.`);
+    setSelectedHareketIds([]);
+  };
 
   return (
     <div className="space-y-6">
@@ -193,11 +218,47 @@ export function BankaEkstreListesi() {
             )}
           </div>
         </CardHeader>
+        
+        {selectedHareketIds.length > 0 && (
+          <div className="flex items-center justify-between bg-indigo-50/80 p-3 px-4 border-b border-indigo-100">
+            <span className="text-sm font-medium text-indigo-900">{selectedHareketIds.length} hareket seçildi</span>
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button variant="destructive" size="sm" className="gap-2 h-8">
+                  <Trash2 className="w-3.5 h-3.5" /> Seçilenleri Sil
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Seçili Hareketleri Sil</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Seçilen {selectedHareketIds.length} hareket kalıcı olarak silinecek ve banka bakiyeleri güncellenecektir. Bu işlem geri alınamaz. Emin misiniz?
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Vazgeç</AlertDialogCancel>
+                  <AlertDialogAction onClick={handleBulkDelete} className="bg-red-600 hover:bg-red-700">
+                    Evet, Sil
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          </div>
+        )}
+
         <CardContent className="p-0">
           <div className="overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow className="hover:bg-transparent bg-slate-50/50">
+                  <TableHead className="w-12 text-center">
+                    <input 
+                      type="checkbox" 
+                      className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-600 cursor-pointer"
+                      checked={filteredHareketler.length > 0 && selectedHareketIds.length === filteredHareketler.length}
+                      onChange={toggleAll}
+                    />
+                  </TableHead>
                   <TableHead className="w-32">Tarih</TableHead>
                   <TableHead>Banka</TableHead>
                   <TableHead className="min-w-[200px]">Açıklama</TableHead>
@@ -210,7 +271,7 @@ export function BankaEkstreListesi() {
               <TableBody>
                 {filteredHareketler.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="h-32 text-center text-slate-400">
+                    <TableCell colSpan={8} className="h-32 text-center text-slate-400">
                       Hareket bulunamadı.
                     </TableCell>
                   </TableRow>
@@ -222,7 +283,15 @@ export function BankaEkstreListesi() {
                     const isGiris = (h.islemTuru === 'tahsilat' || h.islemTuru === 'satis_faturasi' || (h.islemTuru === 'transfer' && (h.aciklama || '').toUpperCase().includes('GELEN')));
 
                     return (
-                      <TableRow key={h.id} className="group transition-colors">
+                      <TableRow key={h.id} className={cn("group transition-colors", selectedHareketIds.includes(h.id) ? "bg-indigo-50/30" : "")}>
+                        <TableCell className="text-center">
+                          <input 
+                            type="checkbox" 
+                            className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-600 cursor-pointer"
+                            checked={selectedHareketIds.includes(h.id)}
+                            onChange={() => toggleSelection(h.id)}
+                          />
+                        </TableCell>
                         <TableCell className="text-sm font-medium text-slate-600">{h.tarih}</TableCell>
                         <TableCell>
                           <div className="flex flex-col">
