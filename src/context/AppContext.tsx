@@ -840,10 +840,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // ==================== SUPER ADMIN FUNCTIONS ====================
   const fetchCompanies = useCallback(async () => {
     try {
-      const data = await apiFetch('/api/super/companies');
-      if (data.success) setCompanies(data.data);
+      if (user?.role === 'super_admin') {
+        const data = await apiFetch('/api/super/companies');
+        if (data.success) setCompanies(data.data);
+      } else if (user) {
+        const data = await apiFetch('/api/my-company');
+        if (data.success && data.data) setCompanies([data.data]);
+      }
     } catch (error) { console.error('Fetch companies error:', error); }
-  }, []);
+  }, [user]);
 
   const addCompany = useCallback(async (data: Omit<Company, 'id'>) => {
     try {
@@ -1537,9 +1542,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         fetchRequests();
         fetchPointages();
       }
-      if (user?.role === 'super_admin') {
-        fetchCompanies();
-      }
+      fetchCompanies();
       if (user?.role === 'personnel') {
         fetchMyPersonnel();
         fetchLeaves();

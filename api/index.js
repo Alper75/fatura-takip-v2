@@ -301,6 +301,20 @@ app.get('/api/personnel/me', authMiddleware, async (req, res) => {
   }
 });
 
+// --- MY COMPANY (All Users) ---
+app.get('/api/my-company', authMiddleware, async (req, res) => {
+  try {
+    const rs = await client.execute({
+      sql: 'SELECT id, name, tax_no, address, email, company_type, status FROM companies WHERE id = ?',
+      args: [req.user.companyId || 1]
+    });
+    if (rs.rows.length === 0) return res.status(404).json({ success: false, message: 'Şirket bulunamadı.' });
+    res.json({ success: true, data: rs.rows[0] });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 // --- SUPER ADMIN COMPANIES ---
 
 // List all companies
