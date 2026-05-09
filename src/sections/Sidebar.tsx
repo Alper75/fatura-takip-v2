@@ -332,12 +332,15 @@ export function Sidebar({ onItemClick }: SidebarProps) {
         {!isSuperAdmin && (
           <div 
             className="mx-3 mb-4 p-2 bg-slate-50 border border-slate-100 rounded-lg flex items-center gap-2 cursor-pointer hover:bg-slate-100 hover:border-slate-200 transition-all group"
-            onClick={openSirketBilgileri}
+            onClick={() => {
+              openSirketBilgileri();
+              onItemClick?.();
+            }}
           >
             <Building2 className="w-4 h-4 text-slate-400 group-hover:text-primary transition-colors" />
             <div className="flex-1 min-w-0">
               <span className="block text-[11px] font-bold text-slate-700 truncate group-hover:text-primary transition-colors">
-                {companies.find(c => c.id === user?.companyId)?.name || 'Aktif Şirket'}
+                {companies.find(c => Number(c.id) === Number(user?.companyId))?.name || (companies.length > 0 ? companies[0].name : 'Aktif Şirket')}
               </span>
               <span className="block text-[9px] text-slate-400">Şirket bilgilerini gör</span>
             </div>
