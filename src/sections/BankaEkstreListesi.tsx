@@ -424,7 +424,7 @@ export function BankaEkstreListesi() {
                         <TableCell>
                           <LucaAccountSelect 
                             value={h.muhasebeKodu || ''} 
-                            onSelect={(code) => updateCariHareket(h.id, { muhasebeKodu: code })}
+                            onChange={(code: string) => updateCariHareket(h.id, { muhasebeKodu: code })}
                             className="h-8 text-[11px]"
                           />
                         </TableCell>
@@ -541,7 +541,7 @@ export function BankaEkstreListesi() {
               <div className="col-span-3">
                 <LucaAccountSelect 
                   value={editForm.muhasebeKodu || ''} 
-                  onSelect={(code) => setEditForm({...editForm, muhasebeKodu: code})}
+                  onChange={(code: string) => setEditForm({...editForm, muhasebeKodu: code})}
                   className="h-9"
                 />
               </div>
