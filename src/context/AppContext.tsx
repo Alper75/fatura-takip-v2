@@ -16,6 +16,7 @@ import type {
   BankaHesabi,
   BankaHesabiFormData,
   User,
+  Vehicle,
   ViewType,
   IslemTuru,
   OdemeDurumu,
