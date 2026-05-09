@@ -10,6 +10,7 @@ import {
 } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { 
   FileSpreadsheet,
@@ -251,13 +252,14 @@ export function BankaEkstreListesi() {
             <Table>
               <TableHeader>
                 <TableRow className="hover:bg-transparent bg-slate-50/50">
-                  <TableHead className="w-12 text-center">
-                    <input 
-                      type="checkbox" 
-                      className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-600 cursor-pointer"
-                      checked={filteredHareketler.length > 0 && selectedHareketIds.length === filteredHareketler.length}
-                      onChange={toggleAll}
-                    />
+                  <TableHead className="w-12 text-center align-middle">
+                    <div className="flex justify-center items-center h-full">
+                      <Checkbox 
+                        checked={filteredHareketler.length > 0 && selectedHareketIds.length === filteredHareketler.length}
+                        onCheckedChange={toggleAll}
+                        className="border-slate-300 data-[state=checked]:bg-indigo-600 data-[state=checked]:border-indigo-600"
+                      />
+                    </div>
                   </TableHead>
                   <TableHead className="w-32">Tarih</TableHead>
                   <TableHead>Banka</TableHead>
@@ -284,13 +286,14 @@ export function BankaEkstreListesi() {
 
                     return (
                       <TableRow key={h.id} className={cn("group transition-colors", selectedHareketIds.includes(h.id) ? "bg-indigo-50/30" : "")}>
-                        <TableCell className="text-center">
-                          <input 
-                            type="checkbox" 
-                            className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-600 cursor-pointer"
-                            checked={selectedHareketIds.includes(h.id)}
-                            onChange={() => toggleSelection(h.id)}
-                          />
+                        <TableCell className="text-center align-middle">
+                          <div className="flex justify-center items-center h-full">
+                            <Checkbox 
+                              checked={selectedHareketIds.includes(h.id)}
+                              onCheckedChange={() => toggleSelection(h.id)}
+                              className="border-slate-300 data-[state=checked]:bg-indigo-600 data-[state=checked]:border-indigo-600"
+                            />
+                          </div>
                         </TableCell>
                         <TableCell className="text-sm font-medium text-slate-600">{h.tarih}</TableCell>
                         <TableCell>
