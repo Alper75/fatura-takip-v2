@@ -21,7 +21,8 @@ import {
   ArrowDownLeft,
   FilterX,
   Pencil,
-  Tag
+  Tag,
+  ExternalLink
 } from 'lucide-react';
 import { 
   Select, 
@@ -147,6 +148,33 @@ export function BankaEkstreListesi() {
     setSelectedHareketIds([]);
   };
 
+  const handleBulkSendToLuca = () => {
+    const selected = filteredHareketler.filter(h => selectedHareketIds.includes(h.id));
+    // Uzantının anlayacağı formata çevir
+    const payload = selected.map(h => {
+      const banka = bankaHesaplari.find(b => b.id === h.bankaId);
+      const cari = cariler.find(c => c.id === h.cariId);
+      const isGiris = (h.islemTuru === 'tahsilat' || h.islemTuru === 'satis_faturasi' ||
+        (h.islemTuru === 'transfer' && (h.aciklama || '').toUpperCase().includes('GELEN')));
+      return {
+        tarih: h.tarih,
+        aciklama: h.aciklama,
+        tutar: h.tutar,
+        tur: isGiris ? 'alacak' : 'borc',
+        islemTuru: h.islemTuru,
+        banka: banka?.hesapAdi || '',
+        cari: cari?.unvan || '',
+        muhasebeKodu: (h as any).muhasebeKodu || ''
+      };
+    });
+    window.dispatchEvent(new CustomEvent('FATURA_APP_LUCA_SEND_BANKA_HAREKETLERI', {
+      detail: { hareketler: payload }
+    }));
+    toast.success(`${selected.length} hareket Luca'ya gönderildi.`, {
+      description: 'Luca eklentisi yüklü ve aktifse işlem tamamlanacaktır.'
+    });
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -223,27 +251,37 @@ export function BankaEkstreListesi() {
         {selectedHareketIds.length > 0 && (
           <div className="flex items-center justify-between bg-indigo-50/80 p-3 px-4 border-b border-indigo-100">
             <span className="text-sm font-medium text-indigo-900">{selectedHareketIds.length} hareket seçildi</span>
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <Button variant="destructive" size="sm" className="gap-2 h-8">
-                  <Trash2 className="w-3.5 h-3.5" /> Seçilenleri Sil
-                </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Seçili Hareketleri Sil</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    Seçilen {selectedHareketIds.length} hareket kalıcı olarak silinecek ve banka bakiyeleri güncellenecektir. Bu işlem geri alınamaz. Emin misiniz?
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>Vazgeç</AlertDialogCancel>
-                  <AlertDialogAction onClick={handleBulkDelete} className="bg-red-600 hover:bg-red-700">
-                    Evet, Sil
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-2 h-8 border-indigo-200 text-indigo-700 hover:bg-indigo-100"
+                onClick={handleBulkSendToLuca}
+              >
+                <ExternalLink className="w-3.5 h-3.5" /> Luca'ya Gönder
+              </Button>
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button variant="destructive" size="sm" className="gap-2 h-8">
+                    <Trash2 className="w-3.5 h-3.5" /> Seçilenleri Sil
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Seçili Hareketleri Sil</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      Seçilen {selectedHareketIds.length} hareket kalıcı olarak silinecek ve banka bakiyeleri güncellenecektir. Bu işlem geri alınamaz. Emin misiniz?
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Vazgeç</AlertDialogCancel>
+                    <AlertDialogAction onClick={handleBulkDelete} className="bg-red-600 hover:bg-red-700">
+                      Evet, Sil
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            </div>
           </div>
         )}
 
@@ -285,7 +323,18 @@ export function BankaEkstreListesi() {
                     const isGiris = (h.islemTuru === 'tahsilat' || h.islemTuru === 'satis_faturasi' || (h.islemTuru === 'transfer' && (h.aciklama || '').toUpperCase().includes('GELEN')));
 
                     return (
-                      <TableRow key={h.id} className={cn("group transition-colors", selectedHareketIds.includes(h.id) ? "bg-indigo-50/30" : "")}>
+                      <TableRow
+                        key={h.id}
+                        className={cn("group transition-colors", selectedHareketIds.includes(h.id) ? "bg-indigo-50/30" : "")}
+                        data-luca-tarih={h.tarih}
+                        data-luca-aciklama={h.aciklama || ''}
+                        data-luca-tutar={h.tutar}
+                        data-luca-tur={isGiris ? 'alacak' : 'borc'}
+                        data-luca-islem-turu={h.islemTuru || ''}
+                        data-luca-banka={banka?.hesapAdi || ''}
+                        data-luca-cari={cari?.unvan || ''}
+                        data-luca-cari-vkn={cari?.vknTckn || ''}
+                      >
                         <TableCell className="text-center align-middle">
                           <div className="flex justify-center items-center h-full">
                             <Checkbox 
