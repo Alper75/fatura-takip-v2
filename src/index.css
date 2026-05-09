@@ -73,3 +73,11 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Luca Extension Hider */
+.bluca-checkbox-injected, 
+[class*="bluca-checkbox"],
+[class*="bluca-button"],
+#bluca-floating-button {
+  display: none !important;
+}
