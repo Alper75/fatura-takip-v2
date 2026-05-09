@@ -69,6 +69,13 @@ export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploa
   const normalizeString = (str: any) => {
     if (str === null || str === undefined) return '';
     return String(str)
+      .replace(/i/g, 'I')
+      .replace(/ı/g, 'I')
+      .replace(/ğ/g, 'G')
+      .replace(/ü/g, 'U')
+      .replace(/ş/g, 'S')
+      .replace(/ö/g, 'O')
+      .replace(/ç/g, 'C')
       .toUpperCase()
       .replace(/İ/g, 'I')
       .replace(/Ğ/g, 'G')
@@ -116,11 +123,11 @@ export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploa
        }
     }
 
-    // 3. Cari Eşleştirme
+    // 3. Cari Eşleştirme (Gelişmiş)
+    // Önce VKN / TCKN kontrolü (en kesin eşleşme)
     for (const cari of cariler) {
-      const u = normalizeString(cari.unvan);
       const v = String(cari.vknTckn || '').trim();
-      if ((u && cleanDesc.includes(u)) || (v && cleanDesc.includes(v))) {
+      if (v && v.length > 5 && cleanDesc.includes(v)) {
         return { 
           tur: tip === 'alacak' ? 'tahsilat' : 'odeme', 
           cariId: cari.id 
@@ -128,7 +135,55 @@ export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploa
       }
     }
 
-    // 4. Anahtar Kelime Eşleştirme
+    // Ünvan üzerinden akıllı eşleştirme
+    for (const cari of cariler) {
+      const rawU = normalizeString(cari.unvan);
+      if (!rawU) continue;
+
+      // 3.1 Tam Eşleşme
+      if (cleanDesc.includes(rawU)) {
+        return { tur: tip === 'alacak' ? 'tahsilat' : 'odeme', cariId: cari.id };
+      }
+
+      // 3.2 Şirket eklerini temizleyerek (A.Ş., LTD vb.) arama
+      const cleanedU = rawU
+        .replace(/\s+A\.?S\.?(\s|$)/g, ' ')
+        .replace(/\s+ANONIM SIRKETI(\s|$)/g, ' ')
+        .replace(/\s+LTD\.?\s*STI\.?(\s|$)/g, ' ')
+        .replace(/\s+LIMITED SIRKETI(\s|$)/g, ' ')
+        .replace(/\s+SAN\.?\s*VE\s*TIC\.?(\s|$)/g, ' ')
+        .replace(/\s+SANAYI VE TICARET(\s|$)/g, ' ')
+        .replace(/\s+SAN\.?\s*TIC\.?(\s|$)/g, ' ')
+        .replace(/\s+SANAYI(\s|$)/g, ' ')
+        .replace(/\s+TICARET(\s|$)/g, ' ')
+        .replace(/\s+SAN\.?(\s|$)/g, ' ')
+        .replace(/\s+TIC\.?(\s|$)/g, ' ')
+        .replace(/\s+STI\.?(\s|$)/g, ' ')
+        .trim();
+
+      if (cleanedU.length >= 4 && cleanDesc.includes(cleanedU)) {
+        return { tur: tip === 'alacak' ? 'tahsilat' : 'odeme', cariId: cari.id };
+      }
+
+      // 3.3 Kelime bazlı arama (İlk 2 kelime bir arada var mı?)
+      const words = cleanedU.split(' ');
+      if (words.length >= 2) {
+        const firstTwoWords = words[0] + ' ' + words[1];
+        if (firstTwoWords.length >= 5 && cleanDesc.includes(firstTwoWords)) {
+           return { tur: tip === 'alacak' ? 'tahsilat' : 'odeme', cariId: cari.id };
+        }
+      }
+
+      // 3.4 Sadece ilk kelime (En az 5 harfli ise) eşleşmesi ("ÖZDEMİR TİCARET" için sadece "ÖZDEMİR"i arar)
+      if (words.length >= 1) {
+        const firstWord = words[0];
+        if (firstWord.length >= 5 && cleanDesc.includes(firstWord)) {
+           return { tur: tip === 'alacak' ? 'tahsilat' : 'odeme', cariId: cari.id };
+        }
+      }
+    }
+
+    // 4. Anahtar Kelime Eşleştirme (Vergi, Maaş vb.)
     for (const [key, tur] of Object.entries(CLASSIFICATION_KEYWORDS)) {
       if (cleanDesc.includes(key)) {
         return { tur, cariId: null };
