@@ -89,7 +89,6 @@ export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploa
 
   const classifyTransaction = (aciklama: string, tip: 'borc' | 'alacak'): { tur: IslemTuru; cariId: string | null; kategoriId?: string | null; transferBankaId?: string | null; muhasebeKodu?: string } => {
     const cleanDesc = normalizeString(aciklama);
-    const { giderKategorileri } = useApp(); // Bu hatalı olabilir, parametre olarak alalım veya içerde useApp() kullanmayalım
     // classifyTransaction'ı component dışında tanımlamak daha iyi ama şimdilik içerdeyse useApp'ten gelenleri parametre alalım
     
     // 0. Kullanıcı Tanımlı Masraf Kuralları (En Yüksek Öncelik)
@@ -127,7 +126,6 @@ export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploa
     }
 
     // 3. Cari Eşleştirme (Gelişmiş)
-    // Önce VKN / TCKN kontrolü (en kesin eşleşme)
     for (const cari of cariler) {
       const v = String(cari.vknTckn || '').trim();
       if (v && v.length > 5 && cleanDesc.includes(v)) {
@@ -136,6 +134,8 @@ export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploa
           cariId: cari.id 
         };
       }
+    }
+
     for (const b of bankaHesaplari) {
       if (b.id === bankaId) continue;
       
@@ -302,6 +302,9 @@ export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploa
               muhasebeKodu: match.muhasebeKodu,
               durum: match.cariId || match.transferBankaId || match.kategoriId ? 'success' : 'pending'
             });
+          } catch (rowErr) {
+            console.error('Satır işleme hatası:', rowErr);
+          }
         }
 
         setTimeout(() => {
