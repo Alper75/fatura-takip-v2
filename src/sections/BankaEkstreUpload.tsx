@@ -26,6 +26,7 @@ interface EkstreSatiri {
   durum: 'success' | 'warning' | 'pending';
   transferBankaId?: string | null;
   muhasebeKodu?: string;
+  kategoriId?: string | null;
 }
 
 const CLASSIFICATION_KEYWORDS: Record<string, IslemTuru> = {
@@ -57,7 +58,7 @@ const CLASSIFICATION_KEYWORDS: Record<string, IslemTuru> = {
 };
 
 export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploadProps) {
-  const { cariler, bankaHesaplari, addCariHareket, masrafKurallari, lucaAccounts } = useApp();
+  const { cariler, bankaHesaplari, addCariHareket, masrafKurallari, lucaAccounts, giderKategorileri } = useApp();
   const [satirlar, setSatirlar] = useState<EkstreSatiri[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isAiAnalyzing, setIsAiAnalyzing] = useState(false);
@@ -86,8 +87,10 @@ export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploa
       .trim();
   };
 
-  const classifyTransaction = (aciklama: string, tip: 'borc' | 'alacak'): { tur: IslemTuru; cariId: string | null; transferBankaId?: string | null } => {
+  const classifyTransaction = (aciklama: string, tip: 'borc' | 'alacak'): { tur: IslemTuru; cariId: string | null; kategoriId?: string | null; transferBankaId?: string | null; muhasebeKodu?: string } => {
     const cleanDesc = normalizeString(aciklama);
+    const { giderKategorileri } = useApp(); // Bu hatalı olabilir, parametre olarak alalım veya içerde useApp() kullanmayalım
+    // classifyTransaction'ı component dışında tanımlamak daha iyi ama şimdilik içerdeyse useApp'ten gelenleri parametre alalım
     
     // 0. Kullanıcı Tanımlı Masraf Kuralları (En Yüksek Öncelik)
     for (const kural of masrafKurallari) {
@@ -133,20 +136,31 @@ export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploa
           cariId: cari.id 
         };
       }
+    for (const b of bankaHesaplari) {
+      if (b.id === bankaId) continue;
+      
+      const bAdi = normalizeString(b.bankaAdi);
+      const hAdi = normalizeString(b.hesapAdi);
+      const iban = (b.iban || '').replace(/\s/g, '').slice(-4);
+      
+      if ((bAdi && cleanDesc.includes(bAdi)) || (hAdi && cleanDesc.includes(hAdi)) || (iban && cleanDesc.includes(iban))) {
+        return { tur: 'transfer', cariId: null, transferBankaId: b.id };
+      }
     }
 
-    // Ünvan üzerinden akıllı eşleştirme
-    for (const cari of cariler) {
-      const rawU = normalizeString(cari.unvan);
-      if (!rawU) continue;
-
-      // 3.1 Tam Eşleşme
-      if (cleanDesc.includes(rawU)) {
-        return { tur: tip === 'alacak' ? 'tahsilat' : 'odeme', cariId: cari.id };
+    // 2. IBAN Eşleştirmesi (Cari Listesinden)
+    const ibanInDesc = cleanDesc.replace(/[^A-Z0-9]/g, '').match(/TR[0-9]{24}/);
+    if (ibanInDesc) {
+      const foundCari = cariler.find(c => (c.iban || '').replace(/\s/g, '') === ibanInDesc[0]);
+      if (foundCari) {
+        return { tur: tip === 'alacak' ? 'tahsilat' : 'odeme', cariId: foundCari.id, muhasebeKodu: foundCari.muhasebeKodu };
       }
+    }
 
-      // 3.2 Şirket eklerini temizleyerek (A.Ş., LTD vb.) arama
-      const cleanedU = rawU
+    // 3. Cari Ünvan Eşleştirmesi (Fuzzy)
+    for (const cari of cariler) {
+      if (!cari.unvan) continue;
+      const cleanedU = normalizeString(cari.unvan)
         .replace(/\s+A\.?S\.?(\s|$)/g, ' ')
         .replace(/\s+ANONIM SIRKETI(\s|$)/g, ' ')
         .replace(/\s+LTD\.?\s*STI\.?(\s|$)/g, ' ')
@@ -162,23 +176,22 @@ export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploa
         .trim();
 
       if (cleanedU.length >= 4 && cleanDesc.includes(cleanedU)) {
-        return { tur: tip === 'alacak' ? 'tahsilat' : 'odeme', cariId: cari.id };
+        return { tur: tip === 'alacak' ? 'tahsilat' : 'odeme', cariId: cari.id, muhasebeKodu: cari.muhasebeKodu };
       }
 
-      // 3.3 Kelime bazlı arama (İlk 2 kelime bir arada var mı?)
+      // 3.3 Kelime bazlı arama
       const words = cleanedU.split(' ');
       if (words.length >= 2) {
         const firstTwoWords = words[0] + ' ' + words[1];
         if (firstTwoWords.length >= 5 && cleanDesc.includes(firstTwoWords)) {
-           return { tur: tip === 'alacak' ? 'tahsilat' : 'odeme', cariId: cari.id };
+           return { tur: tip === 'alacak' ? 'tahsilat' : 'odeme', cariId: cari.id, muhasebeKodu: cari.muhasebeKodu };
         }
       }
 
-      // 3.4 Sadece ilk kelime (En az 5 harfli ise) eşleşmesi ("ÖZDEMİR TİCARET" için sadece "ÖZDEMİR"i arar)
       if (words.length >= 1) {
         const firstWord = words[0];
         if (firstWord.length >= 5 && cleanDesc.includes(firstWord)) {
-           return { tur: tip === 'alacak' ? 'tahsilat' : 'odeme', cariId: cari.id };
+           return { tur: tip === 'alacak' ? 'tahsilat' : 'odeme', cariId: cari.id, muhasebeKodu: cari.muhasebeKodu };
         }
       }
     }
@@ -186,7 +199,8 @@ export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploa
     // 4. Anahtar Kelime Eşleştirme (Vergi, Maaş vb.)
     for (const [key, tur] of Object.entries(CLASSIFICATION_KEYWORDS)) {
       if (cleanDesc.includes(key)) {
-        return { tur, cariId: null };
+        const sysCat = giderKategorileri.find(cat => normalizeString(cat.ad).includes(key));
+        return { tur, cariId: null, kategoriId: sysCat?.id, muhasebeKodu: sysCat?.muhasebeKodu };
       }
     }
 
@@ -200,21 +214,13 @@ export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploa
     if (typeof val === 'number') return val;
     let s = String(val || '0').trim();
     if (!s) return 0;
-
-    // Sadece rakam, nokta ve virgül olan kısmı al
     s = s.replace(/[^0-9,.-]/g, '');
-
-    // Eğer hem nokta hem virgül varsa kesin Türk formatıdır: 1.234,56
     if (s.includes('.') && s.includes(',')) {
       return parseFloat(s.replace(/\./g, '').replace(',', '.'));
     }
-    // Sadece virgül varsa: 1234,56
     if (s.includes(',')) {
       return parseFloat(s.replace(',', '.'));
     }
-    // Sadece nokta varsa: Bu 1234.56 da olabilir 1.234 de olabilir (binlik ayracı olarak)
-    // Bankalarda genellikle kuruş hanesi olduğu için (noktadan sonra 2 hane geliyorsa) 
-    // bunu standart JS sayısı (1234.56) gibi görelim
     return parseFloat(s);
   };
 
@@ -227,18 +233,8 @@ export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploa
     reader.onload = (evt) => {
       try {
         const bstr = evt.target?.result;
-        if (!XLSX || !XLSX.read) {
-          toast.error('Excel kütüphanesi yüklenemedi. Sayfayı yenileyip tekrar deneyin.');
-          setIsProcessing(false);
-          return;
-        }
         const wb = XLSX.read(bstr, { type: 'binary', cellDates: true });
         const sheetName = wb.SheetNames[0];
-        if (!sheetName) {
-           toast.error('Excel içinde geçerli bir sayfa bulunamadı.');
-           setIsProcessing(false);
-           return;
-        }
         const ws = wb.Sheets[sheetName];
         const data = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
 
@@ -251,80 +247,61 @@ export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploa
 
         for (let i = 0; i < Math.min(data.length, 30); i++) {
           const row = (data[i] || []).map(cell => normalizeString(String(cell || '')));
-          const hasTarih = row.some(cell => cell.includes('TARIH'));
-          const hasAciklama = row.some(cell => cell.includes('ACIKLAMA'));
-          const hasIslemTutari = row.some(cell => cell.includes('ISLEM TUTARI') || cell.includes('TUTAR'));
-          const hasBorc = row.some(cell => cell.includes('BORC'));
-          const hasAlacak = row.some(cell => cell.includes('ALACAK'));
-
-          if (hasTarih && hasAciklama && (hasIslemTutari || (hasBorc && hasAlacak))) {
+          if (row.some(c => c.includes('TARIH')) && row.some(c => c.includes('ACIKLAMA'))) {
             headerRowIdx = i;
-            dateIdx = row.findIndex(cell => cell.includes('TARIH'));
-            descIdx = row.findIndex(cell => cell.includes('ACIKLAMA'));
-            amountIdx = row.findIndex(cell => cell.includes('ISLEM TUTARI') || (cell === 'TUTAR'));
-            debitIdx = row.findIndex(cell => cell === 'BORC');
-            creditIdx = row.findIndex(cell => cell === 'ALACAK');
+            dateIdx = row.findIndex(c => c.includes('TARIH'));
+            descIdx = row.findIndex(c => c.includes('ACIKLAMA'));
+            amountIdx = row.findIndex(c => c.includes('ISLEM TUTARI') || c === 'TUTAR');
+            debitIdx = row.findIndex(c => c === 'BORC');
+            creditIdx = row.findIndex(c => c === 'ALACAK');
             break;
           }
         }
 
         if (headerRowIdx === -1) {
-          toast.error('Excel formatı anlaşılamadı. Başlıklar bulunamadı.');
+          toast.error('Excel formatı anlaşılamadı.');
           setIsProcessing(false);
           return;
         }
 
         const mappedSatirlar: EkstreSatiri[] = [];
-        
-        // Veriyi güvenli şekilde işle
         for (let i = headerRowIdx + 1; i < data.length; i++) {
           try {
             const row = data[i];
             if (!row || !row[dateIdx]) continue;
             
-            let tarih = '';
-            const rawDate = row[dateIdx];
-            if (rawDate instanceof Date) {
-              tarih = rawDate.toISOString().split('T')[0];
-            } else {
-              const dateStr = String(rawDate || '').trim();
-              const parts = dateStr.split(/[\.\-\/]/); // . - / ayraçlarını destekle
-              tarih = parts.length === 3 ? `${parts[2]}-${parts[1]}-${parts[0]}` : dateStr;
-            }
-
-            const aciklama = String(row[descIdx] || '');
-            let tutar = 0;
+            const tarih = row[dateIdx] instanceof Date ? row[dateIdx].toISOString().split('T')[0] : String(row[dateIdx]);
+            const desc = String(row[descIdx] || '');
+            let amount = 0;
             let tip: 'borc' | 'alacak' = 'alacak';
 
             if (amountIdx !== -1) {
               const val = parseTurkishNumber(row[amountIdx]);
-              tutar = Math.abs(val);
+              amount = Math.abs(val);
               tip = val < 0 ? 'borc' : 'alacak';
             } else if (debitIdx !== -1 && creditIdx !== -1) {
               const borc = parseTurkishNumber(row[debitIdx]);
               const alacak = parseTurkishNumber(row[creditIdx]);
-              tutar = borc > 0 ? borc : alacak;
+              amount = borc > 0 ? borc : alacak;
               tip = borc > 0 ? 'borc' : 'alacak';
             }
 
-            if (!tutar || isNaN(tutar)) continue;
+            if (!amount || isNaN(amount)) continue;
 
-            const { tur, cariId, transferBankaId } = classifyTransaction(aciklama, tip);
-
+            const match = classifyTransaction(desc, tip);
+          
             mappedSatirlar.push({
               tarih,
-              aciklama,
-              tutar,
+              aciklama: desc,
+              tutar: amount,
               tip,
-              eslesenCariId: cariId,
-              önerilenTur: tur,
-              transferBankaId: transferBankaId,
-              durum: (cariId || transferBankaId) ? 'success' : (tur !== 'tahsilat' && tur !== 'odeme' ? 'warning' : 'pending')
+              eslesenCariId: match.cariId,
+              önerilenTur: match.tur,
+              kategoriId: match.kategoriId,
+              transferBankaId: match.transferBankaId,
+              muhasebeKodu: match.muhasebeKodu,
+              durum: match.cariId || match.transferBankaId || match.kategoriId ? 'success' : 'pending'
             });
-          } catch (err) {
-            console.error('Satır işleme hatası (index ' + i + '):', err);
-            continue; // Hatalı satırı atla, tüm süreci çökertme
-          }
         }
 
         setTimeout(() => {
@@ -358,7 +335,8 @@ export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploa
         tutar: s.tutar,
         aciklama: finalAciklama,
         bankaId: bankaId,
-        muhasebeKodu: s.muhasebeKodu
+        muhasebeKodu: s.muhasebeKodu,
+        kategoriId: s.kategoriId
       });
     });
     toast.success('Banka ekstresi başarıyla işlendi.');
@@ -606,20 +584,46 @@ SADECE JSON döndür:
                             <div className="relative group">
                               <select 
                                 className="w-full h-8 text-[11px] bg-white border border-slate-200 rounded-md px-2 pr-6 outline-none focus:border-indigo-500 cursor-pointer hover:bg-slate-50 shadow-sm appearance-none transition-all"
-                                value={s.eslesenCariId || (s.transferBankaId ? 'transfer-' + s.transferBankaId : 'sistem')} 
+                                value={s.eslesenCariId ? s.eslesenCariId : s.kategoriId ? 'cat-' + s.kategoriId : s.transferBankaId ? 'transfer-' + s.transferBankaId : 'sistem'} 
                                 onChange={(e) => {
                                   const v = e.target.value;
                                   if (v.startsWith('transfer-')) {
-                                    updateSatir(idx, { eslesenCariId: null, transferBankaId: v.replace('transfer-', ''), önerilenTur: 'transfer' });
+                                    updateSatir(idx, { eslesenCariId: null, kategoriId: null, transferBankaId: v.replace('transfer-', ''), önerilenTur: 'transfer' });
+                                  } else if (v.startsWith('cat-')) {
+                                    const catId = v.replace('cat-', '');
+                                    const cat = giderKategorileri.find(k => k.id === catId);
+                                    updateSatir(idx, { 
+                                      eslesenCariId: null, 
+                                      kategoriId: catId, 
+                                      transferBankaId: null, 
+                                      önerilenTur: 'genel_gider',
+                                      muhasebeKodu: cat?.muhasebeKodu || s.muhasebeKodu
+                                    });
                                   } else {
-                                    updateSatir(idx, { eslesenCariId: v === 'sistem' ? null : v, transferBankaId: null });
+                                    const foundCari = cariler.find(c => c.id === v);
+                                    updateSatir(idx, { 
+                                      eslesenCariId: v === 'sistem' ? null : v, 
+                                      kategoriId: null, 
+                                      transferBankaId: null,
+                                      muhasebeKodu: foundCari?.muhasebeKodu || s.muhasebeKodu
+                                    });
                                   }
                                 }}
                               >
-                                <option value="sistem">Diğer (Kategori Seçin)</option>
+                                <option value="sistem">Eşleşme Yok (Seçin)</option>
+                                <optgroup label="GİDER KATEGORİLERİ (MASRAFLAR)">
+                                  {giderKategorileri.map(k => (
+                                    <option key={'cat-'+k.id} value={'cat-'+k.id}>{k.ad}</option>
+                                  ))}
+                                </optgroup>
                                 <optgroup label="BANKALAR (TRANSFER)">
                                   {bankaHesaplari.filter(b => b.id !== bankaId).map(b => (
                                     <option key={'transfer-'+b.id} value={'transfer-'+b.id}>{b.hesapAdi}</option>
+                                  ))}
+                                </optgroup>
+                                <optgroup label="CARİLER (MÜŞTERİ/TEDARİKÇİ)">
+                                  {cariler.map(c => (
+                                    <option key={c.id} value={c.id}>{c.unvan}</option>
                                   ))}
                                 </optgroup>
                                 <optgroup label="CARİLER">

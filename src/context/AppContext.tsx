@@ -135,9 +135,10 @@ interface AppContextType {
   updateKesilecekFatura: (id: string, data: Partial<KesilecekFatura>) => void;
   deleteKesilecekFatura: (id: string) => void;
   // ==================== GİDER KATEGORİLERİ ====================
-  giderKategorileri: GiderKategorisi[];
-  addGiderKategorisi: (ad: string) => void;
-  deleteGiderKategorisi: (id: string) => void;
+    giderKategorileri: GiderKategorisi[];
+    addGiderKategorisi: (ad: string, muhasebeKodu?: string) => void;
+    updateGiderKategorisi: (id: string, data: Partial<GiderKategorisi>) => void;
+    deleteGiderKategorisi: (id: string) => void;
   // ==================== HESAPLAMALAR ====================
   calculateFaturaHesaplamalari: (tutar: number, kdvStr: string, tevStr?: string, stopajStr?: string) => any;
   
@@ -1399,11 +1400,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     };
   }, [satisFaturalari, alisFaturalari]);
 
-  const addGiderKategorisi = useCallback(async (ad: string) => {
-    const yeni: GiderKategorisi = { id: 'cat' + Date.now().toString(), ad };
+  const addGiderKategorisi = useCallback(async (ad: string, muhasebeKodu?: string) => {
+    const yeni: GiderKategorisi = { id: 'cat' + Date.now().toString(), ad, muhasebeKodu };
     setGiderKategorileri(prev => [...prev, yeni]);
     try { await apiFetch('/api/gider-kategorileri', { method: 'POST', body: JSON.stringify(yeni) }); }
     catch (e) { console.error('Kategori eklenemedi:', e); }
+  }, []);
+
+  const updateGiderKategorisi = useCallback(async (id: string, data: Partial<GiderKategorisi>) => {
+    setGiderKategorileri(prev => prev.map(c => c.id === id ? { ...c, ...data } : c));
+    try { await apiFetch(`/api/gider-kategorileri/${id}`, { method: 'PUT', body: JSON.stringify(data) }); }
+    catch (e) { console.error('Kategori gÃ¼ncellenemedi:', e); }
   }, []);
 
   const deleteGiderKategorisi = useCallback(async (id: string) => {
@@ -1662,6 +1669,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         getVergiRaporu,
         giderKategorileri,
         addGiderKategorisi,
+        updateGiderKategorisi,
         deleteGiderKategorisi,
         masrafKurallari,
         addMasrafKurali,

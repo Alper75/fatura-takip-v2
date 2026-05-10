@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { LucaAccountSelect } from '@/components/LucaAccountSelect';
 import { useApp } from '@/context/AppContext';
 import { 
   Table, 
@@ -61,10 +62,8 @@ export function GenelGiderler() {
     addMasrafKurali,
     deleteMasrafKurali,
     updateCariHareket,
-    cariler,
-    giderKategorileri,
-    addGiderKategorisi,
-    deleteGiderKategorisi
+    deleteGiderKategorisi,
+    updateGiderKategorisi
   } = useApp();
 
   // Filtreler
@@ -95,6 +94,7 @@ export function GenelGiderler() {
   // Kategori Yönetimi Modal
   const [isCategoryManageOpen, setIsCategoryManageOpen] = useState(false);
   const [newCatName, setNewCatName] = useState('');
+  const [newCatLuca, setNewCatLuca] = useState('');
 
   const giderListesi = useMemo(() => {
     // CariId'si olmayan ve gider türünde olan hareketler "Genel Gider"dir
@@ -624,35 +624,40 @@ export function GenelGiderler() {
           </DialogHeader>
           
           <div className="space-y-6 py-4">
-            <div className="flex gap-2">
-              <Input 
-                placeholder="Yeni kategori adı... (Örn: Kırtasiye)" 
-                value={newCatName}
-                onChange={(e) => setNewCatName(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
+            <div className="flex flex-col gap-3 p-4 bg-slate-50 rounded-lg border border-slate-200">
+              <Label className="text-xs font-bold text-slate-500 uppercase">Yeni Kategori Ekle</Label>
+              <div className="flex gap-2">
+                <Input 
+                  placeholder="Kategori adı... (Örn: Kırtasiye)" 
+                  value={newCatName}
+                  onChange={(e) => setNewCatName(e.target.value)}
+                  className="bg-white"
+                />
+                <div className="w-[200px]">
+                  <LucaAccountSelect 
+                    value={newCatLuca}
+                    onChange={setNewCatLuca}
+                    placeholder="Luca Kodu (Opsiyonel)"
+                    className="bg-white"
+                  />
+                </div>
+                <Button 
+                  className="bg-rose-600 hover:bg-rose-700 shrink-0"
+                  onClick={() => {
                     const trimmed = String(newCatName || '').trim();
                     if (trimmed) {
-                      addGiderKategorisi(trimmed);
+                      addGiderKategorisi(trimmed, newCatLuca);
                       setNewCatName('');
+                      setNewCatLuca('');
                       toast.success('Kategori eklendi.');
+                    } else {
+                      toast.error('Lütfen kategori adı girin.');
                     }
-                  }
-                }}
-              />
-              <Button 
-                className="bg-rose-600 hover:bg-rose-700"
-                onClick={() => {
-                  const trimmed = String(newCatName || '').trim();
-                  if (trimmed) {
-                    addGiderKategorisi(trimmed);
-                    setNewCatName('');
-                    toast.success('Kategori eklendi.');
-                  }
-                }}
-              >
-                Ekle
-              </Button>
+                  }}
+                >
+                  <Plus className="w-4 h-4 mr-1" /> Ekle
+                </Button>
+              </div>
             </div>
 
             <div className="border rounded-lg overflow-hidden">
@@ -667,8 +672,18 @@ export function GenelGiderler() {
                 ) : (
                   <div className="divide-y">
                     {giderKategorileri.map((cat) => (
-                      <div key={cat.id} className="flex items-center justify-between px-4 py-3 hover:bg-slate-50 transition-colors">
-                        <span className="font-medium text-slate-700">{cat.ad}</span>
+                      <div key={cat.id} className="flex items-center gap-4 px-4 py-3 hover:bg-slate-50 transition-colors">
+                        <div className="flex-1">
+                          <span className="font-medium text-slate-700 block">{cat.ad}</span>
+                        </div>
+                        <div className="w-[180px]">
+                          <LucaAccountSelect 
+                            value={cat.muhasebeKodu || ''}
+                            onChange={(code) => updateGiderKategorisi(cat.id, { muhasebeKodu: code })}
+                            placeholder="Kod Tanımla"
+                            className="h-8 text-[10px]"
+                          />
+                        </div>
                         <Button 
                           variant="ghost" 
                           size="icon" 

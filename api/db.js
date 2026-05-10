@@ -309,6 +309,9 @@ export async function initDb() {
           if (table === 'cari_hareketler' && !info.rows.some(col => col.name === 'muhasebe_kodu')) {
             await client.execute(`ALTER TABLE cari_hareketler ADD COLUMN muhasebe_kodu TEXT`);
           }
+          if (table === 'gider_kategorileri' && !info.rows.some(col => col.name === 'muhasebe_kodu')) {
+            await client.execute(`ALTER TABLE gider_kategorileri ADD COLUMN muhasebe_kodu TEXT`);
+          }
           // Stok Hareketleri Ek Sütunlar
           if (table === 'stok_hareketler') {
             if (!info.rows.some(col => col.name === 'lot_no')) {

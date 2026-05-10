@@ -64,7 +64,10 @@ export function BankaEkstreListesi() {
     cariler, 
     deleteCariHareket, 
     updateCariHareket,
-    giderKategorileri
+    giderKategorileri,
+    addGiderKategorisi,
+    deleteGiderKategorisi,
+    updateGiderKategorisi
   } = useApp();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedBanka, setSelectedBanka] = useState<string>('all');
@@ -406,7 +409,13 @@ export function BankaEkstreListesi() {
                             ) : (
                               <Select 
                                 value={h.kategoriId || 'none'} 
-                                onValueChange={(val) => updateCariHareket(h.id, { kategoriId: val === 'none' ? null : val })}
+                                onValueChange={(val) => {
+                                  const cat = giderKategorileri.find(k => k.id === val);
+                                  updateCariHareket(h.id, { 
+                                    kategoriId: val === 'none' ? null : val,
+                                    muhasebeKodu: cat?.muhasebeKodu || h.muhasebeKodu
+                                  });
+                                }}
                               >
                                 <SelectTrigger className="h-7 text-[10px] w-32 bg-slate-50 border-slate-200">
                                   <SelectValue placeholder="Kategori Seç" />

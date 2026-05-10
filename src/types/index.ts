@@ -389,6 +389,7 @@ export interface MasrafKurali {
 export interface GiderKategorisi {
   id: string;
   ad: string;
+  muhasebeKodu?: string;
 }
 
 // ==================== KESİLECEK FATURALAR ====================
