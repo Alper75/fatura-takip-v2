@@ -80,7 +80,8 @@ export function GenelGiderler() {
     aciklama: '',
     islemTuru: 'genel_gider',
     kategoriId: '',
-    bankaId: ''
+    bankaId: '',
+    muhasebeKodu: ''
   });
 
   // Yeni Kural Formu
@@ -131,13 +132,15 @@ export function GenelGiderler() {
       islemTuru: giderForm.islemTuru as any,
       kategoriId: giderForm.kategoriId || null,
       bankaId: giderForm.bankaId,
+      muhasebeKodu: giderForm.muhasebeKodu,
       dekontDosya: null
     });
 
     setGiderForm({
       ...giderForm,
       tutar: '',
-      aciklama: ''
+      aciklama: '',
+      muhasebeKodu: ''
     });
     toast.success('Gider başarıyla eklendi.');
   };
@@ -240,9 +243,14 @@ export function GenelGiderler() {
                   <div className="space-y-2">
                     <Label htmlFor="tur">Kategori</Label>
                     <Select value={giderForm.kategoriId || giderForm.islemTuru} onValueChange={(val) => {
-                      const isDynamic = giderKategorileri.some(k => k.id === val);
-                      if (isDynamic) {
-                        setGiderForm({...giderForm, kategoriId: val, islemTuru: 'genel_gider'});
+                      const selectedCat = giderKategorileri.find(k => k.id === val);
+                      if (selectedCat) {
+                        setGiderForm({
+                          ...giderForm, 
+                          kategoriId: val, 
+                          islemTuru: 'genel_gider',
+                          muhasebeKodu: selectedCat.muhasebeKodu || giderForm.muhasebeKodu
+                        });
                       } else {
                         setGiderForm({...giderForm, kategoriId: '', islemTuru: val});
                       }
@@ -269,6 +277,14 @@ export function GenelGiderler() {
                         )}
                       </SelectContent>
                     </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="muhasebeKodu">Luca Muhasebe Kodu</Label>
+                    <LucaAccountSelect 
+                      value={giderForm.muhasebeKodu || ''} 
+                      onChange={(code) => setGiderForm({...giderForm, muhasebeKodu: code})}
+                      placeholder="Kod Seçin"
+                    />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="aciklama">Açıklama</Label>
@@ -322,8 +338,10 @@ export function GenelGiderler() {
                       <TableHeader>
                         <TableRow className="hover:bg-transparent bg-slate-50/50">
                           <TableHead>Tarih</TableHead>
+                          <TableHead>Banka</TableHead>
                           <TableHead>Açıklama</TableHead>
                           <TableHead>Kategori</TableHead>
+                          <TableHead>Luca Kodu</TableHead>
                           <TableHead className="text-right">Tutar</TableHead>
                           <TableHead className="w-12"></TableHead>
                         </TableRow>
@@ -331,7 +349,7 @@ export function GenelGiderler() {
                       <TableBody>
                         {giderListesi.length === 0 ? (
                           <TableRow>
-                            <TableCell colSpan={5} className="h-32 text-center text-slate-400">
+                            <TableCell colSpan={7} className="h-32 text-center text-slate-400">
                               Masraf bulunamadı.
                             </TableCell>
                           </TableRow>
@@ -339,6 +357,20 @@ export function GenelGiderler() {
                           giderListesi.map((h) => (
                             <TableRow key={h.id} className="group hover:bg-rose-50/30 transition-colors">
                               <TableCell className="text-sm text-slate-600 tabular-nums">{h.tarih}</TableCell>
+                              <TableCell>
+                                {h.bankaId ? (
+                                  <div className="flex flex-col">
+                                    <span className="text-[10px] font-bold text-slate-900 leading-tight">
+                                      {bankaHesaplari.find(b => b.id === h.bankaId)?.hesapAdi || 'Bilinmiyor'}
+                                    </span>
+                                    <span className="text-[9px] text-slate-400">
+                                      {bankaHesaplari.find(b => b.id === h.bankaId)?.bankaAdi}
+                                    </span>
+                                  </div>
+                                ) : (
+                                  <span className="text-[10px] text-slate-300 italic">Banka Yok</span>
+                                )}
+                              </TableCell>
                               <TableCell className="font-medium text-slate-700 max-w-[200px] truncate" title={h.aciklama || ''}>
                                 {h.aciklama || ''}
                               </TableCell>
@@ -351,6 +383,13 @@ export function GenelGiderler() {
                                     : (h.islemTuru || '').replace(/_/g, ' ')
                                   }
                                 </span>
+                              </TableCell>
+                              <TableCell>
+                                <LucaAccountSelect 
+                                  value={h.muhasebeKodu || ''} 
+                                  onChange={(code) => updateCariHareket(h.id, { muhasebeKodu: code })}
+                                  className="h-7 text-[10px] w-28"
+                                />
                               </TableCell>
                               <TableCell className="text-right font-bold text-rose-600">
                                 {formatCurrency(h.tutar)}
@@ -597,6 +636,16 @@ export function GenelGiderler() {
                     ))}
                   </SelectContent>
                 </Select>
+              </div>
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="e-luca" className="text-right text-xs">Luca Kodu</Label>
+              <div className="col-span-3">
+                <LucaAccountSelect 
+                  value={editForm.muhasebeKodu || ''} 
+                  onChange={(code) => setEditForm({...editForm, muhasebeKodu: code})}
+                  className="h-9"
+                />
               </div>
             </div>
           </div>
