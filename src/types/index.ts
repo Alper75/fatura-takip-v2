@@ -74,6 +74,7 @@ export interface Cari {
   telefon?: string;
   eposta?: string;
   muhasebeKodu?: string;
+  iban?: string;
   olusturmaTarihi: string;
 }
 
@@ -86,6 +87,7 @@ export interface CariFormData {
   telefon?: string;
   eposta?: string;
   muhasebeKodu?: string;
+  iban?: string;
 }
 
 // ==================== ALIŞ FATURASI ====================

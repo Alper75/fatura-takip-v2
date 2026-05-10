@@ -63,7 +63,10 @@ export function GenelGiderler() {
     deleteMasrafKurali,
     updateCariHareket,
     deleteGiderKategorisi,
-    updateGiderKategorisi
+    updateGiderKategorisi,
+    giderKategorileri,
+    cariler,
+    addGiderKategorisi
   } = useApp();
 
   // Filtreler

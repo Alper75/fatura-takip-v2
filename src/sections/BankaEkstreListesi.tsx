@@ -64,10 +64,7 @@ export function BankaEkstreListesi() {
     cariler, 
     deleteCariHareket, 
     updateCariHareket,
-    giderKategorileri,
-    addGiderKategorisi,
-    deleteGiderKategorisi,
-    updateGiderKategorisi
+    giderKategorileri
   } = useApp();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedBanka, setSelectedBanka] = useState<string>('all');
