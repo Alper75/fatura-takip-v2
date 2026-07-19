@@ -567,6 +567,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setUser(null);
     setPersonnel([]);
     setCurrentPersonnel(null);
+    setCariler([]);
+    setCariHareketler([]);
+    setSatisFaturalari([]);
+    setAlisFaturalari([]);
+    setCekSenetler([]);
+    setBankaHesaplari([]);
+    setMasrafKurallari([]);
+    setKesilecekFaturalar([]);
+    setGiderKategorileri([]);
+    setLucaAccounts([]);
+    setTeklifler([]);
+    setSiparisler([]);
     setCurrentView('dashboard');
   }, []);
 
@@ -1552,7 +1564,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       resData.forEach((res, index) => {
         if (res?.success) {
           const data = Array.isArray(res.data) 
-            ? (res.data as any[]).filter(item => item && item.id !== undefined && item.id !== null && String(item.id).trim() !== '') 
+            ? (res.data as any[]).filter(item => {
+                if (!item) return false;
+                if (index === 9) { // lucaAccounts
+                  return item.kod !== undefined && item.kod !== null && String(item.kod).trim() !== '';
+                }
+                return item.id !== undefined && item.id !== null && String(item.id).trim() !== '';
+              }) 
             : [];
           switch (index) {
             case 0: setCariler(data); break;
