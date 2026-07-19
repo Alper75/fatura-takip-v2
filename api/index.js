@@ -1910,6 +1910,45 @@ app.post('/api/gib/create-draft', authMiddleware, async (req, res) => {
   }
 });
 
+app.post('/api/gib/invoices', authMiddleware, async (req, res) => {
+  const { credentials, startDate, endDate } = req.body;
+  if (!credentials?.username || !credentials?.password)
+    return res.status(400).json({ success: false, message: 'GİB kullanıcı adı ve şifre gereklidir.' });
+  if (!startDate || !endDate)
+    return res.status(400).json({ success: false, message: 'Başlangıç ve bitiş tarihleri gereklidir.' });
+
+  try {
+    const formatToGIB = (dateStr) => {
+      if (dateStr.includes('-')) {
+        const parts = dateStr.split('-');
+        return `${parts[2]}/${parts[1]}/${parts[0]}`;
+      }
+      return dateStr;
+    };
+
+    const gibStart = formatToGIB(startDate);
+    const gibEnd = formatToGIB(endDate);
+
+    const isTest = process.env.GIB_TEST_MODE === 'true';
+    const client = createFaturaClient(isTest ? 'TEST' : 'PROD');
+    
+    const token = await client.getToken(credentials.username, credentials.password);
+    const invoices = await client.getAllInvoicesByDateRange(token, { startDate: gibStart, endDate: gibEnd });
+    await client.logout(token);
+
+    return res.json({
+      success: true,
+      data: invoices || []
+    });
+  } catch (error) {
+    console.error('[GIB Invoices Fetch] Hata Oluştu:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'GİB faturaları getirme hatası: ' + error.message,
+    });
+  }
+});
+
 // --- STOK (INVENTORY) MODULE ROUTES ---
 
 // Helper for UUID generation if ID is missing

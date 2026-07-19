@@ -184,7 +184,8 @@ export function KesilecekFaturalar() {
     cariler,
     satisFaturalari,
     downloadSatisPdf,
-    deleteSatisFatura
+    deleteSatisFatura,
+    addSatisFatura
   } = useApp();
   const { data: urunler } = useUrunler();
 
@@ -211,6 +212,16 @@ export function KesilecekFaturalar() {
   const [gibFaturaTipi, setGibFaturaTipi] = useState('SATIS');
   const [gibStopajTipi, setGibStopajTipi] = useState('');
   const [gibStopajOrani, setGibStopajOrani] = useState('0');
+
+  // GİB Fetch States
+  const [isGibFetchModalOpen, setIsGibFetchModalOpen] = useState(false);
+  const [gibFetchCredentials, setGibFetchCredentials] = useState({ username: '', password: '' });
+  const [gibDateRange, setGibDateRange] = useState({
+    startDate: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+    endDate: new Date().toISOString().split('T')[0]
+  });
+  const [isGibFetching, setIsGibFetching] = useState(false);
+  const [gibInvoices, setGibInvoices] = useState<any[]>([]);
 
   // Kalem hesaplamaları
   const kalemToplam = useMemo(() => {
@@ -462,6 +473,117 @@ export function KesilecekFaturalar() {
     setGibStopajOrani('0');
     setIsGibModalOpen(true);
   };
+
+  const handleGibFetch = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!gibFetchCredentials.username || !gibFetchCredentials.password) {
+      toast.error('Lütfen kullanıcı kodu ve şifrenizi girin.');
+      return;
+    }
+    setIsGibFetching(true);
+    try {
+      const apiUrl = import.meta.env.DEV ? 'http://localhost:5000/api/gib/invoices' : '/api/gib/invoices';
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json', 
+          Authorization: `Bearer ${localStorage.getItem('token')}` 
+        },
+        body: JSON.stringify({
+          credentials: gibFetchCredentials,
+          startDate: gibDateRange.startDate,
+          endDate: gibDateRange.endDate
+        })
+      });
+      const result = await response.json();
+      if (result.success) {
+        setGibInvoices(result.data || []);
+        toast.success(`${(result.data || []).length} fatura taslağı/onaylı fatura getirildi.`);
+      } else {
+        toast.error(result.message || 'Faturalar getirilemedi.');
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error('Sunucuya bağlanılamadı.');
+    } finally {
+      setIsGibFetching(false);
+    }
+  };
+
+  const importGibInvoice = async (gibInv: any) => {
+    const exists = satisFaturalari.some(sf => sf.faturaNo === gibInv.belgeNumarasi || sf.id === gibInv.ettn);
+    if (exists) {
+      toast.info('Bu fatura zaten sistemde kayıtlı.');
+      return;
+    }
+
+    try {
+      const parts = (gibInv.belgeTarihi || '').split('/');
+      const formattedDate = parts.length === 3 ? `${parts[2]}-${parts[1]}-${parts[0]}` : new Date().toISOString().split('T')[0];
+      
+      const alinanUcret = parseFloat(gibInv.odenecekTutar || gibInv.vergilerDahilToplamTutar || '0');
+      
+      await addSatisFatura({
+        tcVkn: gibInv.aliciVknTckn || '',
+        ad: gibInv.aliciUnvan || '',
+        soyad: '',
+        vergiDairesi: '',
+        adres: 'GİB e-Arşiv Portaldan Aktarıldı',
+        hizmetAdi: 'Muhtelif İşlemler (GİB Aktarım)',
+        alinanUcret: alinanUcret.toString(),
+        faturaTarihi: formattedDate,
+        kdvOrani: '20',
+        tevkifatOrani: '0',
+        tevkifatKodu: '',
+        stopajOrani: '0',
+        stopajKodu: '',
+        faturaNo: gibInv.belgeNumarasi || '',
+      } as any);
+
+      toast.success(`${gibInv.belgeNumarasi || 'Fatura'} başarıyla sisteme aktarıldı.`);
+      setGibInvoices(prev => prev.map(inv => inv.ettn === gibInv.ettn ? { ...inv, isImported: true } : inv));
+    } catch (err: any) {
+      console.error(err);
+      toast.error('Aktarım sırasında hata oluştu: ' + err.message);
+    }
+  };
+
+  const importAllGibInvoices = async () => {
+    let imported = 0;
+    for (const gibInv of gibInvoices) {
+      const exists = satisFaturalari.some(sf => sf.faturaNo === gibInv.belgeNumarasi || sf.id === gibInv.ettn);
+      if (exists || gibInv.isImported) continue;
+
+      try {
+        const parts = (gibInv.belgeTarihi || '').split('/');
+        const formattedDate = parts.length === 3 ? `${parts[2]}-${parts[1]}-${parts[0]}` : new Date().toISOString().split('T')[0];
+        const alinanUcret = parseFloat(gibInv.odenecekTutar || gibInv.vergilerDahilToplamTutar || '0');
+        
+        await addSatisFatura({
+          tcVkn: gibInv.aliciVknTckn || '',
+          ad: gibInv.aliciUnvan || '',
+          soyad: '',
+          vergiDairesi: '',
+          adres: 'GİB e-Arşiv Portaldan Aktarıldı',
+          hizmetAdi: 'Muhtelif İşlemler (GİB Aktarım)',
+          alinanUcret: alinanUcret.toString(),
+          faturaTarihi: formattedDate,
+          kdvOrani: '20',
+          tevkifatOrani: '0',
+          tevkifatKodu: '',
+          stopajOrani: '0',
+          stopajKodu: '',
+          faturaNo: gibInv.belgeNumarasi || '',
+        } as any);
+        imported++;
+      } catch (err) {
+        console.error('Import error for ' + gibInv.belgeNumarasi, err);
+      }
+    }
+    
+    setGibInvoices(prev => prev.map(inv => ({ ...inv, isImported: true })));
+    toast.success(`${imported} yeni fatura başarıyla sisteme aktarıldı.`);
+  };
   const formatCurrency = (val: number) => {
     const safeVal = isNaN(val) || val === null || val === undefined ? 0 : val;
     return new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(safeVal);
@@ -696,9 +818,24 @@ export function KesilecekFaturalar() {
                   Kesilenler / Onaylananlar
                 </button>
               </div>
-              <div className="relative w-full sm:w-64">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                <Input placeholder="Müşteri veya VKN ara..." className="pl-10 h-9 bg-white" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+              <div className="flex items-center gap-2 w-full sm:w-auto">
+                {activeTab === 'kesilenler' && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setIsGibFetchModalOpen(true);
+                      setGibInvoices([]);
+                    }}
+                    className="h-9 gap-1 text-xs font-bold border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100"
+                  >
+                    <Download className="w-3.5 h-3.5" /> GİB'den Çek
+                  </Button>
+                )}
+                <div className="relative w-full sm:w-64">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <Input placeholder="Müşteri veya VKN ara..." className="pl-10 h-9 bg-white" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+                </div>
               </div>
             </div>
           </CardHeader>
@@ -960,6 +1097,122 @@ export function KesilecekFaturalar() {
                 {isGibSending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
                 {autoSign ? 'Onayla ve Gönder' : 'Taslak Gönder'}
               </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* GİB Fetch Modal */}
+      <Dialog open={isGibFetchModalOpen} onOpenChange={setIsGibFetchModalOpen}>
+        <DialogContent className="sm:max-w-[700px] max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Download className="w-5 h-5 text-amber-600" />
+              GİB e-Arşiv Fatura Çekme
+            </DialogTitle>
+            <DialogDescription>
+              Belirli tarih aralığında GİB e-Arşiv portalında kestiğiniz faturaları sorgulayın ve sisteme aktarın.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleGibFetch} className="space-y-4 py-2">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
+              <div className="grid gap-1.5">
+                <Label htmlFor="gib_fetch_user">Kullanıcı Kodu / VKN</Label>
+                <Input id="gib_fetch_user" value={gibFetchCredentials.username} onChange={e => setGibFetchCredentials({...gibFetchCredentials, username: e.target.value})} placeholder="Kullanıcı Kodu" required className="h-9" />
+              </div>
+              <div className="grid gap-1.5">
+                <Label htmlFor="gib_fetch_pass">Şifre</Label>
+                <Input id="gib_fetch_pass" type="password" value={gibFetchCredentials.password} onChange={e => setGibFetchCredentials({...gibFetchCredentials, password: e.target.value})} placeholder="********" required className="h-9" />
+              </div>
+              <Button type="submit" disabled={isGibFetching} className="bg-amber-600 hover:bg-amber-700 h-9 gap-1 text-xs font-bold text-white">
+                {isGibFetching ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+                Sorgula
+              </Button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="grid gap-1.5">
+                <Label>Başlangıç Tarihi</Label>
+                <Input type="date" value={gibDateRange.startDate} onChange={e => setGibDateRange({...gibDateRange, startDate: e.target.value})} className="h-9" />
+              </div>
+              <div className="grid gap-1.5">
+                <Label>Bitiş Tarihi</Label>
+                <Input type="date" value={gibDateRange.endDate} onChange={e => setGibDateRange({...gibDateRange, endDate: e.target.value})} className="h-9" />
+              </div>
+            </div>
+
+            {/* Fatura Listesi */}
+            {gibInvoices.length > 0 && (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between border-b pb-2">
+                  <span className="text-xs font-bold text-slate-700">{gibInvoices.length} fatura bulundu</span>
+                  <Button type="button" size="sm" variant="outline" onClick={importAllGibInvoices} className="h-7 text-[10px] font-bold bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-600 hover:text-white">
+                    Tümünü Sisteme Aktar
+                  </Button>
+                </div>
+                
+                <div className="max-h-[300px] overflow-y-auto border rounded-md">
+                  <Table>
+                    <TableHeader className="bg-slate-50">
+                      <TableRow>
+                        <TableHead className="text-xs py-2 font-bold text-slate-600">Tarih</TableHead>
+                        <TableHead className="text-xs py-2 font-bold text-slate-600">Fatura No</TableHead>
+                        <TableHead className="text-xs py-2 font-bold text-slate-600">Alıcı</TableHead>
+                        <TableHead className="text-xs py-2 font-bold text-slate-600 text-right">Tutar</TableHead>
+                        <TableHead className="text-xs py-2 font-bold text-slate-600 text-right">İşlem</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {gibInvoices.map((inv) => {
+                        const isAlreadyImported = inv.isImported || satisFaturalari.some(sf => sf.faturaNo === inv.belgeNumarasi);
+                        const invTutar = parseFloat(inv.odenecekTutar || inv.vergilerDahilToplamTutar || '0');
+                        
+                        return (
+                          <TableRow key={inv.ettn} className="hover:bg-slate-50 transition-colors">
+                            <TableCell className="text-xs py-2">{inv.belgeTarihi}</TableCell>
+                            <TableCell className="text-xs py-2 font-mono font-medium">{inv.belgeNumarasi || 'Taslak'}</TableCell>
+                            <TableCell className="text-xs py-2 max-w-[180px] truncate">{inv.aliciUnvan}</TableCell>
+                            <TableCell className="text-xs py-2 text-right font-bold">{formatCurrency(invTutar)}</TableCell>
+                            <TableCell className="text-xs py-2 text-right">
+                              {isAlreadyImported ? (
+                                <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100">
+                                  Aktarıldı
+                                </span>
+                              ) : (
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  onClick={() => importGibInvoice(inv)}
+                                  className="h-6 text-[10px] bg-blue-600 hover:bg-blue-700 text-white font-bold px-2"
+                                >
+                                  Aktar
+                                </Button>
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+            )}
+
+            {isGibFetching && (
+              <div className="flex flex-col items-center justify-center py-8 text-slate-400 gap-2">
+                <Loader2 className="w-8 h-8 animate-spin text-amber-500" />
+                <p className="text-xs font-semibold">GİB Portala bağlanılıyor, faturalar çekiliyor...</p>
+              </div>
+            )}
+
+            {!isGibFetching && gibInvoices.length === 0 && (
+              <div className="text-center py-6 text-slate-400 text-xs italic">
+                Sorgulama yapmak için VKN/Kullanıcı bilgilerini girip 'Sorgula' butonuna basın.
+              </div>
+            )}
+
+            <DialogFooter className="pt-2 border-t">
+              <Button type="button" variant="outline" onClick={() => setIsGibFetchModalOpen(false)}>Kapat</Button>
             </DialogFooter>
           </form>
         </DialogContent>
