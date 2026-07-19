@@ -312,8 +312,7 @@ export function BankaEkstreListesi() {
                   <TableHead className="w-32">Tarih</TableHead>
                   <TableHead>Banka</TableHead>
                   <TableHead className="min-w-[200px]">Açıklama</TableHead>
-                  <TableHead>Cari</TableHead>
-                  <TableHead>Kategori / Tür</TableHead>
+                  <TableHead>Cari / Kategori</TableHead>
                   <TableHead className="w-[180px]">Luca Kodu</TableHead>
                   <TableHead className="text-right">Tutar</TableHead>
                   <TableHead className="w-24"></TableHead>
@@ -384,22 +383,17 @@ export function BankaEkstreListesi() {
                           </div>
                         </TableCell>
                         <TableCell className="text-xs">
-                          {cari ? (
-                            <span className="font-semibold text-indigo-700 px-2 py-0.5 bg-indigo-50 rounded w-fit max-w-[150px] truncate block" title={cari.unvan}>
-                              {cari.unvan}
-                            </span>
-                          ) : kategori ? (
-                            <span className="font-semibold text-rose-700 px-2 py-0.5 bg-rose-50 rounded w-fit max-w-[150px] truncate block" title={kategori.ad}>
-                              {kategori.ad} (Masraf)
-                            </span>
-                          ) : (
-                            <span className="text-slate-300 italic">-</span>
-                          )}
-                        </TableCell>
-                        <TableCell className="text-xs">
-                          <div className="flex flex-col gap-1">
-                             {kategori ? (
-                              <span className="font-bold text-rose-700 px-2 py-0.5 bg-rose-50 rounded w-fit border border-rose-100 flex items-center gap-1">
+                          <div className="flex flex-col gap-2 min-w-[150px]">
+                            {cari ? (
+                              <span className="font-semibold text-indigo-700 px-2 py-0.5 bg-indigo-50 rounded w-fit max-w-[200px] truncate block" title={cari.unvan}>
+                                {cari.unvan}
+                              </span>
+                            ) : (
+                              <span className="text-slate-300 italic text-[10px]">Cari Seçilmedi</span>
+                            )}
+
+                            {kategori ? (
+                              <span className="font-bold text-rose-700 px-2 py-0.5 bg-rose-50 rounded w-fit border border-rose-100 flex items-center gap-1 shadow-sm">
                                 <Tag className="w-3 h-3" />
                                 {kategori.ad}
                               </span>
@@ -414,11 +408,11 @@ export function BankaEkstreListesi() {
                                   });
                                 }}
                               >
-                                <SelectTrigger className="h-7 text-[10px] w-32 bg-slate-50 border-slate-200">
+                                <SelectTrigger className="h-7 text-[10px] w-full bg-slate-50 border-slate-200">
                                   <SelectValue placeholder="Kategori Seç" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                  <SelectItem value="none">Seçilmedi</SelectItem>
+                                  <SelectItem value="none">Kategori Seçilmedi</SelectItem>
                                   {giderKategorileri.map(k => (
                                     <SelectItem key={k.id} value={k.id}>{k.ad}</SelectItem>
                                   ))}

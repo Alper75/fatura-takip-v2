@@ -55,7 +55,7 @@ type UploadedFile = {
 };
 
 export function SatisFaturaDrawer() {
-  const { isSatisDrawerOpen, closeSatisDrawer, addSatisFatura, updateSatisFatura, cariler, satisInitialData, lucaAccounts } = useApp();
+  const { isSatisDrawerOpen, closeSatisDrawer, addSatisFatura, updateSatisFatura, cariler, satisInitialData, lucaAccounts, apiFetch } = useApp();
   const { data: urunler } = useUrunler();
 
   useEffect(() => {
@@ -291,8 +291,31 @@ SADECE JSON döndür:
 Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
 
     try {
-      const apiKey = import.meta.env.VITE_GEMINI_API_KEY || '';
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
+      // 1. Get key & model from company settings if possible
+      let apiKey = import.meta.env.VITE_GEMINI_API_KEY || '';
+      let aiModel = 'gemini-2.5-flash';
+      
+      try {
+        const keyRes = await apiFetch('/api/settings/gemini_api_key');
+        if (keyRes && keyRes.value) {
+          apiKey = keyRes.value;
+        }
+        const modelRes = await apiFetch('/api/settings/gemini_model');
+        if (modelRes && modelRes.value) {
+          aiModel = modelRes.value;
+        }
+      } catch (keyErr) {
+        console.warn('Ayarlardan Gemini API anahtarı alınamadı, yerel değişken kullanılacak:', keyErr);
+      }
+
+      if (!apiKey) {
+        toast.error('Yapay zeka anahtarı (Gemini API Key) bulunamadı. Lütfen ayarlardan tanımlayın.');
+        setIsScanning(false);
+        return;
+      }
+
+      const safeModelName = aiModel ? aiModel.trim() : 'gemini-2.5-flash';
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${safeModelName}:generateContent?key=${apiKey}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -310,41 +333,60 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
       if (data.error) throw new Error(data.error.message || 'API Hatası');
 
       const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      console.log('Gemini raw response text (Sales):', text);
+      
       const clean = text.replace(/```json|```/g, '').trim();
       const parsed = JSON.parse(clean);
+      console.log('Gemini parsed JSON (Sales):', parsed);
 
       if (parsed.hata) {
         toast.error('Belge okunamadı: ' + parsed.hata);
       } else {
-        const fList = parsed.faturalar || [parsed];
+        const fList = parsed.faturalar ? parsed.faturalar : (Array.isArray(parsed) ? parsed : [parsed]);
+        
         const newForms: FormEntry[] = fList.map((f: any, idx: number) => {
+          // Robust key extraction with fallbacks (camelCase & snake_case support)
+          const fAd = f.ad || f.ad_soyad || f.adSoyad || f.isim || f.unvan || f.tedarikciAdi || f.tedarikci_adi || f.vendor || f.customer || '';
+          const fSoyad = f.soyad || f.soyisim || '-';
+          const fTcVkn = f.tcVkn || f.tc_vkn || f.tcVkn || f.tc || f.vkn || f.tckn || f.tedarikciVkn || f.tedarikci_vkn || '';
+          const fAdres = f.adres || f.address || 'Adres Bulunamadı';
+          const fFaturaTarihi = f.faturaTarihi || f.fatura_tarihi || f.tarih || f.date || INITIAL_FORM.faturaTarihi;
+          const fTutar = f.tutar || f.toplam_tutar || f.toplamTutar || f.amount || f.total || '';
+          const fTutarTur = f.tutar_tur || f.tutarTuru || f.tutar_type || 'dahil';
+          const fKdvOrani = f.kdv_orani || f.kdvOrani || f.kdv || '20';
+          const fTevkifatOrani = f.tevkifat_orani || f.tevkifatOrani || f.tevkifat || '0';
+          const fStopajOrani = f.stopaj_orani || f.stopajOrani || f.stopaj || '0';
+          const fAciklama = f.aciklama || f.note || f.not || '';
+          const fMuhasebeKodu = f.muhasebe_kodu || f.muhasebeKodu || f.account_code || f.accountCode || '';
+
           // 1. VKN/TCKN ile eşleşen cari bul
-          let matchedCari = (cariler || []).find(c => c && c.vknTckn === f.tcVkn && c.vknTckn && c.vknTckn.length > 5);
+          let matchedCari = (cariler || []).find(c => c && c.vknTckn === fTcVkn && c.vknTckn && c.vknTckn.length > 5);
           
           // 2. VKN yoksa isimden (fuzzy match benzeri) ara
-          if (!matchedCari && f.ad) {
-            const searchName = f.ad.toLowerCase();
+          if (!matchedCari && fAd) {
+            const searchName = fAd.toLowerCase();
             matchedCari = cariler.find(c => c.unvan && c.unvan.toLowerCase().includes(searchName));
           }
 
           return {
             id: Date.now() + idx,
-            tutarTuru: f.tutar_tur || 'dahil',
+            tutarTuru: fTutarTur || 'dahil',
             errors: {},
+            stokKalemleri: [],
             data: {
-              ad: matchedCari ? (matchedCari.unvan || '') : (f.ad || ''),
-              soyad: matchedCari ? '-' : (f.soyad || '-'),
-              tcVkn: matchedCari ? (matchedCari.vknTckn || '') : (f.tcVkn || ''),
-              adres: matchedCari ? (matchedCari.adres || 'Adres Bulunamadı') : (f.adres || 'Adres Bulunamadı'),
-              faturaTarihi: f.faturaTarihi || INITIAL_FORM.faturaTarihi,
+              ad: matchedCari ? (matchedCari.unvan || '') : fAd,
+              soyad: matchedCari ? '-' : fSoyad,
+              tcVkn: matchedCari ? (matchedCari.vknTckn || '') : fTcVkn,
+              adres: matchedCari ? (matchedCari.adres || 'Adres Bulunamadı') : fAdres,
+              faturaTarihi: fFaturaTarihi,
               vadeTarihi: '',
-              alinanUcret: f.tutar?.toString() || '',
-              kdvOrani: f.kdv_orani ? f.kdv_orani.toString() : '20',
-              tevkifatOrani: f.tevkifat_orani?.toString() || '0',
-              stopajOrani: f.stopaj_orani?.toString() || '0',
-              aciklama: f.aciklama || '',
+              alinanUcret: fTutar?.toString() || '',
+              kdvOrani: fKdvOrani ? fKdvOrani.toString() : '20',
+              tevkifatOrani: fTevkifatOrani?.toString() || '0',
+              stopajOrani: fStopajOrani?.toString() || '0',
+              aciklama: fAciklama,
               cariId: matchedCari ? matchedCari.id : undefined,
-              muhasebeKodu: f.muhasebe_kodu || ''
+              muhasebeKodu: fMuhasebeKodu
             }
           };
         });

@@ -192,7 +192,7 @@ export function KesilecekFaturalar() {
     ad: '', soyad: '', vknTckn: '', vergiDairesi: '',
     adres: '', il: '', ilce: '', kdvOrani: '20',
     faturaTarihi: new Date().toISOString().split('T')[0],
-    aciklama: '', cariId: 'none',
+    aciklama: '', cariId: 'none', kdvHesaplamaTipi: 'DAHIL'
   });
 
   // Kalem listesi
@@ -215,15 +215,23 @@ export function KesilecekFaturalar() {
       const miktar = Number(k.miktar) || 0;
       const kOran = Number(k.kdvOrani) || 0;
       
-      const matrah = bFiyat * miktar;
-      const kdv = matrah * (kOran / 100);
+      let matrah = 0, kdv = 0;
+      if (form.kdvHesaplamaTipi === 'DAHIL') {
+        const kdvDahilToplam = bFiyat * miktar;
+        matrah = kdvDahilToplam / (1 + (kOran / 100));
+        kdv = kdvDahilToplam - matrah;
+      } else {
+        matrah = bFiyat * miktar;
+        kdv = matrah * (kOran / 100);
+      }
+      
       return { 
         matrah: sum.matrah + matrah, 
         kdv: sum.kdv + kdv, 
         toplam: sum.toplam + matrah + kdv 
       };
     }, { matrah: 0, kdv: 0, toplam: 0 });
-  }, [kalemler]);
+  }, [kalemler, form.kdvHesaplamaTipi]);
 
   const filteredInvoices = useMemo(() => {
     if (!kesilecekFaturalar || !Array.isArray(kesilecekFaturalar)) return [];
@@ -287,7 +295,7 @@ export function KesilecekFaturalar() {
       ad: form.ad, soyad: form.soyad, vknTckn: form.vknTckn,
       vergiDairesi: form.vergiDairesi, adres: form.adres, il: form.il, ilce: form.ilce,
       tutar: kalemToplam.toplam,
-      kdvDahil: true,
+      kdvDahil: form.kdvHesaplamaTipi === 'DAHIL',
       kdvOrani: parseInt(form.kdvOrani),
       faturaTarihi: form.faturaTarihi,
       aciklama: form.aciklama,
@@ -295,7 +303,7 @@ export function KesilecekFaturalar() {
       cariId: form.cariId !== 'none' ? form.cariId : undefined,
     });
 
-    setForm({ ad: '', soyad: '', vknTckn: '', vergiDairesi: '', adres: '', il: '', ilce: '', kdvOrani: '20', faturaTarihi: new Date().toISOString().split('T')[0], aciklama: '', cariId: 'none' });
+    setForm({ ad: '', soyad: '', vknTckn: '', vergiDairesi: '', adres: '', il: '', ilce: '', kdvOrani: '20', faturaTarihi: new Date().toISOString().split('T')[0], aciklama: '', cariId: 'none', kdvHesaplamaTipi: 'DAHIL' });
     setKalemler([newKalem()]);
     toast.success('Fatura planı listeye eklendi.');
   };
@@ -484,9 +492,19 @@ export function KesilecekFaturalar() {
 
               {/* Kalem Listesi */}
               <div className="space-y-2">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b pb-2">
                   <Label className="text-xs font-semibold text-blue-700 flex items-center gap-1"><Package className="w-3.5 h-3.5" /> Ürün / Hizmet Kalemleri</Label>
-                  <Button type="button" size="sm" variant="outline" onClick={addKalem} className="h-7 text-xs gap-1"><Plus className="w-3 h-3" />Kalem Ekle</Button>
+                  <div className="flex items-center gap-2">
+                    <select
+                      className="h-7 text-xs rounded-md border border-input bg-background px-2 py-1"
+                      value={form.kdvHesaplamaTipi}
+                      onChange={e => setForm({ ...form, kdvHesaplamaTipi: e.target.value as 'DAHIL' | 'HARIC' })}
+                    >
+                      <option value="DAHIL">Fiyat: KDV Dahil</option>
+                      <option value="HARIC">Fiyat: KDV Hariç</option>
+                    </select>
+                    <Button type="button" size="sm" variant="outline" onClick={addKalem} className="h-7 text-xs gap-1"><Plus className="w-3 h-3" />Kalem Ekle</Button>
+                  </div>
                 </div>
 
                 <div className="space-y-2 max-h-72 overflow-y-auto pr-1">

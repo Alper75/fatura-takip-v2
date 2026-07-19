@@ -45,7 +45,7 @@ type UploadedFile = {
 };
 
 export function AlisFaturaDrawer() {
-  const { isAlisDrawerOpen, closeAlisDrawer, addAlisFatura, cariler, alisInitialData, lucaAccounts, companies, user } = useApp();
+  const { isAlisDrawerOpen, closeAlisDrawer, addAlisFatura, cariler, alisInitialData, lucaAccounts, companies, user, apiFetch } = useApp();
   const activeCompany = companies.find(c => c.id === (user?.companyId || 1));
   const hasCommercialVehicle = activeCompany?.vehicles?.some(v => v.type === 'commercial');
   const { data: urunler } = useUrunler();
@@ -263,11 +263,13 @@ export function AlisFaturaDrawer() {
     setIsScanning(true);
     const rawBase64 = uploadedFile.base64.split(',')[1];
 
-    const prompt = `Bu dosyada BİRDEN FAZLA ayrı fiş veya fatura olabilir. 
+    const prompt = `Bu dosyada BİRDEN FAZLA ayrı fiş veya fatura olabilir. Veya TEK BİR fişte/faturada BİRDEN FAZLA FARKLI KDV oranı (Örn: %1, %10, %20) olabilir.
 Lütfen bulduğun TÜM fiş/faturaları çıkar ve aşağıdaki JSON DİZİSİ formatında döndür. 
 
-ÖNEMLİ: Eğer bu bir akaryakıt fişi/faturası ise, fatura üzerinde yazan ARAÇ PLAKASINI mutlaka "plate" alanına yaz. 
-Ayrıca aşağıdaki LUCA HESAP PLANI listesinden bu faturanın açıklamasına/türüne en uygun "kod"u seçerek "muhasebe_kodu" alanına yaz:
+ÖNEMLİ KURAL: Eğer tek bir fişte/faturada birden fazla KDV oranı varsa (Örn: bazı ürünler %1, bazıları %20), LÜTFEN her bir KDV oranının toplam tutarını (kdv dahil) ayrı birer JSON objesi (ayrı bir fatura kaydı) olarak diziye ekle! Fatura no, tarih ve satıcı adı aynı kalsın, sadece tutar, malHizmetAdi ("... %20 KDV'li Ürünler" vb.) ve kdv_orani farklı olsun.
+ÖNEMLİ KURAL 2: Eğer bu bir akaryakıt fişi/faturası ise, fatura üzerinde yazan ARAÇ PLAKASINI mutlaka "plate" alanına yaz. 
+
+Aşağıdaki LUCA HESAP PLANI listesinden bu faturanın açıklamasına/türüne en uygun "kod"u seçerek "muhasebe_kodu" alanına yaz:
 ${lucaAccounts.map(a => `${a.kod}: ${a.ad}`).join('\n')}
 
 SADECE JSON döndür:
@@ -277,7 +279,7 @@ SADECE JSON döndür:
       "tedarikciAdi": "firma/satıcı adı",
       "tedarikciVkn": "VKN veya T.C.",
       "faturaNo": "belge no",
-      "malHizmetAdi": "ürün özeti",
+      "malHizmetAdi": "ürün özeti veya ... %KDV'li Ürünler",
       "faturaTarihi": "YYYY-MM-DD",
       "tutar": "120.50",
       "tutar_tur": "dahil",
@@ -293,8 +295,31 @@ SADECE JSON döndür:
 Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
 
     try {
-      const apiKey = import.meta.env.VITE_GEMINI_API_KEY || '';
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
+      // 1. Get key & model from company settings if possible
+      let apiKey = import.meta.env.VITE_GEMINI_API_KEY || '';
+      let aiModel = 'gemini-2.5-flash';
+      
+      try {
+        const keyRes = await apiFetch('/api/settings/gemini_api_key');
+        if (keyRes && keyRes.value) {
+          apiKey = keyRes.value;
+        }
+        const modelRes = await apiFetch('/api/settings/gemini_model');
+        if (modelRes && modelRes.value) {
+          aiModel = modelRes.value;
+        }
+      } catch (keyErr) {
+        console.warn('Ayarlardan Gemini API anahtarı alınamadı, yerel değişken kullanılacak:', keyErr);
+      }
+
+      if (!apiKey) {
+        toast.error('Yapay zeka anahtarı (Gemini API Key) bulunamadı. Lütfen ayarlardan tanımlayın.');
+        setIsScanning(false);
+        return;
+      }
+
+      const safeModelName = aiModel ? aiModel.trim() : 'gemini-2.5-flash';
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${safeModelName}:generateContent?key=${apiKey}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -312,45 +337,64 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
       if (data.error) throw new Error(data.error.message || 'API Hatası');
 
       const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      console.log('Gemini raw response text:', text);
+      
       const clean = text.replace(/```json|```/g, '').trim();
       const parsed = JSON.parse(clean);
+      console.log('Gemini parsed JSON:', parsed);
 
       if (parsed.hata) {
         toast.error('Belge okunamadı: ' + parsed.hata);
       } else {
-        const fList = parsed.faturalar || [parsed];
+        const fList = parsed.faturalar ? parsed.faturalar : (Array.isArray(parsed) ? parsed : [parsed]);
+        
         const newForms: FormEntry[] = fList.map((f: any, idx: number) => {
+          // Robust key extraction with fallbacks (camelCase & snake_case support)
+          const fTedarikciAdi = f.tedarikciAdi || f.tedarikci_adi || f.ad || f.isim || f.vendor || f.customer || '';
+          const fTedarikciVkn = f.tedarikciVkn || f.tedarikci_vkn || f.tcVkn || f.tc_vkn || f.vkn || f.tckn || '';
+          const fFaturaNo = f.faturaNo || f.fatura_no || f.belgeNo || f.belge_no || f.invoiceNo || '';
+          const fMalHizmetAdi = f.malHizmetAdi || f.mal_hizmet_adi || f.urun_adi || f.urunAdi || f.aciklama || f.description || 'Fiş Gideri';
+          const fFaturaTarihi = f.faturaTarihi || f.fatura_tarihi || f.tarih || f.date || INITIAL_FORM.faturaTarihi;
+          const fTutar = f.tutar || f.toplam_tutar || f.toplamTutar || f.amount || f.total || '';
+          const fTutarTur = f.tutar_tur || f.tutarTuru || f.tutar_type || 'dahil';
+          const fKdvOrani = f.kdv_orani || f.kdvOrani || f.kdv || '18';
+          const fTevkifatOrani = f.tevkifat_orani || f.tevkifatOrani || f.tevkifat || '0';
+          const fStopajOrani = f.stopaj_orani || f.stopajOrani || f.stopaj || '0';
+          const fAciklama = f.aciklama || f.note || f.not || '';
+          const fMuhasebeKodu = f.muhasebe_kodu || f.muhasebeKodu || f.account_code || f.accountCode || '';
+          const fPlate = f.plate || f.plaka || f.vehicle_plate || f.vehiclePlate || '';
+
           // 1. VKN ile eşleşen cari bul
-          let matchedCari = (cariler || []).find(c => c && c.vknTckn === f.tedarikciVkn && c.vknTckn && c.vknTckn.length > 5);
+          let matchedCari = (cariler || []).find(c => c && c.vknTckn === fTedarikciVkn && c.vknTckn && c.vknTckn.length > 5);
           
           // 2. VKN eşleşmezse isimden ara
-          if (!matchedCari && f.tedarikciAdi) {
-            const searchName = f.tedarikciAdi.toLowerCase();
+          if (!matchedCari && fTedarikciAdi) {
+            const searchName = fTedarikciAdi.toLowerCase();
             matchedCari = cariler.find(c => c.unvan && c.unvan.toLowerCase().includes(searchName));
           }
 
           // Plaka temizleme
-          const rawPlate = f.plate ? f.plate.toUpperCase().replace(/\s+/g, '') : '';
+          const rawPlate = fPlate ? fPlate.toUpperCase().replace(/\s+/g, '') : '';
 
           return {
             id: Date.now() + idx,
-            tutarTuru: f.tutar_tur || 'dahil',
+            tutarTuru: fTutarTur || 'dahil',
             errors: {},
             data: {
-              tedarikciAdi: matchedCari ? (matchedCari.unvan || '') : (f.tedarikciAdi || ''),
-              tedarikciVkn: matchedCari ? (matchedCari.vknTckn || '') : (f.tedarikciVkn || ''),
-              faturaNo: f.faturaNo || '',
-              malHizmetAdi: f.malHizmetAdi || 'Fiş Gideri',
-              faturaTarihi: f.faturaTarihi || INITIAL_FORM.faturaTarihi,
+              tedarikciAdi: matchedCari ? (matchedCari.unvan || '') : fTedarikciAdi,
+              tedarikciVkn: matchedCari ? (matchedCari.vknTckn || '') : fTedarikciVkn,
+              faturaNo: fFaturaNo,
+              malHizmetAdi: fMalHizmetAdi,
+              faturaTarihi: fFaturaTarihi,
               vadeTarihi: '',
-              toplamTutar: f.tutar?.toString() || '',
-              kdvOrani: f.kdv_orani ? f.kdv_orani.toString() : '18',
-              tevkifatOrani: f.tevkifat_orani?.toString() || '0',
-              stopajOrani: f.stopaj_orani?.toString() || '0',
-              aciklama: f.aciklama || '',
+              toplamTutar: fTutar?.toString() || '',
+              kdvOrani: fKdvOrani ? fKdvOrani.toString() : '18',
+              tevkifatOrani: fTevkifatOrani?.toString() || '0',
+              stopajOrani: fStopajOrani?.toString() || '0',
+              aciklama: fAciklama,
               cariId: matchedCari ? matchedCari.id : undefined,
               depoId: varsayilanDepoId,
-              muhasebeKodu: f.muhasebe_kodu || '',
+              muhasebeKodu: fMuhasebeKodu,
               vehiclePlate: rawPlate
             }
           };

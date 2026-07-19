@@ -29,6 +29,15 @@ interface EkstreSatiri {
   kategoriId?: string | null;
 }
 
+const SYSTEM_CATEGORIES = [
+  { id: 'genel_gider', ad: 'Genel Gider' },
+  { id: 'kira_odemesi', ad: 'Kira Ödemesi' },
+  { id: 'maas_odemesi', ad: 'Maaş Ödemesi' },
+  { id: 'ssk_odemesi', ad: 'SSK/Bağkur Ödemesi' },
+  { id: 'vergi_kdv', ad: 'KDV Ödemesi' },
+  { id: 'banka_masrafi', ad: 'Banka Masrafı' }
+];
+
 const CLASSIFICATION_KEYWORDS: Record<string, IslemTuru> = {
   'KDV': 'vergi_kdv',
   'MUHTASAR': 'vergi_muhtasar',
@@ -89,13 +98,18 @@ export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploa
 
   const classifyTransaction = (aciklama: string, tip: 'borc' | 'alacak'): { tur: IslemTuru; cariId: string | null; kategoriId?: string | null; transferBankaId?: string | null; muhasebeKodu?: string } => {
     const cleanDesc = normalizeString(aciklama);
-    // classifyTransaction'ı component dışında tanımlamak daha iyi ama şimdilik içerdeyse useApp'ten gelenleri parametre alalım
     
     // 0. Kullanıcı Tanımlı Masraf Kuralları (En Yüksek Öncelik)
     for (const kural of masrafKurallari) {
       const key = normalizeString(kural.anahtarKelime);
       if (key && cleanDesc.includes(key)) {
-        return { tur: kural.islemTuru, cariId: null };
+        const sysCat = giderKategorileri.find(cat => cat.id === kural.islemTuru || normalizeString(cat.ad).includes(key));
+        return { 
+          tur: kural.islemTuru, 
+          cariId: null, 
+          kategoriId: sysCat?.id, 
+          muhasebeKodu: sysCat?.muhasebeKodu 
+        };
       }
     }
 
@@ -131,7 +145,8 @@ export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploa
       if (v && v.length > 5 && cleanDesc.includes(v)) {
         return { 
           tur: tip === 'alacak' ? 'tahsilat' : 'odeme', 
-          cariId: cari.id 
+          cariId: cari.id,
+          muhasebeKodu: cari.muhasebeKodu
         };
       }
     }
@@ -153,7 +168,11 @@ export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploa
     if (ibanInDesc) {
       const foundCari = cariler.find(c => (c.iban || '').replace(/\s/g, '') === ibanInDesc[0]);
       if (foundCari) {
-        return { tur: tip === 'alacak' ? 'tahsilat' : 'odeme', cariId: foundCari.id, muhasebeKodu: foundCari.muhasebeKodu };
+        return { 
+          tur: tip === 'alacak' ? 'tahsilat' : 'odeme', 
+          cariId: foundCari.id, 
+          muhasebeKodu: foundCari.muhasebeKodu 
+        };
       }
     }
 
@@ -176,7 +195,11 @@ export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploa
         .trim();
 
       if (cleanedU.length >= 4 && cleanDesc.includes(cleanedU)) {
-        return { tur: tip === 'alacak' ? 'tahsilat' : 'odeme', cariId: cari.id, muhasebeKodu: cari.muhasebeKodu };
+        return { 
+          tur: tip === 'alacak' ? 'tahsilat' : 'odeme', 
+          cariId: cari.id, 
+          muhasebeKodu: cari.muhasebeKodu 
+        };
       }
 
       // 3.3 Kelime bazlı arama
@@ -184,14 +207,22 @@ export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploa
       if (words.length >= 2) {
         const firstTwoWords = words[0] + ' ' + words[1];
         if (firstTwoWords.length >= 5 && cleanDesc.includes(firstTwoWords)) {
-           return { tur: tip === 'alacak' ? 'tahsilat' : 'odeme', cariId: cari.id, muhasebeKodu: cari.muhasebeKodu };
+           return { 
+             tur: tip === 'alacak' ? 'tahsilat' : 'odeme', 
+             cariId: cari.id, 
+             muhasebeKodu: cari.muhasebeKodu 
+           };
         }
       }
 
       if (words.length >= 1) {
         const firstWord = words[0];
         if (firstWord.length >= 5 && cleanDesc.includes(firstWord)) {
-           return { tur: tip === 'alacak' ? 'tahsilat' : 'odeme', cariId: cari.id, muhasebeKodu: cari.muhasebeKodu };
+           return { 
+             tur: tip === 'alacak' ? 'tahsilat' : 'odeme', 
+             cariId: cari.id, 
+             muhasebeKodu: cari.muhasebeKodu 
+           };
         }
       }
     }
@@ -199,7 +230,7 @@ export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploa
     // 4. Anahtar Kelime Eşleştirme (Vergi, Maaş vb.)
     for (const [key, tur] of Object.entries(CLASSIFICATION_KEYWORDS)) {
       if (cleanDesc.includes(key)) {
-        const sysCat = giderKategorileri.find(cat => normalizeString(cat.ad).includes(key));
+        const sysCat = giderKategorileri.find(cat => cat.id === tur || normalizeString(cat.ad).includes(key));
         return { tur, cariId: null, kategoriId: sysCat?.id, muhasebeKodu: sysCat?.muhasebeKodu };
       }
     }
@@ -614,11 +645,18 @@ SADECE JSON döndür:
                                 }}
                               >
                                 <option value="sistem">Eşleşme Yok (Seçin)</option>
-                                <optgroup label="GİDER KATEGORİLERİ (MASRAFLAR)">
-                                  {giderKategorileri.map(k => (
-                                    <option key={'cat-'+k.id} value={'cat-'+k.id}>{k.ad}</option>
+                                <optgroup label="SİSTEM KATEGORİLERİ">
+                                  {SYSTEM_CATEGORIES.map(cat => (
+                                    <option key={'cat-'+cat.id} value={'cat-'+cat.id}>{cat.ad}</option>
                                   ))}
                                 </optgroup>
+                                {giderKategorileri.filter(k => !SYSTEM_CATEGORIES.some(s => s.id === k.id)).length > 0 && (
+                                  <optgroup label="ÖZEL GİDER KATEGORİLERİ">
+                                    {giderKategorileri.filter(k => !SYSTEM_CATEGORIES.some(s => s.id === k.id)).map(k => (
+                                      <option key={'cat-'+k.id} value={'cat-'+k.id}>{k.ad}</option>
+                                    ))}
+                                  </optgroup>
+                                )}
                                 <optgroup label="BANKALAR (TRANSFER)">
                                   {bankaHesaplari.filter(b => b.id !== bankaId).map(b => (
                                     <option key={'transfer-'+b.id} value={'transfer-'+b.id}>{b.hesapAdi}</option>

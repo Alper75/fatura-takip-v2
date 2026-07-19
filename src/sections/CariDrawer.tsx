@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useApp } from '@/context/AppContext';
 import { Save, Users } from 'lucide-react';
 import { toast } from 'sonner';
+import { LucaAccountSelect } from '@/components/LucaAccountSelect';
 import type { CariFormData, CariTip } from '@/types';
 
 const INITIAL_FORM: CariFormData = {
@@ -17,7 +18,8 @@ const INITIAL_FORM: CariFormData = {
   vergiDairesi: '',
   adres: '',
   telefon: '',
-  eposta: ''
+  eposta: '',
+  muhasebeKodu: ''
 };
 
 export function CariDrawer() {
@@ -39,7 +41,8 @@ export function CariDrawer() {
             vergiDairesi: cari.vergiDairesi || '',
             adres: cari.adres || '',
             telefon: cari.telefon || '',
-            eposta: cari.eposta || ''
+            eposta: cari.eposta || '',
+            muhasebeKodu: cari.muhasebeKodu || ''
           });
         }
       } else {
@@ -161,6 +164,15 @@ export function CariDrawer() {
                 placeholder="ornek@firma.com"
               />
             </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Luca Muhasebe Kodu</Label>
+            <LucaAccountSelect 
+              value={formData.muhasebeKodu || ''}
+              onChange={(code) => updateField('muhasebeKodu', code)}
+              placeholder="Luca kodu seçin (Opsiyonel)"
+            />
           </div>
 
           <div className="space-y-2">

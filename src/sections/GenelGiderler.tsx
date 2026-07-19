@@ -52,6 +52,15 @@ import {
 } from '@/components/ui/dialog';
 import type { CariHareket } from '@/types';
 
+const SYSTEM_CATEGORIES = [
+  { id: 'genel_gider', ad: 'Genel Gider' },
+  { id: 'kira_odemesi', ad: 'Kira Ödemesi' },
+  { id: 'maas_odemesi', ad: 'Maaş Ödemesi' },
+  { id: 'ssk_odemesi', ad: 'SSK/Bağkur Ödemesi' },
+  { id: 'vergi_kdv', ad: 'KDV Ödemesi' },
+  { id: 'banka_masrafi', ad: 'Banka Masrafı' }
+];
+
 export function GenelGiderler() {
   const { 
     cariHareketler, 
@@ -259,18 +268,15 @@ export function GenelGiderler() {
                         <SelectValue placeholder="Kategori Seçin" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="genel_gider" disabled className="text-[10px] font-bold text-slate-400">SİSTEM KATEGORİLERİ</SelectItem>
-                        <SelectItem value="genel_gider">Genel Gider</SelectItem>
-                        <SelectItem value="kira_odemesi">Kira Ödemesi</SelectItem>
-                        <SelectItem value="maas_odemesi">Maaş Ödemesi</SelectItem>
-                        <SelectItem value="ssk_odemesi">SSK/Bağkur Ödemesi</SelectItem>
-                        <SelectItem value="vergi_kdv">KDV Ödemesi</SelectItem>
-                        <SelectItem value="banka_masrafi">Banka Masrafı</SelectItem>
+                        <SelectItem value="header-system" disabled className="text-[10px] font-bold text-slate-400">SİSTEM KATEGORİLERİ</SelectItem>
+                        {SYSTEM_CATEGORIES.map(cat => (
+                          <SelectItem key={cat.id} value={cat.id}>{cat.ad}</SelectItem>
+                        ))}
                         
-                        {giderKategorileri.length > 0 && (
+                        {giderKategorileri.filter(k => !SYSTEM_CATEGORIES.some(s => s.id === k.id)).length > 0 && (
                           <>
                             <SelectItem value="separator" disabled className="text-[10px] font-bold text-slate-400 border-t mt-2 pt-2">OZEL KATEGORİLER</SelectItem>
-                            {giderKategorileri.map(k => (
+                            {giderKategorileri.filter(k => !SYSTEM_CATEGORIES.some(s => s.id === k.id)).map(k => (
                               <SelectItem key={k.id} value={k.id}>{k.ad}</SelectItem>
                             ))}
                           </>
@@ -602,18 +608,15 @@ export function GenelGiderler() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="genel_gider" disabled className="text-[10px] font-bold text-slate-400">SİSTEM KATEGORİLERİ</SelectItem>
-                    <SelectItem value="genel_gider">Genel Gider</SelectItem>
-                    <SelectItem value="kira_odemesi">Kira Ödemesi</SelectItem>
-                    <SelectItem value="maas_odemesi">Maaş Ödemesi</SelectItem>
-                    <SelectItem value="ssk_odemesi">SSK/Bağkur Ödemesi</SelectItem>
-                    <SelectItem value="vergi_kdv">KDV Ödemesi</SelectItem>
-                    <SelectItem value="banka_masrafi">Banka Masrafı</SelectItem>
+                    <SelectItem value="header-system" disabled className="text-[10px] font-bold text-slate-400">SİSTEM KATEGORİLERİ</SelectItem>
+                    {SYSTEM_CATEGORIES.map(cat => (
+                      <SelectItem key={cat.id} value={cat.id}>{cat.ad}</SelectItem>
+                    ))}
                     
-                    {giderKategorileri.length > 0 && (
+                    {giderKategorileri.filter(k => !SYSTEM_CATEGORIES.some(s => s.id === k.id)).length > 0 && (
                       <>
                         <SelectItem value="separator" disabled className="text-[10px] font-bold text-slate-400 border-t mt-2 pt-2">OZEL KATEGORİLER</SelectItem>
-                        {giderKategorileri.map(k => (
+                        {giderKategorileri.filter(k => !SYSTEM_CATEGORIES.some(s => s.id === k.id)).map(k => (
                           <SelectItem key={k.id} value={k.id}>{k.ad}</SelectItem>
                         ))}
                       </>
@@ -717,40 +720,66 @@ export function GenelGiderler() {
                 MEVCUT KATEGORİLER
               </div>
               <div className="max-h-[300px] overflow-y-auto">
-                {giderKategorileri.length === 0 ? (
-                  <div className="p-8 text-center text-slate-400 text-sm italic">
-                    Henüz özel kategori eklenmemiş.
-                  </div>
-                ) : (
-                  <div className="divide-y">
-                    {giderKategorileri.map((cat) => (
-                      <div key={cat.id} className="flex items-center gap-4 px-4 py-3 hover:bg-slate-50 transition-colors">
-                        <div className="flex-1">
-                          <span className="font-medium text-slate-700 block">{cat.ad}</span>
+                {(() => {
+                  const mergedCategories = [
+                    ...SYSTEM_CATEGORIES.map(sc => {
+                      const dbCat = giderKategorileri.find(k => k.id === sc.id);
+                      return { ...sc, muhasebeKodu: dbCat?.muhasebeKodu, isSystem: true };
+                    }),
+                    ...giderKategorileri
+                      .filter(k => !SYSTEM_CATEGORIES.some(s => s.id === k.id))
+                      .map(k => ({ ...k, isSystem: false }))
+                  ];
+
+                  return mergedCategories.length === 0 ? (
+                    <div className="p-8 text-center text-slate-400 text-sm italic">
+                      Henüz kategori bulunmuyor.
+                    </div>
+                  ) : (
+                    <div className="divide-y">
+                      {mergedCategories.map((cat) => (
+                        <div key={cat.id} className="flex items-center gap-4 px-4 py-3 hover:bg-slate-50 transition-colors">
+                          <div className="flex-1 flex items-center gap-2">
+                            <span className="font-medium text-slate-700">{cat.ad}</span>
+                            {cat.isSystem && (
+                              <span className="text-[9px] font-bold bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded uppercase">Sistem</span>
+                            )}
+                          </div>
+                          <div className="w-[180px]">
+                            <LucaAccountSelect 
+                              value={cat.muhasebeKodu || ''}
+                              onChange={(code) => {
+                                const exists = giderKategorileri.some(k => k.id === cat.id);
+                                if (exists) {
+                                  updateGiderKategorisi(cat.id, { muhasebeKodu: code });
+                                } else {
+                                  addGiderKategorisi(cat.ad, code, cat.id);
+                                }
+                              }}
+                              placeholder="Kod Tanımla"
+                              className="h-8 text-[10px]"
+                            />
+                          </div>
+                          <div className="w-8">
+                            {!cat.isSystem && (
+                              <Button 
+                                variant="ghost" 
+                                size="icon" 
+                                className="h-8 w-8 text-slate-300 hover:text-red-500 hover:bg-red-50"
+                                onClick={() => {
+                                  deleteGiderKategorisi(cat.id);
+                                  toast.success('Kategori silindi.');
+                                }}
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            )}
+                          </div>
                         </div>
-                        <div className="w-[180px]">
-                          <LucaAccountSelect 
-                            value={cat.muhasebeKodu || ''}
-                            onChange={(code) => updateGiderKategorisi(cat.id, { muhasebeKodu: code })}
-                            placeholder="Kod Tanımla"
-                            className="h-8 text-[10px]"
-                          />
-                        </div>
-                        <Button 
-                          variant="ghost" 
-                          size="icon" 
-                          className="h-8 w-8 text-slate-300 hover:text-red-500 hover:bg-red-50"
-                          onClick={() => {
-                            deleteGiderKategorisi(cat.id);
-                            toast.success('Kategori silindi.');
-                          }}
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                      ))}
+                    </div>
+                  );
+                })()}
               </div>
             </div>
             
