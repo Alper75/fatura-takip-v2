@@ -1,0 +1,74 @@
+[
+    {
+        "id": 1,
+        "priority": 1,
+        "action": {
+            "type": "modifyHeaders",
+            "requestHeaders": [
+                {
+                    "header": "Referer",
+                    "operation": "set",
+                    "value": "https://agiris.luca.com.tr/"
+                }
+            ]
+        },
+        "condition": {
+            "urlFilter": "auygs.luca.com.tr/Luca/luca.do",
+            "resourceTypes": ["main_frame", "sub_frame", "object", "xmlhttprequest", "other"]
+        }
+    },
+    {
+        "id": 2,
+        "priority": 1,
+        "action": {
+            "type": "modifyHeaders",
+            "requestHeaders": [
+                {
+                    "header": "Referer",
+                    "operation": "set",
+                    "value": "https://auygs.luca.com.tr"
+                }
+            ]
+        },
+        "condition": {
+            "urlFilter": "auygs.luca.com.tr/Luca/menu.do",
+            "resourceTypes": ["main_frame", "sub_frame", "object", "xmlhttprequest", "other"]
+        }
+    },
+    {
+        "id": 3,
+        "priority": 1,
+        "action": {
+            "type": "modifyHeaders",
+            "requestHeaders": [
+                {
+                    "header": "Referer",
+                    "operation": "set",
+                    "value": "https://auygs.luca.com.tr/Luca/menu.do"
+                }
+            ]
+        },
+        "condition": {
+            "urlFilter": "auygs.luca.com.tr/Luca/addFis.do",
+            "resourceTypes": ["main_frame", "sub_frame", "object", "xmlhttprequest", "other"]
+        }
+    },
+    {
+        "id": 4,
+        "priority": 1,
+        "action": {
+            "type": "modifyHeaders",
+            "requestHeaders": [
+                {
+                    "header": "Referer",
+                    "operation": "set",
+                    "value": "https://agiris.luca.com.tr/"
+                }
+            ]
+        },
+        "condition": {
+            "urlFilter": "auygs.luca.com.tr/Luca/ssoGiris.do",
+            "resourceTypes": ["main_frame", "sub_frame", "object", "xmlhttprequest", "other"]
+        }
+    }
+]

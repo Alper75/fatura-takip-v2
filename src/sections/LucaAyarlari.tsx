@@ -48,17 +48,38 @@ export function LucaAyarlari() {
   const { 
     lucaAccounts, 
     syncLucaAccounts, 
+    autoSyncLucaAccounts,
     cariler, 
     addCari, 
     updateCari 
   } = useApp();
   const [searchTerm, setSearchTerm] = useState('');
   const [openSelectors, setOpenSelectors] = useState<Record<string, boolean>>({});
+  const [isAutoSyncing, setIsAutoSyncing] = useState(false);
 
   const filteredAccounts = lucaAccounts.filter(acc => 
     acc.kod.includes(searchTerm) || 
     acc.ad.toLowerCase().includes(searchTerm.toLowerCase())
   );
+
+  const handleAutoSync = async () => {
+    setIsAutoSyncing(true);
+    toast.info("Arka planda Luca sekmesi taranıyor...");
+    try {
+      const res = await autoSyncLucaAccounts();
+      if (res.success) {
+        toast.success(`Senkronizasyon başarılı! ${res.count} hesap planı kaydı güncellendi.`);
+      } else {
+        toast.error("Arka plan senkronizasyonu başarısız oldu.", {
+          description: res.message || "Lütfen Luca sekmesinde eklenti simgesinden manuel senkronizasyon yapın."
+        });
+      }
+    } catch (err: any) {
+      toast.error("İstek sırasında hata oluştu: " + err.message);
+    } finally {
+      setIsAutoSyncing(false);
+    }
+  };
 
   const handleSync = () => {
     syncLucaAccounts();
@@ -115,6 +136,14 @@ export function LucaAyarlari() {
           >
             <RefreshCw className="w-4 h-4" />
             Eklentiden Veriyi Çek
+          </Button>
+          <Button 
+            onClick={handleAutoSync}
+            disabled={isAutoSyncing}
+            className="gap-2 bg-amber-600 hover:bg-amber-700 text-white border-0"
+          >
+            {isAutoSyncing ? <RefreshCw className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+            Tek Tıkla Çek (Deneysel)
           </Button>
           <Button 
             onClick={handleSync}

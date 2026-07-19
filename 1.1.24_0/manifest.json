@@ -1,0 +1,49 @@
+{
+   "action": {
+      "default_icon": {
+         "128": "images/atlas-store-icon-128px-1.png",
+         "16": "images/atlas-favicon-16-1.png",
+         "32": "images/atlas-favicon-32-1.png",
+         "48": "images/atlas-favicon-48-1.png"
+      }
+   },
+   "background": {
+      "service_worker": "background.js",
+      "type": "module"
+   },
+   "content_scripts": [ {
+      "js": [ "bugsnagConfig.js", "luca-login-content-script.js" ],
+      "matches": [ "*://agiris.luca.com.tr/*" ]
+   }, {
+      "js": [ "bugsnagConfig.js", "luca-app-content-script-basic.js" ],
+      "matches": [ "*://*.luca.com.tr/Luca/hizliFisPopUp.do*" ]
+   }, {
+      "exclude_matches": [ "*://*.luca.com.tr/Luca/hizliFisPopUp.do*", "*://agiris.luca.com.tr/*" ],
+      "js": [ "bugsnagConfig.js", "luca-app-content-script.js" ],
+      "matches": [ "http://*.luca.com.tr/*", "https://*.luca.com.tr/*" ]
+   } ],
+   "declarative_net_request": {
+      "rule_resources": [ {
+         "enabled": true,
+         "id": "ruleset_1",
+         "path": "rules_1.json"
+      } ]
+   },
+   "description": "Paraşüt, Bizmu ve e-Portal kullanan mükelleflerinizin elektronik faturalarını tek tıkla Atlas Aktarım Mali Müşavir'e aktarın.",
+   "externally_connectable": {
+      "matches": [ "http://localhost:4203/*", "https://atlas.parasut.com/*", "http://atlas.parasut.com/*", "https://uygulama.atlasaktarim.com/*", "http://uygulama.atlasaktarim.com/*", "http://atlas-staging.parasut.com.s3-website.eu-central-1.amazonaws.com/*", "http://atlas.parasut.com.s3-website.eu-central-1.amazonaws.com/*", "http://uygulama.atlasaktarim.com.s3-website.eu-central-1.amazonaws.com/*", "https://atlas-staging.parasut.com/*", "https://uygulama-atlas-staging.parasut.com/*", "http://uygulama-atlas-staging.parasut.com.s3-website.eu-central-1.amazonaws.com/*", "https://uygulama-staging.atlasaktarim.com/*", "http://uygulama-staging.atlasaktarim.com.s3-website.eu-central-1.amazonaws.com/*" ]
+   },
+   "host_permissions": [ "*://*.luca.com.tr/*", "*://*.bugsnag.com/*", "http://api.mixpanel.com/*", "https://api.mixpanel.com/*" ],
+   "icons": {
+      "128": "images/atlas-store-icon-128px-1.png",
+      "16": "images/atlas-favicon-16-1.png",
+      "32": "images/atlas-favicon-32-1.png",
+      "48": "images/atlas-favicon-48-1.png"
+   },
+   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAnlCLK6yXfF7z1YYd0HCqqXRpKZt8h+WhYfYeDycUlnERVfvvAjMz54iMpBvRnWkpEDrwQc7gBjpZq3w067C96xn9OHFetXiLESUAFIf6MsBdMu8p0KOz/BDmrCLz3S2W1lvMNoQjigG4ze8OGIkNCPundQ6A5U6RpnhGh1JbVtVxHxzxOtOcuTqVZ/sZ3nqakgfofl1X64hVtbXg26746b5nwf5N5SeKJTYxLkjoz8Fu3D+oWLvnS4NFPBBE2jE801Ub4ofYwUDXsNsk6TEImpJyy8Zxs3cNHz5KoVnbcqXyRrD2QT5PG7JNS7ion1WZ3Q/931pUisWmgUx9YztktQIDAQAB",
+   "manifest_version": 3,
+   "name": "Atlas Aktarım Mali Müşavir",
+   "permissions": [ "tabs", "storage", "declarativeNetRequest" ],
+   "update_url": "https://clients2.google.com/service/update2/crx",
+   "version": "1.1.24"
+}

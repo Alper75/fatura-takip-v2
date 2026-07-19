@@ -184,6 +184,7 @@ interface AppContextType {
   // ==================== LUCA ENTEGRASYON ====================
   lucaAccounts: { kod: string; ad: string; tur?: string }[];
   syncLucaAccounts: () => void;
+  autoSyncLucaAccounts: () => Promise<{ success: boolean; message?: string; count?: number }>;
 
   // ==================== TEKLİFLER ====================
   teklifler: Teklif[];
@@ -273,6 +274,29 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const syncLucaAccounts = useCallback(() => {
     // Eklentiye sinyal gönder
     window.dispatchEvent(new CustomEvent('FATURA_APP_LUCA_SYNC_REQUEST'));
+  }, []);
+
+  const autoSyncLucaAccounts = useCallback((): Promise<{ success: boolean; message?: string; count?: number }> => {
+    return new Promise((resolve) => {
+      const handleResponse = (e: any) => {
+        window.removeEventListener('FATURA_APP_LUCA_AUTO_SYNC_RESPONSE', handleResponse);
+        const res = e.detail;
+        if (res && res.status === 'success') {
+          resolve({ success: true, count: res.count });
+        } else {
+          resolve({ success: false, message: res?.message || 'Bilinmeyen hata oluştu.' });
+        }
+      };
+      
+      window.addEventListener('FATURA_APP_LUCA_AUTO_SYNC_RESPONSE', handleResponse);
+      window.dispatchEvent(new CustomEvent('FATURA_APP_LUCA_AUTO_SYNC'));
+      
+      // Safety timeout
+      setTimeout(() => {
+        window.removeEventListener('FATURA_APP_LUCA_AUTO_SYNC_RESPONSE', handleResponse);
+        resolve({ success: false, message: 'Eklenti yanıt vermedi. Süre aşımı.' });
+      }, 15000);
+    });
   }, []);
 
   useEffect(() => {
@@ -1730,6 +1754,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         deleteVehicle,
         lucaAccounts,
         syncLucaAccounts,
+        autoSyncLucaAccounts,
         teklifler,
         addTeklif,
         updateTeklif,
