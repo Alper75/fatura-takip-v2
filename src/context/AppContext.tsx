@@ -304,12 +304,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const response = e.detail;
       console.log("[Luca Sync] Response received in AppContext:", response);
       if (response && response.status === 'success' && response.data) {
-        // Gelen veriyi normalize et (kod/ad vs code/name karışıklığını önle)
-        const normalizedData = (response.data || []).map((acc: any) => ({
-          kod: acc.kod || acc.code || '',
-          ad: acc.ad || acc.name || '',
-          tur: acc.tur || ''
-        })).filter((acc: any) => acc.kod);
+        // Gelen veriyi normalize et ve mükerrer kayıtları temizle
+        const uniqueMap = new Map();
+        (response.data || []).forEach((acc: any) => {
+          const kod = (acc.kod || acc.code || '').trim();
+          const ad = (acc.ad || acc.name || '').trim();
+          const tur = acc.tur || '';
+          if (kod && ad) {
+            uniqueMap.set(kod, { kod, ad, tur });
+          }
+        });
+        const normalizedData = Array.from(uniqueMap.values());
 
         toast.success(`${normalizedData.length} hesap Luca'dan alındı. Kaydediliyor...`);
         

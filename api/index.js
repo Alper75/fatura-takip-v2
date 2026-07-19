@@ -2639,19 +2639,33 @@ app.post('/api/luca/hesap-plani/sync', authMiddleware, async (req, res) => {
   if (!accounts || !Array.isArray(accounts)) return res.status(400).json({ success: false, message: 'Geçersiz veri formatı.' });
 
   try {
-    // Toplu ekleme (Batch Insert/Upsert)
-    // Turso/LibSQL supports batch. We can use it or a single transaction.
-    // Since we have MANY accounts, we use batch and REPLACE (or IGNORE then UPDATE).
-    // SQLite doesn't have UPSERT (INSERT ... ON CONFLICT) in older versions, but libSQL does.
+    // Mükerrer kayıtları temizle
+    const uniqueMap = new Map();
+    accounts.forEach(a => {
+      const kod = (a.kod || '').trim();
+      const ad = (a.ad || '').trim();
+      if (kod && ad) {
+        uniqueMap.set(kod, { kod, ad, tur: a.tur || '' });
+      }
+    });
     
-    const statements = accounts.map(a => ({
-      sql: 'INSERT INTO luca_hesap_plani (company_id, kod, ad, tur) VALUES (?, ?, ?, ?) ON CONFLICT(company_id, kod) DO UPDATE SET ad=excluded.ad, tur=excluded.tur',
-      args: [req.user.companyId, a.kod, a.ad, a.tur || '']
-    }));
+    const uniqueAccounts = Array.from(uniqueMap.values());
+    
+    // Önce eski kayıtları sil, sonra yenilerini ekle (Tam Senkronizasyon)
+    const statements = [
+      {
+        sql: 'DELETE FROM luca_hesap_plani WHERE company_id = ?',
+        args: [req.user.companyId]
+      },
+      ...uniqueAccounts.map(a => ({
+        sql: 'INSERT INTO luca_hesap_plani (company_id, kod, ad, tur) VALUES (?, ?, ?, ?)',
+        args: [req.user.companyId, a.kod, a.ad, a.tur]
+      }))
+    ];
 
     await client.batch(statements, "write");
-    console.log(`[Backend] Başarılı: ${accounts.length} hesap Luca'dan senkronize edildi.`);
-    res.json({ success: true, count: accounts.length });
+    console.log(`[Backend] Başarılı: ${uniqueAccounts.length} hesap Luca'dan senkronize edildi (Önceki kayıtlar silindi).`);
+    res.json({ success: true, count: uniqueAccounts.length });
   } catch (e) {
     console.error('Luca Sync Error:', e);
     res.status(500).json({ success: false, message: e.message });
