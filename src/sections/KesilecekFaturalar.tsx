@@ -181,11 +181,15 @@ export function KesilecekFaturalar() {
     updateKesilecekFatura, 
     deleteKesilecekFatura,
     openSatisDrawer,
-    cariler
+    cariler,
+    satisFaturalari,
+    downloadSatisPdf,
+    deleteSatisFatura
   } = useApp();
   const { data: urunler } = useUrunler();
 
   const [searchTerm, setSearchTerm] = useState('');
+  const [activeTab, setActiveTab] = useState<'bekleyen' | 'kesilenler'>('bekleyen');
   
   // Form
   const [form, setForm] = useState({
@@ -233,17 +237,52 @@ export function KesilecekFaturalar() {
     }, { matrah: 0, kdv: 0, toplam: 0 });
   }, [kalemler, form.kdvHesaplamaTipi]);
 
-  const filteredInvoices = useMemo(() => {
-    if (!kesilecekFaturalar || !Array.isArray(kesilecekFaturalar)) return [];
+  const resolvedInvoices = useMemo(() => {
     const searchLower = searchTerm.toLowerCase();
-    return kesilecekFaturalar
-      .filter(f => 
-        String(f.ad || "").toLowerCase().includes(searchLower) || 
-        String(f.soyad || "").toLowerCase().includes(searchLower) ||
-        String(f.vknTckn || "").toLowerCase().includes(searchLower)
-      )
-      .sort((a, b) => new Date(b.olusturmaTarihi || 0).getTime() - new Date(a.olusturmaTarihi || 0).getTime());
-  }, [kesilecekFaturalar, searchTerm]);
+    
+    if (activeTab === 'bekleyen') {
+      const pending = (kesilecekFaturalar || []).filter(f => f.durum !== 'kesildi');
+      return pending
+        .filter(f => 
+          String(f.ad || "").toLowerCase().includes(searchLower) || 
+          String(f.soyad || "").toLowerCase().includes(searchLower) ||
+          String(f.vknTckn || "").toLowerCase().includes(searchLower)
+        )
+        .sort((a, b) => new Date(b.olusturmaTarihi || 0).getTime() - new Date(a.olusturmaTarihi || 0).getTime());
+    } else {
+      // Kesilenler / Onaylananlar
+      const planCut = (kesilecekFaturalar || []).filter(f => f.durum === 'kesildi');
+      const realSales = (satisFaturalari || []).map((sf: any) => ({
+        id: sf.id,
+        ad: sf.ad || sf.unvan || '',
+        soyad: sf.soyad || '',
+        vknTckn: sf.tcVkn || '',
+        tutar: parseFloat(sf.alinanUcret) || 0,
+        faturaTarihi: sf.faturaTarihi,
+        aciklama: sf.aciklama,
+        durum: 'kesildi',
+        faturaNo: sf.faturaNo,
+        isRealSalesInvoice: true,
+        olusturmaTarihi: sf.created_at || sf.olusturmaTarihi || sf.faturaTarihi
+      }));
+
+      // Deduplicate planCut against realSales (using vknTckn and Tutarı)
+      const filteredPlanCut = planCut.filter(p => {
+        return !realSales.some(r => r.vknTckn === p.vknTckn && Math.abs(r.tutar - p.tutar) < 0.01);
+      });
+
+      const combined: any[] = [...filteredPlanCut, ...realSales];
+      
+      return combined
+        .filter(f => 
+          String(f.ad || "").toLowerCase().includes(searchLower) || 
+          String(f.soyad || "").toLowerCase().includes(searchLower) ||
+          String(f.vknTckn || "").toLowerCase().includes(searchLower) ||
+          String(f.faturaNo || "").toLowerCase().includes(searchLower)
+        )
+        .sort((a, b) => new Date(b.olusturmaTarihi || 0).getTime() - new Date(a.olusturmaTarihi || 0).getTime());
+    }
+  }, [kesilecekFaturalar, satisFaturalari, activeTab, searchTerm]);
 
   const handleCariChange = (cariId: string) => {
     if (!cariId || cariId === 'none') {
@@ -631,7 +670,32 @@ export function KesilecekFaturalar() {
         <Card className="lg:col-span-7 border-0 shadow-sm ring-1 ring-slate-200 overflow-hidden">
           <CardHeader className="bg-slate-50/30 border-b pb-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <CardTitle className="text-lg">Bekleyen Faturalar</CardTitle>
+              <div className="flex items-center gap-4 border-b border-slate-100 pb-1 sm:pb-0 sm:border-0">
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('bekleyen')}
+                  className={cn(
+                    "text-sm font-bold pb-2 border-b-2 transition-all px-1",
+                    activeTab === 'bekleyen' 
+                      ? "text-blue-600 border-blue-600" 
+                      : "text-slate-400 border-transparent hover:text-slate-600"
+                  )}
+                >
+                  Bekleyen Faturalar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('kesilenler')}
+                  className={cn(
+                    "text-sm font-bold pb-2 border-b-2 transition-all px-1",
+                    activeTab === 'kesilenler' 
+                      ? "text-blue-600 border-blue-600" 
+                      : "text-slate-400 border-transparent hover:text-slate-600"
+                  )}
+                >
+                  Kesilenler / Onaylananlar
+                </button>
+              </div>
               <div className="relative w-full sm:w-64">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                 <Input placeholder="Müşteri veya VKN ara..." className="pl-10 h-9 bg-white" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
@@ -644,24 +708,24 @@ export function KesilecekFaturalar() {
                 <TableHeader>
                   <TableRow className="bg-slate-50/50 border-0 hover:bg-slate-50/50">
                     <TableHead className="font-semibold text-slate-600">Müşteri Detayları</TableHead>
-                    <TableHead className="font-semibold text-slate-600">Kalemler</TableHead>
+                    <TableHead className="font-semibold text-slate-600">Kalemler / Açıklama</TableHead>
                     <TableHead className="font-semibold text-slate-600">Toplam</TableHead>
                     <TableHead className="font-semibold text-slate-600 text-center">Durum</TableHead>
                     <TableHead className="text-right font-semibold text-slate-600">Aksiyon</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredInvoices.length === 0 ? (
+                  {resolvedInvoices.length === 0 ? (
                     <TableRow>
                       <TableCell colSpan={5} className="h-48 text-center">
                         <div className="flex flex-col items-center justify-center text-slate-400 gap-2">
                           <AlertCircle className="w-8 h-8 opacity-20" />
-                          <p>Kayıtlı fatura planı bulunamadı.</p>
+                          <p>{activeTab === 'bekleyen' ? 'Kayıtlı bekleyen fatura planı bulunamadı.' : 'Kesilmiş veya onaylanmış fatura bulunamadı.'}</p>
                         </div>
                       </TableCell>
                     </TableRow>
                   ) : (
-                    filteredInvoices.map(f => (
+                    resolvedInvoices.map((f: any) => (
                       <TableRow key={f.id} className="group border-0 border-b last:border-0 hover:bg-blue-50/30 transition-colors">
                         <TableCell>
                           <div className="flex flex-col">
@@ -673,7 +737,7 @@ export function KesilecekFaturalar() {
                         <TableCell>
                           <div className="flex flex-col gap-0.5">
                             {f.kalemler && f.kalemler.length > 0 ? (
-                              f.kalemler.slice(0, 2).map(k => (
+                              f.kalemler.slice(0, 2).map((k: any) => (
                                 <span key={k.id} className="text-[11px] text-slate-600">
                                   {k.miktar}x {k.ad}
                                 </span>
@@ -704,7 +768,7 @@ export function KesilecekFaturalar() {
                         </TableCell>
                         <TableCell className="text-right">
                           <div className="flex items-center justify-end gap-1 md:opacity-0 group-hover:opacity-100 transition-opacity">
-                            {f.durum === 'bekliyor' && (
+                            {f.durum === 'bekliyor' ? (
                               <>
                                 <Button
                                   variant="outline" size="sm" onClick={() => openGibModal(f)}
@@ -719,9 +783,34 @@ export function KesilecekFaturalar() {
                                   FATURA KES
                                 </Button>
                               </>
+                            ) : (
+                              <div className="flex items-center gap-1.5">
+                                {f.faturaNo && (
+                                  <span className="text-[10px] font-bold text-slate-600 bg-slate-100 border border-slate-200 px-1.5 py-0.5 rounded">
+                                    {f.faturaNo}
+                                  </span>
+                                )}
+                                {f.isRealSalesInvoice && (
+                                  <Button
+                                    variant="outline" size="sm" onClick={() => downloadSatisPdf(f.id)}
+                                    className="h-7 text-[10px] font-bold bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-600 hover:text-white hover:border-slate-600 gap-1"
+                                  >
+                                    <Download className="w-3 h-3" /> PDF
+                                  </Button>
+                                )}
+                              </div>
                             )}
                             <Button
-                              variant="ghost" size="icon" onClick={() => deleteKesilecekFatura(f.id)}
+                              variant="ghost" size="icon" 
+                              onClick={() => {
+                                if (f.isRealSalesInvoice) {
+                                  if (confirm('Bu onaylanmış satış faturasını sistemden silmek istediğinize emin misiniz?')) {
+                                    deleteSatisFatura(f.id);
+                                  }
+                                } else {
+                                  deleteKesilecekFatura(f.id);
+                                }
+                              }}
                               className="w-8 h-8 text-slate-300 hover:text-red-500 hover:bg-red-50"
                             >
                               <Trash2 className="w-4 h-4" />
