@@ -1160,6 +1160,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       vadeTarihi: formData.vadeTarihi || null, odemeTarihi: null,
       odemeDurumu: 'odenmedi', odemeDekontu: null,
       olusturmaTarihi: new Date().toISOString().split('T')[0],
+      aciklama: formData.aciklama || '',
       stokKalemleri: (formData as any).stokKalemleri || []
     };
     setSatisFaturalari(prev => [yeniFatura, ...prev]);

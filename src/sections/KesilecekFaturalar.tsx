@@ -521,7 +521,7 @@ export function KesilecekFaturalar() {
       const parts = (gibInv.belgeTarihi || '').split('/');
       const formattedDate = parts.length === 3 ? `${parts[2]}-${parts[1]}-${parts[0]}` : new Date().toISOString().split('T')[0];
       
-      const alinanUcret = parseFloat(gibInv.odenecekTutar || gibInv.vergilerDahilToplamTutar || '0');
+      const alinanUcret = parseFloat(gibInv.tutar || gibInv.odenecekTutar || gibInv.vergilerDahilToplamTutar || '0');
       
       await addSatisFatura({
         tcVkn: gibInv.aliciVknTckn || '',
@@ -538,6 +538,7 @@ export function KesilecekFaturalar() {
         stopajOrani: '0',
         stopajKodu: '',
         faturaNo: gibInv.belgeNumarasi || '',
+        aciklama: gibInv.aciklama || 'GİB e-Arşiv Portalından aktarıldı. Alıcı: ' + (gibInv.aliciUnvan || 'Bilinmiyor'),
       } as any);
 
       toast.success(`${gibInv.belgeNumarasi || 'Fatura'} başarıyla sisteme aktarıldı.`);
@@ -557,7 +558,7 @@ export function KesilecekFaturalar() {
       try {
         const parts = (gibInv.belgeTarihi || '').split('/');
         const formattedDate = parts.length === 3 ? `${parts[2]}-${parts[1]}-${parts[0]}` : new Date().toISOString().split('T')[0];
-        const alinanUcret = parseFloat(gibInv.odenecekTutar || gibInv.vergilerDahilToplamTutar || '0');
+        const alinanUcret = parseFloat(gibInv.tutar || gibInv.odenecekTutar || gibInv.vergilerDahilToplamTutar || '0');
         
         await addSatisFatura({
           tcVkn: gibInv.aliciVknTckn || '',
@@ -574,6 +575,7 @@ export function KesilecekFaturalar() {
           stopajOrani: '0',
           stopajKodu: '',
           faturaNo: gibInv.belgeNumarasi || '',
+          aciklama: gibInv.aciklama || 'GİB e-Arşiv Portalından aktarıldı. Alıcı: ' + (gibInv.aliciUnvan || 'Bilinmiyor'),
         } as any);
         imported++;
       } catch (err) {
@@ -927,7 +929,7 @@ export function KesilecekFaturalar() {
                                     {f.faturaNo}
                                   </span>
                                 )}
-                                {f.isRealSalesInvoice && (
+                                {f.isRealSalesInvoice && f.pdfDosya && (
                                   <Button
                                     variant="outline" size="sm" onClick={() => downloadSatisPdf(f.id)}
                                     className="h-7 text-[10px] font-bold bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-600 hover:text-white hover:border-slate-600 gap-1"
