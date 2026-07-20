@@ -1881,11 +1881,11 @@ app.post('/api/gib/create-draft', authMiddleware, async (req, res) => {
     note: invoice.aciklama || ''
   };
 
+  let token;
+  const isTest = process.env.GIB_TEST_MODE === 'true';
+  const client = createFaturaClient(isTest ? 'TEST' : 'PROD');
   try {
-    const isTest = process.env.GIB_TEST_MODE === 'true';
-    const client = createFaturaClient(isTest ? 'TEST' : 'PROD');
-    
-    const token = await client.getToken(credentials.username, credentials.password);
+    token = await client.getToken(credentials.username, credentials.password);
     const createdInvoice = await client.createDraftInvoice(token, invoiceDetails);
     const invoiceUUID = createdInvoice.uuid;
 
@@ -1893,8 +1893,6 @@ app.post('/api/gib/create-draft', authMiddleware, async (req, res) => {
     if (autoSign === true) {
       signResult = await client.signDraftInvoice(token, createdInvoice);
     }
-
-    await client.logout(token);
 
     return res.json({
       success: true,
@@ -1907,6 +1905,14 @@ app.post('/api/gib/create-draft', authMiddleware, async (req, res) => {
       success: false,
       message: 'GİB fatura hatası: ' + error.message,
     });
+  } finally {
+    if (token) {
+      try {
+        await client.logout(token);
+      } catch (logoutError) {
+        console.error('[GIB Create Draft] Logout Hatası:', logoutError);
+      }
+    }
   }
 });
 
@@ -1917,6 +1923,9 @@ app.post('/api/gib/invoices', authMiddleware, async (req, res) => {
   if (!startDate || !endDate)
     return res.status(400).json({ success: false, message: 'Başlangıç ve bitiş tarihleri gereklidir.' });
 
+  let token;
+  const isTest = process.env.GIB_TEST_MODE === 'true';
+  const client = createFaturaClient(isTest ? 'TEST' : 'PROD');
   try {
     const formatToGIB = (dateStr) => {
       if (dateStr.includes('-')) {
@@ -1929,12 +1938,8 @@ app.post('/api/gib/invoices', authMiddleware, async (req, res) => {
     const gibStart = formatToGIB(startDate);
     const gibEnd = formatToGIB(endDate);
 
-    const isTest = process.env.GIB_TEST_MODE === 'true';
-    const client = createFaturaClient(isTest ? 'TEST' : 'PROD');
-    
-    const token = await client.getToken(credentials.username, credentials.password);
+    token = await client.getToken(credentials.username, credentials.password);
     const invoices = await client.getAllInvoicesByDateRange(token, { startDate: gibStart, endDate: gibEnd });
-    await client.logout(token);
 
     return res.json({
       success: true,
@@ -1946,6 +1951,14 @@ app.post('/api/gib/invoices', authMiddleware, async (req, res) => {
       success: false,
       message: 'GİB faturaları getirme hatası: ' + error.message,
     });
+  } finally {
+    if (token) {
+      try {
+        await client.logout(token);
+      } catch (logoutError) {
+        console.error('[GIB Invoices Fetch] Logout Hatası:', logoutError);
+      }
+    }
   }
 });
 

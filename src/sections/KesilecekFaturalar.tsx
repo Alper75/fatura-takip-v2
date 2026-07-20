@@ -274,6 +274,7 @@ export function KesilecekFaturalar() {
         durum: 'kesildi',
         faturaNo: sf.faturaNo,
         isRealSalesInvoice: true,
+        pdfDosya: sf.pdfDosya,
         olusturmaTarihi: sf.created_at || sf.olusturmaTarihi || sf.faturaTarihi
       }));
 

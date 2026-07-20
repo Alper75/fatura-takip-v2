@@ -31,7 +31,7 @@ export class FaturaClient {
     constructor(env = "PROD") {
         this.baseURL = ENV[env].BASE_URL;
         this.loginCmd = env === "PROD" ? "anologin" : "login";
-        this.logoutCmd = env === "PROD" ? "anologin" : "logout";
+        this.logoutCmd = "logout";
     }
 
     buildHeaders() {
