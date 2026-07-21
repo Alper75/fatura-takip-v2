@@ -213,7 +213,6 @@ export function SatisFaturaDrawer() {
     if (validateAll()) {
       try {
         for (const f of forms) {
-          const hes = getHesaplanan(f);
           const dataToSave = {
             ...f.data,
             alinanUcret: f.data.alinanUcret, // Ham değeri gönder, AppContext tutarTuru'na göre hesaplasın
