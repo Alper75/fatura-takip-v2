@@ -636,6 +636,9 @@ export function KesilecekFaturalar() {
       const parts = (gibInv.belgeTarihi || '').split('/');
       const formattedDate = parts.length === 3 ? `${parts[2]}-${parts[1]}-${parts[0]}` : new Date().toISOString().split('T')[0];
       
+      const matchingCari = cariler.find(c => c.vknTckn === finalVkn);
+      const cariId = matchingCari ? matchingCari.id : undefined;
+
       await addSatisFatura({
         id: gibInv.ettn,
         gibUuid: gibInv.ettn,
@@ -654,6 +657,7 @@ export function KesilecekFaturalar() {
         stopajKodu: '',
         faturaNo: gibInv.belgeNumarasi || '',
         aciklama: gibInv.aciklama || 'GİB e-Arşiv Portalından aktarıldı. Alıcı: ' + finalAliciUnvan,
+        cariId: cariId,
       } as any);
 
       toast.success(`${gibInv.belgeNumarasi || 'Fatura'} başarıyla sisteme aktarıldı.`);
@@ -709,6 +713,9 @@ export function KesilecekFaturalar() {
         const parts = (gibInv.belgeTarihi || '').split('/');
         const formattedDate = parts.length === 3 ? `${parts[2]}-${parts[1]}-${parts[0]}` : new Date().toISOString().split('T')[0];
         
+        const matchingCariAll = cariler.find(c => c.vknTckn === finalVkn);
+        const cariIdAll = matchingCariAll ? matchingCariAll.id : undefined;
+
         await addSatisFatura({
           id: gibInv.ettn,
           gibUuid: gibInv.ettn,
@@ -727,6 +734,7 @@ export function KesilecekFaturalar() {
           stopajKodu: '',
           faturaNo: gibInv.belgeNumarasi || '',
           aciklama: gibInv.aciklama || 'GİB e-Arşiv Portalından aktarıldı. Alıcı: ' + finalAliciUnvan,
+          cariId: cariIdAll,
         } as any);
         imported++;
       } catch (err) {

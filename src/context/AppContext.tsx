@@ -1096,9 +1096,31 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const updateKesilecekFatura = useCallback(async (id: string, data: Partial<KesilecekFatura>) => {
     setKesilecekFaturalar(prev => prev.map(f => f.id === id ? { ...f, ...data } : f));
-    try { await apiFetch(`/api/kesilecek-faturalar/${id}`, { method: 'PUT', body: JSON.stringify(data) }); }
-    catch (e) { console.error('Kesilecek fatura gÃ¼ncellenemedi:', e); }
-  }, []);
+    try { 
+      await apiFetch(`/api/kesilecek-faturalar/${id}`, { method: 'PUT', body: JSON.stringify(data) }); 
+      
+      // Eğer durum 'kesildi' yapıldıysa, cariId varsa bir CariHareket ekle!
+      if (data.durum === 'kesildi') {
+        const plan = kesilecekFaturalar.find(f => f.id === id);
+        if (plan && plan.cariId) {
+          const yeniHareket: CariHareket = {
+            id: 'ch' + Date.now().toString() + Math.random().toString(36).substr(2, 5),
+            cariId: plan.cariId, 
+            tarih: data.faturaTarihi || plan.faturaTarihi || new Date().toISOString().split('T')[0], 
+            islemTuru: 'satis_faturasi',
+            tutar: data.tutar || plan.tutar,
+            aciklama: `Satış Faturası (Plan - GİB Gönderim: ${plan.ad || ''})`.trim(),
+            bagliFaturaId: id, 
+            olusturmaTarihi: new Date().toISOString().split('T')[0], 
+            dekontDosya: null
+          };
+          setCariHareketler(prev => [yeniHareket, ...prev]);
+          await apiFetch('/api/cari-hareketler', { method: 'POST', body: JSON.stringify(yeniHareket) });
+        }
+      }
+    }
+    catch (e) { console.error('Kesilecek fatura güncellenemedi:', e); }
+  }, [kesilecekFaturalar, cariHareketler]);
 
   const deleteKesilecekFatura = useCallback(async (id: string) => {
     setKesilecekFaturalar(prev => prev.filter(f => f.id !== id));
