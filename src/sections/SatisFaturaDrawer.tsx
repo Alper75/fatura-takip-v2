@@ -216,7 +216,8 @@ export function SatisFaturaDrawer() {
           const hes = getHesaplanan(f);
           const dataToSave = {
             ...f.data,
-            alinanUcret: f.tutarTuru === 'dahil' ? parseFloat(f.data.alinanUcret).toString() : hes.toplamNet.toString(),
+            alinanUcret: f.data.alinanUcret, // Ham değeri gönder, AppContext tutarTuru'na göre hesaplasın
+            tutarTuru: f.tutarTuru,
             dosyaBase64: uploadedFile?.base64,
             dosyaAdi: uploadedFile?.name,
             // Çoklu stok kalemleri

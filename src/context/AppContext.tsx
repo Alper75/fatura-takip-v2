@@ -1113,36 +1113,45 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return payda > 0 ? (pay / payda) : 0;
   };
 
-  const calculateFaturaHesaplamalari = (tutar: number, kdvStr: string, tevStr?: string, stopajStr?: string) => {
+  const calculateFaturaHesaplamalari = (tutar: number, kdvStr: string, tevStr?: string, stopajStr?: string, tutarTuru: 'dahil' | 'haric' = 'dahil') => {
     const kdvOrani = parseFloat(kdvStr) / 100;
     const stopajOrani = parseFloat(stopajStr || '0') / 100;
     const tevkifatCarpani = parseTevkifat(tevStr);
 
-    // FormÃ¼l: Net = Matrah + (Matrah * KDV) - (Matrah * Stopaj) - (Matrah * KDV * Tevkifat)
-    // Matrah = Net / (1 + KDV - Stopaj - (KDV * Tevkifat))
-    const carpan = 1 + kdvOrani - stopajOrani - (kdvOrani * tevkifatCarpani);
-    const matrah = (carpan > 0 && !isNaN(tutar)) ? tutar / carpan : 0;
+    let matrah = 0;
+    if (tutarTuru === 'haric') {
+      // Tutar zaten matrah (KDV hariç)
+      matrah = !isNaN(tutar) ? tutar : 0;
+    } else {
+      // Tutar KDV dahil net ödenecek tutar
+      // Formül: Net = Matrah + (Matrah * KDV) - (Matrah * Stopaj) - (Matrah * KDV * Tevkifat)
+      // Matrah = Net / (1 + KDV - Stopaj - (KDV * Tevkifat))
+      const carpan = 1 + kdvOrani - stopajOrani - (kdvOrani * tevkifatCarpani);
+      matrah = (carpan > 0 && !isNaN(tutar)) ? tutar / carpan : 0;
+    }
 
     const kdvTutari = matrah * kdvOrani || 0;
     const stopajTutari = matrah * stopajOrani || 0;
     const tevkifatTutari = kdvTutari * tevkifatCarpani || 0;
+    const toplamNet = matrah + kdvTutari - stopajTutari - tevkifatTutari;
 
     return {
       matrah: Math.round(matrah * 100) / 100,
       kdvTutari: Math.round(kdvTutari * 100) / 100,
       stopajTutari: Math.round(stopajTutari * 100) / 100,
       tevkifatTutari: Math.round(tevkifatTutari * 100) / 100,
-      toplamNet: Math.round(tutar * 100) / 100
+      toplamNet: Math.round(toplamNet * 100) / 100
     };
   };
 
-  // ==================== SATIÅ FATURA HESAPLAMA ====================
+  // ==================== SATIŞ FATURA HESAPLAMA ====================
   const calculateSatisFatura = (formData: SatisFaturaFormData) => {
     const tutar = parseFloat(formData.alinanUcret) || 0;
-    return calculateFaturaHesaplamalari(tutar, formData.kdvOrani, formData.tevkifatOrani, formData.stopajOrani);
+    const tutarTuru = (formData as any).tutarTuru || 'dahil';
+    return calculateFaturaHesaplamalari(tutar, formData.kdvOrani, formData.tevkifatOrani, formData.stopajOrani, tutarTuru);
   };
 
-  // ==================== SATIÅ FATURA CRUD ====================
+  // ==================== SATIŞ FATURA CRUD ====================
   const addSatisFatura = useCallback(async (formData: SatisFaturaFormData) => {
     const hesaplanan = calculateSatisFatura(formData);
     const yeniFatura: SatisFatura = {
@@ -1239,7 +1248,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const calculateAlisFatura = (formData: AlisFaturaFormData) => {
     const tutar = parseFloat(formData.toplamTutar) || 0;
-    return calculateFaturaHesaplamalari(tutar, formData.kdvOrani, formData.tevkifatOrani, formData.stopajOrani);
+    const tutarTuru = (formData as any).tutarTuru || 'dahil';
+    return calculateFaturaHesaplamalari(tutar, formData.kdvOrani, formData.tevkifatOrani, formData.stopajOrani, tutarTuru);
   };
 
   // ==================== ALIÅ FATURA CRUD ====================
@@ -1306,9 +1316,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
 
   // ==================== PDF/DEKONT UPLOAD/DOWNLOAD ====================
-  const uploadFile = (setter: React.Dispatch<React.SetStateAction<any[]>>, faturaId: string, file: File, field: string) => {
+  const uploadFile = (
+    setter: React.Dispatch<React.SetStateAction<any[]>>,
+    faturaId: string,
+    file: File,
+    field: string,
+    apiEndpoint: string,
+    fieldNameInApi: string
+  ) => {
     const reader = new FileReader();
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
       const base64 = e.target?.result as string;
       setter(prev =>
         prev.map(f =>
@@ -1317,24 +1334,36 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             : f
         )
       );
+      // Backend'e kaydet
+      try {
+        await apiFetch(`${apiEndpoint}/${faturaId}`, {
+          method: 'PUT',
+          body: JSON.stringify({
+            [fieldNameInApi]: base64,
+            [`${fieldNameInApi}Adi`]: file.name,
+          }),
+        });
+      } catch (e) {
+        console.error('Dosya backend\'e kaydedilemedi:', e);
+      }
     };
     reader.readAsDataURL(file);
   };
 
   const uploadSatisPdf = useCallback((faturaId: string, file: File) => {
-    uploadFile(setSatisFaturalari, faturaId, file, 'pdfDosya');
+    uploadFile(setSatisFaturalari, faturaId, file, 'pdfDosya', '/api/satis-faturalari', 'pdfDosya');
   }, []);
 
   const uploadSatisDekont = useCallback((faturaId: string, file: File) => {
-    uploadFile(setSatisFaturalari, faturaId, file, 'odemeDekontu');
+    uploadFile(setSatisFaturalari, faturaId, file, 'odemeDekontu', '/api/satis-faturalari', 'odemeDekontu');
   }, []);
 
   const uploadAlisPdf = useCallback((faturaId: string, file: File) => {
-    uploadFile(setAlisFaturalari, faturaId, file, 'pdfDosya');
+    uploadFile(setAlisFaturalari, faturaId, file, 'pdfDosya', '/api/alis-faturalari', 'pdfDosya');
   }, []);
 
   const uploadAlisDekont = useCallback((faturaId: string, file: File) => {
-    uploadFile(setAlisFaturalari, faturaId, file, 'odemeDekontu');
+    uploadFile(setAlisFaturalari, faturaId, file, 'odemeDekontu', '/api/alis-faturalari', 'odemeDekontu');
   }, []);
 
   const downloadFile = (faturalar: any[], faturaId: string, field: string, defaultName: string) => {

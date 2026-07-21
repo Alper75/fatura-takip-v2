@@ -211,11 +211,12 @@ export function AlisFaturaDrawer() {
 
           const invoiceId = await addAlisFatura({
             ...finalData,
-            toplamTutar: f.tutarTuru === 'dahil' ? parseFloat(f.data.toplamTutar).toString() : hes.toplamNet.toString(),
+            toplamTutar: f.data.toplamTutar, // Ham değeri gönder, AppContext tutarTuru'na göre hesaplasın
+            tutarTuru: f.tutarTuru,
             muhasebeKodu: f.data.muhasebeKodu,
             dosyaBase64: uploadedFile?.base64,
             dosyaAdi: uploadedFile?.name
-          });
+          } as any);
 
           if (f.data.urunId) {
             await stokApi.addHareket({
