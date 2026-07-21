@@ -35,6 +35,7 @@ export interface SatisFatura {
   vadeTarihi?: string | null;
   aciklama?: string;
   stokKalemleri?: any[];
+  gibUuid?: string;
 }
 
 export interface SatisFaturaFormData {
@@ -428,6 +429,8 @@ export interface KesilecekFatura {
   olusturmaTarihi: string;
   durum: 'bekliyor' | 'kesildi';
   cariId?: string;
+  gibUuid?: string;
+  faturaNo?: string;
 }
 
 // ==================== TEKLİFLER ====================

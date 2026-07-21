@@ -294,6 +294,7 @@ export function KesilecekFaturalar() {
         faturaNo: sf.faturaNo,
         isRealSalesInvoice: true,
         pdfDosya: sf.pdfDosya,
+        gibUuid: sf.gibUuid,
         olusturmaTarihi: sf.created_at || sf.olusturmaTarihi || sf.faturaTarihi
       }));
 
@@ -475,7 +476,11 @@ export function KesilecekFaturalar() {
       if (result.success) {
         toast.success(result.message + (result.data?.invoiceUUID ? ` (UUID: ${result.data.invoiceUUID})` : ''));
         setIsGibModalOpen(false);
-        updateKesilecekFatura(selectedInvoiceForGib.id, { durum: 'kesildi' });
+        updateKesilecekFatura(selectedInvoiceForGib.id, { 
+          durum: 'kesildi',
+          gibUuid: result.data?.invoiceUUID || undefined,
+          faturaNo: result.data?.invoiceNo || undefined
+        });
       } else {
         toast.error(`${result.error || 'GİB Hatası'}: ${result.message}`);
       }
@@ -532,6 +537,16 @@ export function KesilecekFaturalar() {
 
   const handleDownloadGibPdf = async (inv: any) => {
     try {
+      const credentials = (gibFetchCredentials.username && gibFetchCredentials.password) 
+        ? gibFetchCredentials 
+        : (gibCredentials.username && gibCredentials.password) ? gibCredentials : null;
+
+      if (!credentials) {
+        setIsGibFetchModalOpen(true);
+        toast.warning('GİB portalından fatura çekmek için lütfen kullanıcı bilgilerinizi girin.');
+        return;
+      }
+
       toast.info('GİB faturası görüntüleniyor...');
       const apiUrl = import.meta.env.DEV ? 'http://localhost:5000/api/gib/download-pdf' : '/api/gib/download-pdf';
       const response = await fetch(apiUrl, {
@@ -541,9 +556,9 @@ export function KesilecekFaturalar() {
           Authorization: `Bearer ${localStorage.getItem('token')}` 
         },
         body: JSON.stringify({
-          credentials: gibFetchCredentials,
-          uuid: inv.ettn,
-          signed: inv.onayDurumu === 'Onaylandı'
+          credentials,
+          uuid: inv.ettn || inv.gibUuid,
+          signed: inv.onayDurumu === 'Onaylandı' || inv.durum === 'kesildi'
         })
       });
 
@@ -622,6 +637,8 @@ export function KesilecekFaturalar() {
       const formattedDate = parts.length === 3 ? `${parts[2]}-${parts[1]}-${parts[0]}` : new Date().toISOString().split('T')[0];
       
       await addSatisFatura({
+        id: gibInv.ettn,
+        gibUuid: gibInv.ettn,
         tcVkn: finalVkn,
         ad: finalAliciUnvan,
         soyad: '',
@@ -693,6 +710,8 @@ export function KesilecekFaturalar() {
         const formattedDate = parts.length === 3 ? `${parts[2]}-${parts[1]}-${parts[0]}` : new Date().toISOString().split('T')[0];
         
         await addSatisFatura({
+          id: gibInv.ettn,
+          gibUuid: gibInv.ettn,
           tcVkn: finalVkn,
           ad: finalAliciUnvan,
           soyad: '',
@@ -1060,6 +1079,14 @@ export function KesilecekFaturalar() {
                                   <span className="text-[10px] font-bold text-slate-600 bg-slate-100 border border-slate-200 px-1.5 py-0.5 rounded">
                                     {f.faturaNo}
                                   </span>
+                                )}
+                                {f.gibUuid && (
+                                  <Button
+                                    variant="outline" size="sm" onClick={() => handleDownloadGibPdf(f)}
+                                    className="h-7 text-[10px] font-bold bg-white border-red-200 text-red-700 hover:bg-red-600 hover:text-white hover:border-red-600 gap-1"
+                                  >
+                                    <FileText className="w-3.5 h-3.5 text-red-500" /> GİB PDF
+                                  </Button>
                                 )}
                                 {f.isRealSalesInvoice && f.pdfDosya && (
                                   <Button

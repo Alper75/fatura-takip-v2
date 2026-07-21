@@ -1246,6 +1246,7 @@ app.get('/api/satis-faturalari', authMiddleware, async (req, res) => {
         odemeDekontu: r.odeme_dekontu, odemeDekontuAdi: r.odeme_dekontu_adi, cariId: r.cari_id, 
         vadeTarihi: r.vade_tarihi, aciklama: r.aciklama, olusturmaTarihi: r.olusturma_tarihi, 
         urunId: r.urun_id, depoId: r.depo_id,
+        gibUuid: r.gib_uuid,
         stokKalemleri: bagliStoklar.length > 0 ? bagliStoklar : undefined
       };
     });
@@ -1257,8 +1258,8 @@ app.post('/api/satis-faturalari', authMiddleware, async (req, res) => {
   const f = req.body;
   try {
     await client.execute({
-      sql: 'INSERT INTO satis_faturalari (id,fatura_no,tc_vkn,ad,soyad,adres,kdv_orani,alinan_ucret,matrah,kdv_tutari,tevkifat_orani,tevkifat_tutari,tevkifat_kodu,stopaj_orani,stopaj_tutari,stopaj_kodu,muhasebe_kodu,pdf_dosya,pdf_dosya_adi,fatura_tarihi,odeme_tarihi,odeme_durumu,odeme_dekontu,odeme_dekontu_adi,cari_id,vade_tarihi,aciklama,olusturma_tarihi,company_id,urun_id,depo_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
-      args: [n(f.id),n(f.faturaNo),n(f.tcVkn),n(f.ad),n(f.soyad),n(f.adres),n(f.kdvOrani),n(f.alinanUcret),n(f.matrah),n(f.kdvTutari),n(f.tevkifatOrani),n(f.tevkifatTutari),n(f.tevkifatKodu),n(f.stopajOrani),n(f.stopajTutari),n(f.stopajKodu),n(f.muhasebeKodu),n(f.pdfDosya),n(f.pdfDosyaAdi),n(f.faturaTarihi),n(f.odemeTarihi),n(f.odemeDurumu||'odenmedi'),n(f.odemeDekontu),n(f.odemeDekontuAdi),n(f.cariId),n(f.vadeTarihi),n(f.aciklama),n(f.olusturmaTarihi),req.user.companyId,n(f.urunId),n(f.depoId)]
+      sql: 'INSERT INTO satis_faturalari (id,fatura_no,tc_vkn,ad,soyad,adres,kdv_orani,alinan_ucret,matrah,kdv_tutari,tevkifat_orani,tevkifat_tutari,tevkifat_kodu,stopaj_orani,stopaj_tutari,stopaj_kodu,muhasebe_kodu,pdf_dosya,pdf_dosya_adi,fatura_tarihi,odeme_tarihi,odeme_durumu,odeme_dekontu,odeme_dekontu_adi,cari_id,vade_tarihi,aciklama,olusturma_tarihi,company_id,urun_id,depo_id,gib_uuid) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+      args: [n(f.id),n(f.faturaNo),n(f.tcVkn),n(f.ad),n(f.soyad),n(f.adres),n(f.kdvOrani),n(f.alinanUcret),n(f.matrah),n(f.kdvTutari),n(f.tevkifatOrani),n(f.tevkifatTutari),n(f.tevkifatKodu),n(f.stopajOrani),n(f.stopajTutari),n(f.stopajKodu),n(f.muhasebeKodu),n(f.pdfDosya),n(f.pdfDosyaAdi),n(f.faturaTarihi),n(f.odemeTarihi),n(f.odemeDurumu||'odenmedi'),n(f.odemeDekontu),n(f.odemeDekontuAdi),n(f.cariId),n(f.vadeTarihi),n(f.aciklama),n(f.olusturmaTarihi),req.user.companyId,n(f.urunId),n(f.depoId),n(f.gibUuid)]
     });
     
     // Çoklu stok hareketleri oluştur
@@ -1300,8 +1301,8 @@ app.put('/api/satis-faturalari/:id', authMiddleware, async (req, res) => {
   const f = req.body;
   try {
     await client.execute({
-      sql: 'UPDATE satis_faturalari SET fatura_no=?,odeme_tarihi=?,odeme_durumu=?,odeme_dekontu=?,odeme_dekontu_adi=?,pdf_dosya=?,pdf_dosya_adi=?,muhasebe_kodu=?,tc_vkn=?,ad=?,soyad=?,adres=?,aciklama=?,urun_id=?,depo_id=? WHERE id=? AND company_id = ?',
-      args: [n(f.faturaNo),n(f.odemeTarihi),n(f.odemeDurumu),n(f.odemeDekontu),n(f.odemeDekontuAdi),n(f.pdfDosya),n(f.pdfDosyaAdi),n(f.muhasebeKodu),n(f.tcVkn),n(f.ad),n(f.soyad),n(f.adres),n(f.aciklama),n(f.urunId),n(f.depoId),req.params.id, req.user.companyId]
+      sql: 'UPDATE satis_faturalari SET fatura_no=?,odeme_tarihi=?,odeme_durumu=?,odeme_dekontu=?,odeme_dekontu_adi=?,pdf_dosya=?,pdf_dosya_adi=?,muhasebe_kodu=?,tc_vkn=?,ad=?,soyad=?,adres=?,aciklama=?,urun_id=?,depo_id=?,gib_uuid=? WHERE id=? AND company_id = ?',
+      args: [n(f.faturaNo),n(f.odemeTarihi),n(f.odemeDurumu),n(f.odemeDekontu),n(f.odemeDekontuAdi),n(f.pdfDosya),n(f.pdfDosyaAdi),n(f.muhasebeKodu),n(f.tcVkn),n(f.ad),n(f.soyad),n(f.adres),n(f.aciklama),n(f.urunId),n(f.depoId),n(f.gibUuid),req.params.id, req.user.companyId]
     });
 
     // Stok hareketlerini güncelle (Önce eskileri sil, sonra yenileri ekle)
@@ -1596,7 +1597,13 @@ app.get('/api/kesilecek-faturalar', authMiddleware, async (req, res) => {
       sql: 'SELECT * FROM kesilecek_faturalar WHERE company_id = ? ORDER BY olusturma_tarihi DESC',
       args: [req.user.companyId]
     });
-    const mapped = rs.rows.map(r => ({ id: r.id, ad: r.ad, soyad: r.soyad, vknTckn: r.vkn_tckn, vergiDairesi: r.vergi_dairesi, adres: r.adres, il: r.il, ilce: r.ilce, tutar: r.tutar, kdvDahil: !!r.kdv_dahil, kdvOrani: r.kdv_orani, faturaTarihi: r.fatura_tarihi, aciklama: r.aciklama, olusturmaTarihi: r.olusturma_tarihi, durum: r.durum, cariId: r.cari_id }));
+    const mapped = rs.rows.map(r => ({ 
+      id: r.id, ad: r.ad, soyad: r.soyad, vknTckn: r.vkn_tckn, vergiDairesi: r.vergi_dairesi, 
+      adres: r.adres, il: r.il, ilce: r.ilce, tutar: r.tutar, kdvDahil: !!r.kdv_dahil, 
+      kdvOrani: r.kdv_orani, faturaTarihi: r.fatura_tarihi, aciklama: r.aciklama, 
+      olusturmaTarihi: r.olusturma_tarihi, durum: r.durum, cariId: r.cari_id,
+      gibUuid: r.gib_uuid, faturaNo: r.fatura_no
+    }));
     res.json({ success: true, data: mapped });
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }
 });
@@ -1605,8 +1612,8 @@ app.post('/api/kesilecek-faturalar', authMiddleware, async (req, res) => {
   const f = req.body;
   try {
     await client.execute({
-      sql: 'INSERT INTO kesilecek_faturalar (id,ad,soyad,vkn_tckn,vergi_dairesi,adres,il,ilce,tutar,kdv_dahil,kdv_orani,fatura_tarihi,aciklama,olusturma_tarihi,durum,cari_id,company_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
-      args: [n(f.id),n(f.ad),n(f.soyad),n(f.vknTckn),n(f.vergiDairesi),n(f.adres),n(f.il),n(f.ilce),n(f.tutar),f.kdvDahil?1:0,n(f.kdvOrani),n(f.faturaTarihi),n(f.aciklama),n(f.olusturmaTarihi),n(f.durum)||'bekliyor',n(f.cariId),req.user.companyId]
+      sql: 'INSERT INTO kesilecek_faturalar (id,ad,soyad,vkn_tckn,vergi_dairesi,adres,il,ilce,tutar,kdv_dahil,kdv_orani,fatura_tarihi,aciklama,olusturma_tarihi,durum,cari_id,company_id,gib_uuid,fatura_no) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+      args: [n(f.id),n(f.ad),n(f.soyad),n(f.vknTckn),n(f.vergiDairesi),n(f.adres),n(f.il),n(f.ilce),n(f.tutar),f.kdvDahil?1:0,n(f.kdvOrani),n(f.faturaTarihi),n(f.aciklama),n(f.olusturmaTarihi),n(f.durum)||'bekliyor',n(f.cariId),req.user.companyId,n(f.gibUuid),n(f.faturaNo)]
     });
     res.json({ success: true });
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }
@@ -1616,8 +1623,8 @@ app.put('/api/kesilecek-faturalar/:id', authMiddleware, async (req, res) => {
   const f = req.body;
   try {
     await client.execute({
-      sql: 'UPDATE kesilecek_faturalar SET ad=?,soyad=?,vkn_tckn=?,vergi_dairesi=?,adres=?,il=?,ilce=?,tutar=?,kdv_dahil=?,kdv_orani=?,fatura_tarihi=?,aciklama=?,durum=?,cari_id=? WHERE id=? AND company_id = ?',
-      args: [n(f.ad),n(f.soyad),n(f.vknTckn),n(f.vergiDairesi),n(f.adres),n(f.il),n(f.ilce),n(f.tutar),f.kdvDahil?1:0,n(f.kdvOrani),n(f.faturaTarihi),n(f.aciklama),n(f.durum),n(f.cariId),req.params.id, req.user.companyId]
+      sql: 'UPDATE kesilecek_faturalar SET ad=?,soyad=?,vkn_tckn=?,vergi_dairesi=?,adres=?,il=?,ilce=?,tutar=?,kdv_dahil=?,kdv_orani=?,fatura_tarihi=?,aciklama=?,durum=?,cari_id=?,gib_uuid=?,fatura_no=? WHERE id=? AND company_id = ?',
+      args: [n(f.ad),n(f.soyad),n(f.vknTckn),n(f.vergiDairesi),n(f.adres),n(f.il),n(f.ilce),n(f.tutar),f.kdvDahil?1:0,n(f.kdvOrani),n(f.faturaTarihi),n(f.aciklama),n(f.durum),n(f.cariId),n(f.gibUuid),n(f.faturaNo),req.params.id, req.user.companyId]
     });
     res.json({ success: true });
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }

@@ -321,6 +321,19 @@ export async function initDb() {
               await client.execute(`ALTER TABLE stok_hareketler ADD COLUMN son_kullanma_tarihi DATETIME`);
             }
           }
+          if (table === 'kesilecek_faturalar') {
+            if (!info.rows.some(col => col.name === 'gib_uuid')) {
+              await client.execute(`ALTER TABLE kesilecek_faturalar ADD COLUMN gib_uuid TEXT`);
+            }
+            if (!info.rows.some(col => col.name === 'fatura_no')) {
+              await client.execute(`ALTER TABLE kesilecek_faturalar ADD COLUMN fatura_no TEXT`);
+            }
+          }
+          if (table === 'satis_faturalari') {
+            if (!info.rows.some(col => col.name === 'gib_uuid')) {
+              await client.execute(`ALTER TABLE satis_faturalari ADD COLUMN gib_uuid TEXT`);
+            }
+          }
         } catch (e) {}
     }
 

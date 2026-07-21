@@ -1163,7 +1163,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const alinanUcretFinal = pre.alinanUcretNet > 0 ? pre.alinanUcretNet : hesaplanan.matrah + hesaplanan.kdvTutari - (hesaplanan.stopajTutari || 0) - (hesaplanan.tevkifatTutari || 0);
 
     const yeniFatura: SatisFatura = {
-      id: 's' + Date.now().toString() + Math.random().toString(36).substr(2, 5),
+      id: pre.id || ('s' + Date.now().toString() + Math.random().toString(36).substr(2, 5)),
       faturaNo: formData.faturaNo,
       tcVkn: formData.tcVkn, ad: formData.ad, soyad: formData.soyad, adres: formData.adres,
       kdvOrani: parseFloat(formData.kdvOrani) || 0,
@@ -1179,7 +1179,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       odemeDurumu: 'odenmedi', odemeDekontu: null,
       olusturmaTarihi: new Date().toISOString().split('T')[0],
       aciklama: formData.aciklama || '',
-      stokKalemleri: pre.stokKalemleri || []
+      stokKalemleri: pre.stokKalemleri || [],
+      gibUuid: pre.gibUuid || undefined
     };
     setSatisFaturalari(prev => [yeniFatura, ...prev]);
 
