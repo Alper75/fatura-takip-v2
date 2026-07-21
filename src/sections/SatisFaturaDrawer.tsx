@@ -213,13 +213,19 @@ export function SatisFaturaDrawer() {
     if (validateAll()) {
       try {
         for (const f of forms) {
+          const hes = getHesaplanan(f);
           const dataToSave = {
             ...f.data,
-            alinanUcret: f.data.alinanUcret, // Ham değeri gönder, AppContext tutarTuru'na göre hesaplasın
+            alinanUcret: f.data.alinanUcret,
+            alinanUcretNet: hes.toplamNet,  // Net ödenecek tutar (hesaplanmış)
             tutarTuru: f.tutarTuru,
+            // Pre-calculated değerler (AppContext stale closure sorununu önler)
+            matrah: hes.matrah,
+            kdvTutari: hes.kdvTutari,
+            tevkifatTutari: hes.tevkifatTutari,
+            stopajTutari: hes.stopajTutari,
             dosyaBase64: uploadedFile?.base64,
             dosyaAdi: uploadedFile?.name,
-            // Çoklu stok kalemleri
             stokKalemleri: f.stokKalemleri.filter(sk => sk.urunId && sk.urunId !== 'yok'),
           };
 

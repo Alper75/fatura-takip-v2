@@ -1153,12 +1153,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   // ==================== SATIŞ FATURA CRUD ====================
   const addSatisFatura = useCallback(async (formData: SatisFaturaFormData) => {
-    const hesaplanan = calculateSatisFatura(formData);
+    // Drawer'dan gelen pre-calculated değerleri öncelikle kullan
+    const pre = formData as any;
+    const hesaplanan = (pre.matrah !== undefined && pre.matrah !== null && pre.matrah > 0)
+      ? { matrah: pre.matrah, kdvTutari: pre.kdvTutari, tevkifatTutari: pre.tevkifatTutari, stopajTutari: pre.stopajTutari }
+      : calculateSatisFatura(formData);
+
+    // alinanUcret = net ödenecek tutar (toplamNet)
+    const alinanUcretFinal = pre.alinanUcretNet > 0 ? pre.alinanUcretNet : hesaplanan.matrah + hesaplanan.kdvTutari - (hesaplanan.stopajTutari || 0) - (hesaplanan.tevkifatTutari || 0);
+
     const yeniFatura: SatisFatura = {
       id: 's' + Date.now().toString() + Math.random().toString(36).substr(2, 5),
       faturaNo: formData.faturaNo,
       tcVkn: formData.tcVkn, ad: formData.ad, soyad: formData.soyad, adres: formData.adres,
-      kdvOrani: parseFloat(formData.kdvOrani) || 0, alinanUcret: parseFloat(formData.alinanUcret) || 0,
+      kdvOrani: parseFloat(formData.kdvOrani) || 0,
+      alinanUcret: Math.round(alinanUcretFinal * 100) / 100,
       matrah: hesaplanan.matrah || 0, kdvTutari: hesaplanan.kdvTutari || 0,
       tevkifatOrani: formData.tevkifatOrani || '0', tevkifatTutari: hesaplanan.tevkifatTutari || 0,
       tevkifatKodu: formData.tevkifatKodu || '',
@@ -1170,19 +1179,30 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       odemeDurumu: 'odenmedi', odemeDekontu: null,
       olusturmaTarihi: new Date().toISOString().split('T')[0],
       aciklama: formData.aciklama || '',
-      stokKalemleri: (formData as any).stokKalemleri || []
+      stokKalemleri: pre.stokKalemleri || []
     };
     setSatisFaturalari(prev => [yeniFatura, ...prev]);
-    // stokKalemleri backend'e gonderilmeli
-    const bodyToSend = { ...yeniFatura, stokKalemleri: (formData as any).stokKalemleri || [], urunId: formData.urunId, depoId: formData.depoId };
-    try { await apiFetch('/api/satis-faturalari', { method: 'POST', body: JSON.stringify(bodyToSend) }); }
-    catch (e) { console.error('SatÄ±ÅŸ fatura eklenemedi:', e); }
+
+    // POST - PDF olmadan (büyk base64 body’yu şişirmez)
+    const { pdfDosya: _pdf, pdfDosyaAdi: _pdfAdi, ...yeniFaturaNoPdf } = yeniFatura as any;
+    const bodyToSend = { ...yeniFaturaNoPdf, stokKalemleri: pre.stokKalemleri || [], urunId: formData.urunId, depoId: formData.depoId };
+    try {
+      await apiFetch('/api/satis-faturalari', { method: 'POST', body: JSON.stringify(bodyToSend) });
+      // Eğer PDF varsa ayrı PUT ile kaydet
+      if (formData.dosyaBase64) {
+        await apiFetch(`/api/satis-faturalari/${yeniFatura.id}`, {
+          method: 'PUT',
+          body: JSON.stringify({ pdfDosya: formData.dosyaBase64, pdfDosyaAdi: formData.dosyaAdi }),
+        });
+      }
+    } catch (e) { console.error('Satış fatura eklenemedi:', e); }
+
     if (formData.cariId) {
       const yeniHareket: CariHareket = {
         id: 'ch' + Date.now().toString() + Math.random().toString(36).substr(2, 5),
         cariId: formData.cariId, tarih: formData.faturaTarihi, islemTuru: 'satis_faturasi',
-        tutar: parseFloat(formData.alinanUcret) || 0,
-        aciklama: `SatÄ±ÅŸ FaturasÄ± (${formData.ad || ''} ${formData.soyad || ''})`.trim(),
+        tutar: yeniFatura.alinanUcret,
+        aciklama: `Satış Faturası (${formData.ad || ''} ${formData.soyad || ''})`.trim(),
         bagliFaturaId: yeniFatura.id, olusturmaTarihi: new Date().toISOString().split('T')[0], dekontDosya: null
       };
       setCariHareketler(prev => [yeniHareket, ...prev]);
@@ -1252,14 +1272,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return calculateFaturaHesaplamalari(tutar, formData.kdvOrani, formData.tevkifatOrani, formData.stopajOrani, tutarTuru);
   };
 
-  // ==================== ALIÅ FATURA CRUD ====================
+  // ==================== ALIŞ FATURA CRUD ====================
   const addAlisFatura = useCallback(async (formData: AlisFaturaFormData) => {
-    const hesaplanan = calculateAlisFatura(formData);
+    const pre = formData as any;
+    const hesaplanan = (pre.matrah !== undefined && pre.matrah !== null && pre.matrah > 0)
+      ? { matrah: pre.matrah, kdvTutari: pre.kdvTutari, tevkifatTutari: pre.tevkifatTutari, stopajTutari: pre.stopajTutari }
+      : calculateAlisFatura(formData);
+
+    const toplamTutarFinal = pre.toplamTutarNet > 0 ? pre.toplamTutarNet : hesaplanan.matrah + hesaplanan.kdvTutari - (hesaplanan.stopajTutari || 0) - (hesaplanan.tevkifatTutari || 0);
+
     const yeniFatura: AlisFatura = {
       id: 'a' + Date.now().toString() + Math.random().toString(36).substr(2, 5),
       faturaNo: formData.faturaNo, faturaTarihi: formData.faturaTarihi,
       tedarikciAdi: formData.tedarikciAdi, tedarikciVkn: formData.tedarikciVkn,
-      malHizmetAdi: formData.malHizmetAdi, toplamTutar: parseFloat(formData.toplamTutar) || 0,
+      malHizmetAdi: formData.malHizmetAdi,
+      toplamTutar: Math.round(toplamTutarFinal * 100) / 100,
       kdvOrani: parseFloat(formData.kdvOrani) || 0, kdvTutari: hesaplanan.kdvTutari || 0, matrah: hesaplanan.matrah || 0,
       tevkifatOrani: formData.tevkifatOrani || '0', tevkifatTutari: hesaplanan.tevkifatTutari || 0,
       stopajOrani: formData.stopajOrani || '0', stopajTutari: hesaplanan.stopajTutari || 0,
@@ -1269,14 +1296,26 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       olusturmaTarihi: new Date().toISOString().split('T')[0]
     };
     setAlisFaturalari(prev => [yeniFatura, ...prev]);
-    try { await apiFetch('/api/alis-faturalari', { method: 'POST', body: JSON.stringify(yeniFatura) }); }
-    catch (e) { console.error('AlÄ±ÅŸ fatura eklenemedi:', e); }
+
+    // POST - PDF olmadan
+    const { pdfDosya: _pdf, pdfDosyaAdi: _pdfAdi, ...yeniFaturaNoPdf } = yeniFatura as any;
+    try {
+      await apiFetch('/api/alis-faturalari', { method: 'POST', body: JSON.stringify({ ...yeniFaturaNoPdf, muhasebeKodu: pre.muhasebeKodu, vehiclePlate: pre.vehiclePlate, aciklama: pre.aciklama, urunId: formData.urunId, depoId: formData.depoId }) });
+      // Eğer PDF varsa ayrı PUT ile kaydet
+      if (formData.dosyaBase64) {
+        await apiFetch(`/api/alis-faturalari/${yeniFatura.id}`, {
+          method: 'PUT',
+          body: JSON.stringify({ pdfDosya: formData.dosyaBase64, pdfDosyaAdi: formData.dosyaAdi }),
+        });
+      }
+    } catch (e) { console.error('Alış fatura eklenemedi:', e); }
+
     if (formData.cariId) {
       const yeniHareket: CariHareket = {
         id: 'ch' + Date.now().toString() + Math.random().toString(36).substr(2, 5),
         cariId: formData.cariId, tarih: formData.faturaTarihi, islemTuru: 'alis_faturasi',
-        tutar: parseFloat(formData.toplamTutar) || 0,
-        aciklama: `AlÄ±ÅŸ FaturasÄ± (${formData.tedarikciAdi})`,
+        tutar: yeniFatura.toplamTutar,
+        aciklama: `Alış Faturası (${formData.tedarikciAdi})`,
         bagliFaturaId: yeniFatura.id, olusturmaTarihi: new Date().toISOString().split('T')[0], dekontDosya: null
       };
       setCariHareketler(prev => [yeniHareket, ...prev]);

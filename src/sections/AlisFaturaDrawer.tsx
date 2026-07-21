@@ -209,10 +209,17 @@ export function AlisFaturaDrawer() {
             toast.info(`${f.data.faturaNo} nolu faturaya %70/%30 gider kısıtı uygulandı.`);
           }
 
+          const hes = getHesaplanan(f);
           const invoiceId = await addAlisFatura({
             ...finalData,
-            toplamTutar: f.data.toplamTutar, // Ham değeri gönder, AppContext tutarTuru'na göre hesaplasın
+            toplamTutar: f.data.toplamTutar,
+            toplamTutarNet: hes.toplamNet, // Net ödenecek (hesaplanmış)
             tutarTuru: f.tutarTuru,
+            // Pre-calculated değerler
+            matrah: hes.matrah,
+            kdvTutari: hes.kdvTutari,
+            tevkifatTutari: hes.tevkifatTutari,
+            stopajTutari: hes.stopajTutari,
             muhasebeKodu: f.data.muhasebeKodu,
             dosyaBase64: uploadedFile?.base64,
             dosyaAdi: uploadedFile?.name
