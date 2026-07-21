@@ -24,6 +24,7 @@ import {
   ShieldCheck, 
   Loader2,
   Package,
+  FileText,
   X
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -191,6 +192,24 @@ export function KesilecekFaturalar() {
 
   const [searchTerm, setSearchTerm] = useState('');
   const [activeTab, setActiveTab] = useState<'bekleyen' | 'kesilenler'>('bekleyen');
+
+  const parseGibAmount = (val: any) => {
+    if (val === undefined || val === null) return 0;
+    let str = String(val).trim();
+    if (!str) return 0;
+    if (str.includes(',') && str.includes('.')) {
+      str = str.replace(/\./g, '').replace(/,/g, '.');
+    } else if (str.includes(',')) {
+      str = str.replace(/,/g, '.');
+    }
+    const parsed = parseFloat(str);
+    return isNaN(parsed) ? 0 : parsed;
+  };
+
+  const getAliciUnvan = (inv: any) => {
+    return inv.aliciUnvan || inv.aliciUnvanAdSoyad || (inv.aliciAdi ? `${inv.aliciAdi} ${inv.aliciSoyadi || ''}`.trim() : '') || 'Bilinmeyen Alıcı';
+  };
+
   
   // Form
   const [form, setForm] = useState({
@@ -511,6 +530,44 @@ export function KesilecekFaturalar() {
     }
   };
 
+  const handleDownloadGibPdf = async (inv: any) => {
+    try {
+      toast.info('GİB portalından PDF indiriliyor...');
+      const apiUrl = import.meta.env.DEV ? 'http://localhost:5000/api/gib/download-pdf' : '/api/gib/download-pdf';
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json', 
+          Authorization: `Bearer ${localStorage.getItem('token')}` 
+        },
+        body: JSON.stringify({
+          credentials: gibFetchCredentials,
+          uuid: inv.ettn,
+          signed: inv.onayDurumu === 'Onaylandı'
+        })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'PDF indirilemedi.');
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `${inv.belgeNumarasi || inv.ettn}.pdf`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      toast.success('Fatura PDF başarıyla indirildi.');
+    } catch (err: any) {
+      console.error(err);
+      toast.error('İndirme hatası: ' + err.message);
+    }
+  };
+
   const importGibInvoice = async (gibInv: any) => {
     const exists = satisFaturalari.some(sf => sf.faturaNo === gibInv.belgeNumarasi || sf.id === gibInv.ettn);
     if (exists) {
@@ -522,11 +579,12 @@ export function KesilecekFaturalar() {
       const parts = (gibInv.belgeTarihi || '').split('/');
       const formattedDate = parts.length === 3 ? `${parts[2]}-${parts[1]}-${parts[0]}` : new Date().toISOString().split('T')[0];
       
-      const alinanUcret = parseFloat(gibInv.tutar || gibInv.odenecekTutar || gibInv.vergilerDahilToplamTutar || '0');
+      const alinanUcret = parseGibAmount(gibInv.tutar || gibInv.toplamTutar || gibInv.odenecekTutar || gibInv.vergilerDahilToplamTutar);
+      const aliciUnvan = getAliciUnvan(gibInv);
       
       await addSatisFatura({
         tcVkn: gibInv.aliciVknTckn || '',
-        ad: gibInv.aliciUnvan || '',
+        ad: aliciUnvan,
         soyad: '',
         vergiDairesi: '',
         adres: 'GİB e-Arşiv Portaldan Aktarıldı',
@@ -539,7 +597,7 @@ export function KesilecekFaturalar() {
         stopajOrani: '0',
         stopajKodu: '',
         faturaNo: gibInv.belgeNumarasi || '',
-        aciklama: gibInv.aciklama || 'GİB e-Arşiv Portalından aktarıldı. Alıcı: ' + (gibInv.aliciUnvan || 'Bilinmiyor'),
+        aciklama: gibInv.aciklama || 'GİB e-Arşiv Portalından aktarıldı. Alıcı: ' + aliciUnvan,
       } as any);
 
       toast.success(`${gibInv.belgeNumarasi || 'Fatura'} başarıyla sisteme aktarıldı.`);
@@ -559,11 +617,12 @@ export function KesilecekFaturalar() {
       try {
         const parts = (gibInv.belgeTarihi || '').split('/');
         const formattedDate = parts.length === 3 ? `${parts[2]}-${parts[1]}-${parts[0]}` : new Date().toISOString().split('T')[0];
-        const alinanUcret = parseFloat(gibInv.tutar || gibInv.odenecekTutar || gibInv.vergilerDahilToplamTutar || '0');
+        const alinanUcret = parseGibAmount(gibInv.tutar || gibInv.toplamTutar || gibInv.odenecekTutar || gibInv.vergilerDahilToplamTutar);
+        const aliciUnvan = getAliciUnvan(gibInv);
         
         await addSatisFatura({
           tcVkn: gibInv.aliciVknTckn || '',
-          ad: gibInv.aliciUnvan || '',
+          ad: aliciUnvan,
           soyad: '',
           vergiDairesi: '',
           adres: 'GİB e-Arşiv Portaldan Aktarıldı',
@@ -576,7 +635,7 @@ export function KesilecekFaturalar() {
           stopajOrani: '0',
           stopajKodu: '',
           faturaNo: gibInv.belgeNumarasi || '',
-          aciklama: gibInv.aciklama || 'GİB e-Arşiv Portalından aktarıldı. Alıcı: ' + (gibInv.aliciUnvan || 'Bilinmiyor'),
+          aciklama: gibInv.aciklama || 'GİB e-Arşiv Portalından aktarıldı. Alıcı: ' + aliciUnvan,
         } as any);
         imported++;
       } catch (err) {
@@ -1168,29 +1227,41 @@ export function KesilecekFaturalar() {
                     <TableBody>
                       {gibInvoices.map((inv) => {
                         const isAlreadyImported = inv.isImported || satisFaturalari.some(sf => sf.faturaNo === inv.belgeNumarasi);
-                        const invTutar = parseFloat(inv.odenecekTutar || inv.vergilerDahilToplamTutar || '0');
+                        const invTutar = parseGibAmount(inv.tutar || inv.toplamTutar || inv.odenecekTutar || inv.vergilerDahilToplamTutar);
+                        const aliciUnvan = getAliciUnvan(inv);
                         
                         return (
                           <TableRow key={inv.ettn} className="hover:bg-slate-50 transition-colors">
                             <TableCell className="text-xs py-2">{inv.belgeTarihi}</TableCell>
                             <TableCell className="text-xs py-2 font-mono font-medium">{inv.belgeNumarasi || 'Taslak'}</TableCell>
-                            <TableCell className="text-xs py-2 max-w-[180px] truncate">{inv.aliciUnvan}</TableCell>
+                            <TableCell className="text-xs py-2 max-w-[180px] truncate">{aliciUnvan}</TableCell>
                             <TableCell className="text-xs py-2 text-right font-bold">{formatCurrency(invTutar)}</TableCell>
                             <TableCell className="text-xs py-2 text-right">
-                              {isAlreadyImported ? (
-                                <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100">
-                                  Aktarıldı
-                                </span>
-                              ) : (
+                              <div className="flex justify-end items-center gap-1.5">
                                 <Button
                                   type="button"
                                   size="sm"
-                                  onClick={() => importGibInvoice(inv)}
-                                  className="h-6 text-[10px] bg-blue-600 hover:bg-blue-700 text-white font-bold px-2"
+                                  variant="outline"
+                                  onClick={() => handleDownloadGibPdf(inv)}
+                                  className="h-6 text-[10px] border-slate-200 bg-white text-slate-700 hover:bg-slate-50 px-2 flex items-center gap-1"
                                 >
-                                  Aktar
+                                  <FileText className="w-3 h-3 text-red-500" /> PDF İndir
                                 </Button>
-                              )}
+                                {isAlreadyImported ? (
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100">
+                                    Aktarıldı
+                                  </span>
+                                ) : (
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    onClick={() => importGibInvoice(inv)}
+                                    className="h-6 text-[10px] bg-blue-600 hover:bg-blue-700 text-white font-bold px-2"
+                                  >
+                                    Aktar
+                                  </Button>
+                                )}
+                              </div>
                             </TableCell>
                           </TableRow>
                         );

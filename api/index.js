@@ -1962,6 +1962,52 @@ app.post('/api/gib/invoices', authMiddleware, async (req, res) => {
   }
 });
 
+app.post('/api/gib/download-pdf', authMiddleware, async (req, res) => {
+  const { credentials, uuid, signed } = req.body;
+  if (!credentials?.username || !credentials?.password)
+    return res.status(400).json({ success: false, message: 'GİB kullanıcı adı ve şifre gereklidir.' });
+  if (!uuid)
+    return res.status(400).json({ success: false, message: 'Fatura UUID (ETTN) gereklidir.' });
+
+  let token;
+  const isTest = process.env.GIB_TEST_MODE === 'true';
+  const client = createFaturaClient(isTest ? 'TEST' : 'PROD');
+  try {
+    token = await client.getToken(credentials.username, credentials.password);
+    const downloadUrl = client.getDownloadURL(token, uuid, { signed: signed !== false });
+
+    const pdfResponse = await fetch(downloadUrl, {
+      headers: client.buildHeaders()
+    });
+
+    if (!pdfResponse.ok) {
+      throw new Error('GİB portalından PDF indirilemedi.');
+    }
+
+    const arrayBuffer = await pdfResponse.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename=gib_fatura_${uuid}.pdf`);
+    return res.send(buffer);
+  } catch (error) {
+    console.error('[GIB PDF Download] Hata Oluştu:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'GİB fatura PDF indirme hatası: ' + error.message,
+    });
+  } finally {
+    if (token) {
+      try {
+        await client.logout(token);
+      } catch (logoutError) {
+        console.error('[GIB PDF Download] Logout Hatası:', logoutError);
+      }
+    }
+  }
+});
+
+
 // --- STOK (INVENTORY) MODULE ROUTES ---
 
 // Helper for UUID generation if ID is missing
