@@ -13,6 +13,7 @@ import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 
 import { XMLParser } from 'fast-xml-parser';
+import AdmZip from 'adm-zip';
 import crypto from 'crypto';
 
 import { client, initDb } from './db.js';
@@ -1974,35 +1975,97 @@ app.post('/api/gib/download-pdf', authMiddleware, async (req, res) => {
   const client = createFaturaClient(isTest ? 'TEST' : 'PROD');
   try {
     token = await client.getToken(credentials.username, credentials.password);
-    const downloadUrl = client.getDownloadURL(token, uuid, { signed: signed !== false });
-
-    const pdfResponse = await fetch(downloadUrl, {
-      headers: client.buildHeaders()
-    });
-
-    if (!pdfResponse.ok) {
-      throw new Error('GİB portalından PDF indirilemedi.');
-    }
-
-    const arrayBuffer = await pdfResponse.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
-
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename=gib_fatura_${uuid}.pdf`);
-    return res.send(buffer);
+    const html = await client.getInvoiceHTML(token, uuid, { signed: signed !== false });
+    return res.json({ success: true, html });
   } catch (error) {
-    console.error('[GIB PDF Download] Hata Oluştu:', error);
+    console.error('[GIB PDF Download/HTML] Hata Oluştu:', error);
     return res.status(500).json({
       success: false,
-      message: 'GİB fatura PDF indirme hatası: ' + error.message,
+      message: 'GİB faturası HTML okuma hatası: ' + error.message,
     });
   } finally {
     if (token) {
       try {
         await client.logout(token);
       } catch (logoutError) {
-        console.error('[GIB PDF Download] Logout Hatası:', logoutError);
+        console.error('[GIB PDF Download/HTML] Logout Hatası:', logoutError);
       }
+    }
+  }
+});
+
+app.post('/api/gib/invoice-details', authMiddleware, async (req, res) => {
+  const { credentials, uuid, signed } = req.body;
+  if (!credentials?.username || !credentials?.password)
+    return res.status(400).json({ success: false, message: 'GİB kullanıcı adı ve şifre gereklidir.' });
+  if (!uuid)
+    return res.status(400).json({ success: false, message: 'Fatura UUID (ETTN) gereklidir.' });
+
+  let token;
+  const isTest = process.env.GIB_TEST_MODE === 'true';
+  const client = createFaturaClient(isTest ? 'TEST' : 'PROD');
+  try {
+    token = await client.getToken(credentials.username, credentials.password);
+    const downloadUrl = client.getDownloadURL(token, uuid, { signed: signed !== false });
+
+    const zipResponse = await axios.get(downloadUrl, {
+      responseType: 'arraybuffer',
+      headers: client.buildHeaders()
+    });
+
+    const zip = new AdmZip(Buffer.from(zipResponse.data));
+    const zipEntries = zip.getEntries();
+    
+    const xmlEntry = zipEntries.find(entry => entry.entryName.endsWith('.xml'));
+    if (!xmlEntry) {
+      throw new Error('ZIP içinde XML faturası bulunamadı.');
+    }
+
+    const xmlContent = xmlEntry.getData().toString('utf8');
+    const jsonObj = parser.parse(xmlContent);
+    
+    let parsedData = {};
+    if (jsonObj.Invoice) {
+      const inv = jsonObj.Invoice;
+      const monTotal = inv['LegalMonetaryTotal'];
+      const taxTotal = inv['TaxTotal'];
+      
+      const supplierParty = inv['AccountingSupplierParty']?.['Party'];
+      const customerParty = inv['AccountingCustomerParty']?.['Party'];
+      
+      const getVkn = (party) => {
+        const id = party?.['PartyIdentification']?.['ID'];
+        const val = Array.isArray(id) ? id.find(v => v['@_schemeID'] === 'VKN' || v['@_schemeID'] === 'TCKN')?.['#text'] : id?.['#text'] || id;
+        return val ? String(val).replace('.0', '') : '';
+      };
+      
+      const getAd = (party) => party?.['PartyName']?.['Name'] || party?.['Person']?.['FirstName'] || '';
+      const getSoyad = (party) => party?.['Person']?.['FamilyName'] || '';
+
+      parsedData = {
+        success: true,
+        tutar: parseFloat(monTotal?.['PayableAmount']?.['#text'] || monTotal?.['PayableAmount'] || 0),
+        matrah: parseFloat(monTotal?.['TaxExclusiveAmount']?.['#text'] || monTotal?.['TaxExclusiveAmount'] || 0),
+        kdvTutari: parseFloat(taxTotal?.['TaxAmount']?.['#text'] || taxTotal?.['TaxAmount'] || 0),
+        aliciVknTckn: getVkn(customerParty),
+        aliciUnvan: (getAd(customerParty) + ' ' + getSoyad(customerParty)).trim()
+      };
+    } else {
+      throw new Error('XML formatı standart UBL-TR değil.');
+    }
+
+    return res.json(parsedData);
+  } catch (error) {
+    console.error('[GIB Invoice Details] Hata Oluştu:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'GİB faturasından detay okunamadı: ' + error.message,
+    });
+  } finally {
+    if (token) {
+      try {
+        await client.logout(token);
+      } catch (e) {}
     }
   }
 });

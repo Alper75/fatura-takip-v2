@@ -532,7 +532,7 @@ export function KesilecekFaturalar() {
 
   const handleDownloadGibPdf = async (inv: any) => {
     try {
-      toast.info('GİB portalından PDF indiriliyor...');
+      toast.info('GİB faturası görüntüleniyor...');
       const apiUrl = import.meta.env.DEV ? 'http://localhost:5000/api/gib/download-pdf' : '/api/gib/download-pdf';
       const response = await fetch(apiUrl, {
         method: 'POST',
@@ -549,22 +549,29 @@ export function KesilecekFaturalar() {
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.message || 'PDF indirilemedi.');
+        throw new Error(errorData.message || 'Fatura görüntülenemedi.');
       }
 
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', `${inv.belgeNumarasi || inv.ettn}.pdf`);
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.URL.revokeObjectURL(url);
-      toast.success('Fatura PDF başarıyla indirildi.');
+      const result = await response.json();
+      if (result.success && result.html) {
+        const printWindow = window.open('', '_blank');
+        if (printWindow) {
+          printWindow.document.write(result.html);
+          printWindow.document.close();
+          printWindow.focus();
+          setTimeout(() => {
+            printWindow.print();
+          }, 500);
+          toast.success('Fatura başarıyla açıldı. Yazdırabilir veya PDF olarak kaydedebilirsiniz.');
+        } else {
+          throw new Error('Tarayıcınızın açılır pencereleri engellemediğinden emin olun.');
+        }
+      } else {
+        throw new Error('Fatura HTML içeriği boş.');
+      }
     } catch (err: any) {
       console.error(err);
-      toast.error('İndirme hatası: ' + err.message);
+      toast.error('Görüntüleme hatası: ' + err.message);
     }
   };
 
@@ -576,20 +583,52 @@ export function KesilecekFaturalar() {
     }
 
     try {
+      toast.info('Fatura detayları GİB\'den alınıyor...');
+      let finalAmount = 0;
+      let finalAliciUnvan = getAliciUnvan(gibInv);
+      let finalVkn = gibInv.aliciVknTckn || '';
+
+      try {
+        const detailsApiUrl = import.meta.env.DEV ? 'http://localhost:5000/api/gib/invoice-details' : '/api/gib/invoice-details';
+        const detailsResponse = await fetch(detailsApiUrl, {
+          method: 'POST',
+          headers: { 
+            'Content-Type': 'application/json', 
+            Authorization: `Bearer ${localStorage.getItem('token')}` 
+          },
+          body: JSON.stringify({
+            credentials: gibFetchCredentials,
+            uuid: gibInv.ettn,
+            signed: gibInv.onayDurumu === 'Onaylandı'
+          })
+        });
+        if (detailsResponse.ok) {
+          const detailsResult = await detailsResponse.json();
+          if (detailsResult.success) {
+            finalAmount = detailsResult.tutar || 0;
+            if (detailsResult.aliciUnvan) finalAliciUnvan = detailsResult.aliciUnvan;
+            if (detailsResult.aliciVknTckn) finalVkn = detailsResult.aliciVknTckn;
+          }
+        }
+      } catch (detailsErr) {
+        console.error('Detaylar getirilemedi:', detailsErr);
+      }
+
+      if (finalAmount === 0) {
+        finalAmount = parseGibAmount(gibInv.tutar || gibInv.toplamTutar || gibInv.odenecekTutar || gibInv.vergilerDahilToplamTutar);
+      }
+
       const parts = (gibInv.belgeTarihi || '').split('/');
       const formattedDate = parts.length === 3 ? `${parts[2]}-${parts[1]}-${parts[0]}` : new Date().toISOString().split('T')[0];
       
-      const alinanUcret = parseGibAmount(gibInv.tutar || gibInv.toplamTutar || gibInv.odenecekTutar || gibInv.vergilerDahilToplamTutar);
-      const aliciUnvan = getAliciUnvan(gibInv);
-      
       await addSatisFatura({
-        tcVkn: gibInv.aliciVknTckn || '',
-        ad: aliciUnvan,
+        tcVkn: finalVkn,
+        ad: finalAliciUnvan,
         soyad: '',
         vergiDairesi: '',
         adres: 'GİB e-Arşiv Portaldan Aktarıldı',
         hizmetAdi: 'Muhtelif İşlemler (GİB Aktarım)',
-        alinanUcret: alinanUcret.toString(),
+        alinanUcret: finalAmount.toString(),
         faturaTarihi: formattedDate,
         kdvOrani: '20',
         tevkifatOrani: '0',
@@ -597,7 +636,7 @@ export function KesilecekFaturalar() {
         stopajOrani: '0',
         stopajKodu: '',
         faturaNo: gibInv.belgeNumarasi || '',
-        aciklama: gibInv.aciklama || 'GİB e-Arşiv Portalından aktarıldı. Alıcı: ' + aliciUnvan,
+        aciklama: gibInv.aciklama || 'GİB e-Arşiv Portalından aktarıldı. Alıcı: ' + finalAliciUnvan,
       } as any);
 
       toast.success(`${gibInv.belgeNumarasi || 'Fatura'} başarıyla sisteme aktarıldı.`);
@@ -610,24 +649,57 @@ export function KesilecekFaturalar() {
 
   const importAllGibInvoices = async () => {
     let imported = 0;
+    toast.info('Tüm faturalar detaylarıyla aktarılıyor, lütfen bekleyin...');
     for (const gibInv of gibInvoices) {
       const exists = satisFaturalari.some(sf => sf.faturaNo === gibInv.belgeNumarasi || sf.id === gibInv.ettn);
       if (exists || gibInv.isImported) continue;
 
       try {
+        let finalAmount = 0;
+        let finalAliciUnvan = getAliciUnvan(gibInv);
+        let finalVkn = gibInv.aliciVknTckn || '';
+
+        try {
+          const detailsApiUrl = import.meta.env.DEV ? 'http://localhost:5000/api/gib/invoice-details' : '/api/gib/invoice-details';
+          const detailsResponse = await fetch(detailsApiUrl, {
+            method: 'POST',
+            headers: { 
+              'Content-Type': 'application/json', 
+              Authorization: `Bearer ${localStorage.getItem('token')}` 
+            },
+            body: JSON.stringify({
+              credentials: gibFetchCredentials,
+              uuid: gibInv.ettn,
+              signed: gibInv.onayDurumu === 'Onaylandı'
+            })
+          });
+          if (detailsResponse.ok) {
+            const detailsResult = await detailsResponse.json();
+            if (detailsResult.success) {
+              finalAmount = detailsResult.tutar || 0;
+              if (detailsResult.aliciUnvan) finalAliciUnvan = detailsResult.aliciUnvan;
+              if (detailsResult.aliciVknTckn) finalVkn = detailsResult.aliciVknTckn;
+            }
+          }
+        } catch (detailsErr) {
+          console.error('Detaylar getirilemedi:', detailsErr);
+        }
+
+        if (finalAmount === 0) {
+          finalAmount = parseGibAmount(gibInv.tutar || gibInv.toplamTutar || gibInv.odenecekTutar || gibInv.vergilerDahilToplamTutar);
+        }
+
         const parts = (gibInv.belgeTarihi || '').split('/');
         const formattedDate = parts.length === 3 ? `${parts[2]}-${parts[1]}-${parts[0]}` : new Date().toISOString().split('T')[0];
-        const alinanUcret = parseGibAmount(gibInv.tutar || gibInv.toplamTutar || gibInv.odenecekTutar || gibInv.vergilerDahilToplamTutar);
-        const aliciUnvan = getAliciUnvan(gibInv);
         
         await addSatisFatura({
-          tcVkn: gibInv.aliciVknTckn || '',
-          ad: aliciUnvan,
+          tcVkn: finalVkn,
+          ad: finalAliciUnvan,
           soyad: '',
           vergiDairesi: '',
           adres: 'GİB e-Arşiv Portaldan Aktarıldı',
           hizmetAdi: 'Muhtelif İşlemler (GİB Aktarım)',
-          alinanUcret: alinanUcret.toString(),
+          alinanUcret: finalAmount.toString(),
           faturaTarihi: formattedDate,
           kdvOrani: '20',
           tevkifatOrani: '0',
@@ -635,7 +707,7 @@ export function KesilecekFaturalar() {
           stopajOrani: '0',
           stopajKodu: '',
           faturaNo: gibInv.belgeNumarasi || '',
-          aciklama: gibInv.aciklama || 'GİB e-Arşiv Portalından aktarıldı. Alıcı: ' + aliciUnvan,
+          aciklama: gibInv.aciklama || 'GİB e-Arşiv Portalından aktarıldı. Alıcı: ' + finalAliciUnvan,
         } as any);
         imported++;
       } catch (err) {
