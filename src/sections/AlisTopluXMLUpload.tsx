@@ -41,7 +41,7 @@ interface XmlSatiri {
   selected: boolean;
   
   dosyaBase64?: string;
-  dosyaAdi?: string;
+  pdfDosyaAdi?: string;
 }
 
 export function AlisTopluXMLUpload({ isOpen, onClose }: AlisTopluXMLUploadProps) {
@@ -113,13 +113,13 @@ export function AlisTopluXMLUpload({ isOpen, onClose }: AlisTopluXMLUploadProps)
           const digerVergiler = tevkifatTutari + stopajTutari;
 
           // Arka planda PDF'i oluştur
-          let dosyaBase64 = undefined;
-          let dosyaAdi = undefined;
+          let dosyaBase64: string | undefined = undefined;
+          let pdfDosyaAdi: string | undefined = undefined;
           try {
             const pdfBase64 = await generatePdfFromUblXml(file);
             if (pdfBase64) {
               dosyaBase64 = pdfBase64;
-              dosyaAdi = file.name.replace('.xml', '.pdf');
+              pdfDosyaAdi = file.name.replace('.xml', '.pdf');
             }
           } catch (pdfErr) {
             console.error('PDF dönüştürme başarısız:', pdfErr);
@@ -150,7 +150,7 @@ export function AlisTopluXMLUpload({ isOpen, onClose }: AlisTopluXMLUploadProps)
             muhasebeKodu,
             selected: true,
             dosyaBase64,
-            dosyaAdi
+            pdfDosyaAdi
           });
         }
       } catch (err) {
@@ -219,7 +219,7 @@ export function AlisTopluXMLUpload({ isOpen, onClose }: AlisTopluXMLUploadProps)
         muhasebeKodu: s.muhasebeKodu || undefined,
         cariId: s.eslesenCariId || undefined,
         dosyaBase64: s.dosyaBase64,
-        dosyaAdi: s.dosyaAdi
+        dosyaAdi: s.pdfDosyaAdi
       } as any); // Cast as any because some fields might not perfectly match FormData, but addAlisFatura takes them.
       successCount++;
     });
