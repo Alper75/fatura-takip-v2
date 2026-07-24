@@ -81,26 +81,38 @@ app.post('/api/invoices/parse-xml', authMiddleware, upload.single('file'), async
       const supplierParty = inv['AccountingSupplierParty']?.['Party'];
       const customerParty = inv['AccountingCustomerParty']?.['Party'];
       
+      const getText = (node) => (typeof node === 'object' && node !== null) ? (node['#text'] || '') : (node || '');
       const getVkn = (party) => {
-        const id = party?.['PartyIdentification']?.['ID'];
-        const val = Array.isArray(id) ? id.find(v => v['@_schemeID'] === 'VKN' || v['@_schemeID'] === 'TCKN')?.['#text'] : id?.['#text'] || id;
-        return val ? String(val).replace('.0', '') : '';
+        const idNode = party?.['PartyIdentification'];
+        if (!idNode) return '';
+        const idArray = Array.isArray(idNode) ? idNode : [idNode];
+        for (const ident of idArray) {
+           const id = ident['ID'];
+           if (!id) continue;
+           const isVkn = id['@_schemeID'] === 'VKN' || id['@_schemeID'] === 'TCKN';
+           const val = isVkn ? id['#text'] : (id['#text'] || id);
+           if (val) return String(val).replace('.0', '');
+        }
+        return '';
       };
-      const getAd = (party) => party?.['PartyName']?.['Name'] || party?.['Person']?.['FirstName'] || '';
-      const getSoyad = (party) => party?.['Person']?.['FamilyName'] || '';
-      const getTaxOffice = (party) => party?.['PartyTaxScheme']?.['TaxScheme']?.['Name'] || '';
+      const getAd = (party) => {
+        const partyName = Array.isArray(party?.['PartyName']) ? party?.['PartyName'][0] : party?.['PartyName'];
+        return getText(partyName?.['Name']) || getText(party?.['Person']?.['FirstName']) || '';
+      };
+      const getSoyad = (party) => getText(party?.['Person']?.['FamilyName']) || '';
+      const getTaxOffice = (party) => getText(party?.['PartyTaxScheme']?.['TaxScheme']?.['Name']) || '';
       const getAddress = (party) => {
         const addr = party?.['PostalAddress'];
         if (!addr) return '';
-        return `${addr['StreetName'] || ''} ${addr['BuildingNumber'] || ''} ${addr['CitySubdivisionName'] || ''} ${addr['CityName'] || ''}`;
+        return `${getText(addr['StreetName'])} ${getText(addr['BuildingNumber'])} ${getText(addr['CitySubdivisionName'])} ${getText(addr['CityName'])}`.trim();
       };
 
       const monTotal = inv['LegalMonetaryTotal'];
       const taxTotal = inv['TaxTotal'];
 
       parsedData = {
-        faturaNo: inv['ID'],
-        faturaTarihi: inv['IssueDate'],
+        faturaNo: getText(inv['ID']),
+        faturaTarihi: getText(inv['IssueDate']),
         supplier: {
           vkn: getVkn(supplierParty),
           ad: getAd(supplierParty),
@@ -126,7 +138,7 @@ app.post('/api/invoices/parse-xml', authMiddleware, upload.single('file'), async
       if (lines) {
         const lineArr = Array.isArray(lines) ? lines : [lines];
         parsedData.items = lineArr.map(l => ({
-          name: l['Item']?.['Name'],
+          name: getText(l['Item']?.['Name']),
           quantity: parseFloat(l['InvoicedQuantity']?.['#text'] || l['InvoicedQuantity'] || 0),
           price: parseFloat(l['Price']?.['PriceAmount']?.['#text'] || l['Price']?.['PriceAmount'] || 0),
         }));
@@ -2040,14 +2052,26 @@ app.post('/api/gib/invoice-details', authMiddleware, async (req, res) => {
       const supplierParty = inv['AccountingSupplierParty']?.['Party'];
       const customerParty = inv['AccountingCustomerParty']?.['Party'];
       
+      const getText = (node) => (typeof node === 'object' && node !== null) ? (node['#text'] || '') : (node || '');
       const getVkn = (party) => {
-        const id = party?.['PartyIdentification']?.['ID'];
-        const val = Array.isArray(id) ? id.find(v => v['@_schemeID'] === 'VKN' || v['@_schemeID'] === 'TCKN')?.['#text'] : id?.['#text'] || id;
-        return val ? String(val).replace('.0', '') : '';
+        const idNode = party?.['PartyIdentification'];
+        if (!idNode) return '';
+        const idArray = Array.isArray(idNode) ? idNode : [idNode];
+        for (const ident of idArray) {
+           const id = ident['ID'];
+           if (!id) continue;
+           const isVkn = id['@_schemeID'] === 'VKN' || id['@_schemeID'] === 'TCKN';
+           const val = isVkn ? id['#text'] : (id['#text'] || id);
+           if (val) return String(val).replace('.0', '');
+        }
+        return '';
       };
       
-      const getAd = (party) => party?.['PartyName']?.['Name'] || party?.['Person']?.['FirstName'] || '';
-      const getSoyad = (party) => party?.['Person']?.['FamilyName'] || '';
+      const getAd = (party) => {
+        const partyName = Array.isArray(party?.['PartyName']) ? party?.['PartyName'][0] : party?.['PartyName'];
+        return getText(partyName?.['Name']) || getText(party?.['Person']?.['FirstName']) || '';
+      };
+      const getSoyad = (party) => getText(party?.['Person']?.['FamilyName']) || '';
 
       parsedData = {
         success: true,
