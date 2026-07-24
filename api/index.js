@@ -109,6 +109,37 @@ app.post('/api/invoices/parse-xml', authMiddleware, upload.single('file'), async
 
       const monTotal = inv['LegalMonetaryTotal'];
       const taxTotal = inv['TaxTotal'];
+      const withholdingTaxTotal = inv['WithholdingTaxTotal'];
+
+      let kdv1 = 0, kdv10 = 0, kdv20 = 0;
+      let tevkifatTutari = 0, stopajTutari = 0;
+      
+      const taxTotalArray = Array.isArray(taxTotal) ? taxTotal : (taxTotal ? [taxTotal] : []);
+      for (const tt of taxTotalArray) {
+        const subtotals = tt['TaxSubtotal'];
+        if (!subtotals) continue;
+        const subArr = Array.isArray(subtotals) ? subtotals : [subtotals];
+        for (const sub of subArr) {
+          const taxCat = sub['TaxCategory'];
+          const taxScheme = taxCat?.['TaxScheme']?.['TaxTypeCode']?.['#text'] || taxCat?.['TaxScheme']?.['TaxTypeCode'];
+          const taxCode = getText(taxScheme);
+          const percent = parseFloat(getText(taxCat?.['Percent'])) || 0;
+          const amount = parseFloat(getText(sub['TaxAmount'])) || 0;
+          
+          if (taxCode === '0015' || !taxCode) {
+            if (percent === 1) kdv1 += amount;
+            else if (percent === 10) kdv10 += amount;
+            else if (percent === 20) kdv20 += amount;
+            else kdv20 += amount;
+          }
+        }
+      }
+
+      const withhTotalArray = Array.isArray(withholdingTaxTotal) ? withholdingTaxTotal : (withholdingTaxTotal ? [withholdingTaxTotal] : []);
+      for (const wt of withhTotalArray) {
+        const amount = parseFloat(getText(wt['TaxAmount'])) || 0;
+        tevkifatTutari += amount;
+      }
 
       parsedData = {
         faturaNo: getText(inv['ID']),
@@ -129,8 +160,8 @@ app.post('/api/invoices/parse-xml', authMiddleware, upload.single('file'), async
         },
         matrah: parseFloat(monTotal?.['TaxExclusiveAmount']?.['#text'] || monTotal?.['TaxExclusiveAmount'] || 0),
         toplamTutar: parseFloat(monTotal?.['PayableAmount']?.['#text'] || monTotal?.['PayableAmount'] || 0),
-        kdvTutari: parseFloat(taxTotal?.['TaxAmount']?.['#text'] || taxTotal?.['TaxAmount'] || 0),
-        kdvOrani: 20,
+        kdvTutari: parseFloat(taxTotalArray[0]?.['TaxAmount']?.['#text'] || taxTotalArray[0]?.['TaxAmount'] || 0),
+        kdv1, kdv10, kdv20, tevkifatTutari, stopajTutari,
         type: 'Invoice'
       };
 

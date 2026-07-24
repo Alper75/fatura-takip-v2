@@ -99,17 +99,19 @@ export function AlisTopluXMLUpload({ isOpen, onClose }: AlisTopluXMLUploadProps)
             muhasebeKodu = matchedCari.muhasebeKodu;
           }
 
-          const kdvOrani = parseFloat(data.kdvOrani || '20');
-          const kdvTutari = parseFloat(data.kdvTutari || '0');
+          const kdv1 = typeof data.kdv1 === 'number' ? data.kdv1 : 0;
+          const kdv10 = typeof data.kdv10 === 'number' ? data.kdv10 : 0;
+          const kdv20 = typeof data.kdv20 === 'number' ? data.kdv20 : 0;
           
-          let kdv1 = 0, kdv10 = 0, kdv20 = 0;
-          if (kdvOrani === 1) kdv1 = kdvTutari;
-          else if (kdvOrani === 10) kdv10 = kdvTutari;
-          else if (kdvOrani === 20) kdv20 = kdvTutari;
-          else kdv20 = kdvTutari; // default fallback
+          let kdvOrani = 0;
+          if (kdv20 > 0) kdvOrani = 20;
+          else if (kdv10 > 0) kdvOrani = 10;
+          else if (kdv1 > 0) kdvOrani = 1;
 
-          const tevkifatTutari = parseFloat(data.tevkifatTutari || '0');
-          const stopajTutari = parseFloat(data.stopajTutari || '0');
+          const kdvTutari = kdv1 + kdv10 + kdv20;
+
+          const tevkifatTutari = typeof data.tevkifatTutari === 'number' ? data.tevkifatTutari : 0;
+          const stopajTutari = typeof data.stopajTutari === 'number' ? data.stopajTutari : 0;
           const digerVergiler = tevkifatTutari + stopajTutari;
 
           // Arka planda PDF'i oluştur
@@ -212,6 +214,13 @@ export function AlisTopluXMLUpload({ isOpen, onClose }: AlisTopluXMLUploadProps)
         malHizmetAdi: 'Muhtelif İşlemler', // Default
         toplamTutar: s.toplamTutar.toString(),
         kdvOrani: s.kdvOrani.toString(),
+        
+        // Matematiksel geriye hesaplamayı iptal edip kuruşu kuruşuna XML değerlerini yolluyoruz:
+        matrah: s.matrah,
+        kdvTutari: s.kdvTutari,
+        tevkifatTutari: s.tevkifatTutari,
+        stopajTutari: s.stopajTutari,
+
         tevkifatOrani: s.tevkifatOrani,
         stopajOrani: s.stopajOrani,
         tevkifatKodu: s.tevkifatKodu,
