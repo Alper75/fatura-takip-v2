@@ -7,6 +7,7 @@ import { useApp } from '@/context/AppContext';
 import { Upload, Save, Trash2, FileCode2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Input } from '@/components/ui/input';
+import { generatePdfFromUblXml } from '@/lib/xmlToPdf';
 
 interface AlisTopluXMLUploadProps {
   isOpen: boolean;
@@ -38,6 +39,9 @@ interface XmlSatiri {
   eslesenCariId: string | null;
   muhasebeKodu: string | null; 
   selected: boolean;
+  
+  dosyaBase64?: string;
+  dosyaAdi?: string;
 }
 
 export function AlisTopluXMLUpload({ isOpen, onClose }: AlisTopluXMLUploadProps) {
@@ -108,6 +112,19 @@ export function AlisTopluXMLUpload({ isOpen, onClose }: AlisTopluXMLUploadProps)
           const stopajTutari = parseFloat(data.stopajTutari || '0');
           const digerVergiler = tevkifatTutari + stopajTutari;
 
+          // Arka planda PDF'i oluştur
+          let dosyaBase64 = undefined;
+          let dosyaAdi = undefined;
+          try {
+            const pdfBase64 = await generatePdfFromUblXml(file);
+            if (pdfBase64) {
+              dosyaBase64 = pdfBase64;
+              dosyaAdi = file.name.replace('.xml', '.pdf');
+            }
+          } catch (pdfErr) {
+            console.error('PDF dönüştürme başarısız:', pdfErr);
+          }
+
           yeniSatirlar.push({
             id: `xml-${Date.now()}-${i}`,
             dosyaAdi: file.name,
@@ -131,7 +148,9 @@ export function AlisTopluXMLUpload({ isOpen, onClose }: AlisTopluXMLUploadProps)
             stopajKodu: data.stopajKodu || '',
             eslesenCariId,
             muhasebeKodu,
-            selected: true // By default let's select new rows
+            selected: true,
+            dosyaBase64,
+            dosyaAdi
           });
         }
       } catch (err) {
@@ -199,6 +218,8 @@ export function AlisTopluXMLUpload({ isOpen, onClose }: AlisTopluXMLUploadProps)
         stopajKodu: s.stopajKodu,
         muhasebeKodu: s.muhasebeKodu || undefined,
         cariId: s.eslesenCariId || undefined,
+        dosyaBase64: s.dosyaBase64,
+        dosyaAdi: s.dosyaAdi
       } as any); // Cast as any because some fields might not perfectly match FormData, but addAlisFatura takes them.
       successCount++;
     });
