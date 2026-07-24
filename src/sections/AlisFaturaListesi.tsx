@@ -59,6 +59,7 @@ import { ODEME_DURUMU_LABELS, ODEME_DURUMU_COLORS } from '@/types';
 import { FilterBar } from '@/components/FilterBar';
 import type { FilterValues } from '@/components/FilterBar';
 import { useUrunler } from '../modules/stok/hooks/useStokQuery';
+import { AlisTopluXMLUpload } from './AlisTopluXMLUpload';
 
 export function AlisFaturaListesi() {
   const { 
@@ -82,6 +83,7 @@ export function AlisFaturaListesi() {
   const [odemeTarihi, setOdemeTarihi] = useState('');
   const [odemeDurumu, setOdemeDurumu] = useState<'odenmedi' | 'odendi' | 'bekliyor'>('odendi');
   const [bankaId, setBankaId] = useState<string>('');
+  const [isTopluXmlOpen, setIsTopluXmlOpen] = useState(false);
   const [filterValues, setFilterValues] = useState<FilterValues>({
     search: '',
     startDate: '',
@@ -280,6 +282,15 @@ export function AlisFaturaListesi() {
               >
                 <Upload className="w-4 h-4" />
                 <span className="hidden sm:inline">XML Gönder</span>
+              </Button>
+              
+              <Button 
+                variant="outline" 
+                onClick={() => setIsTopluXmlOpen(true)} 
+                className="gap-2 text-violet-700 border-violet-200 hover:bg-violet-50 hover:text-violet-800"
+              >
+                <FilePlus className="w-4 h-4" />
+                <span className="hidden sm:inline">Toplu XML</span>
               </Button>
 
               <Button onClick={() => openAlisDrawer()} className="gap-2">
@@ -646,6 +657,11 @@ export function AlisFaturaListesi() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      
+      <AlisTopluXMLUpload 
+        isOpen={isTopluXmlOpen} 
+        onClose={() => setIsTopluXmlOpen(false)} 
+      />
     </div>
   );
 }
