@@ -6,7 +6,8 @@ import { jsPDF } from 'jspdf';
  */
 function base64ToUTF8(base64: string) {
   try {
-    const binString = window.atob(base64);
+    const cleanBase64 = base64.replace(/\s+/g, '');
+    const binString = window.atob(cleanBase64);
     const bytes = new Uint8Array(binString.length);
     for (let i = 0; i < binString.length; i++) {
         bytes[i] = binString.charCodeAt(i);
@@ -61,35 +62,48 @@ export async function generatePdfFromUblXml(file: File): Promise<string | null> 
 
     const xsltDoc = parser.parseFromString(xsltString, 'text/xml');
 
-    // 3. XSLTProcessor ile HTML Fragment'e çevirme
+    // 3. XSLTProcessor ile HTML Document'e çevirme
     const xsltProcessor = new XSLTProcessor();
     xsltProcessor.importStylesheet(xsltDoc);
-    const resultFragment = xsltProcessor.transformToFragment(xmlDoc, document);
+    const resultDoc = xsltProcessor.transformToDocument(xmlDoc);
 
-    if (!resultFragment) {
+    if (!resultDoc) {
       console.error('XSLT dönüşümü başarısız oldu.');
       return null;
     }
 
-    // 4. HTML'i geçici, görünmez bir iframe/div içine yerleştirip render etme
-    const container = document.createElement('div');
-    // Sayfanın en sağına saklayalım (görünmesin ama render edilsin)
-    container.style.position = 'absolute';
-    container.style.top = '-9999px';
-    container.style.left = '-9999px';
-    container.style.width = '800px'; // Fatura için standart genişlik
-    container.style.backgroundColor = 'white';
-    container.style.padding = '20px';
-    container.style.color = '#000';
-    
-    container.appendChild(resultFragment);
-    document.body.appendChild(container);
+    const htmlString = new XMLSerializer().serializeToString(resultDoc);
 
-    // XSLT içindeki resimlerin vb. yüklenmesi için ufak bir bekleme (opsiyonel)
-    await new Promise(r => setTimeout(r, 500));
+    // 4. HTML'i geçici, görünmez bir iframe içine yerleştirip render etme
+    const iframe = document.createElement('iframe');
+    iframe.style.position = 'absolute';
+    iframe.style.top = '-9999px';
+    iframe.style.left = '-9999px';
+    iframe.style.width = '1200px';
+    iframe.style.height = '1600px';
+    iframe.style.border = 'none';
+    
+    document.body.appendChild(iframe);
+
+    // Iframe içine içeriği yaz
+    const doc = iframe.contentWindow?.document || iframe.contentDocument;
+    if (doc) {
+      doc.open();
+      doc.write(htmlString);
+      doc.close();
+    }
+
+    // XSLT içindeki resimlerin vb. yüklenmesi için ufak bir bekleme
+    await new Promise(r => setTimeout(r, 1000));
+
+    const targetElement = iframe.contentDocument?.body;
+    if (!targetElement) {
+      document.body.removeChild(iframe);
+      return null;
+    }
 
     // 5. html2canvas ve jsPDF ile PDF'e çevirme
-    const canvas = await html2canvas(container, {
+    const canvas = await html2canvas(targetElement, {
       scale: 2, // Yüksek çözünürlük
       useCORS: true,
       logging: false,
@@ -124,7 +138,7 @@ export async function generatePdfFromUblXml(file: File): Promise<string | null> 
     const pdfBase64 = pdf.output('datauristring');
 
     // Temizlik
-    document.body.removeChild(container);
+    document.body.removeChild(iframe);
 
     return pdfBase64;
   } catch (err) {
