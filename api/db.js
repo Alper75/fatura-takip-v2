@@ -390,6 +390,15 @@ export async function initDb() {
       if (!afInfo.rows.some(col => col.name === 'vehicle_plate')) {
         await client.execute(`ALTER TABLE alis_faturalari ADD COLUMN vehicle_plate TEXT`);
       }
+      if (!afInfo.rows.some(col => col.name === 'kdv1')) {
+        await client.execute(`ALTER TABLE alis_faturalari ADD COLUMN kdv1 REAL DEFAULT 0`);
+      }
+      if (!afInfo.rows.some(col => col.name === 'kdv10')) {
+        await client.execute(`ALTER TABLE alis_faturalari ADD COLUMN kdv10 REAL DEFAULT 0`);
+      }
+      if (!afInfo.rows.some(col => col.name === 'kdv20')) {
+        await client.execute(`ALTER TABLE alis_faturalari ADD COLUMN kdv20 REAL DEFAULT 0`);
+      }
     } catch (e) {}
 
     // Mutabakatlar - store file as base64 in DB to survive server restarts

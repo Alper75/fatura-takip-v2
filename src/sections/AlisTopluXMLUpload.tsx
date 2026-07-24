@@ -220,6 +220,9 @@ export function AlisTopluXMLUpload({ isOpen, onClose }: AlisTopluXMLUploadProps)
         kdvTutari: s.kdvTutari,
         tevkifatTutari: s.tevkifatTutari,
         stopajTutari: s.stopajTutari,
+        kdv1: s.kdv1,
+        kdv10: s.kdv10,
+        kdv20: s.kdv20,
 
         tevkifatOrani: s.tevkifatOrani,
         stopajOrani: s.stopajOrani,

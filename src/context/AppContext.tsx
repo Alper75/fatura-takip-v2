@@ -1311,6 +1311,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       malHizmetAdi: formData.malHizmetAdi,
       toplamTutar: Math.round(toplamTutarFinal * 100) / 100,
       kdvOrani: parseFloat(formData.kdvOrani) || 0, kdvTutari: hesaplanan.kdvTutari || 0, matrah: hesaplanan.matrah || 0,
+      kdv1: pre.kdv1 || 0, kdv10: pre.kdv10 || 0, kdv20: pre.kdv20 || 0,
       tevkifatOrani: formData.tevkifatOrani || '0', tevkifatTutari: hesaplanan.tevkifatTutari || 0,
       stopajOrani: formData.stopajOrani || '0', stopajTutari: hesaplanan.stopajTutari || 0,
       pdfDosya: formData.dosyaBase64 || null, pdfDosyaAdi: formData.dosyaAdi || undefined,

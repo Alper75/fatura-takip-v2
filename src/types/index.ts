@@ -109,6 +109,9 @@ export interface AlisFatura {
   stopajTutari?: number;
   tevkifatKodu?: string;
   stopajKodu?: string;
+  kdv1?: number;
+  kdv10?: number;
+  kdv20?: number;
   muhasebeKodu?: string;
   // PDF
   pdfDosya?: string | null;
@@ -136,6 +139,13 @@ export interface AlisFaturaFormData {
   malHizmetAdi: string;
   toplamTutar: string; // KDV dahil
   kdvOrani: string;
+  matrah?: number;
+  kdvTutari?: number;
+  tevkifatTutari?: number;
+  stopajTutari?: number;
+  kdv1?: number;
+  kdv10?: number;
+  kdv20?: number;
   tevkifatOrani?: string;
   stopajOrani?: string;
   muhasebeKodu?: string;
