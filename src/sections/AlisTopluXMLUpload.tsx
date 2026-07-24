@@ -4,7 +4,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useApp } from '@/context/AppContext';
-import { Upload, Save, Trash2, FileCode2, CheckSquare, Square } from 'lucide-react';
+import { Upload, Save, Trash2, FileCode2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Input } from '@/components/ui/input';
 
