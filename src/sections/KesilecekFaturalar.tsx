@@ -380,7 +380,23 @@ export function KesilecekFaturalar() {
   };
 
   const downloadTemplate = () => {
-    const template = [{ 'Ad (veya Firma)': 'Örnek A.Ş.', 'Soyad (Şahıs ise)': '', 'VKN / TCKN': '1234567890', 'Vergi Dairesi': 'Kadıköy', 'Adres': 'Kadıköy / İstanbul', 'İl': 'İstanbul', 'İlçe': 'Kadıköy', 'Fatura Tarihi (GG.AA.YYYY)': new Date().toLocaleDateString('tr-TR'), 'Tutar': '1500.50', 'KDV Oranı': '20', 'KDV Dahil mi? (E/H)': 'E', 'Açıklama': 'Sistem Bakım Ücreti' }];
+    const template = [{ 
+      'Ad (veya Firma)': 'Örnek A.Ş.', 
+      'Soyad (Şahıs ise)': '', 
+      'VKN / TCKN': '1234567890', 
+      'Vergi Dairesi': 'Kadıköy', 
+      'Adres': 'Kadıköy / İstanbul', 
+      'İl': 'İstanbul', 
+      'İlçe': 'Kadıköy', 
+      'Fatura Tarihi (GG.AA.YYYY)': new Date().toLocaleDateString('tr-TR'), 
+      'Ürün/Hizmet Adı': 'Sistem Bakım Ücreti',
+      'Miktar': '1',
+      'Birim Fiyat': '1500.50',
+      'Tutar': '1500.50', 
+      'KDV Oranı': '20', 
+      'KDV Dahil mi? (E/H)': 'E', 
+      'Açıklama': 'Aylık bakım' 
+    }];
     const ws = XLSX.utils.json_to_sheet(template);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Şablon');
@@ -393,19 +409,57 @@ export function KesilecekFaturalar() {
     const reader = new FileReader();
     reader.onload = (evt) => {
       try {
-        const wb = XLSX.read(evt.target?.result, { type: 'binary' });
+        const wb = XLSX.read(evt.target?.result, { type: 'binary', cellDates: true });
         const ws = wb.Sheets[wb.SheetNames[0]];
         const data = XLSX.utils.sheet_to_json(ws);
         data.forEach((row: any) => {
+          let parsedDate = new Date().toISOString().split('T')[0];
+          const rowDate = row['Fatura Tarihi (GG.AA.YYYY)'];
+          
+          if (rowDate) {
+            if (rowDate instanceof Date) {
+              const d = new Date(rowDate);
+              d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+              parsedDate = d.toISOString().split('T')[0];
+            } else if (typeof rowDate === 'number') {
+              const dateObj = new Date(Math.round((rowDate - 25569) * 86400 * 1000));
+              parsedDate = dateObj.toISOString().split('T')[0];
+            } else if (typeof rowDate === 'string') {
+              const parts = rowDate.split(/[./-]/);
+              if (parts.length === 3) {
+                 if (parts[0].length === 4) parsedDate = `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
+                 else parsedDate = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+              } else {
+                 parsedDate = rowDate;
+              }
+            }
+          }
+
+          const miktar = parseFloat(String(row['Miktar'] || '1').replace(',', '.')) || 1;
+          const birimFiyat = parseFloat(String(row['Birim Fiyat'] || '0').replace(',', '.')) || 0;
+          let tutar = parseFloat(String(row['Tutar'] || '0').replace(',', '.')) || 0;
+          if (tutar === 0 && birimFiyat > 0) tutar = miktar * birimFiyat;
+          
+          const urunAdi = row['Ürün/Hizmet Adı'] || row['Açıklama'] || 'Hizmet';
+
           addKesilecekFatura({
             ad: row['Ad (veya Firma)'] || '', soyad: row['Soyad (Şahıs ise)'] || '',
             vknTckn: String(row['VKN / TCKN'] || ''), vergiDairesi: row['Vergi Dairesi'] || '',
             adres: row['Adres'] || '', il: row['İl'] || '', ilce: row['İlçe'] || '',
-            tutar: parseFloat(String(row['Tutar'] || '0').replace(',', '.')) || 0,
+            tutar: tutar,
             kdvOrani: parseInt(row['KDV Oranı'] || '20') || 0,
-            faturaTarihi: row['Fatura Tarihi (GG.AA.YYYY)'] || new Date().toISOString().split('T')[0],
+            faturaTarihi: parsedDate,
             aciklama: row['Açıklama'] || '',
             kdvDahil: (row['KDV Dahil mi? (E/H)'] || 'E').toUpperCase() === 'E',
+            kalemler: [
+              {
+                id: 'k' + Date.now() + Math.random().toString(36).substr(2, 5),
+                ad: urunAdi,
+                miktar: miktar,
+                birimFiyat: birimFiyat > 0 ? birimFiyat : tutar,
+                tevkifatOrani: 0
+              }
+            ]
           });
         });
         toast.success(`${data.length} kayıt başarıyla yüklendi.`);
