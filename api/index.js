@@ -1943,7 +1943,10 @@ app.post('/api/gib/create-draft', authMiddleware, async (req, res) => {
 
     let signResult = null;
     if (autoSign === true) {
-      signResult = await client.signDraftInvoice(token, createdInvoice);
+      const details = await client.findInvoice(token, createdInvoice);
+      if (details !== undefined) {
+        signResult = await client.signDraftInvoice(token, details);
+      }
     }
 
     return res.json({
