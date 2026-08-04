@@ -1918,6 +1918,7 @@ app.post('/api/gib/create-draft', authMiddleware, async (req, res) => {
     name: invoice.ad || '',
     surname: invoice.soyad || '',
     invoiceType: invoice.faturaTipi || 'SATIS',
+    hangiTip: "5000/30000",
     fullAddress: invoice.adres || 'Adres Bulunmuyor',
     district: invoice.ilce || '',
     city: invoice.il || '',
