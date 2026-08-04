@@ -1949,10 +1949,15 @@ app.post('/api/gib/create-draft', authMiddleware, async (req, res) => {
       }
     }
 
+    let msg = autoSign ? 'Fatura başarıyla oluşturuldu ve imzalandı.' : 'Fatura taslak olarak GİB portalına gönderildi.';
+    if (!invoiceUUID) {
+      msg = `GİB işlemi başarılı dedi ancak faturayı bulamadı! Detay: ${JSON.stringify(createdInvoice)}`;
+    }
+
     return res.json({
       success: true,
-      message: autoSign ? 'Fatura başarıyla oluşturuldu ve imzalandı.' : 'Fatura taslak olarak GİB portalına gönderildi.',
-      data: { invoiceUUID, signed: autoSign === true, signResult }
+      message: msg,
+      data: { invoiceUUID, signed: autoSign === true, signResult, debug: createdInvoice }
     });
   } catch (error) {
     console.error('[GIB] Hata Oluştu:', error);
