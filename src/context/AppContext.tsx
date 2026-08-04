@@ -1095,21 +1095,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const updateKesilecekFatura = useCallback(async (id: string, data: Partial<KesilecekFatura>) => {
-    setKesilecekFaturalar(prev => prev.map(f => f.id === id ? { ...f, ...data } : f));
+    const existingFatura = kesilecekFaturalar.find(f => f.id === id);
+    if (!existingFatura) return;
+    const fullData = { ...existingFatura, ...data };
+
+    setKesilecekFaturalar(prev => prev.map(f => f.id === id ? fullData : f));
     try { 
-      await apiFetch(`/api/kesilecek-faturalar/${id}`, { method: 'PUT', body: JSON.stringify(data) }); 
+      await apiFetch(`/api/kesilecek-faturalar/${id}`, { method: 'PUT', body: JSON.stringify(fullData) }); 
       
       // Eğer durum 'kesildi' yapıldıysa, cariId varsa bir CariHareket ekle!
       if (data.durum === 'kesildi') {
-        const plan = kesilecekFaturalar.find(f => f.id === id);
-        if (plan && plan.cariId) {
+        if (existingFatura.cariId) {
           const yeniHareket: CariHareket = {
             id: 'ch' + Date.now().toString() + Math.random().toString(36).substr(2, 5),
-            cariId: plan.cariId, 
-            tarih: data.faturaTarihi || plan.faturaTarihi || new Date().toISOString().split('T')[0], 
+            cariId: existingFatura.cariId, 
+            tarih: data.faturaTarihi || existingFatura.faturaTarihi || new Date().toISOString().split('T')[0], 
             islemTuru: 'satis_faturasi',
-            tutar: data.tutar || plan.tutar,
-            aciklama: `Satış Faturası (Plan - GİB Gönderim: ${plan.ad || ''})`.trim(),
+            tutar: data.tutar || existingFatura.tutar,
+            aciklama: `Satış Faturası (Plan - GİB Gönderim: ${existingFatura.ad || ''})`.trim(),
             bagliFaturaId: id, 
             olusturmaTarihi: new Date().toISOString().split('T')[0], 
             dekontDosya: null
