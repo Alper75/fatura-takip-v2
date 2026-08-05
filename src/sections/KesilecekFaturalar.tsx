@@ -46,6 +46,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
+import { Checkbox } from '@/components/ui/checkbox';
 import * as XLSX from 'xlsx';
 import type { KesilecekFatura, FaturaKalemi } from '@/types';
 import { useUrunler } from '@/modules/stok/hooks/useStokQuery';
@@ -242,6 +243,12 @@ export function KesilecekFaturalar() {
   const [isGibFetching, setIsGibFetching] = useState(false);
   const [gibInvoices, setGibInvoices] = useState<any[]>([]);
 
+  // Toplu GİB States
+  const [selectedInvoiceIdsForGib, setSelectedInvoiceIdsForGib] = useState<string[]>([]);
+  const [isBulkGibModalOpen, setIsBulkGibModalOpen] = useState(false);
+  const [isBulkGibSending, setIsBulkGibSending] = useState(false);
+  const [bulkGibProgress, setBulkGibProgress] = useState({ current: 0, total: 0, successes: 0, errors: 0 });
+
   // Kalem hesaplamaları
   const kalemToplam = useMemo(() => {
     return kalemler.reduce((sum, k) => {
@@ -315,6 +322,18 @@ export function KesilecekFaturalar() {
         .sort((a, b) => new Date(b.olusturmaTarihi || 0).getTime() - new Date(a.olusturmaTarihi || 0).getTime());
     }
   }, [kesilecekFaturalar, satisFaturalari, activeTab, searchTerm]);
+
+  const pendingInvoices = useMemo(() => resolvedInvoices.filter(f => f.durum === 'bekliyor'), [resolvedInvoices]);
+
+  const handleSelectAll = (checked: boolean) => {
+    if (checked) setSelectedInvoiceIdsForGib(pendingInvoices.map(f => f.id));
+    else setSelectedInvoiceIdsForGib([]);
+  };
+
+  const handleSelectOne = (checked: boolean, id: string) => {
+    if (checked) setSelectedInvoiceIdsForGib(prev => [...prev, id]);
+    else setSelectedInvoiceIdsForGib(prev => prev.filter(item => item !== id));
+  };
 
   const handleCariChange = (cariId: string) => {
     if (!cariId || cariId === 'none') {
@@ -553,6 +572,75 @@ export function KesilecekFaturalar() {
     setGibStopajTipi('');
     setGibStopajOrani('0');
     setIsGibModalOpen(true);
+  };
+
+  const openBulkGibModal = () => {
+    setGibFaturaTipi('SATIS');
+    setGibStopajTipi('');
+    setGibStopajOrani('0');
+    setBulkGibProgress({ current: 0, total: selectedInvoiceIdsForGib.length, successes: 0, errors: 0 });
+    setIsBulkGibModalOpen(true);
+  };
+
+  const handleBulkGibSend = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!gibCredentials.username || !gibCredentials.password) {
+      toast.error('Lütfen GİB giriş bilgilerinizi girin.');
+      return;
+    }
+    
+    setIsBulkGibSending(true);
+    let successes = 0;
+    let errors = 0;
+    const apiUrl = import.meta.env.DEV ? 'http://localhost:5000/api/gib/create-draft' : '/api/gib/create-draft';
+    
+    for (let i = 0; i < selectedInvoiceIdsForGib.length; i++) {
+      const invId = selectedInvoiceIdsForGib[i];
+      const inv = pendingInvoices.find(f => f.id === invId);
+      
+      setBulkGibProgress(prev => ({ ...prev, current: i + 1 }));
+      
+      if (!inv || !inv.vknTckn) {
+        errors++;
+        continue;
+      }
+      
+      try {
+        const response = await fetch(apiUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` },
+          body: JSON.stringify({
+            credentials: gibCredentials,
+            invoice: {
+              ...inv,
+              faturaTipi: gibFaturaTipi,
+              stopajTipi: gibStopajTipi || undefined,
+              stopajOrani: gibStopajOrani !== '0' ? gibStopajOrani : undefined,
+            },
+            autoSign,
+          }),
+        });
+        const result = await response.json();
+        
+        if (result.success) {
+          successes++;
+          updateKesilecekFatura(inv.id, { 
+            durum: 'kesildi',
+            gibUuid: result.data?.invoiceUUID || undefined,
+            faturaNo: result.data?.invoiceNo || undefined
+          });
+        } else {
+          errors++;
+        }
+      } catch (err) {
+        errors++;
+      }
+    }
+    
+    setIsBulkGibSending(false);
+    setIsBulkGibModalOpen(false);
+    setSelectedInvoiceIdsForGib([]);
+    toast.success(`Toplu işlem tamamlandı. ${successes} başarılı, ${errors} hatalı.`);
   };
 
   const handleGibFetch = async (e: React.FormEvent) => {
@@ -1049,6 +1137,16 @@ export function KesilecekFaturalar() {
                     <Download className="w-3.5 h-3.5" /> GİB'den Çek
                   </Button>
                 )}
+                {activeTab === 'bekleyen' && selectedInvoiceIdsForGib.length > 0 && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={openBulkGibModal}
+                    className="h-9 gap-1 text-xs font-bold border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100"
+                  >
+                    <ShieldCheck className="w-3.5 h-3.5" /> Seçilenleri GİB'e Gönder ({selectedInvoiceIdsForGib.length})
+                  </Button>
+                )}
                 <div className="relative w-full sm:w-64">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                   <Input placeholder="Müşteri veya VKN ara..." className="pl-10 h-9 bg-white" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
@@ -1061,6 +1159,14 @@ export function KesilecekFaturalar() {
               <Table>
                 <TableHeader>
                   <TableRow className="bg-slate-50/50 border-0 hover:bg-slate-50/50">
+                    {activeTab === 'bekleyen' && (
+                      <TableHead className="w-10 text-center">
+                        <Checkbox 
+                          checked={pendingInvoices.length > 0 && selectedInvoiceIdsForGib.length === pendingInvoices.length} 
+                          onCheckedChange={handleSelectAll} 
+                        />
+                      </TableHead>
+                    )}
                     <TableHead className="font-semibold text-slate-600">Müşteri Detayları</TableHead>
                     <TableHead className="font-semibold text-slate-600">Kalemler / Açıklama</TableHead>
                     <TableHead className="font-semibold text-slate-600">Toplam</TableHead>
@@ -1081,6 +1187,14 @@ export function KesilecekFaturalar() {
                   ) : (
                     resolvedInvoices.map((f: any) => (
                       <TableRow key={f.id} className="group border-0 border-b last:border-0 hover:bg-blue-50/30 transition-colors">
+                        {activeTab === 'bekleyen' && (
+                          <TableCell className="text-center">
+                            <Checkbox 
+                              checked={selectedInvoiceIdsForGib.includes(f.id)} 
+                              onCheckedChange={(c: boolean) => handleSelectOne(c, f.id)} 
+                            />
+                          </TableCell>
+                        )}
                         <TableCell>
                           <div className="flex flex-col">
                             <span className="font-bold text-slate-900 leading-tight">{f.ad} {f.soyad}</span>
@@ -1321,6 +1435,99 @@ export function KesilecekFaturalar() {
               >
                 {isGibSending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
                 {autoSign ? 'Onayla ve Gönder' : 'Taslak Gönder'}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Toplu GİB Modal */}
+      <Dialog open={isBulkGibModalOpen} onOpenChange={setIsBulkGibModalOpen}>
+        <DialogContent className="sm:max-w-[480px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ShieldCheck className="w-5 h-5 text-amber-600" />
+              Toplu GİB e-Arşiv Fatura Gönderimi
+            </DialogTitle>
+            <DialogDescription>
+              Seçilen {selectedInvoiceIdsForGib.length} adet faturayı GİB'e göndermek üzeresiniz.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleBulkGibSend} className="space-y-4 py-2">
+            <div className="grid gap-3">
+              <div className="grid gap-1.5">
+                <Label htmlFor="bulk_gib_user">Kullanıcı Kodu / VKN</Label>
+                <Input id="bulk_gib_user" value={gibCredentials.username} onChange={e => setGibCredentials({...gibCredentials, username: e.target.value})} placeholder="Kullanıcı Kodu" required />
+              </div>
+              <div className="grid gap-1.5">
+                <Label htmlFor="bulk_gib_pass">Şifre</Label>
+                <Input id="bulk_gib_pass" type="password" value={gibCredentials.password} onChange={e => setGibCredentials({...gibCredentials, password: e.target.value})} placeholder="********" required />
+              </div>
+            </div>
+
+            <div className="grid gap-1.5">
+              <Label className="text-sm font-semibold">Tüm Seçilenler İçin Fatura Tipi</Label>
+              <select
+                value={gibFaturaTipi}
+                onChange={e => setGibFaturaTipi(e.target.value)}
+                className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              >
+                {FATURA_TIPI_SECENEKLERI.map(t => (
+                  <option key={t.value} value={t.value}>{t.label}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="rounded-lg border p-3 space-y-2">
+              <Label className="text-sm font-semibold">Gönderim Modu</Label>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setAutoSign(false)}
+                  className={cn(
+                    "flex-1 rounded-md border p-2 text-xs font-medium text-center transition-all",
+                    !autoSign ? "bg-amber-500 border-amber-600 text-white shadow" : "bg-white text-slate-600 hover:border-slate-300"
+                  )}
+                >
+                  📄 Taslak Olarak Gönder
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAutoSign(true)}
+                  className={cn(
+                    "flex-1 rounded-md border p-2 text-xs font-medium text-center transition-all",
+                    autoSign ? "bg-emerald-600 border-emerald-700 text-white shadow" : "bg-white text-slate-600 hover:border-slate-300"
+                  )}
+                >
+                  ✅ Otomatik Onayla
+                </button>
+              </div>
+            </div>
+
+            {isBulkGibSending && (
+              <div className="space-y-2 mt-4 p-3 border rounded bg-slate-50">
+                <div className="flex justify-between text-xs font-semibold">
+                  <span>Gönderiliyor...</span>
+                  <span>{bulkGibProgress.current} / {bulkGibProgress.total}</span>
+                </div>
+                <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
+                  <div 
+                    className="bg-blue-600 h-full transition-all duration-300" 
+                    style={{ width: `${(bulkGibProgress.current / bulkGibProgress.total) * 100}%` }}
+                  />
+                </div>
+              </div>
+            )}
+
+            <DialogFooter className="pt-2">
+              <Button type="button" variant="outline" onClick={() => setIsBulkGibModalOpen(false)} disabled={isBulkGibSending}>İptal</Button>
+              <Button
+                type="submit"
+                className={cn("gap-2", autoSign ? "bg-emerald-600 hover:bg-emerald-700" : "bg-amber-600 hover:bg-amber-700")}
+                disabled={isBulkGibSending || selectedInvoiceIdsForGib.length === 0}
+              >
+                {isBulkGibSending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                {isBulkGibSending ? 'İşleniyor...' : (autoSign ? 'Onayla ve Toplu Gönder' : 'Toplu Taslak Gönder')}
               </Button>
             </DialogFooter>
           </form>
