@@ -1977,6 +1977,34 @@ app.post('/api/gib/create-draft', authMiddleware, async (req, res) => {
   }
 });
 
+app.post('/api/gib/recipient-info', authMiddleware, async (req, res) => {
+  const { credentials, vknTckn } = req.body;
+  if (!credentials?.username || !credentials?.password)
+    return res.status(400).json({ success: false, message: 'GİB kullanıcı adı ve şifre gereklidir.' });
+  if (!vknTckn)
+    return res.status(400).json({ success: false, message: 'VKN veya TCKN gereklidir.' });
+
+  let token;
+  const isTest = process.env.GIB_TEST_MODE === 'true';
+  const client = createFaturaClient(isTest ? 'TEST' : 'PROD');
+  try {
+    token = await client.getToken(credentials.username, credentials.password);
+    const data = await client.getRecipientData(token, vknTckn);
+    res.json({ success: true, data });
+  } catch (error) {
+    console.error('GIB recipient info error:', error.message);
+    res.status(500).json({ success: false, message: error.message || 'Alıcı bilgileri getirilemedi.' });
+  } finally {
+    if (token) {
+      try {
+        await client.logout(token);
+      } catch (e) {
+        console.error('Logout error:', e.message);
+      }
+    }
+  }
+});
+
 app.post('/api/gib/invoices', authMiddleware, async (req, res) => {
   const { credentials, startDate, endDate } = req.body;
   if (!credentials?.username || !credentials?.password)

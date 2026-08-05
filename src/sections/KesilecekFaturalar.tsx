@@ -25,7 +25,8 @@ import {
   Loader2,
   Package,
   FileText,
-  X
+  X,
+  Edit2
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Label } from '@/components/ui/label';
@@ -249,6 +250,12 @@ export function KesilecekFaturalar() {
   const [isBulkGibSending, setIsBulkGibSending] = useState(false);
   const [bulkGibProgress, setBulkGibProgress] = useState({ current: 0, total: 0, successes: 0, errors: 0 });
 
+  // VKN Sorgu ve Düzenleme States
+  const [isVknLoading, setIsVknLoading] = useState(false);
+  const [editingInvoiceId, setEditingInvoiceId] = useState<string | null>(null);
+  const [isBulkLookupRunning, setIsBulkLookupRunning] = useState(false);
+  const [bulkLookupProgress, setBulkLookupProgress] = useState({ current: 0, total: 0 });
+
   // Kalem hesaplamaları
   const kalemToplam = useMemo(() => {
     return kalemler.reduce((sum, k) => {
@@ -369,6 +376,105 @@ export function KesilecekFaturalar() {
     }
   };
 
+  const handleVknLookup = async () => {
+    if (!form.vknTckn || form.vknTckn.length < 10) {
+      toast.error('Lütfen geçerli bir VKN veya TCKN girin.');
+      return;
+    }
+    if (!gibCredentials.username || !gibCredentials.password) {
+      toast.info('Otomatik sorgulama için lütfen önce Toplu Gönder veya GİB\'den Çek menüsünden bir kez GİB şifrenizi girin.');
+      return;
+    }
+    
+    setIsVknLoading(true);
+    try {
+      const apiUrl = import.meta.env.DEV ? 'http://localhost:5000/api/gib/recipient-info' : '/api/gib/recipient-info';
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` },
+        body: JSON.stringify({ credentials: gibCredentials, vknTckn: form.vknTckn })
+      });
+      const result = await response.json();
+      
+      if (result.success && result.data) {
+        setForm(prev => ({
+          ...prev,
+          ad: result.data.unvan || result.data.adi || prev.ad,
+          soyad: result.data.soyadi || prev.soyad,
+          vergiDairesi: result.data.vergiDairesi || prev.vergiDairesi
+        }));
+        toast.success('GİB bilgileri getirildi.');
+      } else {
+        toast.error(result.message || 'Mükellef bulunamadı.');
+      }
+    } catch (err) {
+      toast.error('Sorgulama hatası.');
+    } finally {
+      setIsVknLoading(false);
+    }
+  };
+
+  const handleBulkLookup = async () => {
+    if (!gibCredentials.username || !gibCredentials.password) {
+      toast.info('Lütfen önce GİB şifrenizi tanımlayın (Toplu Gönder menüsünden).');
+      return;
+    }
+    
+    setIsBulkLookupRunning(true);
+    let successes = 0;
+    const apiUrl = import.meta.env.DEV ? 'http://localhost:5000/api/gib/recipient-info' : '/api/gib/recipient-info';
+    
+    for (let i = 0; i < selectedInvoiceIdsForGib.length; i++) {
+      setBulkLookupProgress({ current: i + 1, total: selectedInvoiceIdsForGib.length });
+      const invId = selectedInvoiceIdsForGib[i];
+      const inv = pendingInvoices.find(f => f.id === invId);
+      
+      if (!inv || !inv.vknTckn) continue;
+      
+      try {
+        const response = await fetch(apiUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` },
+          body: JSON.stringify({ credentials: gibCredentials, vknTckn: inv.vknTckn })
+        });
+        const result = await response.json();
+        
+        if (result.success && result.data) {
+          successes++;
+          updateKesilecekFatura(inv.id, {
+            ad: result.data.unvan || result.data.adi || inv.ad,
+            soyad: result.data.soyadi || inv.soyad,
+            vergiDairesi: result.data.vergiDairesi || inv.vergiDairesi
+          });
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    }
+    
+    setIsBulkLookupRunning(false);
+    toast.success(`Toplu VKN sorgusu tamamlandı. ${successes} fatura güncellendi.`);
+  };
+
+  const loadInvoiceForEdit = (f: KesilecekFatura) => {
+    setEditingInvoiceId(f.id);
+    setForm({
+      ad: f.ad, soyad: f.soyad || '', vknTckn: f.vknTckn, vergiDairesi: f.vergiDairesi || '',
+      adres: f.adres || '', il: f.il || '', ilce: f.ilce || '', kdvOrani: String(f.kdvOrani || 20),
+      faturaTarihi: f.faturaTarihi || new Date().toISOString().split('T')[0],
+      aciklama: f.aciklama || '', cariId: f.cariId || 'none',
+      kdvHesaplamaTipi: f.kdvDahil ? 'DAHIL' : 'HARIC'
+    });
+    setKalemler(f.kalemler && f.kalemler.length > 0 ? [...f.kalemler] : [newKalem()]);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const cancelEdit = () => {
+    setEditingInvoiceId(null);
+    setForm({ ad: '', soyad: '', vknTckn: '', vergiDairesi: '', adres: '', il: '', ilce: '', kdvOrani: '20', faturaTarihi: new Date().toISOString().split('T')[0], aciklama: '', cariId: 'none', kdvHesaplamaTipi: 'DAHIL' });
+    setKalemler([newKalem()]);
+  };
+
   const handleAdd = (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.ad || !form.vknTckn) {
@@ -381,7 +487,7 @@ export function KesilecekFaturalar() {
       return;
     }
 
-    addKesilecekFatura({
+    const invoiceData = {
       ad: form.ad, soyad: form.soyad, vknTckn: form.vknTckn,
       vergiDairesi: form.vergiDairesi, adres: form.adres, il: form.il, ilce: form.ilce,
       tutar: kalemToplam.toplam,
@@ -391,11 +497,17 @@ export function KesilecekFaturalar() {
       aciklama: form.aciklama,
       kalemler: kalemlerDolu,
       cariId: form.cariId !== 'none' ? form.cariId : undefined,
-    });
+    };
 
-    setForm({ ad: '', soyad: '', vknTckn: '', vergiDairesi: '', adres: '', il: '', ilce: '', kdvOrani: '20', faturaTarihi: new Date().toISOString().split('T')[0], aciklama: '', cariId: 'none', kdvHesaplamaTipi: 'DAHIL' });
-    setKalemler([newKalem()]);
-    toast.success('Fatura planı listeye eklendi.');
+    if (editingInvoiceId) {
+      updateKesilecekFatura(editingInvoiceId, invoiceData);
+      toast.success('Fatura planı güncellendi.');
+    } else {
+      addKesilecekFatura(invoiceData);
+      toast.success('Fatura planı listeye eklendi.');
+    }
+
+    cancelEdit();
   };
 
   const downloadTemplate = () => {
@@ -945,7 +1057,15 @@ export function KesilecekFaturalar() {
                 <div className="space-y-1"><Label className="text-xs">Soyad</Label><Input value={form.soyad} onChange={e => setForm({...form, soyad: e.target.value})} className="h-9" /></div>
               </div>
               <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1"><Label className="text-xs">VKN / TCKN *</Label><Input value={form.vknTckn} onChange={e => setForm({...form, vknTckn: e.target.value})} className="h-9" /></div>
+                <div className="space-y-1">
+                  <Label className="text-xs">VKN / TCKN *</Label>
+                  <div className="flex gap-1">
+                    <Input value={form.vknTckn} onChange={e => setForm({...form, vknTckn: e.target.value})} className="h-9" />
+                    <Button type="button" onClick={handleVknLookup} disabled={isVknLoading} variant="outline" className="h-9 px-2 shrink-0 bg-blue-50 text-blue-600 border-blue-200 hover:bg-blue-100 hover:text-blue-700" title="GİB'den Müşteri Sorgula">
+                      {isVknLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+                    </Button>
+                  </div>
+                </div>
                 <div className="space-y-1"><Label className="text-xs">Vergi Dairesi</Label><Input value={form.vergiDairesi} onChange={e => setForm({...form, vergiDairesi: e.target.value})} className="h-9" /></div>
               </div>
               <div className="space-y-1"><Label className="text-xs">Fatura Tarihi</Label><Input type="date" value={form.faturaTarihi} onChange={e => setForm({...form, faturaTarihi: e.target.value})} className="h-9" /></div>
@@ -1086,9 +1206,15 @@ export function KesilecekFaturalar() {
                 </div>
               </div>
 
-              <Button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 h-11 gap-2 mt-2 font-semibold">
-                <Plus className="w-4 h-4" /> Planla ve Listeye Ekle
-              </Button>
+              <div className="flex gap-2 mt-4">
+                <Button type="submit" className={cn("flex-1 h-11 gap-2 font-semibold", editingInvoiceId ? "bg-emerald-600 hover:bg-emerald-700" : "bg-blue-600 hover:bg-blue-700")}>
+                  {editingInvoiceId ? <CheckCircle2 className="w-4 h-4" /> : <Plus className="w-4 h-4" />} 
+                  {editingInvoiceId ? 'Değişiklikleri Kaydet' : 'Planla ve Listeye Ekle'}
+                </Button>
+                {editingInvoiceId && (
+                  <Button type="button" variant="outline" onClick={cancelEdit} className="h-11">İptal</Button>
+                )}
+              </div>
             </form>
           </CardContent>
         </Card>
@@ -1138,14 +1264,26 @@ export function KesilecekFaturalar() {
                   </Button>
                 )}
                 {activeTab === 'bekleyen' && selectedInvoiceIdsForGib.length > 0 && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={openBulkGibModal}
-                    className="h-9 gap-1 text-xs font-bold border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100"
-                  >
-                    <ShieldCheck className="w-3.5 h-3.5" /> Seçilenleri GİB'e Gönder ({selectedInvoiceIdsForGib.length})
-                  </Button>
+                  <div className="flex gap-1.5 items-center">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleBulkLookup}
+                      disabled={isBulkLookupRunning}
+                      className="h-9 gap-1 text-xs font-bold border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100"
+                    >
+                      {isBulkLookupRunning ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />} 
+                      {isBulkLookupRunning ? `Sorgulanıyor... (${bulkLookupProgress.current}/${bulkLookupProgress.total})` : `VKN Sorgula (${selectedInvoiceIdsForGib.length})`}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={openBulkGibModal}
+                      className="h-9 gap-1 text-xs font-bold border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100"
+                    >
+                      <ShieldCheck className="w-3.5 h-3.5" /> Seçilenleri GİB'e Gönder ({selectedInvoiceIdsForGib.length})
+                    </Button>
+                  </div>
                 )}
                 <div className="relative w-full sm:w-64">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
@@ -1237,7 +1375,13 @@ export function KesilecekFaturalar() {
                         <TableCell className="text-right">
                           <div className="flex items-center justify-end gap-1 md:opacity-0 group-hover:opacity-100 transition-opacity">
                             {f.durum === 'bekliyor' ? (
-                              <>
+                              <div className="flex gap-1.5 items-center">
+                                <Button
+                                  variant="outline" size="icon" onClick={() => loadInvoiceForEdit(f)}
+                                  className="h-7 w-7 text-slate-400 hover:text-blue-600 border-slate-200" title="Düzenle"
+                                >
+                                  <Edit2 className="w-3.5 h-3.5" />
+                                </Button>
                                 <Button
                                   variant="outline" size="sm" onClick={() => openGibModal(f)}
                                   className="h-7 text-[10px] font-bold bg-amber-50 border-amber-200 text-amber-700 hover:bg-amber-600 hover:text-white hover:border-amber-600 gap-1"
@@ -1250,7 +1394,7 @@ export function KesilecekFaturalar() {
                                 >
                                   FATURA KES
                                 </Button>
-                              </>
+                              </div>
                             ) : (
                               <div className="flex items-center gap-1.5">
                                 {f.faturaNo && (

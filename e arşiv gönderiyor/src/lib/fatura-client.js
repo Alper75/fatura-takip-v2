@@ -1,4 +1,4 @@
-import { generateUUID, convertPriceToText } from './fatura-utils.js';
+import { generateUUID, convertPriceToText } from './utils';
 
 const ENV = {
     PROD: { BASE_URL: "https://earsivportal.efatura.gov.tr" },
@@ -31,7 +31,7 @@ export class FaturaClient {
     constructor(env = "PROD") {
         this.baseURL = ENV[env].BASE_URL;
         this.loginCmd = env === "PROD" ? "anologin" : "login";
-        this.logoutCmd = "logout";
+        this.logoutCmd = env === "PROD" ? "anologin" : "logout";
     }
 
     buildHeaders() {
@@ -263,13 +263,6 @@ export class FaturaClient {
             `&onayDurumu=${encodeURIComponent(signed ? "Onaylandı" : "Onaylanmadı")}` +
             `&cmd=downloadResource&`
         );
-    }
-
-    async getRecipientData(token, vknTckn) {
-        const result = await this.runCommand(token, ...COMMANDS.getRecipientDataByTaxIDOrTRID, {
-            vknTcknu: vknTckn
-        });
-        return result.data;
     }
 }
 
