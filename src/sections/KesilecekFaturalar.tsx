@@ -399,9 +399,9 @@ export function KesilecekFaturalar() {
       if (result.success && result.data) {
         setForm(prev => ({
           ...prev,
-          ad: result.data.unvan || result.data.adi || prev.ad,
-          soyad: result.data.soyadi || prev.soyad,
-          vergiDairesi: result.data.vergiDairesi || prev.vergiDairesi
+          ad: result.data.unvan || result.data.adi || '',
+          soyad: result.data.soyadi || '',
+          vergiDairesi: result.data.vergiDairesi || ''
         }));
         toast.success('GİB bilgileri getirildi.');
       } else {

@@ -349,7 +349,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   // ==================== CARÄ° CRUD ====================
   const addCari = useCallback(async (data: CariFormData) => {
-    const yeniCari: Cari = { ...data, id: 'c' + Date.now().toString(), olusturmaTarihi: new Date().toISOString().split('T')[0] };
+    const yeniCari: Cari = { ...data, id: 'c' + Date.now().toString() + Math.random().toString(36).substr(2, 5), olusturmaTarihi: new Date().toISOString().split('T')[0] };
     setCariler(prev => [yeniCari, ...prev]);
     try { 
       const res = await apiFetch('/api/cariler', { method: 'POST', body: JSON.stringify(yeniCari) }); 
@@ -1051,7 +1051,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const addBankaHesabi = useCallback(async (data: BankaHesabiFormData) => {
-    const yeni: BankaHesabi = { ...data, id: 'b' + Date.now().toString() };
+    const yeni: BankaHesabi = { ...data, id: 'b' + Date.now().toString() + Math.random().toString(36).substr(2, 5) };
     setBankaHesaplari(prev => [yeni, ...prev]);
     try { await apiFetch('/api/banka-hesaplari', { method: 'POST', body: JSON.stringify(yeni) }); }
     catch (e) { console.error('Banka hesabÄ± eklenemedi:', e); }
@@ -1088,7 +1088,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   // ==================== KESÄ°LECEK FATURALAR CRUD ====================
   const addKesilecekFatura = useCallback(async (data: Omit<KesilecekFatura, 'id' | 'olusturmaTarihi' | 'durum'>) => {
-    const yeni: KesilecekFatura = { ...data, id: 'kf' + Date.now().toString(), olusturmaTarihi: new Date().toISOString().split('T')[0], durum: 'bekliyor' };
+    const yeni: KesilecekFatura = { ...data, id: 'kf' + Date.now().toString() + Math.random().toString(36).substr(2, 5), olusturmaTarihi: new Date().toISOString().split('T')[0], durum: 'bekliyor' };
     setKesilecekFaturalar(prev => [yeni, ...prev]);
     try { await apiFetch('/api/kesilecek-faturalar', { method: 'POST', body: JSON.stringify(yeni) }); }
     catch (e) { console.error('Kesilecek fatura eklenemedi:', e); }
