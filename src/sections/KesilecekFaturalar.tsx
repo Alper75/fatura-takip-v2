@@ -540,25 +540,37 @@ export function KesilecekFaturalar() {
     const reader = new FileReader();
     reader.onload = (evt) => {
       try {
-        const wb = XLSX.read(evt.target?.result, { type: 'binary' });
+        const wb = XLSX.read(evt.target?.result, { type: 'binary', cellDates: true });
         const ws = wb.Sheets[wb.SheetNames[0]];
-        const data = XLSX.utils.sheet_to_json(ws, { raw: false, dateNF: 'yyyy-mm-dd' });
+        const data = XLSX.utils.sheet_to_json(ws);
         data.forEach((row: any) => {
           let parsedDate = new Date().toISOString().split('T')[0];
           const rowDate = row['Fatura Tarihi (GG.AA.YYYY)'];
           
           if (rowDate) {
-            const strDate = String(rowDate).trim();
-            const parts = strDate.split(/[.\/-]/);
-            if (parts.length === 3) {
-              if (parts[0].length === 4) {
-                parsedDate = `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
+            if (rowDate instanceof Date) {
+              const yyyy = rowDate.getUTCFullYear();
+              const mm = String(rowDate.getUTCMonth() + 1).padStart(2, '0');
+              const dd = String(rowDate.getUTCDate()).padStart(2, '0');
+              parsedDate = `${yyyy}-${mm}-${dd}`;
+            } else if (typeof rowDate === 'string') {
+              const strDate = rowDate.trim();
+              const parts = strDate.split(/[.\/-]/);
+              if (parts.length === 3) {
+                // Eger format DD.MM.YYYY ise
+                if (parts[2].length === 4) {
+                  parsedDate = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+                } 
+                // Eger format YYYY.MM.DD ise
+                else if (parts[0].length === 4) {
+                  parsedDate = `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
+                }
               } else {
-                parsedDate = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+                parsedDate = strDate.split('T')[0];
               }
-            } else {
-              // YYYY-MM-DD olarak geldiyse veya başka formatlaysa (T içeriyorsa)
-              parsedDate = strDate.split('T')[0];
+            } else if (typeof rowDate === 'number') {
+              const dateObj = new Date(Math.round((rowDate - 25569) * 86400 * 1000));
+              parsedDate = dateObj.toISOString().split('T')[0];
             }
           }
 
