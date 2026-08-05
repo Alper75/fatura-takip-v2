@@ -540,39 +540,39 @@ export function KesilecekFaturalar() {
     const reader = new FileReader();
     reader.onload = (evt) => {
       try {
-        const wb = XLSX.read(evt.target?.result, { type: 'binary', cellDates: true });
+        const wb = XLSX.read(evt.target?.result, { type: 'binary' });
         const ws = wb.Sheets[wb.SheetNames[0]];
-        const data = XLSX.utils.sheet_to_json(ws);
+        const data = XLSX.utils.sheet_to_json(ws, { raw: true });
         data.forEach((row: any) => {
           let parsedDate = new Date().toISOString().split('T')[0];
           const rowDate = row['Fatura Tarihi (GG.AA.YYYY)'];
           
           if (rowDate) {
-            if (rowDate instanceof Date) {
-              const yyyy = rowDate.getFullYear();
-              const mm = String(rowDate.getMonth() + 1).padStart(2, '0');
-              const dd = String(rowDate.getDate()).padStart(2, '0');
+            if (typeof rowDate === 'number') {
+              const dateObj = new Date(Math.round((rowDate - 25569) * 86400 * 1000));
+              const yyyy = dateObj.getUTCFullYear();
+              const mm = String(dateObj.getUTCMonth() + 1).padStart(2, '0');
+              const dd = String(dateObj.getUTCDate()).padStart(2, '0');
               parsedDate = `${yyyy}-${mm}-${dd}`;
             } else if (typeof rowDate === 'string') {
               const strDate = rowDate.trim();
               const parts = strDate.split(/[.\/-]/);
               if (parts.length === 3) {
-                // Eger format DD.MM.YYYY ise
                 if (parts[2].length === 4) {
                   parsedDate = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
-                } 
-                // Eger format YYYY.MM.DD ise
-                else if (parts[0].length === 4) {
+                } else if (parts[0].length === 4) {
                   parsedDate = `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
+                } else if (parts[2].length === 2) {
+                  const year = parseInt(parts[2]) > 50 ? "19" + parts[2] : "20" + parts[2];
+                  parsedDate = `${year}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
                 }
               } else {
                 parsedDate = strDate.split('T')[0];
               }
-            } else if (typeof rowDate === 'number') {
-              const dateObj = new Date(Math.round((rowDate - 25569) * 86400 * 1000));
-              const yyyy = dateObj.getUTCFullYear();
-              const mm = String(dateObj.getUTCMonth() + 1).padStart(2, '0');
-              const dd = String(dateObj.getUTCDate()).padStart(2, '0');
+            } else if (rowDate instanceof Date) {
+              const yyyy = rowDate.getFullYear();
+              const mm = String(rowDate.getMonth() + 1).padStart(2, '0');
+              const dd = String(rowDate.getDate()).padStart(2, '0');
               parsedDate = `${yyyy}-${mm}-${dd}`;
             }
           }
