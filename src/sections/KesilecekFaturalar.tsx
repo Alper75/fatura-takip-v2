@@ -540,29 +540,25 @@ export function KesilecekFaturalar() {
     const reader = new FileReader();
     reader.onload = (evt) => {
       try {
-        const wb = XLSX.read(evt.target?.result, { type: 'binary', cellDates: true });
+        const wb = XLSX.read(evt.target?.result, { type: 'binary' });
         const ws = wb.Sheets[wb.SheetNames[0]];
-        const data = XLSX.utils.sheet_to_json(ws);
+        const data = XLSX.utils.sheet_to_json(ws, { raw: false, dateNF: 'yyyy-mm-dd' });
         data.forEach((row: any) => {
           let parsedDate = new Date().toISOString().split('T')[0];
           const rowDate = row['Fatura Tarihi (GG.AA.YYYY)'];
           
           if (rowDate) {
-            if (rowDate instanceof Date) {
-              const d = new Date(rowDate);
-              d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
-              parsedDate = d.toISOString().split('T')[0];
-            } else if (typeof rowDate === 'number') {
-              const dateObj = new Date(Math.round((rowDate - 25569) * 86400 * 1000));
-              parsedDate = dateObj.toISOString().split('T')[0];
-            } else if (typeof rowDate === 'string') {
-              const parts = rowDate.split(/[./-]/);
-              if (parts.length === 3) {
-                 if (parts[0].length === 4) parsedDate = `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
-                 else parsedDate = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+            const strDate = String(rowDate).trim();
+            const parts = strDate.split(/[.\/-]/);
+            if (parts.length === 3) {
+              if (parts[0].length === 4) {
+                parsedDate = `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
               } else {
-                 parsedDate = rowDate;
+                parsedDate = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
               }
+            } else {
+              // YYYY-MM-DD olarak geldiyse veya başka formatlaysa (T içeriyorsa)
+              parsedDate = strDate.split('T')[0];
             }
           }
 
