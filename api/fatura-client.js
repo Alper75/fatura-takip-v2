@@ -267,7 +267,7 @@ export class FaturaClient {
 
     async getRecipientData(token, vknTckn) {
         const result = await this.runCommand(token, ...COMMANDS.getRecipientDataByTaxIDOrTRID, {
-            vknTcknu: vknTckn
+            vknTcknn: vknTckn
         });
         return result.data;
     }
