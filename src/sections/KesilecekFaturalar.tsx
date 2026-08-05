@@ -642,10 +642,50 @@ export function KesilecekFaturalar() {
       // Tutar ve açıklama
       alinanUcret: String(f.tutar),
       aciklama: f.aciklama || aciklamaList || '',
-      // Çoklu stok kalemleri (miktar + fiyat dahil)
+      // Stok Kalemleri dahil olmak üzere SatisFaturaDrawer'a aktarıyoruz
       stokKalemleri,
     } as any);
     updateKesilecekFatura(f.id, { durum: 'kesildi' });
+  };
+
+  const transferToSales = async (f: KesilecekFatura, newUuid?: string, newFaturaNo?: string) => {
+    try {
+      const finalUuid = newUuid || f.gibUuid;
+      const finalFaturaNo = newFaturaNo || f.faturaNo;
+      const exists = satisFaturalari.some((sf: any) => (sf.faturaNo && sf.faturaNo === finalFaturaNo) || (sf.gibUuid && sf.gibUuid === finalUuid));
+      if (exists) {
+        toast.info('Bu fatura zaten satış faturalarına aktarılmış.');
+        return;
+      }
+      
+      const formattedDate = f.faturaTarihi || new Date().toISOString().split('T')[0];
+      
+      await addSatisFatura({
+        id: finalUuid || f.id || Date.now().toString(),
+        gibUuid: finalUuid,
+        tcVkn: f.vknTckn,
+        ad: f.ad,
+        soyad: f.soyad || '',
+        vergiDairesi: f.vergiDairesi || '',
+        adres: f.adres || 'Sistemden Aktarıldı',
+        hizmetAdi: 'Kesilen Fatura Aktarımı',
+        alinanUcret: f.tutar.toString(),
+        faturaTarihi: formattedDate,
+        kdvOrani: f.kdvOrani?.toString() || '20',
+        tevkifatOrani: '0',
+        tevkifatKodu: '',
+        stopajOrani: f.stopajOrani || '0',
+        stopajKodu: '',
+        faturaNo: finalFaturaNo || '',
+        aciklama: f.aciklama || 'Sistem üzerinden kesilip satışlara aktarıldı.',
+        cariId: f.cariId,
+      } as any);
+
+      toast.success(`${finalFaturaNo || 'Fatura'} satış faturalarına aktarıldı.`);
+    } catch (err: any) {
+      console.error(err);
+      toast.error('Satışlara aktarım sırasında hata oluştu: ' + err.message);
+    }
   };
 
   const handleGibSend = async (e: React.FormEvent) => {
@@ -677,13 +717,17 @@ export function KesilecekFaturalar() {
       });
       const result = await response.json();
       if (result.success) {
-        toast.success(result.message + (result.data?.invoiceUUID ? ` (UUID: ${result.data.invoiceUUID})` : ''));
+        const newUuid = result.data?.invoiceUUID || undefined;
+        const newFaturaNo = result.data?.invoiceNo || undefined;
+        toast.success(result.message + (newUuid ? ` (UUID: ${newUuid})` : ''));
         setIsGibModalOpen(false);
         updateKesilecekFatura(selectedInvoiceForGib.id, { 
           durum: 'kesildi',
-          gibUuid: result.data?.invoiceUUID || undefined,
-          faturaNo: result.data?.invoiceNo || undefined
+          gibUuid: newUuid,
+          faturaNo: newFaturaNo
         });
+        // Otomatik olarak satışlara aktar
+        transferToSales(selectedInvoiceForGib, newUuid, newFaturaNo);
       } else {
         toast.error(`${result.error || 'GİB Hatası'}: ${result.message}`);
       }
@@ -1414,6 +1458,14 @@ export function KesilecekFaturalar() {
                                     className="h-7 text-[10px] font-bold bg-white border-red-200 text-red-700 hover:bg-red-600 hover:text-white hover:border-red-600 gap-1"
                                   >
                                     <FileText className="w-3.5 h-3.5 text-red-500" /> GİB PDF
+                                  </Button>
+                                )}
+                                {!f.isRealSalesInvoice && !satisFaturalari.some((sf: any) => sf.gibUuid === f.gibUuid || sf.faturaNo === f.faturaNo) && (
+                                  <Button
+                                    variant="outline" size="sm" onClick={() => transferToSales(f)}
+                                    className="h-7 text-[10px] font-bold bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-600 hover:text-white hover:border-blue-600"
+                                  >
+                                    SATIŞA AKTAR
                                   </Button>
                                 )}
                                 {f.isRealSalesInvoice && f.pdfDosya && (
