@@ -549,9 +549,9 @@ export function KesilecekFaturalar() {
           
           if (rowDate) {
             if (rowDate instanceof Date) {
-              const yyyy = rowDate.getUTCFullYear();
-              const mm = String(rowDate.getUTCMonth() + 1).padStart(2, '0');
-              const dd = String(rowDate.getUTCDate()).padStart(2, '0');
+              const yyyy = rowDate.getFullYear();
+              const mm = String(rowDate.getMonth() + 1).padStart(2, '0');
+              const dd = String(rowDate.getDate()).padStart(2, '0');
               parsedDate = `${yyyy}-${mm}-${dd}`;
             } else if (typeof rowDate === 'string') {
               const strDate = rowDate.trim();
@@ -570,7 +570,10 @@ export function KesilecekFaturalar() {
               }
             } else if (typeof rowDate === 'number') {
               const dateObj = new Date(Math.round((rowDate - 25569) * 86400 * 1000));
-              parsedDate = dateObj.toISOString().split('T')[0];
+              const yyyy = dateObj.getUTCFullYear();
+              const mm = String(dateObj.getUTCMonth() + 1).padStart(2, '0');
+              const dd = String(dateObj.getUTCDate()).padStart(2, '0');
+              parsedDate = `${yyyy}-${mm}-${dd}`;
             }
           }
 
