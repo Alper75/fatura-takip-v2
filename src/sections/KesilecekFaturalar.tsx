@@ -814,6 +814,13 @@ export function KesilecekFaturalar() {
         return;
       }
 
+      // Pop-up engelleyiciye takılmamak için işlemi hemen başlatıyoruz
+      const printWindow = window.open('', '_blank');
+      if (!printWindow) {
+        throw new Error('Tarayıcınızın açılır pencereleri engellemediğinden emin olun.');
+      }
+      printWindow.document.write('<html><body><h2 style="font-family:sans-serif;text-align:center;margin-top:20%">Fatura GİB\'den getiriliyor, lütfen bekleyin...</h2></body></html>');
+
       toast.info('GİB faturası görüntüleniyor...');
       const apiUrl = import.meta.env.DEV ? 'http://localhost:5000/api/gib/download-pdf' : '/api/gib/download-pdf';
       const response = await fetch(apiUrl, {
@@ -830,25 +837,23 @@ export function KesilecekFaturalar() {
       });
 
       if (!response.ok) {
+        if (printWindow) printWindow.close();
         const errorData = await response.json();
         throw new Error(errorData.message || 'Fatura görüntülenemedi.');
       }
 
       const result = await response.json();
       if (result.success && result.html) {
-        const printWindow = window.open('', '_blank');
-        if (printWindow) {
-          printWindow.document.write(result.html);
-          printWindow.document.close();
-          printWindow.focus();
-          setTimeout(() => {
-            printWindow.print();
-          }, 500);
-          toast.success('Fatura başarıyla açıldı. Yazdırabilir veya PDF olarak kaydedebilirsiniz.');
-        } else {
-          throw new Error('Tarayıcınızın açılır pencereleri engellemediğinden emin olun.');
-        }
+        printWindow.document.open();
+        printWindow.document.write(result.html);
+        printWindow.document.close();
+        printWindow.focus();
+        setTimeout(() => {
+          printWindow.print();
+        }, 500);
+        toast.success('Fatura başarıyla açıldı. Yazdırabilir veya PDF olarak kaydedebilirsiniz.');
       } else {
+        if (printWindow) printWindow.close();
         throw new Error('Fatura HTML içeriği boş.');
       }
     } catch (err: any) {
