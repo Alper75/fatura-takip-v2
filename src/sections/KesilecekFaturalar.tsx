@@ -456,7 +456,9 @@ export function KesilecekFaturalar() {
                 id: 'k' + Date.now() + Math.random().toString(36).substr(2, 5),
                 ad: urunAdi,
                 miktar: miktar,
+                birim: 'C62',
                 birimFiyat: birimFiyat > 0 ? birimFiyat : tutar,
+                kdvOrani: parseInt(row['KDV Oranı'] || '20') || 0,
                 tevkifatOrani: 0
               }
             ]
