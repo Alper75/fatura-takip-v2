@@ -1447,6 +1447,12 @@ export function KesilecekFaturalar() {
                               </div>
                             ) : (
                               <div className="flex items-center gap-1.5">
+                                <Button
+                                  variant="outline" size="icon" onClick={() => loadInvoiceForEdit(f)}
+                                  className="h-7 w-7 text-slate-400 hover:text-blue-600 border-slate-200" title="Düzenle"
+                                >
+                                  <Edit2 className="w-3.5 h-3.5" />
+                                </Button>
                                 {f.faturaNo && (
                                   <span className="text-[10px] font-bold text-slate-600 bg-slate-100 border border-slate-200 px-1.5 py-0.5 rounded">
                                     {f.faturaNo}

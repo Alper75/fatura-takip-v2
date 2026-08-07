@@ -1922,6 +1922,8 @@ app.post('/api/gib/create-draft', authMiddleware, async (req, res) => {
     fullAddress: invoice.adres || 'Adres Bulunmuyor',
     district: invoice.ilce || '',
     city: invoice.il || '',
+    country: invoice.ulke || 'Türkiye',
+    taxOffice: invoice.vergiDairesi || '',
     items: items,
     subtotal: subtotal,
     totalVAT: vatAmount,
