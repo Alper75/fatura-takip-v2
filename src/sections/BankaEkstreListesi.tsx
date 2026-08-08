@@ -144,7 +144,13 @@ export function BankaEkstreListesi() {
 
         return matchesSearch && matchesBanka && matchesStartDate && matchesEndDate && matchesMinVal && matchesMaxVal;
       })
-      .sort((a, b) => new Date(b.tarih).getTime() - new Date(a.tarih).getTime());
+      .sort((a, b) => {
+        const timeDiff = new Date(b.tarih).getTime() - new Date(a.tarih).getTime();
+        if (timeDiff === 0) {
+          return new Date(b.olusturmaTarihi || 0).getTime() - new Date(a.olusturmaTarihi || 0).getTime();
+        }
+        return timeDiff;
+      });
   }, [cariHareketler, searchTerm, selectedBanka, startDate, endDate, minAmount, maxAmount]);
 
   const exportToExcel = () => {
