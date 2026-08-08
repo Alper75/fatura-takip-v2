@@ -94,6 +94,7 @@ export function BankaEkstreListesi() {
   const [endDate, setEndDate] = useState('');
   const [minAmount, setMinAmount] = useState('');
   const [maxAmount, setMaxAmount] = useState('');
+  const [selectedKategori, setSelectedKategori] = useState<string>('all');
 
   // Düzenleme State'leri
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -117,7 +118,9 @@ export function BankaEkstreListesi() {
   const [kuralForm, setKuralForm] = useState({
     anahtarKelime: '',
     islemTuru: 'genel_gider',
-    aciklama: ''
+    aciklama: '',
+    kategoriId: '',
+    muhasebeKodu: ''
   });
 
   // Kategori Yönetim Modali
@@ -153,8 +156,11 @@ export function BankaEkstreListesi() {
         const amount = h.tutar;
         const matchesMinVal = !minAmount || amount >= parseFloat(minAmount);
         const matchesMaxVal = !maxAmount || amount <= parseFloat(maxAmount);
+        
+        const matchesKategori = selectedKategori === 'all' || 
+                                (selectedKategori === 'none' ? !h.kategoriId : h.kategoriId === selectedKategori);
 
-        return matchesSearch && matchesBanka && matchesStartDate && matchesEndDate && matchesMinVal && matchesMaxVal;
+        return matchesSearch && matchesBanka && matchesStartDate && matchesEndDate && matchesMinVal && matchesMaxVal && matchesKategori;
       })
       .sort((a, b) => {
         const timeDiff = parseDateString(b.tarih) - parseDateString(a.tarih);
@@ -163,7 +169,7 @@ export function BankaEkstreListesi() {
         }
         return timeDiff;
       });
-  }, [cariHareketler, searchTerm, selectedBanka, startDate, endDate, minAmount, maxAmount]);
+  }, [cariHareketler, searchTerm, selectedBanka, startDate, endDate, minAmount, maxAmount, selectedKategori]);
 
   const exportToExcel = () => {
     const exportData = filteredHareketler.map(h => {
@@ -277,15 +283,86 @@ export function BankaEkstreListesi() {
     addMasrafKurali({
       anahtarKelime: kuralForm.anahtarKelime,
       islemTuru: kuralForm.islemTuru as any,
-      aciklama: kuralForm.aciklama
+      aciklama: kuralForm.aciklama,
+      kategoriId: kuralForm.kategoriId || undefined,
+      muhasebeKodu: kuralForm.muhasebeKodu || undefined
     });
 
     setKuralForm({
       anahtarKelime: '',
       islemTuru: 'genel_gider',
-      aciklama: ''
+      aciklama: '',
+      kategoriId: '',
+      muhasebeKodu: ''
     });
     toast.success('Masraf kuralı eklendi.');
+  };
+
+  const handleGecmiseUygula = (kural: any) => {
+    let count = 0;
+    const keyword = (kural.anahtarKelime || '').toUpperCase();
+    if (!keyword) return;
+
+    for (const h of cariHareketler) {
+      if (!h.aciklama) continue;
+      
+      if (h.aciklama.toUpperCase().includes(keyword)) {
+        const updates: Partial<CariHareket> = {};
+        let needsUpdate = false;
+        
+        if (h.islemTuru !== kural.islemTuru) {
+           updates.islemTuru = kural.islemTuru;
+           needsUpdate = true;
+        }
+        if (kural.kategoriId && h.kategoriId !== kural.kategoriId) {
+           updates.kategoriId = kural.kategoriId;
+           needsUpdate = true;
+        }
+        if (kural.muhasebeKodu && h.muhasebeKodu !== kural.muhasebeKodu) {
+           updates.muhasebeKodu = kural.muhasebeKodu;
+           needsUpdate = true;
+        }
+        
+        if (needsUpdate) {
+           updateCariHareket(h.id, updates);
+           count++;
+        }
+      }
+    }
+    toast.success(`Kural ${count} adet geçmiş harekete uygulandı.`);
+  };
+
+  const handleTransferleriBul = () => {
+    let count = 0;
+    for (const h of cariHareketler) {
+      if (!h.aciklama) continue;
+      
+      const aciklamaUpper = h.aciklama.toUpperCase();
+      let matchedBank = null;
+      
+      for (const banka of bankaHesaplari) {
+        if (!banka.muhasebeKodu) continue;
+        const cleanIban = banka.iban ? banka.iban.replace(/\s+/g, '').toUpperCase() : '';
+        const cleanHesapNo = banka.hesapNo ? banka.hesapNo.replace(/\s+/g, '').toUpperCase() : '';
+        
+        // Exclude the transaction's own bank (if we know it) from matching itself? 
+        // Actually, it's fine, if it's transferring to itself, that's weird anyway.
+        if (cleanIban && cleanIban.length > 5 && aciklamaUpper.includes(cleanIban)) {
+          matchedBank = banka;
+          break;
+        }
+        if (cleanHesapNo && cleanHesapNo.length > 4 && aciklamaUpper.includes(cleanHesapNo)) {
+          matchedBank = banka;
+          break;
+        }
+      }
+      
+      if (matchedBank && h.muhasebeKodu !== matchedBank.muhasebeKodu) {
+        updateCariHareket(h.id, { muhasebeKodu: matchedBank.muhasebeKodu });
+        count++;
+      }
+    }
+    toast.success(`${count} adet transfere otomatik Luca kodu atandı.`);
   };
 
   return (
@@ -340,6 +417,19 @@ export function BankaEkstreListesi() {
         <TabsContent value="ekstre" className="space-y-4 mt-6">
           <Card className="border-0 shadow-sm overflow-hidden">
             <CardHeader className="bg-slate-50/50 border-b pb-4">
+              <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-4">
+                <div>
+                  <h3 className="font-semibold text-slate-800">Hareket Listesi</h3>
+                  <p className="text-xs text-slate-500">Bankalardan gelen veya manuel eklenen işlemleriniz.</p>
+                </div>
+                <Button 
+                  variant="outline" 
+                  onClick={handleTransferleriBul}
+                  className="gap-2 border-indigo-200 text-indigo-700 hover:bg-indigo-50 text-xs h-8"
+                >
+                  <Zap className="w-3.5 h-3.5" /> Transferleri Eşleştir
+                </Button>
+              </div>
               <div className="flex flex-wrap gap-4">
                 <div className="relative flex-1 min-w-[200px]">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
@@ -367,6 +457,24 @@ export function BankaEkstreListesi() {
                   </Select>
                 </div>
                 
+                <div className="w-full md:w-48">
+                  <Select value={selectedKategori} onValueChange={setSelectedKategori}>
+                    <SelectTrigger className="h-10">
+                      <div className="flex items-center gap-2">
+                        <Tag className="w-4 h-4 text-slate-400" />
+                        <SelectValue placeholder="Kategori" />
+                      </div>
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Tüm Kategoriler</SelectItem>
+                      <SelectItem value="none">Kategorisiz</SelectItem>
+                      {giderKategorileri.map(k => (
+                        <SelectItem key={k.id} value={k.id}>{k.ad}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                
                 {/* Tarih Filtreleri */}
                 <div className="flex items-center gap-2">
                   <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="w-40 h-10" />
@@ -380,10 +488,11 @@ export function BankaEkstreListesi() {
                   <Input type="number" placeholder="Max ₺" value={maxAmount} onChange={(e) => setMaxAmount(e.target.value)} className="w-24 h-10" />
                 </div>
 
-                {(searchTerm || selectedBanka !== 'all' || startDate || endDate || minAmount || maxAmount) && (
+                {(searchTerm || selectedBanka !== 'all' || startDate || endDate || minAmount || maxAmount || selectedKategori !== 'all') && (
                   <Button variant="ghost" onClick={() => { 
                     setSearchTerm(''); 
                     setSelectedBanka('all'); 
+                    setSelectedKategori('all');
                     setStartDate('');
                     setEndDate('');
                     setMinAmount('');
@@ -750,20 +859,47 @@ export function BankaEkstreListesi() {
                     <p className="text-[10px] text-slate-400">Bu kelime (küçük/büyük harf duyarlı değil) banka açıklamasında geçerse kural çalışır.</p>
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="k-tur">Atanacak Kategori</Label>
-                    <Select value={kuralForm.islemTuru} onValueChange={(val) => setKuralForm({...kuralForm, islemTuru: val})}>
+                    <Label htmlFor="k-tur">Kategori / İşlem Türü</Label>
+                    <Select value={kuralForm.kategoriId || kuralForm.islemTuru} onValueChange={(val) => {
+                      const selectedCat = giderKategorileri.find(k => k.id === val);
+                      if (selectedCat) {
+                        setKuralForm({
+                          ...kuralForm, 
+                          kategoriId: val, 
+                          islemTuru: 'genel_gider',
+                          muhasebeKodu: selectedCat.muhasebeKodu || kuralForm.muhasebeKodu
+                        });
+                      } else {
+                        setKuralForm({...kuralForm, kategoriId: '', islemTuru: val});
+                      }
+                    }}>
                       <SelectTrigger>
-                        <SelectValue />
+                        <SelectValue placeholder="Seçiniz" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="genel_gider">Genel Gider</SelectItem>
-                        <SelectItem value="kira_odemesi">Kira Ödemesi</SelectItem>
-                        <SelectItem value="maas_odemesi">Maaş Ödemesi</SelectItem>
-                        <SelectItem value="ssk_odemesi">SSK/Bağkur Ödemesi</SelectItem>
-                        <SelectItem value="vergi_kdv">KDV Ödemesi</SelectItem>
-                        <SelectItem value="banka_masrafi">Banka Masrafı</SelectItem>
+                        <SelectItem value="header-system" disabled className="text-[10px] font-bold text-slate-400">SİSTEM KATEGORİLERİ</SelectItem>
+                        {SYSTEM_CATEGORIES.map(cat => (
+                          <SelectItem key={cat.id} value={cat.id}>{cat.ad}</SelectItem>
+                        ))}
+                        
+                        {giderKategorileri.filter(k => !SYSTEM_CATEGORIES.some(s => s.id === k.id)).length > 0 && (
+                          <>
+                            <SelectItem value="separator" disabled className="text-[10px] font-bold text-slate-400 border-t mt-2 pt-2">ÖZEL KATEGORİLER</SelectItem>
+                            {giderKategorileri.filter(k => !SYSTEM_CATEGORIES.some(s => s.id === k.id)).map(k => (
+                              <SelectItem key={k.id} value={k.id}>{k.ad}</SelectItem>
+                            ))}
+                          </>
+                        )}
                       </SelectContent>
                     </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Luca Muhasebe Kodu</Label>
+                    <LucaAccountSelect 
+                      value={kuralForm.muhasebeKodu || ''} 
+                      onChange={(code) => setKuralForm({...kuralForm, muhasebeKodu: code})}
+                      placeholder="Kod Seçin"
+                    />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="k-acik">Ek Açıklama (Opsiyonel)</Label>
@@ -792,8 +928,9 @@ export function BankaEkstreListesi() {
                     <TableRow className="bg-slate-50/50">
                       <TableHead>Anahtar Kelime</TableHead>
                       <TableHead>Hedef Kategori</TableHead>
+                      <TableHead>Luca Kodu</TableHead>
                       <TableHead>Notlar</TableHead>
-                      <TableHead className="w-12"></TableHead>
+                      <TableHead className="w-24 text-right">İşlemler</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -802,28 +939,55 @@ export function BankaEkstreListesi() {
                         <TableCell colSpan={4} className="h-32 text-center text-slate-400">Kural tanımlanmamış.</TableCell>
                       </TableRow>
                     ) : (
-                      masrafKurallari.map((k) => (
-                        <TableRow key={k.id}>
-                          <TableCell className="font-bold text-amber-700 bg-amber-50/30">"{k.anahtarKelime}"</TableCell>
-                          <TableCell>
-                            <div className="flex items-center gap-1.5 capitalize text-xs font-semibold">
-                              <Tag className="w-3 h-3 text-slate-400" />
-                              {(k.islemTuru || '').replace(/_/g, ' ')}
-                            </div>
-                          </TableCell>
-                          <TableCell className="text-sm text-slate-500">{k.aciklama || '-'}</TableCell>
-                          <TableCell>
-                            <Button 
-                              variant="ghost" 
-                              size="icon" 
-                              className="w-8 h-8 text-slate-300 hover:text-red-500"
-                              onClick={() => deleteMasrafKurali(k.id)}
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </Button>
-                          </TableCell>
-                        </TableRow>
-                      ))
+                      masrafKurallari.map((k) => {
+                        const cat = k.kategoriId ? giderKategorileri.find(c => c.id === k.kategoriId) : null;
+                        return (
+                          <TableRow key={k.id}>
+                            <TableCell className="font-bold text-amber-700 bg-amber-50/30">"{k.anahtarKelime}"</TableCell>
+                            <TableCell>
+                              <div className="flex flex-col gap-0.5">
+                                <div className="flex items-center gap-1.5 capitalize text-xs font-semibold">
+                                  <Tag className="w-3 h-3 text-slate-400" />
+                                  {(k.islemTuru || '').replace(/_/g, ' ')}
+                                </div>
+                                {cat && (
+                                  <span className="text-[10px] text-rose-600 bg-rose-50 px-1.5 py-0.5 rounded w-fit">{cat.ad}</span>
+                                )}
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              {k.muhasebeKodu ? (
+                                <span className="font-mono text-xs bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded border border-indigo-100">
+                                  {k.muhasebeKodu}
+                                </span>
+                              ) : (
+                                <span className="text-[10px] text-slate-300 italic">-</span>
+                              )}
+                            </TableCell>
+                            <TableCell className="text-sm text-slate-500">{k.aciklama || '-'}</TableCell>
+                            <TableCell className="text-right">
+                              <div className="flex items-center justify-end gap-1">
+                                <Button 
+                                  variant="outline" 
+                                  size="sm" 
+                                  className="h-7 text-[10px] gap-1 border-amber-200 text-amber-700 hover:bg-amber-50"
+                                  onClick={() => handleGecmiseUygula(k)}
+                                >
+                                  <Zap className="w-3 h-3" /> Geçmişe Uygula
+                                </Button>
+                                <Button 
+                                  variant="ghost" 
+                                  size="icon" 
+                                  className="w-7 h-7 text-slate-300 hover:text-red-500"
+                                  onClick={() => deleteMasrafKurali(k.id)}
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </Button>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })
                     )}
                   </TableBody>
                 </Table>

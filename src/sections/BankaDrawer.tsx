@@ -8,6 +8,7 @@ import { useApp } from '@/context/AppContext';
 import { Save, Landmark } from 'lucide-react';
 import { toast } from 'sonner';
 import type { BankaHesabiFormData } from '@/types';
+import { LucaAccountSelect } from '@/components/LucaAccountSelect';
 
 export function BankaDrawer() {
   const { isBankaDrawerOpen, closeBankaDrawer, selectedBankaId, bankaHesaplari, addBankaHesabi, updateBankaHesabi } = useApp();
@@ -19,7 +20,8 @@ export function BankaDrawer() {
     hesapNo: '',
     kartNo: '',
     dovizTuru: 'TRY',
-    guncelBakiye: 0
+    guncelBakiye: 0,
+    muhasebeKodu: ''
   });
 
   const [bakiyeValue, setBakiyeValue] = useState('0');
@@ -36,7 +38,8 @@ export function BankaDrawer() {
             hesapNo: banka.hesapNo || '',
             kartNo: banka.kartNo || '',
             dovizTuru: banka.dovizTuru,
-            guncelBakiye: banka.guncelBakiye
+            guncelBakiye: banka.guncelBakiye,
+            muhasebeKodu: banka.muhasebeKodu || ''
           });
           setBakiyeValue(banka.guncelBakiye.toString());
         }
@@ -48,7 +51,8 @@ export function BankaDrawer() {
           hesapNo: '',
           kartNo: '',
           dovizTuru: 'TRY',
-          guncelBakiye: 0
+          guncelBakiye: 0,
+          muhasebeKodu: ''
         });
         setBakiyeValue('0');
       }
@@ -156,6 +160,15 @@ export function BankaDrawer() {
                 onChange={e => setBakiyeValue(e.target.value)} 
               />
             </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Luca Muhasebe Kodu (Opsiyonel)</Label>
+            <LucaAccountSelect 
+              value={formData.muhasebeKodu || ''} 
+              onChange={code => setFormData({ ...formData, muhasebeKodu: code })} 
+              placeholder="Örn: 102.01.01"
+            />
           </div>
 
           <div className="pt-6 flex gap-3">

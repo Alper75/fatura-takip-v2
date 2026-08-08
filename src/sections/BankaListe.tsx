@@ -105,9 +105,17 @@ export function BankaListe() {
                 </Button>
               </CardHeader>
               <CardContent className="pt-4">
-                <div className="bg-slate-50 rounded-lg p-3 mb-4">
-                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-1">IBAN</p>
-                  <p className="text-xs font-mono text-slate-700 truncate select-all">{banka.iban}</p>
+                <div className="bg-slate-50 rounded-lg p-3 mb-4 flex justify-between items-center">
+                  <div>
+                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-1">IBAN</p>
+                    <p className="text-xs font-mono text-slate-700 truncate select-all">{banka.iban}</p>
+                  </div>
+                  {banka.muhasebeKodu && (
+                    <div className="text-right">
+                      <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-1">Luca</p>
+                      <p className="text-xs font-mono font-bold text-indigo-700 bg-indigo-100 px-2 py-0.5 rounded">{banka.muhasebeKodu}</p>
+                    </div>
+                  )}
                 </div>
                 
                 <div className="flex items-center justify-between">

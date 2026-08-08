@@ -212,6 +212,7 @@ export interface BankaHesabi {
   kartNo?: string;
   dovizTuru: 'TRY' | 'USD' | 'EUR';
   guncelBakiye: number;
+  muhasebeKodu?: string;
 }
 
 export interface BankaHesabiFormData extends Omit<BankaHesabi, 'id'> {}
@@ -396,6 +397,8 @@ export interface MasrafKurali {
   anahtarKelime: string;
   islemTuru: IslemTuru;
   aciklama?: string;
+  kategoriId?: string | null;
+  muhasebeKodu?: string;
 }
 
 // ==================== GİDER KATEGORİSİ ====================
