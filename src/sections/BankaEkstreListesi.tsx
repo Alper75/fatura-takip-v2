@@ -319,7 +319,7 @@ export function BankaEkstreListesi() {
         
         // Akıllı kural (masraf kuralı) uygulandığında, daha önce atanmış bir cari varsa temizle
         if (h.cariId) {
-           updates.cariId = null;
+           updates.cariId = undefined;
            needsUpdate = true;
         }
 
