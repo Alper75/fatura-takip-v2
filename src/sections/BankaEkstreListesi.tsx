@@ -316,10 +316,26 @@ export function BankaEkstreListesi() {
            updates.islemTuru = kural.islemTuru;
            needsUpdate = true;
         }
+        
+        // Akıllı kural (masraf kuralı) uygulandığında, daha önce atanmış bir cari varsa temizle
+        if (h.cariId) {
+           updates.cariId = null;
+           needsUpdate = true;
+        }
+
         if (kural.kategoriId && h.kategoriId !== kural.kategoriId) {
            updates.kategoriId = kural.kategoriId;
            needsUpdate = true;
+           
+           // Eğer kuralın kendi muhasebe kodu yoksa, kategorinin kodunu al
+           if (!kural.muhasebeKodu) {
+             const cat = giderKategorileri.find(k => k.id === kural.kategoriId);
+             if (cat?.muhasebeKodu && h.muhasebeKodu !== cat.muhasebeKodu) {
+               updates.muhasebeKodu = cat.muhasebeKodu;
+             }
+           }
         }
+        
         if (kural.muhasebeKodu && h.muhasebeKodu !== kural.muhasebeKodu) {
            updates.muhasebeKodu = kural.muhasebeKodu;
            needsUpdate = true;
