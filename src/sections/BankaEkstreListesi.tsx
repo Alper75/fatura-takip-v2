@@ -302,13 +302,13 @@ export function BankaEkstreListesi() {
 
   const handleGecmiseUygula = (kural: any) => {
     let count = 0;
-    const keyword = (kural.anahtarKelime || '').toUpperCase();
+    const keyword = (kural.anahtarKelime || '').toLocaleUpperCase('tr-TR');
     if (!keyword) return;
 
     for (const h of cariHareketler) {
       if (!h.aciklama) continue;
       
-      if (h.aciklama.toUpperCase().includes(keyword)) {
+      if (h.aciklama.toLocaleUpperCase('tr-TR').includes(keyword)) {
         const updates: Partial<CariHareket> = {};
         let needsUpdate = false;
         
@@ -339,13 +339,13 @@ export function BankaEkstreListesi() {
     for (const h of cariHareketler) {
       if (!h.aciklama) continue;
       
-      const aciklamaUpper = h.aciklama.toUpperCase();
+      const aciklamaUpper = h.aciklama.toLocaleUpperCase('tr-TR');
       let matchedBank = null;
       
       for (const banka of bankaHesaplari) {
         if (!banka.muhasebeKodu) continue;
-        const cleanIban = banka.iban ? banka.iban.replace(/\s+/g, '').toUpperCase() : '';
-        const cleanHesapNo = banka.hesapNo ? banka.hesapNo.replace(/\s+/g, '').toUpperCase() : '';
+        const cleanIban = banka.iban ? banka.iban.replace(/\s+/g, '').toLocaleUpperCase('tr-TR') : '';
+        const cleanHesapNo = banka.hesapNo ? banka.hesapNo.replace(/\s+/g, '').toLocaleUpperCase('tr-TR') : '';
         
         // Exclude the transaction's own bank (if we know it) from matching itself? 
         // Actually, it's fine, if it's transferring to itself, that's weird anyway.
@@ -373,12 +373,12 @@ export function BankaEkstreListesi() {
     for (const h of cariHareketler) {
       if (!h.aciklama) continue;
       
-      const aciklamaUpper = h.aciklama.toUpperCase();
+      const aciklamaUpper = h.aciklama.toLocaleUpperCase('tr-TR');
       let matchedCari = null;
       
       for (const cari of cariler) {
         if (!cari.unvan) continue;
-        const unvanUpper = cari.unvan.toUpperCase();
+        const unvanUpper = cari.unvan.toLocaleUpperCase('tr-TR');
         
         // Unvan çok kısaysa hatalı eşleşmeyi önle
         if (unvanUpper.length > 3 && aciklamaUpper.includes(unvanUpper)) {
@@ -403,7 +403,7 @@ export function BankaEkstreListesi() {
         let matchedLuca = null;
         for (const hesap of lucaAccounts) {
           if (!hesap.ad) continue;
-          const hesapAdUpper = hesap.ad.toUpperCase();
+          const hesapAdUpper = hesap.ad.toLocaleUpperCase('tr-TR');
           if (hesapAdUpper.length > 3 && aciklamaUpper.includes(hesapAdUpper)) {
             matchedLuca = hesap;
             break;
