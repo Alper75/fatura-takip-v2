@@ -29,7 +29,7 @@ export function LucaAccountSelect({ value, onChange, placeholder = "Hesap seçin
   const { lucaAccounts } = useApp()
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover open={open} onOpenChange={setOpen} modal={true}>
       <PopoverTrigger asChild>
         <Button
           variant="outline"
