@@ -43,10 +43,6 @@ export function Sidebar({ onItemClick }: SidebarProps) {
     if (personnelViews.includes(currentView)) {
       setIsPersonnelOpen(true);
     }
-    
-    if (['banka-ekstre-liste', 'expense-liste'].includes(currentView)) {
-      setOpenMenus(prev => ({ ...prev, 'banka-islemleri': true }));
-    }
   }, [currentView]);
 
   const isAdmin = user?.role === 'admin';
@@ -142,25 +138,11 @@ export function Sidebar({ onItemClick }: SidebarProps) {
       adminOnly: true
     },
     {
-      id: 'banka-islemleri',
-      label: 'Banka Ekstreleri',
+      id: 'banka-ekstre-liste',
+      label: 'Banka ve Masraflar',
       icon: FileText,
-      view: null, // Ana menü öğesi view'a sahip değil
-      onClick: () => {},
-      subItems: [
-        {
-          id: 'banka-ekstre-liste',
-          label: 'Ekstre Listesi',
-          onClick: () => setCurrentView('banka-ekstre-liste'),
-          view: 'banka-ekstre-liste'
-        },
-        {
-          id: 'expense-liste',
-          label: 'Genel Giderler',
-          onClick: () => setCurrentView('expense-liste'),
-          view: 'expense-liste'
-        }
-      ],
+      onClick: () => setCurrentView('banka-ekstre-liste'),
+      view: 'banka-ekstre-liste',
       adminOnly: true
     },
     {

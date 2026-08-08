@@ -9,7 +9,6 @@ import { CariListe } from './sections/CariListe';
 import { CekSenetListe } from './sections/CekSenetListe';
 import { BankaListe } from './sections/BankaListe';
 import { BankaEkstreListesi } from './sections/BankaEkstreListesi';
-import { GenelGiderler } from './sections/GenelGiderler';
 import { KesilecekFaturalar } from './sections/KesilecekFaturalar';
 import { Toaster } from '@/components/ui/sonner';
 import PersonelListe from './sections/PersonelListe';
@@ -80,8 +79,6 @@ function AppContent() {
             return <BankaListe />;
           case 'banka-ekstre-liste':
             return <BankaEkstreListesi />;
-          case 'expense-liste':
-            return <GenelGiderler />;
           case 'kesilecek-fatura-liste':
             return <KesilecekFaturalar />;
           case 'personel-liste':

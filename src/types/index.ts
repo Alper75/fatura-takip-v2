@@ -515,7 +515,6 @@ export type ViewType =
   | 'vergi-raporu' 
   | 'ayarlar' 
   | 'banka-ekstre-liste' 
-  | 'expense-liste'
   | 'kesilecek-fatura-liste'
   | 'personel-liste'
   | 'personel-dashboard'
