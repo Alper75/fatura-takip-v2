@@ -32,7 +32,6 @@ interface SidebarProps {
 export function Sidebar({ onItemClick }: SidebarProps) {
   const { user, currentPersonnel, currentView, setCurrentView, openSatisDrawer, openAlisDrawer, logout, companies, openSirketBilgileri } = useApp();
   const [isPersonnelOpen, setIsPersonnelOpen] = useState(false);
-  const [openMenus, setOpenMenus] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     const personnelViews: ViewType[] = [
