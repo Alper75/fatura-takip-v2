@@ -365,6 +365,43 @@ export function BankaEkstreListesi() {
     toast.success(`${count} adet transfere otomatik Luca kodu atandı.`);
   };
 
+  const handleCarileriBul = () => {
+    let count = 0;
+    for (const h of cariHareketler) {
+      if (!h.aciklama) continue;
+      
+      const aciklamaUpper = h.aciklama.toUpperCase();
+      let matchedCari = null;
+      
+      for (const cari of cariler) {
+        if (!cari.unvan) continue;
+        const unvanUpper = cari.unvan.toUpperCase();
+        
+        // Unvan çok kısaysa hatalı eşleşmeyi önle
+        if (unvanUpper.length > 3 && aciklamaUpper.includes(unvanUpper)) {
+          matchedCari = cari;
+          break;
+        }
+      }
+      
+      if (matchedCari && h.cariId !== matchedCari.id) {
+        // Cari atandığında, daha önceki kategori/genel_gider atamasını temizleyip cari hareketi (ödeme/tahsilat) yapıyoruz
+        const tutarStr = h.tutar.toString();
+        // Gelen para mı giden para mı olduğunu genelde işlem türü veya eksi tutar vs ile anlarız. 
+        // V2'de genelde islemTuru 'tahsilat' ise gelen, 'odeme' veya 'genel_gider' giden.
+        const isGiden = h.islemTuru === 'genel_gider' || h.islemTuru === 'odeme' || h.islemTuru === 'banka_masrafi';
+        
+        updateCariHareket(h.id, { 
+          cariId: matchedCari.id,
+          kategoriId: null, // Cariye gittiği için kategoriyi temizle
+          islemTuru: isGiden ? 'odeme' : 'tahsilat'
+        });
+        count++;
+      }
+    }
+    toast.success(`${count} adet harekete otomatik Cari atandı.`);
+  };
+
   return (
     <div className="space-y-6">
       <style>{`
@@ -422,13 +459,22 @@ export function BankaEkstreListesi() {
                   <h3 className="font-semibold text-slate-800">Hareket Listesi</h3>
                   <p className="text-xs text-slate-500">Bankalardan gelen veya manuel eklenen işlemleriniz.</p>
                 </div>
-                <Button 
-                  variant="outline" 
-                  onClick={handleTransferleriBul}
-                  className="gap-2 border-indigo-200 text-indigo-700 hover:bg-indigo-50 text-xs h-8"
-                >
-                  <Zap className="w-3.5 h-3.5" /> Transferleri Eşleştir
-                </Button>
+                <div className="flex gap-2">
+                  <Button 
+                    variant="outline" 
+                    onClick={handleCarileriBul}
+                    className="gap-2 border-emerald-200 text-emerald-700 hover:bg-emerald-50 text-xs h-8"
+                  >
+                    <Users className="w-3.5 h-3.5" /> Carileri Eşleştir
+                  </Button>
+                  <Button 
+                    variant="outline" 
+                    onClick={handleTransferleriBul}
+                    className="gap-2 border-indigo-200 text-indigo-700 hover:bg-indigo-50 text-xs h-8"
+                  >
+                    <Zap className="w-3.5 h-3.5" /> Transferleri Eşleştir
+                  </Button>
+                </div>
               </div>
               <div className="flex flex-wrap gap-4">
                 <div className="relative flex-1 min-w-[200px]">
