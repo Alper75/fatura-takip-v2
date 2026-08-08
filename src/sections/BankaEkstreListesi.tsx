@@ -128,15 +128,27 @@ export function BankaEkstreListesi() {
   // Sadece banka işlemi olanları (bankaId olanlar) veya tüm işlemleri filtrele
   // Kullanıcı tüm masrafların ekstrede görülmesini istiyor.
   const filteredHareketler = useMemo(() => {
+    const parseDateString = (dateStr: string) => {
+      if (!dateStr) return 0;
+      if (dateStr.includes('.')) {
+        const [datePart, timePart] = dateStr.split(' ');
+        const [day, month, year] = datePart.split('.');
+        const [hour, minute] = timePart ? timePart.split(':') : ['00', '00'];
+        return new Date(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute)).getTime();
+      }
+      return new Date(dateStr).getTime() || 0;
+    };
+
     return cariHareketler
       .filter(h => h.bankaId !== null && h.bankaId !== undefined)
       .filter(h => {
         const matchesSearch = (h.aciklama || '').toLowerCase().includes(searchTerm.toLowerCase());
         const matchesBanka = selectedBanka === 'all' || h.bankaId === selectedBanka;
         
-        const hDate = new Date(h.tarih);
-        const matchesStartDate = !startDate || hDate >= new Date(startDate);
-        const matchesEndDate = !endDate || hDate <= new Date(endDate);
+        const hTime = parseDateString(h.tarih);
+        const matchesStartDate = !startDate || hTime >= new Date(startDate).getTime();
+        // Bitiş tarihi için o günün sonuna kadar olanları dahil et (23:59:59)
+        const matchesEndDate = !endDate || hTime <= new Date(endDate + 'T23:59:59').getTime();
         
         const amount = h.tutar;
         const matchesMinVal = !minAmount || amount >= parseFloat(minAmount);
@@ -145,7 +157,7 @@ export function BankaEkstreListesi() {
         return matchesSearch && matchesBanka && matchesStartDate && matchesEndDate && matchesMinVal && matchesMaxVal;
       })
       .sort((a, b) => {
-        const timeDiff = new Date(b.tarih).getTime() - new Date(a.tarih).getTime();
+        const timeDiff = parseDateString(b.tarih) - parseDateString(a.tarih);
         if (timeDiff === 0) {
           return new Date(b.olusturmaTarihi || 0).getTime() - new Date(a.olusturmaTarihi || 0).getTime();
         }
