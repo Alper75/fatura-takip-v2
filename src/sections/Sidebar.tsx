@@ -234,51 +234,6 @@ export function Sidebar({ onItemClick }: SidebarProps) {
         <ul className="space-y-1">
           {menuItems.map((item) => {
             const Icon = item.icon;
-            
-            if (item.subItems) {
-              const isOpen = openMenus[item.id];
-              const isChildActive = item.subItems.some(sub => sub.view === currentView);
-              
-              return (
-                <li key={item.id}>
-                  <Button
-                    variant="ghost"
-                    onClick={() => setOpenMenus(prev => ({ ...prev, [item.id]: !isOpen }))}
-                    className={cn(
-                      "w-full justify-start gap-3 h-11 font-medium transition-all",
-                      isOpen || isChildActive ? "text-slate-900" : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
-                    )}
-                  >
-                    <Icon className={cn("w-4 h-4", isChildActive ? "text-primary" : "text-slate-500")} />
-                    <span className="flex-1 text-left">{item.label}</span>
-                    {isOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                  </Button>
-                  {isOpen && (
-                    <ul className="mt-1 ml-9 space-y-1">
-                      {item.subItems.map((sub) => (
-                        <li key={sub.id}>
-                          <button
-                            onClick={() => {
-                              sub.onClick();
-                              onItemClick?.();
-                            }}
-                            className={cn(
-                              "w-full text-left py-2 px-3 text-sm rounded-md transition-all",
-                              currentView === sub.view 
-                                ? "bg-slate-100 text-primary font-semibold" 
-                                : "text-slate-500 hover:bg-slate-50 hover:text-slate-900"
-                            )}
-                          >
-                            {sub.label}
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </li>
-              );
-            }
-
             const isActive = item.view === currentView;
             
             return (
