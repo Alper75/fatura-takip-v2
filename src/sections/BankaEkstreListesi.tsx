@@ -25,7 +25,8 @@ import {
   ExternalLink,
   Plus,
   Zap,
-  Receipt
+  Receipt,
+  Users
 } from 'lucide-react';
 import { 
   Select, 
@@ -84,7 +85,8 @@ export function BankaEkstreListesi() {
     deleteMasrafKurali,
     addGiderKategorisi,
     updateGiderKategorisi,
-    deleteGiderKategorisi
+    deleteGiderKategorisi,
+    lucaAccounts
   } = useApp();
   
   // Ekstre Filtre State'leri
@@ -366,7 +368,8 @@ export function BankaEkstreListesi() {
   };
 
   const handleCarileriBul = () => {
-    let count = 0;
+    let cariCount = 0;
+    let lucaCount = 0;
     for (const h of cariHareketler) {
       if (!h.aciklama) continue;
       
@@ -384,22 +387,38 @@ export function BankaEkstreListesi() {
         }
       }
       
-      if (matchedCari && h.cariId !== matchedCari.id) {
-        // Cari atandığında, daha önceki kategori/genel_gider atamasını temizleyip cari hareketi (ödeme/tahsilat) yapıyoruz
-        const tutarStr = h.tutar.toString();
-        // Gelen para mı giden para mı olduğunu genelde işlem türü veya eksi tutar vs ile anlarız. 
-        // V2'de genelde islemTuru 'tahsilat' ise gelen, 'odeme' veya 'genel_gider' giden.
-        const isGiden = h.islemTuru === 'genel_gider' || h.islemTuru === 'odeme' || h.islemTuru === 'banka_masrafi';
+      if (matchedCari) {
+        if (h.cariId !== matchedCari.id) {
+          // Cari atandığında, daha önceki kategori/genel_gider atamasını temizleyip cari hareketi (ödeme/tahsilat) yapıyoruz
+          const isGiden = h.islemTuru === 'genel_gider' || h.islemTuru === 'odeme' || h.islemTuru === 'banka_masrafi';
+          
+          updateCariHareket(h.id, { 
+            cariId: matchedCari.id,
+            kategoriId: null, // Cariye gittiği için kategoriyi temizle
+            islemTuru: isGiden ? 'odeme' : 'tahsilat'
+          });
+          cariCount++;
+        }
+      } else {
+        let matchedLuca = null;
+        for (const hesap of lucaAccounts) {
+          if (!hesap.ad) continue;
+          const hesapAdUpper = hesap.ad.toUpperCase();
+          if (hesapAdUpper.length > 3 && aciklamaUpper.includes(hesapAdUpper)) {
+            matchedLuca = hesap;
+            break;
+          }
+        }
         
-        updateCariHareket(h.id, { 
-          cariId: matchedCari.id,
-          kategoriId: null, // Cariye gittiği için kategoriyi temizle
-          islemTuru: isGiden ? 'odeme' : 'tahsilat'
-        });
-        count++;
+        if (matchedLuca && h.muhasebeKodu !== matchedLuca.kod) {
+          updateCariHareket(h.id, {
+            muhasebeKodu: matchedLuca.kod
+          });
+          lucaCount++;
+        }
       }
     }
-    toast.success(`${count} adet harekete otomatik Cari atandı.`);
+    toast.success(`${cariCount} Cariye, ${lucaCount} Luca Hesabına otomatik eşleşme yapıldı.`);
   };
 
   return (
