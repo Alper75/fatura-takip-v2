@@ -125,8 +125,10 @@ export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploa
       if (otherBanka.id === bankaId) continue;
       
       const hasIban = otherBanka.iban && noSpaceDesc.includes(normalizeString(otherBanka.iban).replace(/\s/g, ''));
-      const hasHesapNo = otherBanka.hesapNo && noSpaceDesc.includes(otherBanka.hesapNo.replace(/\s/g, ''));
-      const hasKartNo = otherBanka.kartNo && noSpaceDesc.includes(otherBanka.kartNo.replace(/\s/g, ''));
+      const cHesapNo = otherBanka.hesapNo ? otherBanka.hesapNo.replace(/\s/g, '') : '';
+      const cKartNo = otherBanka.kartNo ? otherBanka.kartNo.replace(/\s/g, '') : '';
+      const hasHesapNo = cHesapNo.length > 4 && noSpaceDesc.includes(cHesapNo);
+      const hasKartNo = cKartNo.length > 4 && noSpaceDesc.includes(cKartNo);
 
       if (hasIban || hasHesapNo || hasKartNo) {
         return { 
@@ -159,14 +161,14 @@ export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploa
       }
     }
 
+    const isTransferKeyword = cleanDesc.includes('VIRMAN') || cleanDesc.includes('TRANSFER');
     for (const b of bankaHesaplari) {
       if (b.id === bankaId) continue;
       
       const bAdi = normalizeString(b.bankaAdi);
       const hAdi = normalizeString(b.hesapAdi);
-      const iban = (b.iban || '').replace(/\s/g, '').slice(-4);
       
-      if ((bAdi && cleanDesc.includes(bAdi)) || (hAdi && cleanDesc.includes(hAdi)) || (iban && noSpaceDesc.includes(iban))) {
+      if (isTransferKeyword && ((bAdi && bAdi.length > 3 && cleanDesc.includes(bAdi)) || (hAdi && hAdi.length > 3 && cleanDesc.includes(hAdi)))) {
         return { tur: 'transfer', cariId: null, transferBankaId: b.id, muhasebeKodu: b.muhasebeKodu };
       }
     }
