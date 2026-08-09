@@ -393,8 +393,8 @@ export function BankaEkstreListesi() {
         }
         
         // Akıllı kural (masraf kuralı) uygulandığında, daha önce atanmış bir cari varsa temizle
-        if (h.cariId) {
-           updates.cariId = undefined;
+        if (h.cariId && h.cariId !== 'sistem') {
+           updates.cariId = 'sistem';
            needsUpdate = true;
         }
 

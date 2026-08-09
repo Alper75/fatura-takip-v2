@@ -1193,9 +1193,20 @@ app.put('/api/cari-hareketler/:id', authMiddleware, async (req, res) => {
       }
     }
 
+    const updatedCariId = f.cariId !== undefined ? f.cariId : old.cari_id;
+    const updatedTarih = f.tarih !== undefined ? f.tarih : old.tarih;
+    const updatedIslemTuru = f.islemTuru !== undefined ? f.islemTuru : old.islem_turu;
+    const updatedTutar = f.tutar !== undefined ? f.tutar : old.tutar;
+    const updatedAciklama = f.aciklama !== undefined ? f.aciklama : old.aciklama;
+    const updatedBagliFaturaId = f.bagliFaturaId !== undefined ? f.bagliFaturaId : old.bagli_fatura_id;
+    const updatedBankaId = f.bankaId !== undefined ? f.bankaId : old.banka_id;
+    const updatedDekontDosya = f.dekontDosya !== undefined ? f.dekontDosya : old.dekont_dosya;
+    const updatedKategoriId = f.kategoriId !== undefined ? f.kategoriId : old.kategori_id;
+    const updatedMuhasebeKodu = f.muhasebeKodu !== undefined ? f.muhasebeKodu : old.muhasebe_kodu;
+
     await client.execute({
       sql: 'UPDATE cari_hareketler SET cari_id=?,tarih=?,islem_turu=?,tutar=?,aciklama=?,bagli_fatura_id=?,banka_id=?,dekont_dosya=?,kategori_id=?,muhasebe_kodu=? WHERE id=? AND company_id = ?',
-      args: [n(f.cariId), n(f.tarih), n(f.islemTuru), n(f.tutar), n(f.aciklama), n(f.bagliFaturaId), n(f.bankaId), n(f.dekontDosya), n(f.kategoriId), n(f.muhasebeKodu), req.params.id, req.user.companyId]
+      args: [n(updatedCariId), n(updatedTarih), n(updatedIslemTuru), n(updatedTutar), n(updatedAciklama), n(updatedBagliFaturaId), n(updatedBankaId), n(updatedDekontDosya), n(updatedKategoriId), n(updatedMuhasebeKodu), req.params.id, req.user.companyId]
     });
 
     if (f.bankaId && f.tutar) {
