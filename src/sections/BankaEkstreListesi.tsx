@@ -197,6 +197,81 @@ export function BankaEkstreListesi() {
     toast.success('Excel dosyası indiriliyor...');
   };
 
+  const formatDateForLuca = (dateStr: string) => {
+    if (!dateStr) return '';
+    if (dateStr.includes('.')) {
+      const [datePart] = dateStr.split(' ');
+      const [day, month, year] = datePart.split('.');
+      return `${day.padStart(2, '0')}/${month.padStart(2, '0')}/${year}`;
+    }
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return dateStr;
+    const day = String(d.getDate()).padStart(2, '0');
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const year = d.getFullYear();
+    return `${day}/${month}/${year}`;
+  };
+
+  const exportToLucaExcel = () => {
+    if (selectedHareketIds.length === 0) {
+      toast.error('Lütfen aktarılacak işlemleri seçin.');
+      return;
+    }
+
+    const selected = filteredHareketler.filter(h => selectedHareketIds.includes(h.id));
+    const exportData: any[] = [];
+
+    selected.forEach(h => {
+      const banka = bankaHesaplari.find(b => b.id === h.bankaId);
+      const isGiris = (h.islemTuru === 'tahsilat' || h.islemTuru === 'satis_faturasi' || (h.islemTuru === 'transfer' && (h.aciklama || '').toUpperCase().includes('GELEN')));
+      
+      const formattedDate = formatDateForLuca(h.tarih);
+      const evrakNo = Math.floor(10000000000 + Math.random() * 90000000000).toString();
+
+      // Satır 1 (Banka Bacağı)
+      exportData.push({
+        'Fiş No': '',
+        'Fiş Tarihi': formattedDate,
+        'Fiş Açıklama': 'Banka',
+        'Hesap Kodu': banka?.muhasebeKodu || '',
+        'Evrak No': evrakNo,
+        'Evrak Tarihi': formattedDate,
+        'Detay Açıklama': h.aciklama,
+        'Borç': isGiris ? h.tutar : 0,
+        'Alacak': !isGiris ? h.tutar : 0,
+        'Miktar': '',
+        'Belge Türü': 'BA',
+        'Para Birimi': '',
+        'Kur': '',
+        'Döviz Tutar': ''
+      });
+
+      // Satır 2 (Karşı Bacak)
+      exportData.push({
+        'Fiş No': '',
+        'Fiş Tarihi': formattedDate,
+        'Fiş Açıklama': 'Banka',
+        'Hesap Kodu': h.muhasebeKodu || '',
+        'Evrak No': evrakNo,
+        'Evrak Tarihi': formattedDate,
+        'Detay Açıklama': h.aciklama,
+        'Borç': !isGiris ? h.tutar : 0,
+        'Alacak': isGiris ? h.tutar : 0,
+        'Miktar': '',
+        'Belge Türü': 'BA',
+        'Para Birimi': '',
+        'Kur': '',
+        'Döviz Tutar': ''
+      });
+    });
+
+    const ws = XLSX.utils.json_to_sheet(exportData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Banka_Luca_Aktarim');
+    XLSX.writeFile(wb, `Banka_Luca_Aktarim_${new Date().toISOString().split('T')[0]}.xlsx`);
+    toast.success('Luca Excel dosyası başarıyla indirildi.');
+  };
+
   const formatCurrency = (val: number) => new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(val);
 
   const toggleSelection = (id: string) => {
@@ -469,9 +544,13 @@ export function BankaEkstreListesi() {
             <Tag className="w-4 h-4 text-rose-500" />
             Kategorileri Yönet
           </Button>
+          <Button onClick={exportToLucaExcel} variant="outline" className="gap-2 border-emerald-200 text-emerald-700 hover:bg-emerald-50">
+            <FileSpreadsheet className="w-4 h-4" />
+            Luca Excel İndir
+          </Button>
           <Button onClick={exportToExcel} variant="outline" className="gap-2 border-indigo-200 text-indigo-700 hover:bg-indigo-50">
             <FileSpreadsheet className="w-4 h-4" />
-            Excel İndir
+            Normal Excel İndir
           </Button>
         </div>
       </div>
