@@ -118,19 +118,22 @@ export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploa
       }
     }
 
+    const noSpaceDesc = cleanDesc.replace(/\s/g, '');
+
     // 1. Kendi Bankalarımız Arası Transfer Kontrolü (Virman)
     for (const otherBanka of bankaHesaplari) {
       if (otherBanka.id === bankaId) continue;
       
-      const hasIban = otherBanka.iban && cleanDesc.includes(normalizeString(otherBanka.iban).replace(/\s/g, ''));
-      const hasHesapNo = otherBanka.hesapNo && cleanDesc.includes(otherBanka.hesapNo);
-      const hasKartNo = otherBanka.kartNo && cleanDesc.includes(otherBanka.kartNo);
+      const hasIban = otherBanka.iban && noSpaceDesc.includes(normalizeString(otherBanka.iban).replace(/\s/g, ''));
+      const hasHesapNo = otherBanka.hesapNo && noSpaceDesc.includes(otherBanka.hesapNo.replace(/\s/g, ''));
+      const hasKartNo = otherBanka.kartNo && noSpaceDesc.includes(otherBanka.kartNo.replace(/\s/g, ''));
 
       if (hasIban || hasHesapNo || hasKartNo) {
         return { 
           tur: 'transfer', 
           cariId: null,
-          transferBankaId: otherBanka.id
+          transferBankaId: otherBanka.id,
+          muhasebeKodu: otherBanka.muhasebeKodu
         };
       }
     }
@@ -163,8 +166,8 @@ export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploa
       const hAdi = normalizeString(b.hesapAdi);
       const iban = (b.iban || '').replace(/\s/g, '').slice(-4);
       
-      if ((bAdi && cleanDesc.includes(bAdi)) || (hAdi && cleanDesc.includes(hAdi)) || (iban && cleanDesc.includes(iban))) {
-        return { tur: 'transfer', cariId: null, transferBankaId: b.id };
+      if ((bAdi && cleanDesc.includes(bAdi)) || (hAdi && cleanDesc.includes(hAdi)) || (iban && noSpaceDesc.includes(iban))) {
+        return { tur: 'transfer', cariId: null, transferBankaId: b.id, muhasebeKodu: b.muhasebeKodu };
       }
     }
 
