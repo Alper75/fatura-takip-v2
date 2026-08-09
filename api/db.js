@@ -315,6 +315,14 @@ export async function initDb() {
           if (table === 'banka_hesaplari' && !info.rows.some(col => col.name === 'muhasebe_kodu')) {
             await client.execute(`ALTER TABLE banka_hesaplari ADD COLUMN muhasebe_kodu TEXT`);
           }
+          if (table === 'masraf_kurallari') {
+            if (!info.rows.some(col => col.name === 'kategori_id')) {
+              await client.execute(`ALTER TABLE masraf_kurallari ADD COLUMN kategori_id TEXT`);
+            }
+            if (!info.rows.some(col => col.name === 'muhasebe_kodu')) {
+              await client.execute(`ALTER TABLE masraf_kurallari ADD COLUMN muhasebe_kodu TEXT`);
+            }
+          }
           // Stok Hareketleri Ek Sütunlar
           if (table === 'stok_hareketler') {
             if (!info.rows.some(col => col.name === 'lot_no')) {

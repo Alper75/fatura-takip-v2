@@ -1609,7 +1609,7 @@ app.get('/api/masraf-kurallari', authMiddleware, async (req, res) => {
       sql: 'SELECT * FROM masraf_kurallari WHERE company_id = ?',
       args: [req.user.companyId]
     });
-    const mapped = rs.rows.map(r => ({ id: r.id, anahtarKelime: r.anahtar_kelime, islemTuru: r.islem_turu, aciklama: r.aciklama }));
+    const mapped = rs.rows.map(r => ({ id: r.id, anahtarKelime: r.anahtar_kelime, islemTuru: r.islem_turu, aciklama: r.aciklama, kategoriId: r.kategori_id, muhasebeKodu: r.muhasebe_kodu }));
     res.json({ success: true, data: mapped });
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }
 });
@@ -1618,8 +1618,8 @@ app.post('/api/masraf-kurallari', authMiddleware, async (req, res) => {
   const m = req.body;
   try {
     await client.execute({
-      sql: 'INSERT INTO masraf_kurallari (id,anahtar_kelime,islem_turu,aciklama,company_id) VALUES (?,?,?,?,?)',
-      args: [n(m.id),n(m.anahtarKelime),n(m.islemTuru),n(m.aciklama),req.user.companyId]
+      sql: 'INSERT INTO masraf_kurallari (id,anahtar_kelime,islem_turu,aciklama,company_id,kategori_id,muhasebe_kodu) VALUES (?,?,?,?,?,?,?)',
+      args: [n(m.id),n(m.anahtarKelime),n(m.islemTuru),n(m.aciklama),req.user.companyId,n(m.kategoriId),n(m.muhasebeKodu)]
     });
     res.json({ success: true });
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }
