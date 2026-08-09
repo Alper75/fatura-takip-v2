@@ -360,19 +360,22 @@ export function BankaEkstreListesi() {
       let matchedBank = null;
       
       for (const banka of bankaHesaplari) {
-        if (!banka.muhasebeKodu) continue;
+        if (!banka.muhasebeKodu || banka.id === h.bankaId) continue;
         const cleanIban = banka.iban ? banka.iban.replace(/\s+/g, '').toLocaleUpperCase('tr-TR') : '';
-        const cleanHesapNo = banka.hesapNo ? banka.hesapNo.replace(/\s+/g, '').toLocaleUpperCase('tr-TR') : '';
-        
-        // Exclude the transaction's own bank (if we know it) from matching itself? 
-        // Actually, it's fine, if it's transferring to itself, that's weird anyway.
         if (cleanIban && cleanIban.length > 5 && aciklamaUpperNoSpace.includes(cleanIban)) {
           matchedBank = banka;
           break;
         }
-        if (cleanHesapNo && cleanHesapNo.length > 4 && aciklamaUpperNoSpace.includes(cleanHesapNo)) {
-          matchedBank = banka;
-          break;
+      }
+
+      if (!matchedBank) {
+        for (const banka of bankaHesaplari) {
+          if (!banka.muhasebeKodu || banka.id === h.bankaId) continue;
+          const cleanHesapNo = banka.hesapNo ? banka.hesapNo.replace(/\s+/g, '').toLocaleUpperCase('tr-TR') : '';
+          if (cleanHesapNo && cleanHesapNo.length > 4 && aciklamaUpperNoSpace.includes(cleanHesapNo)) {
+            matchedBank = banka;
+            break;
+          }
         }
       }
       

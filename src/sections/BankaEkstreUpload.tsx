@@ -120,23 +120,27 @@ export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploa
 
     const noSpaceDesc = cleanDesc.replace(/\s/g, '');
 
-    // 1. Kendi Bankalarımız Arası Transfer Kontrolü (Virman)
+    // 1. Kendi Bankalarımız Arası Transfer Kontrolü (Virman) - Öncelikli Olarak IBAN Kontrolü
     for (const otherBanka of bankaHesaplari) {
       if (otherBanka.id === bankaId) continue;
       
       const hasIban = otherBanka.iban && noSpaceDesc.includes(normalizeString(otherBanka.iban).replace(/\s/g, ''));
+      if (hasIban) {
+        return { tur: 'transfer', cariId: null, transferBankaId: otherBanka.id, muhasebeKodu: otherBanka.muhasebeKodu };
+      }
+    }
+
+    // 1.1 IBAN Eşleşmediyse Hesap No ve Kart No Kontrolü
+    for (const otherBanka of bankaHesaplari) {
+      if (otherBanka.id === bankaId) continue;
+      
       const cHesapNo = otherBanka.hesapNo ? otherBanka.hesapNo.replace(/\s/g, '') : '';
       const cKartNo = otherBanka.kartNo ? otherBanka.kartNo.replace(/\s/g, '') : '';
       const hasHesapNo = cHesapNo.length > 4 && noSpaceDesc.includes(cHesapNo);
       const hasKartNo = cKartNo.length > 4 && noSpaceDesc.includes(cKartNo);
 
-      if (hasIban || hasHesapNo || hasKartNo) {
-        return { 
-          tur: 'transfer', 
-          cariId: null,
-          transferBankaId: otherBanka.id,
-          muhasebeKodu: otherBanka.muhasebeKodu
-        };
+      if (hasHesapNo || hasKartNo) {
+        return { tur: 'transfer', cariId: null, transferBankaId: otherBanka.id, muhasebeKodu: otherBanka.muhasebeKodu };
       }
     }
 
