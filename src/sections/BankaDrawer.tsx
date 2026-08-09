@@ -20,6 +20,7 @@ export function BankaDrawer() {
     hesapNo: '',
     kartNo: '',
     dovizTuru: 'TRY',
+    acilisBakiyesi: 0,
     guncelBakiye: 0,
     muhasebeKodu: ''
   });
@@ -38,10 +39,11 @@ export function BankaDrawer() {
             hesapNo: banka.hesapNo || '',
             kartNo: banka.kartNo || '',
             dovizTuru: banka.dovizTuru,
+            acilisBakiyesi: banka.acilisBakiyesi || 0,
             guncelBakiye: banka.guncelBakiye,
             muhasebeKodu: banka.muhasebeKodu || ''
           });
-          setBakiyeValue(banka.guncelBakiye.toString());
+          setBakiyeValue((banka.acilisBakiyesi || 0).toString());
         }
       } else {
         setFormData({
@@ -51,6 +53,7 @@ export function BankaDrawer() {
           hesapNo: '',
           kartNo: '',
           dovizTuru: 'TRY',
+          acilisBakiyesi: 0,
           guncelBakiye: 0,
           muhasebeKodu: ''
         });
@@ -66,7 +69,7 @@ export function BankaDrawer() {
       return;
     }
 
-    const finalData = { ...formData, guncelBakiye: parseFloat(bakiyeValue) || 0 };
+    const finalData = { ...formData, acilisBakiyesi: parseFloat(bakiyeValue) || 0 };
 
     if (selectedBankaId) {
       updateBankaHesabi(selectedBankaId, finalData);

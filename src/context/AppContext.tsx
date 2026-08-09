@@ -1051,15 +1051,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const addBankaHesabi = useCallback(async (data: BankaHesabiFormData) => {
-    const yeni: BankaHesabi = { ...data, id: 'b' + Date.now().toString() + Math.random().toString(36).substr(2, 5) };
+    const acilis = data.acilisBakiyesi || 0;
+    const yeni: BankaHesabi = { ...data, guncelBakiye: acilis, acilisBakiyesi: acilis, id: 'b' + Date.now().toString() + Math.random().toString(36).substr(2, 5) };
     setBankaHesaplari(prev => [yeni, ...prev]);
     try { await apiFetch('/api/banka-hesaplari', { method: 'POST', body: JSON.stringify(yeni) }); }
     catch (e) { console.error('Banka hesabÄ± eklenemedi:', e); }
   }, []);
 
   const updateBankaHesabi = useCallback(async (id: string, data: BankaHesabiFormData) => {
-    setBankaHesaplari(prev => prev.map(b => b.id === id ? { ...b, ...data } : b));
-    try { await apiFetch(`/api/banka-hesaplari/${id}`, { method: 'PUT', body: JSON.stringify(data) }); }
+    let finalDataToAPI = data;
+    setBankaHesaplari(prev => prev.map(b => {
+      if (b.id === id) {
+        const acilisFarki = (data.acilisBakiyesi || 0) - (b.acilisBakiyesi || 0);
+        const yeniGuncel = b.guncelBakiye + acilisFarki;
+        finalDataToAPI = { ...data, guncelBakiye: yeniGuncel };
+        return { ...b, ...data, guncelBakiye: yeniGuncel };
+      }
+      return b;
+    }));
+    try { await apiFetch(`/api/banka-hesaplari/${id}`, { method: 'PUT', body: JSON.stringify(finalDataToAPI) }); }
     catch (e) { console.error('Banka hesabÄ± gÃ¼ncellenemedi:', e); }
   }, []);
 

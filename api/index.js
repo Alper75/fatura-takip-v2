@@ -1575,7 +1575,7 @@ app.get('/api/banka-hesaplari', authMiddleware, async (req, res) => {
       sql: 'SELECT * FROM banka_hesaplari WHERE company_id = ?',
       args: [req.user.companyId]
     });
-    const mapped = rs.rows.map(r => ({ id: r.id, hesapAdi: r.hesap_adi, bankaAdi: r.banka_adi, iban: r.iban, hesapNo: r.hesap_no, kartNo: r.kart_no, dovizTuru: r.doviz_turu, guncelBakiye: r.guncel_bakiye, muhasebeKodu: r.muhasebe_kodu }));
+    const mapped = rs.rows.map(r => ({ id: r.id, hesapAdi: r.hesap_adi, bankaAdi: r.banka_adi, iban: r.iban, hesapNo: r.hesap_no, kartNo: r.kart_no, dovizTuru: r.doviz_turu, acilisBakiyesi: r.acilis_bakiyesi, guncelBakiye: r.guncel_bakiye, muhasebeKodu: r.muhasebe_kodu }));
     res.json({ success: true, data: mapped });
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }
 });
@@ -1584,8 +1584,8 @@ app.post('/api/banka-hesaplari', authMiddleware, async (req, res) => {
   const b = req.body;
   try {
     await client.execute({
-      sql: 'INSERT INTO banka_hesaplari (id,hesap_adi,banka_adi,iban,hesap_no,kart_no,doviz_turu,guncel_bakiye,company_id,muhasebe_kodu) VALUES (?,?,?,?,?,?,?,?,?,?)',
-      args: [n(b.id),n(b.hesapAdi),n(b.bankaAdi),n(b.iban),n(b.hesapNo),n(b.kartNo),n(b.dovizTuru)||'TRY',n(b.guncelBakiye)||0,req.user.companyId,n(b.muhasebeKodu)]
+      sql: 'INSERT INTO banka_hesaplari (id,hesap_adi,banka_adi,iban,hesap_no,kart_no,doviz_turu,acilis_bakiyesi,guncel_bakiye,company_id,muhasebe_kodu) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+      args: [n(b.id),n(b.hesapAdi),n(b.bankaAdi),n(b.iban),n(b.hesapNo),n(b.kartNo),n(b.dovizTuru)||'TRY',n(b.acilisBakiyesi)||0,n(b.guncelBakiye)||0,req.user.companyId,n(b.muhasebeKodu)]
     });
     res.json({ success: true });
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }
@@ -1595,8 +1595,8 @@ app.put('/api/banka-hesaplari/:id', authMiddleware, async (req, res) => {
   const b = req.body;
   try {
     await client.execute({
-      sql: 'UPDATE banka_hesaplari SET hesap_adi=?,banka_adi=?,iban=?,hesap_no=?,kart_no=?,doviz_turu=?,guncel_bakiye=?,muhasebe_kodu=? WHERE id=? AND company_id = ?',
-      args: [n(b.hesapAdi),n(b.bankaAdi),n(b.iban),n(b.hesapNo),n(b.kartNo),n(b.dovizTuru),n(b.guncelBakiye),n(b.muhasebeKodu),req.params.id, req.user.companyId]
+      sql: 'UPDATE banka_hesaplari SET hesap_adi=?,banka_adi=?,iban=?,hesap_no=?,kart_no=?,doviz_turu=?,acilis_bakiyesi=?,guncel_bakiye=?,muhasebe_kodu=? WHERE id=? AND company_id = ?',
+      args: [n(b.hesapAdi),n(b.bankaAdi),n(b.iban),n(b.hesapNo),n(b.kartNo),n(b.dovizTuru),n(b.acilisBakiyesi),n(b.guncelBakiye),n(b.muhasebeKodu),req.params.id, req.user.companyId]
     });
     res.json({ success: true });
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }

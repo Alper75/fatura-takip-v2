@@ -211,6 +211,7 @@ export interface BankaHesabi {
   hesapNo?: string;
   kartNo?: string;
   dovizTuru: 'TRY' | 'USD' | 'EUR';
+  acilisBakiyesi?: number;
   guncelBakiye: number;
   muhasebeKodu?: string;
 }
