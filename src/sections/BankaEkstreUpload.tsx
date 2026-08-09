@@ -98,17 +98,22 @@ export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploa
 
   const classifyTransaction = (aciklama: string, tip: 'borc' | 'alacak'): { tur: IslemTuru; cariId: string | null; kategoriId?: string | null; transferBankaId?: string | null; muhasebeKodu?: string } => {
     const cleanDesc = normalizeString(aciklama);
+    const trUpperDesc = aciklama.toLocaleUpperCase('tr-TR');
     
-    // 0. Kullanıcı Tanımlı Masraf Kuralları (En Yüksek Öncelik)
+    // 0. Akıllı Kurallar (Masraf Kuralları) Kontrolü (En Yüksek Öncelik)
     for (const kural of masrafKurallari) {
-      const key = normalizeString(kural.anahtarKelime);
-      if (key && cleanDesc.includes(key)) {
-        const sysCat = giderKategorileri.find(cat => cat.id === kural.islemTuru || normalizeString(cat.ad).includes(key));
-        return { 
-          tur: kural.islemTuru, 
-          cariId: null, 
-          kategoriId: sysCat?.id, 
-          muhasebeKodu: sysCat?.muhasebeKodu 
+      const keyword = (kural.anahtarKelime || '').toLocaleUpperCase('tr-TR');
+      if (keyword && trUpperDesc.includes(keyword)) {
+        let muhKodu = kural.muhasebeKodu;
+        if (!muhKodu && kural.kategoriId) {
+          const cat = giderKategorileri.find(k => k.id === kural.kategoriId);
+          if (cat?.muhasebeKodu) muhKodu = cat.muhasebeKodu;
+        }
+        return {
+          tur: kural.islemTuru,
+          cariId: null,
+          kategoriId: kural.kategoriId,
+          muhasebeKodu: muhKodu
         };
       }
     }
@@ -235,6 +240,19 @@ export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploa
       }
     }
 
+    // 5. Luca Hesap Planı Eşleştirme (Eğer Cari ve diğerleri bulunamadıysa)
+    for (const hesap of lucaAccounts) {
+      if (!hesap.ad) continue;
+      const hesapAdUpper = hesap.ad.toLocaleUpperCase('tr-TR');
+      if (hesapAdUpper.length > 3 && trUpperDesc.includes(hesapAdUpper)) {
+        return {
+          tur: tip === 'alacak' ? 'tahsilat' : 'odeme',
+          cariId: null,
+          muhasebeKodu: hesap.kod
+        };
+      }
+    }
+
     return { 
       tur: tip === 'alacak' ? 'tahsilat' : 'odeme', 
       cariId: null 
@@ -331,7 +349,7 @@ export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploa
               kategoriId: match.kategoriId,
               transferBankaId: match.transferBankaId,
               muhasebeKodu: match.muhasebeKodu,
-              durum: match.cariId || match.transferBankaId || match.kategoriId ? 'success' : 'pending'
+              durum: (match.cariId || match.transferBankaId || match.kategoriId || match.muhasebeKodu) ? 'success' : 'pending'
             });
           } catch (rowErr) {
             console.error('Satır işleme hatası:', rowErr);
@@ -388,11 +406,19 @@ export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploa
       const sampleAccounts = lucaAccounts.map(a => `${a.kod}: ${a.ad}`).join('\n');
       const sampleCariler = cariler.map(c => `${c.unvan} (${c.vknTckn || 'VKN YOK'})`).join('\n');
 
-      const transactionsToAnalyze = satirlar.map((s, i) => ({
-        id: i,
-        aciklama: s.aciklama,
-        tip: s.tip,
-        tutar: s.tutar
+      const pendingRows = satirlar.map((s, i) => ({ originalIndex: i, row: s })).filter(s => s.row.durum !== 'success');
+      
+      if (pendingRows.length === 0) {
+        toast.info('Tüm satırlar zaten eşleştirildi. Analiz edilecek kayıt yok.');
+        setIsAiAnalyzing(false);
+        return;
+      }
+
+      const transactionsToAnalyze = pendingRows.map(s => ({
+        id: s.originalIndex,
+        aciklama: s.row.aciklama,
+        tip: s.row.tip,
+        tutar: s.row.tutar
       }));
 
       const prompt = `Aşağıdaki banka hareketlerini analiz et ve her biri için en uygun Luca Muhasebe Kodunu ve İşlem Türünü belirle.
