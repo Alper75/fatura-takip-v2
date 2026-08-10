@@ -299,26 +299,46 @@ export function BankaEkstreListesi() {
 
   const handleBulkSendToLuca = () => {
     const selected = filteredHareketler.filter(h => selectedHareketIds.includes(h.id));
-    const payload = selected.map(h => {
+    const payload = selected.flatMap(h => {
       const banka = bankaHesaplari.find(b => b.id === h.bankaId);
       const cari = cariler.find(c => c.id === h.cariId);
       const isGiris = (h.islemTuru === 'tahsilat' || h.islemTuru === 'satis_faturasi' ||
         (h.islemTuru === 'transfer' && (h.aciklama || '').toUpperCase().includes('GELEN')));
-      return {
-        tarih: h.tarih,
-        aciklama: h.aciklama,
-        tutar: h.tutar,
-        tur: isGiris ? 'alacak' : 'borc',
-        islemTuru: h.islemTuru,
-        banka: banka?.hesapAdi || '',
-        cari: cari?.unvan || '',
-        muhasebeKodu: (h as any).muhasebeKodu || ''
-      };
+      
+      const formattedTarih = formatDateForLuca(h.tarih);
+      const evrakNo = Math.floor(1000 + Math.random() * 9000).toString();
+      
+      return [
+        {
+          // 1. Cari / Karşı Hesap Satırı
+          tarih: formattedTarih,
+          evrakNo: evrakNo,
+          aciklama: h.aciklama,
+          tutar: h.tutar,
+          tur: isGiris ? 'alacak' : 'borc',
+          islemTuru: h.islemTuru,
+          banka: banka?.hesapAdi || '',
+          cari: cari?.unvan || '',
+          muhasebeKodu: (h as any).muhasebeKodu || ''
+        },
+        {
+          // 2. Banka Satırı (Ters Kayıt)
+          tarih: formattedTarih,
+          evrakNo: evrakNo,
+          aciklama: h.aciklama,
+          tutar: h.tutar,
+          tur: isGiris ? 'borc' : 'alacak',
+          islemTuru: h.islemTuru,
+          banka: banka?.hesapAdi || '',
+          cari: cari?.unvan || '',
+          muhasebeKodu: banka?.muhasebeKodu || ''
+        }
+      ];
     });
     window.dispatchEvent(new CustomEvent('FATURA_APP_LUCA_SEND_BANKA_HAREKETLERI', {
       detail: { hareketler: payload }
     }));
-    toast.success(`${selected.length} hareket Luca'ya gönderildi.`, {
+    toast.success(`${selected.length} hareket (${payload.length} satır) Luca'ya gönderildi.`, {
       description: 'Luca eklentisi yüklü ve aktifse işlem tamamlanacaktır.'
     });
   };
