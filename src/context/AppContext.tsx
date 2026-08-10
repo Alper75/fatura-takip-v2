@@ -394,7 +394,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           const ArtisTurleri: IslemTuru[] = [
             'tahsilat', 
             'satis_faturasi', 
-            'cek_senet_alinan'
+            'cek_senet_alinan',
+            'diger_gelir'
           ];
           
           // AZALACAKLAR (-)
@@ -447,7 +448,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (!eski) return prev;
 
       // Banka bakiye dÃ¼zeltmesi
-      const ArtisTurleri: IslemTuru[] = ['tahsilat', 'satis_faturasi', 'cek_senet_alinan'];
+      const ArtisTurleri: IslemTuru[] = ['tahsilat', 'satis_faturasi', 'cek_senet_alinan', 'diger_gelir'];
       const AzalisTurleri: IslemTuru[] = [
         'odeme', 'alis_faturasi', 'vergi_kdv', 'vergi_muhtasar', 'vergi_gecici', 
         'vergi_damga', 'maas_odemesi', 'kira_odemesi', 'banka_masrafi', 
@@ -500,7 +501,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (silinecek && silinecek.bankaId) {
        setBankaHesaplari(prev => prev.map(b => {
          if (b.id === silinecek.bankaId) {
-           const ArtisTurleri: IslemTuru[] = ['tahsilat', 'satis_faturasi', 'cek_senet_alinan'];
+           const ArtisTurleri: IslemTuru[] = ['tahsilat', 'satis_faturasi', 'cek_senet_alinan', 'diger_gelir'];
            const AzalisTurleri: IslemTuru[] = [
              'odeme', 'alis_faturasi', 'vergi_kdv', 'vergi_muhtasar', 
              'vergi_gecici', 'vergi_damga', 'maas_odemesi', 'kira_odemesi', 

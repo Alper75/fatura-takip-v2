@@ -1146,7 +1146,7 @@ app.post('/api/cari-hareketler', authMiddleware, async (req, res) => {
     
     // BANKA BAKİYESİ GÜNCELLE
     if (f.bankaId && f.tutar) {
-        const ArtisTurleri = ['tahsilat', 'satis_faturasi', 'cek_senet_alinan'];
+        const ArtisTurleri = ['tahsilat', 'satis_faturasi', 'cek_senet_alinan', 'diger_gelir'];
         const AzalisTurleri = ['odeme', 'alis_faturasi', 'vergi_kdv', 'vergi_muhtasar', 'vergi_gecici', 'vergi_damga', 'maas_odemesi', 'kira_odemesi', 'banka_masrafi', 'ssk_odemesi', 'genel_gider', 'kredi_karti_odemesi','cek_senet_verilen'];
         let degisim = 0;
         if (ArtisTurleri.includes(f.islemTuru)) degisim = f.tutar;
@@ -1176,7 +1176,7 @@ app.put('/api/cari-hareketler/:id', authMiddleware, async (req, res) => {
     const old = rs.rows[0];
 
     if (old && old.banka_id && old.tutar) {
-      const ArtisTurleri = ['tahsilat', 'satis_faturasi', 'cek_senet_alinan'];
+      const ArtisTurleri = ['tahsilat', 'satis_faturasi', 'cek_senet_alinan', 'diger_gelir'];
       const AzalisTurleri = ['odeme', 'alis_faturasi', 'vergi_kdv', 'vergi_muhtasar', 'vergi_gecici', 'vergi_damga', 'maas_odemesi', 'kira_odemesi', 'banka_masrafi', 'ssk_odemesi', 'genel_gider', 'kredi_karti_odemesi', 'cek_senet_verilen'];
       let degisim = 0;
       if (ArtisTurleri.includes(old.islem_turu)) degisim = -old.tutar;
@@ -1210,7 +1210,7 @@ app.put('/api/cari-hareketler/:id', authMiddleware, async (req, res) => {
     });
 
     if (f.bankaId && f.tutar) {
-      const ArtisTurleri = ['tahsilat', 'satis_faturasi', 'cek_senet_alinan'];
+      const ArtisTurleri = ['tahsilat', 'satis_faturasi', 'cek_senet_alinan', 'diger_gelir'];
       const AzalisTurleri = ['odeme', 'alis_faturasi', 'vergi_kdv', 'vergi_muhtasar', 'vergi_gecici', 'vergi_damga', 'maas_odemesi', 'kira_odemesi', 'banka_masrafi', 'ssk_odemesi', 'genel_gider', 'kredi_karti_odemesi', 'cek_senet_verilen'];
       let degisim = 0;
       if (ArtisTurleri.includes(f.islemTuru)) degisim = f.tutar;
@@ -1239,7 +1239,7 @@ app.delete('/api/cari-hareketler/:id', authMiddleware, async (req, res) => {
     });
     const h = rs.rows[0];
     if (h && h.banka_id && h.tutar) {
-        const ArtisTurleri = ['tahsilat', 'satis_faturasi', 'cek_senet_alinan'];
+        const ArtisTurleri = ['tahsilat', 'satis_faturasi', 'cek_senet_alinan', 'diger_gelir'];
         const AzalisTurleri = ['odeme', 'alis_faturasi', 'vergi_kdv', 'vergi_muhtasar', 'vergi_gecici', 'vergi_damga', 'maas_odemesi', 'kira_odemesi', 'banka_masrafi', 'ssk_odemesi', 'genel_gider', 'kredi_karti_odemesi', 'cek_senet_verilen'];
         let degisim = 0;
         if (ArtisTurleri.includes(h.islem_turu)) degisim = -h.tutar; // Gelir siliniyorsa bakiye azalır
