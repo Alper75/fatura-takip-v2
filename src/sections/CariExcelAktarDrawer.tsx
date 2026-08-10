@@ -24,6 +24,7 @@ export function CariExcelAktarDrawer({ isOpen, onClose, onSuccess }: CariExcelAk
         'Muhasebe Hesap Kodu': '120.01.001',
         'Şirket Ünvanı': 'Örnek Teknoloji A.Ş.',
         'Vergi veya T.C. No': '1234567890',
+        'Cari Tipi': 'Müşteri',
         'Şirket Adresi': 'Örnek Mah. Teknoloji Cad. No:1',
         'Mail Adresi': 'info@ornek.com'
       }
@@ -46,14 +47,24 @@ export function CariExcelAktarDrawer({ isOpen, onClose, onSuccess }: CariExcelAk
         return;
       }
 
-      const cariler = rows.map((row: any) => ({
-        muhasebeKodu: String(row['Muhasebe Hesap Kodu'] || row['Hesap Kodu'] || '').trim(),
-        unvan: String(row['Şirket Ünvanı'] || row['Unvan'] || '').trim(),
-        vknTckn: String(row['Vergi veya T.C. No'] || row['VKN'] || row['TCKN'] || '').trim(),
-        adres: String(row['Şirket Adresi'] || row['Adres'] || '').trim(),
-        eposta: String(row['Mail Adresi'] || row['E-posta'] || row['Eposta'] || '').trim(),
-        tip: 'musteri' // varsayılan
-      })).filter(c => c.unvan);
+      const cariler = rows.map((row: any) => {
+        const muhasebeKodu = String(row['Muhasebe Hesap Kodu'] || row['Hesap Kodu'] || '').trim();
+        const tipRaw = String(row['Cari Tipi'] || row['Tip'] || row['Tipi'] || '').trim().toLowerCase();
+        
+        let tip = 'musteri';
+        if (tipRaw.includes('tedarikçi') || tipRaw.includes('tedarikci')) tip = 'tedarikci';
+        else if (tipRaw.includes('ikisi') || tipRaw.includes('hem')) tip = 'ikisi';
+        else if (muhasebeKodu.startsWith('320')) tip = 'tedarikci';
+
+        return {
+          muhasebeKodu,
+          unvan: String(row['Şirket Ünvanı'] || row['Unvan'] || '').trim(),
+          vknTckn: String(row['Vergi veya T.C. No'] || row['VKN'] || row['TCKN'] || '').trim(),
+          adres: String(row['Şirket Adresi'] || row['Adres'] || '').trim(),
+          eposta: String(row['Mail Adresi'] || row['E-posta'] || row['Eposta'] || '').trim(),
+          tip
+        };
+      }).filter((c: any) => c.unvan);
 
       if (cariler.length === 0) {
         toast.error('Geçerli bir cari kaydı bulunamadı. Lütfen şablonu kontrol edin.');

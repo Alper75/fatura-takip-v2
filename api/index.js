@@ -1074,8 +1074,8 @@ app.post('/api/cariler/bulk-import', authMiddleware, async (req, res) => {
       if (targetId) {
         // Mevcut cariyi güncelle (adres, eposta ve muhasebe kodu boş değilse üzerine yaz)
         await client.execute({
-          sql: 'UPDATE cariler SET unvan = COALESCE(?, unvan), vkn_tckn = COALESCE(nullif(?, \'\'), vkn_tckn), adres = COALESCE(nullif(?, \'\'), adres), eposta = COALESCE(nullif(?, \'\'), eposta), muhasebe_kodu = COALESCE(nullif(?, \'\'), muhasebe_kodu) WHERE id = ? AND company_id = ?',
-          args: [n(cari.unvan), n(cari.vknTckn), n(cari.adres), n(cari.eposta), n(cari.muhasebeKodu), targetId, req.user.companyId]
+          sql: 'UPDATE cariler SET unvan = COALESCE(?, unvan), vkn_tckn = COALESCE(nullif(?, \'\'), vkn_tckn), adres = COALESCE(nullif(?, \'\'), adres), eposta = COALESCE(nullif(?, \'\'), eposta), muhasebe_kodu = COALESCE(nullif(?, \'\'), muhasebe_kodu), tip = COALESCE(nullif(?, \'\'), tip) WHERE id = ? AND company_id = ?',
+          args: [n(cari.unvan), n(cari.vknTckn), n(cari.adres), n(cari.eposta), n(cari.muhasebeKodu), n(tip), targetId, req.user.companyId]
         });
       } else {
         // Yeni ekle

@@ -158,8 +158,11 @@ export function LucaAyarlari() {
   };
 
   const handleCreateCari = (acc: any) => {
+    let tip: 'musteri' | 'tedarikci' | 'ikisi' = 'musteri';
+    if (acc.kod && String(acc.kod).startsWith('320')) tip = 'tedarikci';
+    
     addCari({
-      tip: 'musteri',
+      tip,
       unvan: acc.ad,
       vknTckn: '11111111111', // Placeholder as Luca account doesn't have VKN
       muhasebeKodu: acc.kod,
