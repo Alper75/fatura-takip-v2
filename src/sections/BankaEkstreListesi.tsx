@@ -224,7 +224,7 @@ export function BankaEkstreListesi() {
 
     selected.forEach(h => {
       const banka = bankaHesaplari.find(b => b.id === h.bankaId);
-      const isGiris = (h.islemTuru === 'tahsilat' || h.islemTuru === 'satis_faturasi' || (h.islemTuru === 'transfer' && (h.aciklama || '').toUpperCase().includes('GELEN')));
+      const isGiris = (h.islemTuru === 'tahsilat' || h.islemTuru === 'satis_faturasi' || h.islemTuru === 'diger_gelir' || (h.islemTuru === 'transfer' && (h.aciklama || '').toUpperCase().includes('GELEN')));
       
       const formattedDate = formatDateForLuca(h.tarih);
       const evrakNo = Math.floor(10000000000 + Math.random() * 90000000000).toString();
@@ -302,7 +302,7 @@ export function BankaEkstreListesi() {
     const payload = selected.flatMap(h => {
       const banka = bankaHesaplari.find(b => b.id === h.bankaId);
       const cari = cariler.find(c => c.id === h.cariId);
-      const isGiris = (h.islemTuru === 'tahsilat' || h.islemTuru === 'satis_faturasi' ||
+      const isGiris = (h.islemTuru === 'tahsilat' || h.islemTuru === 'satis_faturasi' || h.islemTuru === 'diger_gelir' ||
         (h.islemTuru === 'transfer' && (h.aciklama || '').toUpperCase().includes('GELEN')));
       
       const formattedTarih = formatDateForLuca(h.tarih);
