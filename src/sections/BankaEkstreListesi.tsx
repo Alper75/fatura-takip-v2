@@ -129,6 +129,7 @@ export function BankaEkstreListesi() {
   const [isCategoryManageOpen, setIsCategoryManageOpen] = useState(false);
   const [newCatName, setNewCatName] = useState('');
   const [newCatLuca, setNewCatLuca] = useState('');
+  const [newCatTip, setNewCatTip] = useState<'GIDER'|'GELIR'>('GIDER');
 
   // Sadece banka işlemi olanları (bankaId olanlar) veya tüm işlemleri filtrele
   // Kullanıcı tüm masrafların ekstrede görülmesini istiyor.
@@ -388,7 +389,14 @@ export function BankaEkstreListesi() {
         let needsUpdate = false;
         
         if (h.islemTuru !== kural.islemTuru) {
-           updates.islemTuru = kural.islemTuru;
+           let targetIslemTuru = kural.islemTuru;
+           if (kural.kategoriId) {
+             const cat = giderKategorileri.find(c => c.id === kural.kategoriId);
+             if (cat?.tip === 'GELIR' && targetIslemTuru === 'genel_gider') {
+               targetIslemTuru = 'diger_gelir';
+             }
+           }
+           updates.islemTuru = targetIslemTuru;
            needsUpdate = true;
         }
         
@@ -740,7 +748,7 @@ export function BankaEkstreListesi() {
                         const banka = bankaHesaplari.find(b => b.id === h.bankaId);
                         const cari = cariler.find(c => c.id === h.cariId);
                         const kategori = h.kategoriId ? giderKategorileri.find(k => k.id === h.kategoriId) : null;
-                        const isGiris = (h.islemTuru === 'tahsilat' || h.islemTuru === 'satis_faturasi' || (h.islemTuru === 'transfer' && (h.aciklama || '').toUpperCase().includes('GELEN')));
+                        const isGiris = (h.islemTuru === 'tahsilat' || h.islemTuru === 'satis_faturasi' || h.islemTuru === 'diger_gelir' || (h.islemTuru === 'transfer' && (h.aciklama || '').toUpperCase().includes('GELEN')));
 
                         return (
                           <TableRow
@@ -1030,7 +1038,7 @@ export function BankaEkstreListesi() {
                         setKuralForm({
                           ...kuralForm, 
                           kategoriId: val, 
-                          islemTuru: 'genel_gider',
+                          islemTuru: selectedCat.tip === 'GELIR' ? 'diger_gelir' : 'genel_gider',
                           muhasebeKodu: selectedCat.muhasebeKodu || kuralForm.muhasebeKodu
                         });
                       } else {
@@ -1046,10 +1054,18 @@ export function BankaEkstreListesi() {
                           <SelectItem key={cat.id} value={cat.id}>{cat.ad}</SelectItem>
                         ))}
                         
-                        {giderKategorileri.filter(k => !SYSTEM_CATEGORIES.some(s => s.id === k.id)).length > 0 && (
+                        {giderKategorileri.filter(k => !SYSTEM_CATEGORIES.some(s => s.id === k.id) && k.tip !== 'GELIR').length > 0 && (
                           <>
-                            <SelectItem value="separator" disabled className="text-[10px] font-bold text-slate-400 border-t mt-2 pt-2">ÖZEL KATEGORİLER</SelectItem>
-                            {giderKategorileri.filter(k => !SYSTEM_CATEGORIES.some(s => s.id === k.id)).map(k => (
+                            <SelectItem value="separator" disabled className="text-[10px] font-bold text-slate-400 border-t mt-2 pt-2">ÖZEL GİDER KATEGORİLERİ</SelectItem>
+                            {giderKategorileri.filter(k => !SYSTEM_CATEGORIES.some(s => s.id === k.id) && k.tip !== 'GELIR').map(k => (
+                              <SelectItem key={k.id} value={k.id}>{k.ad}</SelectItem>
+                            ))}
+                          </>
+                        )}
+                        {giderKategorileri.filter(k => k.tip === 'GELIR').length > 0 && (
+                          <>
+                            <SelectItem value="separator_gelir" disabled className="text-[10px] font-bold text-slate-400 border-t mt-2 pt-2">GELİR KATEGORİLERİ</SelectItem>
+                            {giderKategorileri.filter(k => k.tip === 'GELIR').map(k => (
                               <SelectItem key={k.id} value={k.id}>{k.ad}</SelectItem>
                             ))}
                           </>
@@ -1258,10 +1274,10 @@ export function BankaEkstreListesi() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Tag className="w-5 h-5 text-rose-500" />
-              Gider Kategorilerini Yönet
+              Kategorileri Yönet
             </DialogTitle>
             <DialogDescription>
-              Harcamalarınızı gruplandırmak için yeni kategoriler ekleyebilir veya mevcutları silebilirsiniz.
+              İşlemlerinizi gruplandırmak için yeni gider veya gelir kategorileri ekleyebilir, mevcutları silebilirsiniz.
             </DialogDescription>
           </DialogHeader>
           
@@ -1269,13 +1285,22 @@ export function BankaEkstreListesi() {
             <div className="flex flex-col gap-3 p-4 bg-slate-50 rounded-lg border border-slate-200">
               <Label className="text-xs font-bold text-slate-500 uppercase">Yeni Kategori Ekle</Label>
               <div className="flex gap-2">
+                <Select value={newCatTip} onValueChange={(val: 'GIDER'|'GELIR') => setNewCatTip(val)}>
+                  <SelectTrigger className="w-[110px] bg-white">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="GIDER">Gider</SelectItem>
+                    <SelectItem value="GELIR">Gelir</SelectItem>
+                  </SelectContent>
+                </Select>
                 <Input 
                   placeholder="Kategori adı... (Örn: Kırtasiye)" 
                   value={newCatName}
                   onChange={(e) => setNewCatName(e.target.value)}
                   className="bg-white"
                 />
-                <div className="w-[200px]">
+                <div className="w-[180px]">
                   <LucaAccountSelect 
                     value={newCatLuca}
                     onChange={setNewCatLuca}
@@ -1288,9 +1313,10 @@ export function BankaEkstreListesi() {
                   onClick={() => {
                     const trimmed = String(newCatName || '').trim();
                     if (trimmed) {
-                      addGiderKategorisi(trimmed, newCatLuca);
+                      addGiderKategorisi(trimmed, newCatLuca, undefined, newCatTip);
                       setNewCatName('');
                       setNewCatLuca('');
+                      setNewCatTip('GIDER');
                       toast.success('Kategori eklendi.');
                     } else {
                       toast.error('Lütfen kategori adı girin.');
@@ -1311,11 +1337,11 @@ export function BankaEkstreListesi() {
                   const mergedCategories = [
                     ...SYSTEM_CATEGORIES.map(sc => {
                       const dbCat = giderKategorileri.find(k => k.id === sc.id);
-                      return { ...sc, muhasebeKodu: dbCat?.muhasebeKodu, isSystem: true };
+                      return { ...sc, muhasebeKodu: dbCat?.muhasebeKodu, isSystem: true, tip: 'GIDER' };
                     }),
                     ...giderKategorileri
                       .filter(k => !SYSTEM_CATEGORIES.some(s => s.id === k.id))
-                      .map(k => ({ ...k, isSystem: false }))
+                      .map(k => ({ ...k, isSystem: false, tip: k.tip || 'GIDER' }))
                   ];
 
                   return mergedCategories.length === 0 ? (
@@ -1328,6 +1354,11 @@ export function BankaEkstreListesi() {
                         <div key={cat.id} className="flex items-center gap-4 px-4 py-3 hover:bg-slate-50 transition-colors">
                           <div className="flex-1 flex items-center gap-2">
                             <span className="font-medium text-slate-700">{cat.ad}</span>
+                            {cat.tip === 'GELIR' ? (
+                              <span className="text-[9px] font-bold bg-green-100 text-green-600 px-1.5 py-0.5 rounded uppercase">GELİR</span>
+                            ) : (
+                              <span className="text-[9px] font-bold bg-rose-100 text-rose-600 px-1.5 py-0.5 rounded uppercase">GİDER</span>
+                            )}
                             {cat.isSystem && (
                               <span className="text-[9px] font-bold bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded uppercase">Sistem</span>
                             )}

@@ -71,6 +71,7 @@ export function CariEkstreDrawer() {
     'genel_gider': { text: 'Genel Gider', color: 'text-stone-600 bg-stone-50 border-stone-100', icon: CreditCard },
     'kredi_karti_odemesi': { text: 'Kredi Kartı Ödemesi', color: 'text-indigo-700 bg-indigo-50 border-indigo-200', icon: CreditCard },
     'transfer': { text: 'Hesaplar Arası Transfer', color: 'text-blue-700 bg-blue-50 border-blue-200', icon: ArrowDownLeft },
+    'diger_gelir': { text: 'Diğer Gelir', color: 'text-emerald-700 bg-emerald-50 border-emerald-200', icon: ArrowDownRight },
   };
 
   const handleIslemEkle = (e: React.FormEvent) => {

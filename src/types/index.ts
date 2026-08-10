@@ -161,7 +161,7 @@ export interface AlisFaturaFormData {
 }
 
 // ==================== CARİ HAREKET (Bakiye / Ekstre İşlemleri) ====================
-export type IslemTuru = 'satis_faturasi' | 'alis_faturasi' | 'tahsilat' | 'odeme' | 'cek_senet_alinan' | 'cek_senet_verilen' | 'vergi_kdv' | 'vergi_muhtasar' | 'vergi_gecici' | 'vergi_damga' | 'maas_odemesi' | 'kira_odemesi' | 'banka_masrafi' | 'ssk_odemesi' | 'genel_gider' | 'kredi_karti_odemesi' | 'transfer';
+export type IslemTuru = 'satis_faturasi' | 'alis_faturasi' | 'tahsilat' | 'odeme' | 'cek_senet_alinan' | 'cek_senet_verilen' | 'vergi_kdv' | 'vergi_muhtasar' | 'vergi_gecici' | 'vergi_damga' | 'maas_odemesi' | 'kira_odemesi' | 'banka_masrafi' | 'ssk_odemesi' | 'genel_gider' | 'kredi_karti_odemesi' | 'transfer' | 'diger_gelir';
 
 export interface CariHareket {
   id: string;
@@ -407,6 +407,7 @@ export interface GiderKategorisi {
   id: string;
   ad: string;
   muhasebeKodu?: string;
+  tip?: 'GIDER' | 'GELIR';
 }
 
 // ==================== KESİLECEK FATURALAR ====================

@@ -1782,7 +1782,7 @@ app.get('/api/gider-kategorileri', authMiddleware, async (req, res) => {
       sql: 'SELECT * FROM gider_kategorileri WHERE company_id = ? ORDER BY ad ASC',
       args: [req.user.companyId]
     });
-    const mapped = rs.rows.map(r => ({ id: r.id, ad: r.ad, muhasebeKodu: r.muhasebe_kodu }));
+    const mapped = rs.rows.map(r => ({ id: r.id, ad: r.ad, muhasebeKodu: r.muhasebe_kodu, tip: r.tip || 'GIDER' }));
     res.json({ success: true, data: mapped });
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }
 });
@@ -1791,8 +1791,8 @@ app.post('/api/gider-kategorileri', authMiddleware, async (req, res) => {
   const k = req.body;
   try {
     await client.execute({
-      sql: 'INSERT INTO gider_kategorileri (id, ad, company_id, muhasebe_kodu) VALUES (?, ?, ?, ?)',
-      args: [n(k.id), n(k.ad), req.user.companyId, n(k.muhasebeKodu)]
+      sql: 'INSERT INTO gider_kategorileri (id, ad, company_id, muhasebe_kodu, tip) VALUES (?, ?, ?, ?, ?)',
+      args: [n(k.id), n(k.ad), req.user.companyId, n(k.muhasebeKodu), k.tip || 'GIDER']
     });
     res.json({ success: true });
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }
@@ -1812,8 +1812,8 @@ app.put('/api/gider-kategorileri/:id', authMiddleware, async (req, res) => {
   const k = req.body;
   try {
     await client.execute({
-      sql: 'UPDATE gider_kategorileri SET ad = ?, muhasebe_kodu = ? WHERE id = ? AND company_id = ?',
-      args: [n(k.ad), n(k.muhasebeKodu), req.params.id, req.user.companyId]
+      sql: 'UPDATE gider_kategorileri SET ad = ?, muhasebe_kodu = ?, tip = ? WHERE id = ? AND company_id = ?',
+      args: [n(k.ad), n(k.muhasebeKodu), k.tip || 'GIDER', req.params.id, req.user.companyId]
     });
     res.json({ success: true });
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }

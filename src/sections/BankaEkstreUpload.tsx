@@ -105,12 +105,16 @@ export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploa
       const keyword = (kural.anahtarKelime || '').toLocaleUpperCase('tr-TR');
       if (keyword && trUpperDesc.includes(keyword)) {
         let muhKodu = kural.muhasebeKodu;
+        let tur = kural.islemTuru;
         if (!muhKodu && kural.kategoriId) {
           const cat = giderKategorileri.find(k => k.id === kural.kategoriId);
           if (cat?.muhasebeKodu) muhKodu = cat.muhasebeKodu;
+          if (cat?.tip === 'GELIR' && tur === 'genel_gider') {
+            tur = 'diger_gelir';
+          }
         }
         return {
-          tur: kural.islemTuru,
+          tur: tur,
           cariId: null,
           kategoriId: kural.kategoriId,
           muhasebeKodu: muhKodu

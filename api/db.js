@@ -309,8 +309,13 @@ export async function initDb() {
           if (table === 'cari_hareketler' && !info.rows.some(col => col.name === 'muhasebe_kodu')) {
             await client.execute(`ALTER TABLE cari_hareketler ADD COLUMN muhasebe_kodu TEXT`);
           }
-          if (table === 'gider_kategorileri' && !info.rows.some(col => col.name === 'muhasebe_kodu')) {
-            await client.execute(`ALTER TABLE gider_kategorileri ADD COLUMN muhasebe_kodu TEXT`);
+          if (table === 'gider_kategorileri') {
+            if (!info.rows.some(col => col.name === 'muhasebe_kodu')) {
+              await client.execute(`ALTER TABLE gider_kategorileri ADD COLUMN muhasebe_kodu TEXT`);
+            }
+            if (!info.rows.some(col => col.name === 'tip')) {
+              await client.execute(`ALTER TABLE gider_kategorileri ADD COLUMN tip TEXT DEFAULT 'GIDER'`);
+            }
           }
           if (table === 'banka_hesaplari') {
             if (!info.rows.some(col => col.name === 'muhasebe_kodu')) {

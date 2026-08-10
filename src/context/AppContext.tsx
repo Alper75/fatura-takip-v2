@@ -136,7 +136,7 @@ interface AppContextType {
   deleteKesilecekFatura: (id: string) => void;
   // ==================== GİDER KATEGORİLERİ ====================
     giderKategorileri: GiderKategorisi[];
-    addGiderKategorisi: (ad: string, muhasebeKodu?: string, id?: string) => void;
+    addGiderKategorisi: (ad: string, muhasebeKodu?: string, id?: string, tip?: 'GIDER' | 'GELIR') => void;
     updateGiderKategorisi: (id: string, data: Partial<GiderKategorisi>) => void;
     deleteGiderKategorisi: (id: string) => void;
   // ==================== HESAPLAMALAR ====================
@@ -1548,8 +1548,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     };
   }, [satisFaturalari, alisFaturalari]);
 
-  const addGiderKategorisi = useCallback(async (ad: string, muhasebeKodu?: string, id?: string) => {
-    const yeni: GiderKategorisi = { id: id || ('cat' + Date.now().toString()), ad, muhasebeKodu };
+  const addGiderKategorisi = useCallback(async (ad: string, muhasebeKodu?: string, id?: string, tip?: 'GIDER' | 'GELIR') => {
+    const yeni: GiderKategorisi = { id: id || ('cat' + Date.now().toString()), ad, muhasebeKodu, tip: tip || 'GIDER' };
     setGiderKategorileri(prev => [...prev, yeni]);
     try { await apiFetch('/api/gider-kategorileri', { method: 'POST', body: JSON.stringify(yeni) }); }
     catch (e) { console.error('Kategori eklenemedi:', e); }
