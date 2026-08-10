@@ -183,6 +183,7 @@ interface AppContextType {
 
   // ==================== LUCA ENTEGRASYON ====================
   lucaAccounts: { kod: string; ad: string; tur?: string }[];
+  fetchLucaAccounts: () => Promise<void>;
   syncLucaAccounts: () => void;
   autoSyncLucaAccounts: () => Promise<{ success: boolean; message?: string; count?: number }>;
 
@@ -1864,6 +1865,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         addVehicle,
         deleteVehicle,
         lucaAccounts,
+        fetchLucaAccounts,
         syncLucaAccounts,
         autoSyncLucaAccounts,
         teklifler,

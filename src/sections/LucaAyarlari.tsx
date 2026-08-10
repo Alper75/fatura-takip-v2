@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
+import * as XLSX from 'xlsx';
 import { useApp } from '@/context/AppContext';
 import { 
   Card, 
@@ -25,7 +26,8 @@ import {
   ExternalLink,
   Plus,
   UserPlus,
-  UserCheck
+  UserCheck,
+  FileSpreadsheet
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { 
@@ -51,8 +53,11 @@ export function LucaAyarlari() {
     autoSyncLucaAccounts,
     cariler, 
     addCari, 
-    updateCari 
+    updateCari,
+    apiFetch,
+    fetchLucaAccounts
   } = useApp();
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [openSelectors, setOpenSelectors] = useState<Record<string, boolean>>({});
   const [isAutoSyncing, setIsAutoSyncing] = useState(false);
@@ -78,6 +83,65 @@ export function LucaAyarlari() {
       toast.error("İstek sırasında hata oluştu: " + err.message);
     } finally {
       setIsAutoSyncing(false);
+    }
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const data = await file.arrayBuffer();
+      const workbook = XLSX.read(data, { type: 'array' });
+      const firstSheetName = workbook.SheetNames[0];
+      const worksheet = workbook.Sheets[firstSheetName];
+      const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][];
+
+      if (jsonData.length < 2) {
+        toast.error("Excel dosyasında veri bulunamadı.");
+        return;
+      }
+
+      // Formatı çözümle: Hesap Kodu | Hesap Adı (varsayıyoruz)
+      const accountsToSync = [];
+      for (let i = 1; i < jsonData.length; i++) {
+        const row = jsonData[i];
+        if (row && row.length >= 2) {
+          const kod = row[0]?.toString().trim();
+          const ad = row[1]?.toString().trim();
+          if (kod && ad && /^[0-9.]+/.test(kod)) {
+            accountsToSync.push({ kod, ad, tur: 'EXCEL' });
+          }
+        }
+      }
+
+      if (accountsToSync.length === 0) {
+        toast.error("Geçerli formatta hesap planı bulunamadı. Lütfen ilk sütunun Hesap Kodu, ikinci sütunun Hesap Adı olduğundan emin olun.");
+        return;
+      }
+
+      toast.loading("Hesap planı sunucuya aktarılıyor...");
+      
+      const res = await apiFetch('/api/luca/hesap-plani/sync', {
+        method: 'POST',
+        body: JSON.stringify({ accounts: accountsToSync })
+      });
+
+      if (res.success) {
+        await fetchLucaAccounts();
+        toast.dismiss();
+        toast.success(`${accountsToSync.length} adet hesap başarıyla içe aktarıldı!`);
+      } else {
+        toast.dismiss();
+        toast.error("İçe aktarım başarısız oldu: " + res.message);
+      }
+    } catch (error: any) {
+      toast.dismiss();
+      toast.error("Dosya okunurken bir hata oluştu: " + error.message);
+    } finally {
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
     }
   };
 
@@ -143,7 +207,21 @@ export function LucaAyarlari() {
             className="gap-2 bg-amber-600 hover:bg-amber-700 text-white border-0"
           >
             {isAutoSyncing ? <RefreshCw className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-            Tek Tıkla Çek (Deneysel)
+            Tek Tıkla Çek
+          </Button>
+          <input 
+            type="file" 
+            ref={fileInputRef} 
+            onChange={handleFileUpload} 
+            className="hidden" 
+            accept=".xlsx, .xls" 
+          />
+          <Button 
+            onClick={() => fileInputRef.current?.click()}
+            className="gap-2 bg-emerald-600 hover:bg-emerald-700 text-white"
+          >
+            <FileSpreadsheet className="w-4 h-4" />
+            Excel'den Aktar
           </Button>
           <Button 
             onClick={handleSync}
