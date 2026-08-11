@@ -22,9 +22,9 @@ export function BankaListe() {
   const [bankToDelete, setBankToDelete] = useState<string | null>(null);
   const [selectedBankaForUpload, setSelectedBankaForUpload] = useState<string | null>(null);
 
-  const formatCurrency = (val: number) => {
+  const formatCurrency = (val: number, currencyCode: string = 'TRY') => {
     const safeVal = isNaN(val) || val === null || val === undefined ? 0 : val;
-    return new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(safeVal);
+    return new Intl.NumberFormat('tr-TR', { style: 'currency', currency: currencyCode }).format(safeVal);
   };
 
   const handleDelete = (id: string) => {
@@ -121,7 +121,7 @@ export function BankaListe() {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-xs text-slate-500">Güncel Bakiye</p>
-                    <p className="text-2xl font-black text-slate-900">{formatCurrency(banka.guncelBakiye)}</p>
+                    <p className="text-2xl font-black text-slate-900">{formatCurrency(banka.guncelBakiye, banka.dovizTuru)}</p>
                   </div>
                   <div className="text-right">
                     <span className="text-xs font-bold px-2 py-1 bg-slate-200 text-slate-700 rounded uppercase">

@@ -276,7 +276,7 @@ export function BankaEkstreListesi() {
     toast.success('Luca Excel dosyası başarıyla indirildi.');
   };
 
-  const formatCurrency = (val: number) => new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(val);
+  const formatCurrency = (val: number) => new Intl.NumberFormat('tr-TR', { style: 'currency', currency: banka?.dovizTuru || 'TRY' }).format(val);
 
   const toggleSelection = (id: string) => {
     setSelectedHareketIds(prev => 
