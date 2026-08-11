@@ -540,10 +540,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     hareketler.forEach(h => {
       const val = Number(h.tutar) || 0;
-      if (h.islemTuru === 'satis_faturasi') toplamBorc += val;
-      else if (h.islemTuru === 'alis_faturasi') toplamAlacak += val;
-      else if (h.islemTuru === 'tahsilat') tahsilEdilen += val;
-      else if (h.islemTuru === 'odeme') odenen += val;
+      if (h.islemTuru === 'satis_faturasi') {
+        toplamBorc += val;
+      } else if (h.islemTuru === 'alis_faturasi') {
+        toplamAlacak += val;
+      } else if (['tahsilat', 'cek_senet_alinan', 'diger_gelir'].includes(h.islemTuru)) {
+        tahsilEdilen += val;
+      } else if (['odeme', 'cek_senet_verilen', 'genel_gider', 'banka_masrafi', 'vergi_kdv', 'vergi_muhtasar', 'vergi_gecici', 'vergi_damga', 'maas_odemesi', 'kira_odemesi', 'ssk_odemesi', 'kredi_karti_odemesi'].includes(h.islemTuru)) {
+        odenen += val;
+      } else if (h.islemTuru === 'transfer') {
+        if (h.aciklama && h.aciklama.toUpperCase().includes('GELEN')) {
+          tahsilEdilen += val;
+        } else {
+          odenen += val;
+        }
+      }
     });
 
     const guncelBakiye = (toplamBorc - tahsilEdilen) - (toplamAlacak - odenen);
