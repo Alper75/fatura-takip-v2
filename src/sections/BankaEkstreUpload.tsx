@@ -27,6 +27,9 @@ interface EkstreSatiri {
   transferBankaId?: string | null;
   muhasebeKodu?: string;
   kategoriId?: string | null;
+  dovizTuru?: string;
+  dovizTutar?: number;
+  dovizKuru?: number;
 }
 
 const SYSTEM_CATEGORIES = [
@@ -351,18 +354,22 @@ export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploa
             if (!amount || isNaN(amount)) continue;
 
             const match = classifyTransaction(desc, tip);
+            const isForeign = banka?.dovizTuru !== 'TRY';
           
             mappedSatirlar.push({
               tarih,
               aciklama: desc,
-              tutar: amount,
+              tutar: isForeign ? 0 : amount,
               tip,
               eslesenCariId: match.cariId,
               önerilenTur: match.tur,
               kategoriId: match.kategoriId,
               transferBankaId: match.transferBankaId,
               muhasebeKodu: match.muhasebeKodu,
-              durum: (match.cariId || match.transferBankaId || match.kategoriId || match.muhasebeKodu) ? 'success' : 'pending'
+              durum: (match.cariId || match.transferBankaId || match.kategoriId || match.muhasebeKodu) ? 'success' : 'pending',
+              dovizTuru: banka?.dovizTuru || 'TRY',
+              dovizTutar: isForeign ? amount : undefined,
+              dovizKuru: undefined
             });
           } catch (rowErr) {
             console.error('Satır işleme hatası:', rowErr);
@@ -401,13 +408,51 @@ export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploa
         aciklama: finalAciklama,
         bankaId: bankaId,
         muhasebeKodu: s.muhasebeKodu,
-        kategoriId: s.kategoriId
+        kategoriId: s.kategoriId,
+        dovizTuru: s.dovizTuru as any,
+        dovizTutar: s.dovizTutar,
+        dovizKuru: s.dovizKuru
       });
     });
     toast.success('Banka ekstresi başarıyla işlendi.');
     onClose();
     setSatirlar([]);
     setVisibleCount(50);
+  };
+
+  const fetchKurlar = async () => {
+    if (!banka || banka.dovizTuru === 'TRY') return;
+    setIsProcessing(true);
+    const updatedSatirlar = [...satirlar];
+    const uniqueDates = [...new Set(updatedSatirlar.map(s => s.tarih))];
+    const ratesByDate: Record<string, number> = {};
+
+    for (const d of uniqueDates) {
+      try {
+        const res = await fetch(`/api/kur?date=${d}`);
+        const data = await res.json();
+        if (data.success && data.rates && data.rates[banka.dovizTuru]) {
+          ratesByDate[d] = data.rates[banka.dovizTuru].ForexBuying;
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    let calculatedCount = 0;
+    for (let i = 0; i < updatedSatirlar.length; i++) {
+      const kur = ratesByDate[updatedSatirlar[i].tarih];
+      if (kur) {
+        updatedSatirlar[i].dovizKuru = kur;
+        if (updatedSatirlar[i].dovizTutar) {
+          updatedSatirlar[i].tutar = parseFloat((updatedSatirlar[i].dovizTutar! * kur).toFixed(2));
+          calculatedCount++;
+        }
+      }
+    }
+    setSatirlar(updatedSatirlar);
+    setIsProcessing(false);
+    toast.success(`${calculatedCount} hareketin döviz kurları çekildi ve TL tutarları hesaplandı.`);
   };
 
   const analyzeBatchWithAI = async () => {
@@ -614,7 +659,13 @@ SADECE JSON döndür:
                     {isAiAnalyzing ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Sparkles className="w-4 h-4 mr-2" />}
                     AI ile Tümünü Analiz Et
                   </Button>
-                  <Button size="sm" onClick={handleConfirm} className="bg-indigo-600 hover:bg-indigo-700 border-0" disabled={isProcessing || isAiAnalyzing}>
+                  {banka?.dovizTuru !== 'TRY' && (
+                    <Button size="sm" onClick={fetchKurlar} disabled={isProcessing} className="bg-emerald-600 hover:bg-emerald-700 border-0 text-white">
+                      {isProcessing ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Landmark className="w-4 h-4 mr-2" />}
+                      TCMB Kurları Çek
+                    </Button>
+                  )}
+                  <Button size="sm" onClick={handleConfirm} className="bg-indigo-600 hover:bg-indigo-700 border-0 text-white" disabled={isProcessing || isAiAnalyzing}>
                     <CheckCircle2 className="w-4 h-4 mr-2" /> Onayla ve Kaydet
                   </Button>
                 </div>
@@ -649,7 +700,15 @@ SADECE JSON döndür:
                           </span>
                         </TableCell>
                         <TableCell className={cn("text-right font-bold text-sm", s.tip === 'borc' ? 'text-slate-900' : 'text-green-700')}>
-                          {new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(s.tutar)}
+                          {s.dovizTutar && (
+                            <div className="text-xs text-slate-500 font-normal mb-1 whitespace-nowrap">
+                              {new Intl.NumberFormat('tr-TR', { style: 'currency', currency: s.dovizTuru || 'USD' }).format(s.dovizTutar)}
+                              {s.dovizKuru && <span className="block text-[10px] mt-0.5">Kur: {s.dovizKuru}</span>}
+                            </div>
+                          )}
+                          <div className="whitespace-nowrap">
+                            {new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(s.tutar)}
+                          </div>
                         </TableCell>
                         <TableCell>
                           <div className="space-y-1.5 min-w-[140px]">
