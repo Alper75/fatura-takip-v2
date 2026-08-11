@@ -335,7 +335,22 @@ export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploa
             const row = data[i];
             if (!row || !row[dateIdx]) continue;
             
-            const tarih = row[dateIdx] instanceof Date ? row[dateIdx].toISOString().split('T')[0] : String(row[dateIdx]);
+            let tarih = String(row[dateIdx]);
+            if (row[dateIdx] instanceof Date) {
+              tarih = row[dateIdx].toISOString().split('T')[0];
+            } else if (tarih.includes('/')) {
+              const parts = tarih.split('/');
+              if (parts.length === 3) {
+                 const [day, month, year] = parts;
+                 tarih = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+              }
+            } else if (tarih.includes('.')) {
+              const parts = tarih.split('.');
+              if (parts.length === 3) {
+                 const [day, month, year] = parts;
+                 tarih = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+              }
+            }
             const desc = String(row[descIdx] || '');
             let amount = 0;
             let tip: 'borc' | 'alacak' = 'alacak';
