@@ -1112,6 +1112,54 @@ app.delete('/api/cariler/:id', authMiddleware, async (req, res) => {
     res.json({ success: true });
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }
 });
+app.get('/api/kur', async (req, res) => {
+  try {
+    const { date } = req.query; // optional date in YYYY-MM-DD
+    let url = 'https://www.tcmb.gov.tr/kurlar/today.xml';
+    
+    if (date) {
+      const d = new Date(date);
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      
+      const today = new Date();
+      if (d.setHours(0,0,0,0) < today.setHours(0,0,0,0)) {
+         url = `https://www.tcmb.gov.tr/kurlar/${year}${month}/${day}${month}${year}.xml`;
+      }
+    }
+
+    let response;
+    try {
+      response = await axios.get(url, { responseType: 'text' });
+    } catch (e) {
+      // Hafta sonu veya resmi tatil ise hata verebilir, today.xml'e dön
+      response = await axios.get('https://www.tcmb.gov.tr/kurlar/today.xml', { responseType: 'text' });
+    }
+
+    const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_' });
+    const result = parser.parse(response.data);
+    
+    const currencies = result.Tarih_Date?.Currency || [];
+    const rates = {};
+    
+    if (Array.isArray(currencies)) {
+      currencies.forEach(c => {
+        rates[c['@_CurrencyCode']] = {
+          ForexBuying: parseFloat(c.ForexBuying),
+          ForexSelling: parseFloat(c.ForexSelling),
+          BanknoteBuying: parseFloat(c.BanknoteBuying),
+          BanknoteSelling: parseFloat(c.BanknoteSelling)
+        };
+      });
+    }
+
+    res.json({ success: true, date: result.Tarih_Date?.['@_Date'], rates });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 app.get('/api/cari-hareketler', authMiddleware, async (req, res) => {
   try {
     const rs = await client.execute({
@@ -1130,7 +1178,10 @@ app.get('/api/cari-hareketler', authMiddleware, async (req, res) => {
       dekontDosya: r.dekont_dosya, 
       olusturmaTarihi: r.olusturma_tarihi,
       kategoriId: r.kategori_id,
-      muhasebeKodu: r.muhasebe_kodu
+      muhasebeKodu: r.muhasebe_kodu,
+      dovizTuru: r.doviz_turu,
+      dovizTutar: r.doviz_tutar,
+      dovizKuru: r.doviz_kuru
     }));
     res.json({ success: true, data: mapped });
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }
@@ -1140,8 +1191,8 @@ app.post('/api/cari-hareketler', authMiddleware, async (req, res) => {
   const f = req.body;
   try {
     await client.execute({
-      sql: 'INSERT INTO cari_hareketler (id,cari_id,tarih,islem_turu,tutar,aciklama,bagli_fatura_id,banka_id,dekont_dosya,olusturma_tarihi,kategori_id,company_id,muhasebe_kodu) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
-      args: [n(f.id), n(f.cariId), n(f.tarih), n(f.islemTuru), n(f.tutar), n(f.aciklama), n(f.bagliFaturaId), n(f.bankaId), n(f.dekontDosya), n(f.olusturmaTarihi), n(f.kategoriId), req.user.companyId, n(f.muhasebeKodu)]
+      sql: 'INSERT INTO cari_hareketler (id,cari_id,tarih,islem_turu,tutar,aciklama,bagli_fatura_id,banka_id,dekont_dosya,olusturma_tarihi,kategori_id,company_id,muhasebe_kodu,doviz_turu,doviz_tutar,doviz_kuru) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+      args: [n(f.id), n(f.cariId), n(f.tarih), n(f.islemTuru), n(f.tutar), n(f.aciklama), n(f.bagliFaturaId), n(f.bankaId), n(f.dekontDosya), n(f.olusturmaTarihi), n(f.kategoriId), req.user.companyId, n(f.muhasebeKodu), n(f.dovizTuru), n(f.dovizTutar), n(f.dovizKuru)]
     });
     
     // BANKA BAKİYESİ GÜNCELLE
@@ -1203,10 +1254,13 @@ app.put('/api/cari-hareketler/:id', authMiddleware, async (req, res) => {
     const updatedDekontDosya = f.dekontDosya !== undefined ? f.dekontDosya : old.dekont_dosya;
     const updatedKategoriId = f.kategoriId !== undefined ? f.kategoriId : old.kategori_id;
     const updatedMuhasebeKodu = f.muhasebeKodu !== undefined ? f.muhasebeKodu : old.muhasebe_kodu;
+    const updatedDovizTuru = f.dovizTuru !== undefined ? f.dovizTuru : old.doviz_turu;
+    const updatedDovizTutar = f.dovizTutar !== undefined ? f.dovizTutar : old.doviz_tutar;
+    const updatedDovizKuru = f.dovizKuru !== undefined ? f.dovizKuru : old.doviz_kuru;
 
     await client.execute({
-      sql: 'UPDATE cari_hareketler SET cari_id=?,tarih=?,islem_turu=?,tutar=?,aciklama=?,bagli_fatura_id=?,banka_id=?,dekont_dosya=?,kategori_id=?,muhasebe_kodu=? WHERE id=? AND company_id = ?',
-      args: [n(updatedCariId), n(updatedTarih), n(updatedIslemTuru), n(updatedTutar), n(updatedAciklama), n(updatedBagliFaturaId), n(updatedBankaId), n(updatedDekontDosya), n(updatedKategoriId), n(updatedMuhasebeKodu), req.params.id, req.user.companyId]
+      sql: 'UPDATE cari_hareketler SET cari_id=?,tarih=?,islem_turu=?,tutar=?,aciklama=?,bagli_fatura_id=?,banka_id=?,dekont_dosya=?,kategori_id=?,muhasebe_kodu=?,doviz_turu=?,doviz_tutar=?,doviz_kuru=? WHERE id=? AND company_id = ?',
+      args: [n(updatedCariId), n(updatedTarih), n(updatedIslemTuru), n(updatedTutar), n(updatedAciklama), n(updatedBagliFaturaId), n(updatedBankaId), n(updatedDekontDosya), n(updatedKategoriId), n(updatedMuhasebeKodu), n(updatedDovizTuru), n(updatedDovizTutar), n(updatedDovizKuru), req.params.id, req.user.companyId]
     });
 
     if (f.bankaId && f.tutar) {

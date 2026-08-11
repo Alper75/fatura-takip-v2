@@ -306,8 +306,19 @@ export async function initDb() {
           if (table === 'cariler' && !info.rows.some(col => col.name === 'muhasebe_kodu')) {
             await client.execute(`ALTER TABLE cariler ADD COLUMN muhasebe_kodu TEXT`);
           }
-          if (table === 'cari_hareketler' && !info.rows.some(col => col.name === 'muhasebe_kodu')) {
-            await client.execute(`ALTER TABLE cari_hareketler ADD COLUMN muhasebe_kodu TEXT`);
+          if (table === 'cari_hareketler') {
+            if (!info.rows.some(col => col.name === 'muhasebe_kodu')) {
+              await client.execute(`ALTER TABLE cari_hareketler ADD COLUMN muhasebe_kodu TEXT`);
+            }
+            if (!info.rows.some(col => col.name === 'doviz_turu')) {
+              await client.execute(`ALTER TABLE cari_hareketler ADD COLUMN doviz_turu TEXT`);
+            }
+            if (!info.rows.some(col => col.name === 'doviz_tutar')) {
+              await client.execute(`ALTER TABLE cari_hareketler ADD COLUMN doviz_tutar REAL`);
+            }
+            if (!info.rows.some(col => col.name === 'doviz_kuru')) {
+              await client.execute(`ALTER TABLE cari_hareketler ADD COLUMN doviz_kuru REAL`);
+            }
           }
           if (table === 'gider_kategorileri') {
             if (!info.rows.some(col => col.name === 'muhasebe_kodu')) {

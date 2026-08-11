@@ -113,7 +113,10 @@ export function BankaEkstreListesi() {
     islemTuru: 'genel_gider',
     kategoriId: '',
     bankaId: '',
-    muhasebeKodu: ''
+    muhasebeKodu: '',
+    dovizTuru: 'TRY',
+    dovizTutar: '',
+    dovizKuru: ''
   });
 
   // Kural Form State
@@ -343,6 +346,29 @@ export function BankaEkstreListesi() {
     });
   };
 
+  const [isFetchingKur, setIsFetchingKur] = useState(false);
+  const fetchTcmbKur = async (tarih: string, targetCurrency: string) => {
+    setIsFetchingKur(true);
+    try {
+      const res = await fetch(`/api/kur?date=${tarih}`);
+      const data = await res.json();
+      if (data.success && data.rates && data.rates[targetCurrency]) {
+        const kur = data.rates[targetCurrency].ForexBuying;
+        setGiderForm(prev => {
+           const yTutar = prev.dovizTutar ? (parseFloat(prev.dovizTutar) * kur).toFixed(2) : prev.tutar;
+           return { ...prev, dovizKuru: kur.toString(), tutar: yTutar };
+        });
+        toast.success(`TCMB Kuru Çekildi: ${kur} (${data.date})`);
+      } else {
+        toast.error('Belirtilen tarihe ait kur bulunamadı.');
+      }
+    } catch (e) {
+      toast.error('Kur çekilirken hata oluştu.');
+    } finally {
+      setIsFetchingKur(false);
+    }
+  };
+
   const handleGiderEkle = (e: React.FormEvent) => {
     e.preventDefault();
     if (!giderForm.tutar || !giderForm.aciklama || !giderForm.bankaId) {
@@ -359,14 +385,19 @@ export function BankaEkstreListesi() {
       kategoriId: giderForm.kategoriId || null,
       bankaId: giderForm.bankaId,
       muhasebeKodu: giderForm.muhasebeKodu,
-      dekontDosya: null
+      dekontDosya: null,
+      dovizTuru: giderForm.dovizTuru as any,
+      dovizTutar: giderForm.dovizTutar ? parseFloat(giderForm.dovizTutar) : undefined,
+      dovizKuru: giderForm.dovizKuru ? parseFloat(giderForm.dovizKuru) : undefined
     });
 
     setGiderForm({
       ...giderForm,
       tutar: '',
       aciklama: '',
-      muhasebeKodu: ''
+      muhasebeKodu: '',
+      dovizTutar: '',
+      dovizKuru: ''
     });
     toast.success('Masraf başarıyla eklendi ve ekstreye işlendi.');
   };
@@ -942,21 +973,75 @@ export function BankaEkstreListesi() {
                       onChange={(e) => setGiderForm({...giderForm, tarih: e.target.value})}
                     />
                   </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="tutar">Tutar</Label>
-                    <Input 
-                      id="tutar" 
-                      type="number" 
-                      placeholder="0.00"
-                      value={giderForm.tutar}
-                      onChange={(e) => setGiderForm({...giderForm, tutar: e.target.value})}
-                    />
-                  </div>
+                  {giderForm.dovizTuru !== 'TRY' ? (
+                    <div className="space-y-2 col-span-2 bg-slate-50 p-4 rounded-lg border">
+                      <div className="flex justify-between items-center mb-2">
+                        <Label className="text-slate-700 font-semibold">{giderForm.dovizTuru} Döviz İşlemi</Label>
+                        <Button type="button" variant="outline" size="sm" onClick={() => fetchTcmbKur(giderForm.tarih, giderForm.dovizTuru)} disabled={isFetchingKur}>
+                          {isFetchingKur ? 'Çekiliyor...' : 'TCMB Kur Getir'}
+                        </Button>
+                      </div>
+                      <div className="grid grid-cols-3 gap-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="dovizTutar">Döviz Tutarı</Label>
+                          <Input 
+                            id="dovizTutar" type="number" step="0.01" placeholder="0.00"
+                            value={giderForm.dovizTutar}
+                            onChange={(e) => {
+                               const dTut = e.target.value;
+                               const k = parseFloat(giderForm.dovizKuru || '0');
+                               const yTut = (parseFloat(dTut || '0') * k).toFixed(2);
+                               setGiderForm({...giderForm, dovizTutar: dTut, tutar: k > 0 ? yTut : giderForm.tutar});
+                            }}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="dovizKuru">Döviz Kuru</Label>
+                          <Input 
+                            id="dovizKuru" type="number" step="0.0001" placeholder="0.0000"
+                            value={giderForm.dovizKuru}
+                            onChange={(e) => {
+                               const k = e.target.value;
+                               const dTut = parseFloat(giderForm.dovizTutar || '0');
+                               const yTut = (dTut * parseFloat(k || '0')).toFixed(2);
+                               setGiderForm({...giderForm, dovizKuru: k, tutar: parseFloat(k) > 0 ? yTut : giderForm.tutar});
+                            }}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="tutar">TL Karşılığı</Label>
+                          <Input 
+                            id="tutar" type="number" placeholder="0.00"
+                            value={giderForm.tutar}
+                            onChange={(e) => setGiderForm({...giderForm, tutar: e.target.value})}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <Label htmlFor="tutar">Tutar</Label>
+                      <Input 
+                        id="tutar" 
+                        type="number" 
+                        placeholder="0.00"
+                        value={giderForm.tutar}
+                        onChange={(e) => setGiderForm({...giderForm, tutar: e.target.value})}
+                      />
+                    </div>
+                  )}
                 </div>
                 
                 <div className="space-y-2">
                   <Label htmlFor="banka">Ödeme Yapılan Banka</Label>
-                  <Select value={String(giderForm.bankaId || '')} onValueChange={(val) => setGiderForm({...giderForm, bankaId: val})}>
+                  <Select value={String(giderForm.bankaId || '')} onValueChange={(val) => {
+                      const banka = bankaHesaplari.find(b => String(b.id) === val);
+                      setGiderForm({
+                        ...giderForm, 
+                        bankaId: val,
+                        dovizTuru: banka?.dovizTuru || 'TRY'
+                      });
+                  }}>
                     <SelectTrigger>
                       <SelectValue placeholder="Banka Seçin" />
                     </SelectTrigger>

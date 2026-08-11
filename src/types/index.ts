@@ -176,6 +176,9 @@ export interface CariHareket {
   bankaId?: string | null;
   kategoriId?: string | null;
   muhasebeKodu?: string;
+  dovizTuru?: 'TRY' | 'USD' | 'EUR';
+  dovizTutar?: number;
+  dovizKuru?: number;
 }
 
 export interface CariBakiyeOzet {
