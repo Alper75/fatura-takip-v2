@@ -829,7 +829,9 @@ export function BankaEkstreListesi() {
                                 />
                               </div>
                             </TableCell>
-                            <TableCell className="text-sm font-medium text-slate-600">{h.tarih}</TableCell>
+                            <TableCell className="text-sm font-medium text-slate-600">
+                              {h.tarih?.split('-').reverse().join('.')}
+                            </TableCell>
                             <TableCell>
                               <div className="flex flex-col">
                                 <span className="text-xs font-bold text-slate-900">{banka?.hesapAdi}</span>

@@ -704,7 +704,7 @@ SADECE JSON döndür:
                         s.durum === 'success' ? 'bg-blue-50/30' : 
                         s.durum === 'warning' ? 'bg-amber-50/30' : ''
                       )}>
-                        <TableCell className="text-[11px] font-medium">{s.tarih}</TableCell>
+                        <TableCell className="text-[11px] font-medium">{s.tarih?.split('-').reverse().join('.')}</TableCell>
                         <TableCell>
                           <p className="text-xs font-semibold truncate max-w-[200px]" title={s.aciklama}>{s.aciklama}</p>
                           <span className={cn(
