@@ -1118,6 +1118,10 @@ app.get('/api/kur', async (req, res) => {
     let response;
     let success = false;
     let attemptDate = date ? new Date(date) : new Date();
+    
+    // Muhasebe kuralları gereği işlemin bir önceki gününün kuru baz alınır
+    attemptDate.setDate(attemptDate.getDate() - 1);
+    
     const today = new Date();
     
     for (let i = 0; i < 7; i++) {
