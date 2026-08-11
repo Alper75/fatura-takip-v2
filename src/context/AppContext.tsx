@@ -421,13 +421,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           // Ama addCariHareket tutarÄ± mutlak deÄŸer bekliyor genelde.
           
           let degisim = 0;
+          const amount = data.dovizTutar ? data.dovizTutar : data.tutar;
           if (ArtisTurleri.includes(data.islemTuru)) {
-            degisim = data.tutar;
+            degisim = amount;
           } else if (AzalisTurleri.includes(data.islemTuru)) {
-            degisim = -data.tutar;
+            degisim = -amount;
           } else if (data.islemTuru === 'transfer') {
-              if (data.aciklama && data.aciklama.toUpperCase().includes('GELEN')) degisim = data.tutar;
-              else degisim = -data.tutar;
+              if (data.aciklama && data.aciklama.toUpperCase().includes('GELEN')) degisim = amount;
+              else degisim = -amount;
           }
 
           if (degisim !== 0) {
@@ -461,11 +462,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // Eskinin etkisini geri al
         if (b.id === eski.bankaId) {
           let degisim = 0;
-          if (ArtisTurleri.includes(eski.islemTuru)) degisim = -eski.tutar;
-          else if (AzalisTurleri.includes(eski.islemTuru)) degisim = eski.tutar;
+          const amount = eski.dovizTutar ? eski.dovizTutar : eski.tutar;
+          if (ArtisTurleri.includes(eski.islemTuru)) degisim = -amount;
+          else if (AzalisTurleri.includes(eski.islemTuru)) degisim = amount;
           else if (eski.islemTuru === 'transfer') {
-            if (eski.aciklama && eski.aciklama.toUpperCase().includes('GELEN')) degisim = -eski.tutar;
-            else degisim = eski.tutar;
+            if (eski.aciklama && eski.aciklama.toUpperCase().includes('GELEN')) degisim = -amount;
+            else degisim = amount;
           }
           bakiye += degisim;
         }
@@ -478,11 +480,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
         if (b.id === yeniBankaId) {
           let degisim = 0;
-          if (ArtisTurleri.includes(yeniTur)) degisim = yeniTutar;
-          else if (AzalisTurleri.includes(yeniTur)) degisim = -yeniTutar;
+          const yeniDovizTutar = data.dovizTutar !== undefined ? data.dovizTutar : eski.dovizTutar;
+          const newAmount = yeniDovizTutar ? yeniDovizTutar : yeniTutar;
+          if (ArtisTurleri.includes(yeniTur)) degisim = newAmount;
+          else if (AzalisTurleri.includes(yeniTur)) degisim = -newAmount;
           else if (yeniTur === 'transfer') {
-            if (yeniAciklama && yeniAciklama.toUpperCase().includes('GELEN')) degisim = yeniTutar;
-            else degisim = -yeniTutar;
+            if (yeniAciklama && yeniAciklama.toUpperCase().includes('GELEN')) degisim = newAmount;
+            else degisim = -newAmount;
           }
           bakiye += degisim;
         }
@@ -510,13 +514,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
            ];
 
            let degisim = 0;
+           const amount = silinecek.dovizTutar ? silinecek.dovizTutar : silinecek.tutar;
            if (ArtisTurleri.includes(silinecek.islemTuru)) {
-             degisim = -silinecek.tutar; // Eklenen gelir silinirse bakiye dÃ¼ÅŸer
+             degisim = -amount; // Eklenen gelir silinirse bakiye dÃ¼ÅŸer
            } else if (AzalisTurleri.includes(silinecek.islemTuru)) {
-             degisim = silinecek.tutar; // Eklenen gider silinirse bakiye artar
+             degisim = amount; // Eklenen gider silinirse bakiye artar
            } else if (silinecek.islemTuru === 'transfer') {
-              if (silinecek.aciklama && silinecek.aciklama.toUpperCase().includes('GELEN')) degisim = -silinecek.tutar;
-              else degisim = silinecek.tutar;
+              if (silinecek.aciklama && silinecek.aciklama.toUpperCase().includes('GELEN')) degisim = -amount;
+              else degisim = amount;
            }
 
            if (degisim !== 0) {

@@ -1200,11 +1200,12 @@ app.post('/api/cari-hareketler', authMiddleware, async (req, res) => {
         const ArtisTurleri = ['tahsilat', 'satis_faturasi', 'cek_senet_alinan', 'diger_gelir'];
         const AzalisTurleri = ['odeme', 'alis_faturasi', 'vergi_kdv', 'vergi_muhtasar', 'vergi_gecici', 'vergi_damga', 'maas_odemesi', 'kira_odemesi', 'banka_masrafi', 'ssk_odemesi', 'genel_gider', 'kredi_karti_odemesi','cek_senet_verilen'];
         let degisim = 0;
-        if (ArtisTurleri.includes(f.islemTuru)) degisim = f.tutar;
-        else if (AzalisTurleri.includes(f.islemTuru)) degisim = -f.tutar;
+        let amount = f.dovizTutar ? f.dovizTutar : f.tutar;
+        if (ArtisTurleri.includes(f.islemTuru)) degisim = amount;
+        else if (AzalisTurleri.includes(f.islemTuru)) degisim = -amount;
         else if (f.islemTuru === 'transfer') {
-          if ((f.aciklama||'').toUpperCase().includes('GELEN')) degisim = f.tutar;
-          else degisim = -f.tutar;
+          if ((f.aciklama||'').toUpperCase().includes('GELEN')) degisim = amount;
+          else degisim = -amount;
         }
         if (degisim !== 0) {
           await client.execute({
@@ -1230,11 +1231,12 @@ app.put('/api/cari-hareketler/:id', authMiddleware, async (req, res) => {
       const ArtisTurleri = ['tahsilat', 'satis_faturasi', 'cek_senet_alinan', 'diger_gelir'];
       const AzalisTurleri = ['odeme', 'alis_faturasi', 'vergi_kdv', 'vergi_muhtasar', 'vergi_gecici', 'vergi_damga', 'maas_odemesi', 'kira_odemesi', 'banka_masrafi', 'ssk_odemesi', 'genel_gider', 'kredi_karti_odemesi', 'cek_senet_verilen'];
       let degisim = 0;
-      if (ArtisTurleri.includes(old.islem_turu)) degisim = -old.tutar;
-      else if (AzalisTurleri.includes(old.islem_turu)) degisim = old.tutar;
+      let amount = old.doviz_tutar ? old.doviz_tutar : old.tutar;
+      if (ArtisTurleri.includes(old.islem_turu)) degisim = -amount;
+      else if (AzalisTurleri.includes(old.islem_turu)) degisim = amount;
       else if (old.islem_turu === 'transfer') {
-        if ((old.aciklama||'').toUpperCase().includes('GELEN')) degisim = -old.tutar;
-        else degisim = old.tutar;
+        if ((old.aciklama||'').toUpperCase().includes('GELEN')) degisim = -amount;
+        else degisim = amount;
       }
       if (degisim !== 0) {
         await client.execute({
@@ -1267,11 +1269,12 @@ app.put('/api/cari-hareketler/:id', authMiddleware, async (req, res) => {
       const ArtisTurleri = ['tahsilat', 'satis_faturasi', 'cek_senet_alinan', 'diger_gelir'];
       const AzalisTurleri = ['odeme', 'alis_faturasi', 'vergi_kdv', 'vergi_muhtasar', 'vergi_gecici', 'vergi_damga', 'maas_odemesi', 'kira_odemesi', 'banka_masrafi', 'ssk_odemesi', 'genel_gider', 'kredi_karti_odemesi', 'cek_senet_verilen'];
       let degisim = 0;
-      if (ArtisTurleri.includes(f.islemTuru)) degisim = f.tutar;
-      else if (AzalisTurleri.includes(f.islemTuru)) degisim = -f.tutar;
+      let amount = f.dovizTutar !== undefined ? f.dovizTutar : f.tutar;
+      if (ArtisTurleri.includes(f.islemTuru)) degisim = amount;
+      else if (AzalisTurleri.includes(f.islemTuru)) degisim = -amount;
       else if (f.islemTuru === 'transfer') {
-        if ((f.aciklama||'').toUpperCase().includes('GELEN')) degisim = f.tutar;
-        else degisim = -f.tutar;
+        if ((f.aciklama||'').toUpperCase().includes('GELEN')) degisim = amount;
+        else degisim = -amount;
       }
       if (degisim !== 0) {
         await client.execute({
@@ -1296,11 +1299,12 @@ app.delete('/api/cari-hareketler/:id', authMiddleware, async (req, res) => {
         const ArtisTurleri = ['tahsilat', 'satis_faturasi', 'cek_senet_alinan', 'diger_gelir'];
         const AzalisTurleri = ['odeme', 'alis_faturasi', 'vergi_kdv', 'vergi_muhtasar', 'vergi_gecici', 'vergi_damga', 'maas_odemesi', 'kira_odemesi', 'banka_masrafi', 'ssk_odemesi', 'genel_gider', 'kredi_karti_odemesi', 'cek_senet_verilen'];
         let degisim = 0;
-        if (ArtisTurleri.includes(h.islem_turu)) degisim = -h.tutar; // Gelir siliniyorsa bakiye azalır
-        else if (AzalisTurleri.includes(h.islem_turu)) degisim = h.tutar; // Gider siliniyorsa bakiye artar
+        let amount = h.doviz_tutar ? h.doviz_tutar : h.tutar;
+        if (ArtisTurleri.includes(h.islem_turu)) degisim = -amount; // Gelir siliniyorsa bakiye azalır
+        else if (AzalisTurleri.includes(h.islem_turu)) degisim = amount; // Gider siliniyorsa bakiye artar
         else if (h.islem_turu === 'transfer') {
-          if ((h.aciklama||'').toUpperCase().includes('GELEN')) degisim = -h.tutar;
-          else degisim = h.tutar;
+          if ((h.aciklama||'').toUpperCase().includes('GELEN')) degisim = -amount;
+          else degisim = amount;
         }
         if (degisim !== 0) {
           await client.execute({
