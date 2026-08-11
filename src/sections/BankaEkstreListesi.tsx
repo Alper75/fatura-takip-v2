@@ -322,7 +322,10 @@ export function BankaEkstreListesi() {
           islemTuru: h.islemTuru,
           banka: banka?.hesapAdi || '',
           cari: cari?.unvan || '',
-          muhasebeKodu: (h as any).muhasebeKodu || ''
+          muhasebeKodu: (h as any).muhasebeKodu || '',
+          dovizTuru: h.dovizTuru,
+          dovizTutar: h.dovizTutar,
+          dovizKuru: h.dovizKuru
         },
         {
           // 2. Banka Satırı (Ters Kayıt)
@@ -334,7 +337,10 @@ export function BankaEkstreListesi() {
           islemTuru: h.islemTuru,
           banka: banka?.hesapAdi || '',
           cari: cari?.unvan || '',
-          muhasebeKodu: banka?.muhasebeKodu || ''
+          muhasebeKodu: banka?.muhasebeKodu || '',
+          dovizTuru: h.dovizTuru,
+          dovizTutar: h.dovizTutar,
+          dovizKuru: h.dovizKuru
         }
       ];
     });
