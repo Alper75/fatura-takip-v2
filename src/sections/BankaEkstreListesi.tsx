@@ -276,7 +276,7 @@ export function BankaEkstreListesi() {
     toast.success('Luca Excel dosyası başarıyla indirildi.');
   };
 
-  const formatCurrency = (val: number) => new Intl.NumberFormat('tr-TR', { style: 'currency', currency: banka?.dovizTuru || 'TRY' }).format(val);
+  const formatCurrency = (val: number, currencyCode: string = 'TRY') => new Intl.NumberFormat('tr-TR', { style: 'currency', currency: currencyCode }).format(val);
 
   const toggleSelection = (id: string) => {
     setSelectedHareketIds(prev => 
@@ -907,7 +907,7 @@ export function BankaEkstreListesi() {
                               "text-right font-bold text-sm tabular-nums",
                               isGiris ? "text-green-600" : "text-slate-900"
                             )}>
-                              {isGiris ? '+' : '-'}{formatCurrency(h.tutar)}
+                              {isGiris ? '+' : '-'}{formatCurrency(h.tutar, banka?.dovizTuru || 'TRY')}
                             </TableCell>
                             <TableCell>
                                <div className="flex items-center justify-end gap-1">
