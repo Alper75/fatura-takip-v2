@@ -1115,25 +1115,32 @@ app.delete('/api/cariler/:id', authMiddleware, async (req, res) => {
 app.get('/api/kur', async (req, res) => {
   try {
     const { date } = req.query; // optional date in YYYY-MM-DD
-    let url = 'https://www.tcmb.gov.tr/kurlar/today.xml';
+    let response;
+    let success = false;
+    let attemptDate = date ? new Date(date) : new Date();
+    const today = new Date();
     
-    if (date) {
-      const d = new Date(date);
-      const year = d.getFullYear();
-      const month = String(d.getMonth() + 1).padStart(2, '0');
-      const day = String(d.getDate()).padStart(2, '0');
-      
-      const today = new Date();
-      if (d.setHours(0,0,0,0) < today.setHours(0,0,0,0)) {
-         url = `https://www.tcmb.gov.tr/kurlar/${year}${month}/${day}${month}${year}.xml`;
-      }
+    for (let i = 0; i < 7; i++) {
+        let url = 'https://www.tcmb.gov.tr/kurlar/today.xml';
+        
+        if (attemptDate.setHours(0,0,0,0) < today.setHours(0,0,0,0)) {
+            const year = attemptDate.getFullYear();
+            const month = String(attemptDate.getMonth() + 1).padStart(2, '0');
+            const day = String(attemptDate.getDate()).padStart(2, '0');
+            url = `https://www.tcmb.gov.tr/kurlar/${year}${month}/${day}${month}${year}.xml`;
+        }
+        
+        try {
+            response = await axios.get(url, { responseType: 'text', timeout: 5000 });
+            success = true;
+            break;
+        } catch (e) {
+            // Hafta sonu veya resmi tatil ise bir önceki güne git
+            attemptDate.setDate(attemptDate.getDate() - 1);
+        }
     }
 
-    let response;
-    try {
-      response = await axios.get(url, { responseType: 'text' });
-    } catch (e) {
-      // Hafta sonu veya resmi tatil ise hata verebilir, today.xml'e dön
+    if (!success) {
       response = await axios.get('https://www.tcmb.gov.tr/kurlar/today.xml', { responseType: 'text' });
     }
 
