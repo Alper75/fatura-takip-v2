@@ -905,11 +905,18 @@ export function BankaEkstreListesi() {
                                 className="h-8 text-[11px]"
                               />
                             </TableCell>
-                            <TableCell className={cn(
-                              "text-right font-bold text-sm tabular-nums",
-                              isGiris ? "text-green-600" : "text-slate-900"
-                            )}>
-                              {isGiris ? '+' : '-'}{formatCurrency(h.tutar, banka?.dovizTuru || 'TRY')}
+                            <TableCell className="text-right">
+                              <div className={cn(
+                                "font-bold text-sm tabular-nums",
+                                isGiris ? "text-green-600" : "text-slate-900"
+                              )}>
+                                {isGiris ? '+' : '-'}{formatCurrency(h.tutar, 'TRY')}
+                              </div>
+                              {h.dovizTutar && (
+                                <div className="text-[11px] font-medium text-slate-400 tabular-nums">
+                                  ({formatCurrency(h.dovizTutar, banka?.dovizTuru || h.dovizTuru)})
+                                </div>
+                              )}
                             </TableCell>
                             <TableCell>
                                <div className="flex items-center justify-end gap-1">
