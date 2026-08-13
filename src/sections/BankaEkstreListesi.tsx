@@ -1312,9 +1312,43 @@ export function BankaEkstreListesi() {
               <Input id="tarih" type="date" className="col-span-3" value={editForm.tarih || ''} onChange={(e) => setEditForm({...editForm, tarih: e.target.value})} />
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="tutar" className="text-right text-xs">Tutar</Label>
-              <Input id="tutar" type="number" className="col-span-3" value={editForm.tutar || ''} onChange={(e) => setEditForm({...editForm, tutar: parseFloat(e.target.value)})} />
+              <Label htmlFor="tutar" className="text-right text-xs">Tutar (TL)</Label>
+              <Input id="tutar" type="number" step="0.01" className="col-span-3" value={editForm.tutar || ''} onChange={(e) => setEditForm({...editForm, tutar: parseFloat(e.target.value)})} />
             </div>
+            {editForm.dovizTuru && editForm.dovizTuru !== 'TRY' && (
+              <>
+                <div className="grid grid-cols-4 items-center gap-4">
+                  <Label htmlFor="dovizKuru" className="text-right text-xs">Kur ({editForm.dovizTuru})</Label>
+                  <Input 
+                    id="dovizKuru" 
+                    type="number" 
+                    step="0.000001"
+                    className="col-span-3" 
+                    value={editForm.dovizKuru || ''} 
+                    onChange={(e) => {
+                       const newKur = parseFloat(e.target.value);
+                       const dvz = editForm.dovizTutar || 0;
+                       setEditForm({...editForm, dovizKuru: newKur, tutar: (newKur > 0 && dvz > 0) ? Number((newKur * dvz).toFixed(2)) : editForm.tutar});
+                    }} 
+                  />
+                </div>
+                <div className="grid grid-cols-4 items-center gap-4">
+                  <Label htmlFor="dovizTutar" className="text-right text-xs">Dvz. Tutar</Label>
+                  <Input 
+                    id="dovizTutar" 
+                    type="number" 
+                    step="0.01"
+                    className="col-span-3" 
+                    value={editForm.dovizTutar || ''} 
+                    onChange={(e) => {
+                       const newDvz = parseFloat(e.target.value);
+                       const kur = editForm.dovizKuru || 0;
+                       setEditForm({...editForm, dovizTutar: newDvz, tutar: (newDvz > 0 && kur > 0) ? Number((newDvz * kur).toFixed(2)) : editForm.tutar});
+                    }} 
+                  />
+                </div>
+              </>
+            )}
             <div className="grid grid-cols-4 items-center gap-4">
               <Label htmlFor="aciklama" className="text-right text-xs">Açıklama</Label>
               <Input id="aciklama" className="col-span-3" value={editForm.aciklama || ''} onChange={(e) => setEditForm({...editForm, aciklama: e.target.value})} />
