@@ -56,6 +56,7 @@ export function AlisTopluXMLUpload({ isOpen, onClose }: AlisTopluXMLUploadProps)
   const [satirlar, setSatirlar] = useState<XmlSatiri[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [generatePdf, setGeneratePdf] = useState(false);
   
   // Bulk selection states for dropdowns
   const [bulkCariId, setBulkCariId] = useState<string>('');
@@ -114,17 +115,20 @@ export function AlisTopluXMLUpload({ isOpen, onClose }: AlisTopluXMLUploadProps)
           const stopajTutari = typeof data.stopajTutari === 'number' ? data.stopajTutari : 0;
           const digerVergiler = tevkifatTutari + stopajTutari;
 
-          // Arka planda PDF'i oluştur
+          // PDF oluştur (opsiyonel)
           let dosyaBase64: string | undefined = undefined;
           let pdfDosyaAdi: string | undefined = undefined;
-          try {
-            const pdfBase64 = await generatePdfFromUblXml(file);
-            if (pdfBase64) {
-              dosyaBase64 = pdfBase64;
-              pdfDosyaAdi = file.name.replace('.xml', '.pdf');
+          
+          if (generatePdf) {
+            try {
+              const pdfBase64 = await generatePdfFromUblXml(file);
+              if (pdfBase64) {
+                dosyaBase64 = pdfBase64;
+                pdfDosyaAdi = file.name.replace('.xml', '.pdf');
+              }
+            } catch (pdfErr) {
+              console.error('PDF dönüştürme başarısız:', pdfErr);
             }
-          } catch (pdfErr) {
-            console.error('PDF dönüştürme başarısız:', pdfErr);
           }
 
           yeniSatirlar.push({
@@ -262,6 +266,11 @@ export function AlisTopluXMLUpload({ isOpen, onClose }: AlisTopluXMLUploadProps)
             </div>
             
             <div className="flex items-center gap-3">
+              <label className="flex items-center gap-2 cursor-pointer text-sm font-medium text-slate-700 bg-white border px-3 py-2 rounded-md hover:bg-slate-50 transition-colors h-10">
+                <Checkbox checked={generatePdf} onCheckedChange={(checked) => setGeneratePdf(checked as boolean)} />
+                <span>PDF Oluştur (Yavaş)</span>
+              </label>
+              
               <input
                 type="file"
                 multiple
