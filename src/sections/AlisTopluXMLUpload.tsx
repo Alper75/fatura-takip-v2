@@ -44,6 +44,41 @@ interface XmlSatiri {
   pdfDosyaAdi?: string;
 }
 
+const CellDropdown = ({ value, options, onChange, placeholder }: { value: string; options: {value: string, label: string}[]; onChange: (v: string) => void, placeholder: string }) => {
+  const [isEditing, setIsEditing] = useState(false);
+  
+  if (!isEditing) {
+    const displayValue = options.find(o => o.value === value)?.label;
+    return (
+      <div 
+        className={`text-[11px] p-1.5 border border-transparent hover:border-slate-300 rounded cursor-pointer min-h-[28px] flex items-center ${!displayValue ? 'text-rose-600 font-medium bg-rose-50/50' : 'text-slate-700 line-clamp-1'}`}
+        onClick={() => setIsEditing(true)}
+        title={displayValue || placeholder}
+      >
+        {displayValue || placeholder}
+      </div>
+    );
+  }
+
+  return (
+    <select 
+      autoFocus
+      className="flex h-8 w-full items-center justify-between rounded-md border border-slate-200 bg-white px-1 py-1 text-[11px] focus:outline-none focus:ring-1 focus:ring-indigo-500"
+      value={value || ''}
+      onBlur={() => setIsEditing(false)}
+      onChange={(e) => {
+        onChange(e.target.value);
+        setIsEditing(false);
+      }}
+    >
+      <option value="">{placeholder}</option>
+      {options.map(o => (
+        <option key={o.value} value={o.value}>{o.label}</option>
+      ))}
+    </select>
+  );
+};
+
 export function AlisTopluXMLUpload({ isOpen, onClose }: AlisTopluXMLUploadProps) {
   const { 
     cariler, 
@@ -57,6 +92,7 @@ export function AlisTopluXMLUpload({ isOpen, onClose }: AlisTopluXMLUploadProps)
   const [isProcessing, setIsProcessing] = useState(false);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
   const [searchTerm, setSearchTerm] = useState('');
+  const [filterType, setFilterType] = useState('ALL');
   const [generatePdf, setGeneratePdf] = useState(false);
   
   // Bulk selection states for dropdowns
@@ -257,10 +293,21 @@ export function AlisTopluXMLUpload({ isOpen, onClose }: AlisTopluXMLUploadProps)
   };
 
   const filteredSatirlar = useMemo(() => {
-    if (!searchTerm) return satirlar;
-    const lower = searchTerm.toLowerCase();
-    return satirlar.filter(s => s.tedarikciAdi.toLowerCase().includes(lower) || s.tedarikciVkn.includes(lower));
-  }, [satirlar, searchTerm]);
+    let result = satirlar;
+    
+    if (filterType === 'UNMATCHED_CARI') {
+      result = result.filter(s => !s.eslesenCariId);
+    } else if (filterType === 'UNMATCHED_HESAP') {
+      result = result.filter(s => !s.muhasebeKodu);
+    }
+
+    if (searchTerm) {
+      const lower = searchTerm.toLowerCase();
+      result = result.filter(s => s.tedarikciAdi.toLowerCase().includes(lower) || s.tedarikciVkn.includes(lower));
+    }
+    
+    return result;
+  }, [satirlar, searchTerm, filterType]);
 
   return (
     <Sheet open={isOpen} onOpenChange={(open) => !open && onClose()}>
@@ -321,11 +368,23 @@ export function AlisTopluXMLUpload({ isOpen, onClose }: AlisTopluXMLUploadProps)
             <div className="flex flex-wrap gap-4 items-end bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
               <div className="flex-1 min-w-[200px]">
                 <label className="text-xs font-medium text-slate-500 mb-1 block">Arama (Cari Adı/VKN)</label>
-                <Input 
-                  placeholder="Cari ara..." 
-                  value={searchTerm}
-                  onChange={e => setSearchTerm(e.target.value)}
-                />
+                <div className="flex gap-2">
+                  <Input 
+                    placeholder="Cari ara..." 
+                    value={searchTerm}
+                    onChange={e => setSearchTerm(e.target.value)}
+                    className="flex-1"
+                  />
+                  <select 
+                    className="h-10 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-950"
+                    value={filterType}
+                    onChange={(e) => setFilterType(e.target.value)}
+                  >
+                    <option value="ALL">Tümü</option>
+                    <option value="UNMATCHED_CARI">Cari Eşleşmeyenler</option>
+                    <option value="UNMATCHED_HESAP">Hesap Eşleşmeyenler</option>
+                  </select>
+                </div>
               </div>
 
               <div className="flex-1 min-w-[200px]">
@@ -413,28 +472,20 @@ export function AlisTopluXMLUpload({ isOpen, onClose }: AlisTopluXMLUploadProps)
                         <TableCell className="text-right text-xs font-semibold">{formatCurrency(satir.toplamTutar)}</TableCell>
                         
                         <TableCell>
-                          <select 
-                            className="flex h-8 w-full items-center justify-between rounded-md border border-slate-200 bg-white px-2 py-1 text-xs ring-offset-white placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                          <CellDropdown 
                             value={satir.eslesenCariId || ''}
-                            onChange={(e) => updateRow(satir.id, 'eslesenCariId', e.target.value)}
-                          >
-                            <option value="">Seçiniz...</option>
-                            {cariler.map(c => (
-                              <option key={c.id} value={c.id}>{c.unvan}</option>
-                            ))}
-                          </select>
+                            placeholder="Cari Seç (Eşleşmedi)"
+                            options={cariler.map(c => ({ value: c.id, label: c.unvan }))}
+                            onChange={(val) => updateRow(satir.id, 'eslesenCariId', val)}
+                          />
                         </TableCell>
                         <TableCell>
-                          <select 
-                            className="flex h-8 w-full items-center justify-between rounded-md border border-slate-200 bg-white px-2 py-1 text-xs ring-offset-white placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                          <CellDropdown 
                             value={satir.muhasebeKodu || ''}
-                            onChange={(e) => updateRow(satir.id, 'muhasebeKodu', e.target.value)}
-                          >
-                            <option value="">Seçiniz...</option>
-                            {lucaAccounts.map(a => (
-                              <option key={a.kod} value={a.kod}>{a.kod} - {a.ad}</option>
-                            ))}
-                          </select>
+                            placeholder="Hesap Seç (Eşleşmedi)"
+                            options={lucaAccounts.map(a => ({ value: a.kod, label: `${a.kod} - ${a.ad}` }))}
+                            onChange={(val) => updateRow(satir.id, 'muhasebeKodu', val)}
+                          />
                         </TableCell>
                         <TableCell>
                           <Button variant="ghost" size="icon" onClick={() => removeRow(satir.id)} className="h-8 w-8 text-rose-500 hover:bg-rose-50">
