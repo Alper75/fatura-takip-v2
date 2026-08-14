@@ -155,24 +155,24 @@ export function FaturaAktarim() {
         if (!isIade) {
             // Normal Alış
             satirListesi.push(createRow(gelirGiderKod, matrah, 0, aciklama));
-            satirListesi.push(createRow(kdvKodu, kdvTutar, 0, 'KDV'));
+            satirListesi.push(createRow(kdvKodu, kdvTutar, 0, aciklama));
             satirListesi.push(createRow(cariKod, 0, toplam, aciklama));
         } else {
             // Alış İade (Satıcıya)
             satirListesi.push(createRow(cariKod, toplam, 0, aciklama));
             satirListesi.push(createRow(gelirGiderKod, 0, matrah, aciklama));
-            satirListesi.push(createRow(kdvKodu, 0, kdvTutar, 'KDV'));
+            satirListesi.push(createRow(kdvKodu, 0, kdvTutar, aciklama));
         }
     } else {
         if (!isIade) {
             // Normal Satış
             satirListesi.push(createRow(cariKod, toplam, 0, aciklama));
             satirListesi.push(createRow(gelirGiderKod, 0, matrah, aciklama));
-            satirListesi.push(createRow(kdvKodu, 0, kdvTutar, 'KDV'));
+            satirListesi.push(createRow(kdvKodu, 0, kdvTutar, aciklama));
         } else {
             // Satış İade (Müşteriden)
             satirListesi.push(createRow(gelirGiderKod, matrah, 0, aciklama));
-            satirListesi.push(createRow(kdvKodu, kdvTutar, 0, 'KDV'));
+            satirListesi.push(createRow(kdvKodu, kdvTutar, 0, aciklama));
             satirListesi.push(createRow(cariKod, 0, toplam, aciklama));
         }
     }
@@ -216,7 +216,8 @@ export function FaturaAktarim() {
         aciklama: row['Detay Açıklama'],
         tutar: row['Borç'] > 0 ? row['Borç'] : row['Alacak'],
         tur: row['Borç'] > 0 ? 'borc' : 'alacak',
-        muhasebeKodu: row['Hesap Kodu']
+        muhasebeKodu: row['Hesap Kodu'],
+        belgeTuru: row['Belge Türü']
       }));
       exportData = [...exportData, ...extRows];
     });
