@@ -46,13 +46,14 @@ interface XmlSatiri {
 
 const CellDropdown = ({ value, options, onChange, placeholder }: { value: string; options: {value: string, label: string}[]; onChange: (v: string) => void, placeholder: string }) => {
   const [isEditing, setIsEditing] = useState(false);
+  const [search, setSearch] = useState('');
   
   if (!isEditing) {
     const displayValue = options.find(o => o.value === value)?.label;
     return (
       <div 
         className={`text-[11px] p-1.5 border border-transparent hover:border-slate-300 rounded cursor-pointer min-h-[28px] flex items-center ${!displayValue ? 'text-rose-600 font-medium bg-rose-50/50' : 'text-slate-700 line-clamp-1'}`}
-        onClick={() => setIsEditing(true)}
+        onClick={() => { setIsEditing(true); setSearch(''); }}
         title={displayValue || placeholder}
       >
         {displayValue || placeholder}
@@ -60,22 +61,38 @@ const CellDropdown = ({ value, options, onChange, placeholder }: { value: string
     );
   }
 
+  const filtered = options.filter(o => o.label.toLowerCase().includes(search.toLowerCase()) || o.value.toLowerCase().includes(search.toLowerCase()));
+
   return (
-    <select 
-      autoFocus
-      className="flex h-8 w-full items-center justify-between rounded-md border border-slate-200 bg-white px-1 py-1 text-[11px] focus:outline-none focus:ring-1 focus:ring-indigo-500"
-      value={value || ''}
-      onBlur={() => setIsEditing(false)}
-      onChange={(e) => {
-        onChange(e.target.value);
-        setIsEditing(false);
-      }}
-    >
-      <option value="">{placeholder}</option>
-      {options.map(o => (
-        <option key={o.value} value={o.value}>{o.label}</option>
-      ))}
-    </select>
+    <div className="relative">
+      <input 
+        autoFocus
+        className="flex h-8 w-full items-center justify-between rounded-md border border-indigo-500 bg-white px-2 py-1 text-[11px] focus:outline-none focus:ring-1 focus:ring-indigo-500"
+        value={search}
+        placeholder="Ara..."
+        onChange={e => setSearch(e.target.value)}
+        onBlur={() => setTimeout(() => setIsEditing(false), 150)}
+      />
+      <div className="absolute top-full left-0 w-full min-w-[250px] max-h-48 overflow-auto bg-white border border-slate-200 shadow-xl rounded-md z-50 mt-1 p-1">
+        <div 
+          className="text-[11px] p-1.5 hover:bg-slate-100 cursor-pointer text-slate-500 rounded"
+          onClick={() => { onChange(''); setIsEditing(false); }}
+        >
+          {placeholder} (Temizle)
+        </div>
+        {filtered.length === 0 && <div className="text-[11px] p-1.5 text-slate-400">Sonuç bulunamadı</div>}
+        {filtered.map(o => (
+          <div 
+            key={o.value} 
+            className="text-[11px] p-1.5 hover:bg-indigo-50 cursor-pointer text-slate-700 rounded truncate"
+            onClick={() => { onChange(o.value); setIsEditing(false); }}
+            title={o.label}
+          >
+            {o.label}
+          </div>
+        ))}
+      </div>
+    </div>
   );
 };
 
@@ -130,17 +147,7 @@ export function AlisTopluXMLUpload({ isOpen, onClose }: AlisTopluXMLUploadProps)
             const vkn = data.supplier?.vkn || '';
             const ad = data.supplier?.ad ? `${data.supplier.ad} ${data.supplier.soyad || ''}`.trim() : 'Bilinmiyor';
             
-            // Smart Learning: Find Cari
-            const matchedCari = cariler.find(c => c.vknTckn === vkn || c.unvan.includes(ad));
-            const eslesenCariId = matchedCari ? matchedCari.id : null;
-
-            // Smart Learning: Find past Gider Hesabi (muhasebeKodu) for this VKN
-            let muhasebeKodu = null;
-            const pastFatura = alisFaturalari.find(f => f.tedarikciVkn === vkn && f.muhasebeKodu);
-            if (pastFatura) {
-              muhasebeKodu = pastFatura.muhasebeKodu || null;
-            }
-
+            // Calculate KDV first so we can use it in Smart Learning
             const kdv1 = typeof data.kdv1 === 'number' ? data.kdv1 : 0;
             const kdv10 = typeof data.kdv10 === 'number' ? data.kdv10 : 0;
             const kdv20 = typeof data.kdv20 === 'number' ? data.kdv20 : 0;
@@ -149,6 +156,24 @@ export function AlisTopluXMLUpload({ isOpen, onClose }: AlisTopluXMLUploadProps)
             if (kdv20 > 0) kdvOrani = 20;
             else if (kdv10 > 0) kdvOrani = 10;
             else if (kdv1 > 0) kdvOrani = 1;
+
+            // Smart Learning: Find Cari
+            const matchedCari = cariler.find(c => c.vknTckn === vkn || c.unvan.includes(ad));
+            const eslesenCariId = matchedCari ? matchedCari.id : null;
+
+            // Smart Learning: Find past Gider Hesabi (muhasebeKodu) for this VKN matching the same KDV rate
+            let muhasebeKodu = null;
+            const pastFaturaKdvMached = alisFaturalari.find(f => f.tedarikciVkn === vkn && f.muhasebeKodu && Number(f.kdvOrani) === kdvOrani);
+            
+            if (pastFaturaKdvMached) {
+              muhasebeKodu = pastFaturaKdvMached.muhasebeKodu || null;
+            } else {
+              // Fallback to any past invoice if we couldn't find one with matching KDV
+              const anyPastFatura = alisFaturalari.find(f => f.tedarikciVkn === vkn && f.muhasebeKodu);
+              if (anyPastFatura) {
+                muhasebeKodu = anyPastFatura.muhasebeKodu || null;
+              }
+            }
 
             const kdvTutari = kdv1 + kdv10 + kdv20;
 
