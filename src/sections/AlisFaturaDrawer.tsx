@@ -275,6 +275,7 @@ Lütfen bulduğun TÜM fiş/faturaları çıkar ve aşağıdaki JSON DİZİSİ f
 ÖNEMLİ KURAL: Eğer tek bir fişte/faturada birden fazla KDV oranı varsa (Örn: bazı ürünler %1, bazıları %20), LÜTFEN her bir KDV oranının toplam tutarını (kdv dahil) ayrı birer JSON objesi (ayrı bir fatura kaydı) olarak diziye ekle! Fatura no, tarih ve satıcı adı aynı kalsın, sadece tutar, malHizmetAdi ("... %20 KDV'li Ürünler" vb.) ve kdv_orani farklı olsun.
 ÖNEMLİ KURAL 2: Eğer bu bir akaryakıt fişi/faturası ise, fatura üzerinde yazan ARAÇ PLAKASINI mutlaka "plate" alanına yaz.
 ÖNEMLİ KURAL 3: Yemek (Restoran/Lokanta), akaryakıt, konaklama, kırtasiye, ofis tüketim, market gibi şirket içi genel harcama fişleri KESİNLİKLE 7'li gider hesaplarına (Örn: 770 Genel Yönetim Giderleri) atılmalıdır. 153 Ticari Mallar hesabı SADECE satmak amacıyla alınan ürünler için kullanılır. Fişin türüne dikkat ederek en uygun hesabı seç.
+ÖNEMLİ KURAL 4: Fiş/fatura üzerindeki ödeme tipini analiz et. Eğer slip veya fiş üzerinde "**** 1104", "Kredi Kartı", "Banka Kartı" gibi kredi kartı ödemesine dair bir ibare varsa "odeme_sekli": "KREDI_KARTI" yap ve kartın son 4 hanesini "kredi_karti_son4" alanına yaz (örn: "1104"). Eğer nakit ödenmişse veya belli değilse "odeme_sekli": "NAKIT" yap.
 
 Aşağıdaki LUCA HESAP PLANI listesinden bu faturanın açıklamasına/türüne en uygun "kod"u seçerek "muhasebe_kodu" alanına yaz:
 ${lucaAccounts.map(a => `${a.kod}: ${a.ad}`).join('\n')}
@@ -295,7 +296,9 @@ SADECE JSON döndür:
       "stopaj_orani": "0",
       "aciklama": "",
       "muhasebe_kodu": "Yukarıdaki listeden seçilen en uygun hesap kodu",
-      "plate": "Eğer varsa araç plakası (34ABC123 formatında)"
+      "plate": "Eğer varsa araç plakası (34ABC123 formatında)",
+      "odeme_sekli": "KREDI_KARTI veya NAKIT",
+      "kredi_karti_son4": "Eğer kartsa slipteki son 4 hane, yoksa boş bırak"
     }
   ]
 }
@@ -326,22 +329,33 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
       }
 
       const safeModelName = aiModel ? aiModel.trim() : 'gemini-2.5-flash';
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${safeModelName}:generateContent?key=${apiKey}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{
-            parts: [
-              { text: prompt },
-              { inline_data: { mime_type: uploadedFile.mimeType, data: rawBase64 } }
-            ]
-          }],
-          generationConfig: { responseMimeType: "application/json" }
-        })
-      });
+      
+      const [aiResponse, settingsRes, bankaRes] = await Promise.all([
+        fetch(`https://generativelanguage.googleapis.com/v1beta/models/${safeModelName}:generateContent?key=${apiKey}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{
+              parts: [
+                { text: prompt },
+                { inline_data: { mime_type: uploadedFile.mimeType, data: rawBase64 } }
+              ]
+            }],
+            generationConfig: { responseMimeType: "application/json" }
+          })
+        }),
+        apiFetch('/api/settings/luca_kdv_ayarlari').catch(() => null),
+        apiFetch('/api/banka-hesaplari').catch(() => null)
+      ]);
 
-      const data = await response.json();
+      const data = await aiResponse.json();
       if (data.error) throw new Error(data.error.message || 'API Hatası');
+      
+      let kdvSettings: any = {};
+      if (settingsRes?.success && settingsRes.value) {
+        try { kdvSettings = JSON.parse(settingsRes.value); } catch(e){}
+      }
+      const bankaHesaplari: any[] = bankaRes?.success ? bankaRes.data : [];
 
       const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
       console.log('Gemini raw response text:', text);
@@ -370,6 +384,8 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
           const fAciklama = f.aciklama || f.note || f.not || '';
           const fMuhasebeKodu = f.muhasebe_kodu || f.muhasebeKodu || f.account_code || f.accountCode || '';
           const fPlate = f.plate || f.plaka || f.vehicle_plate || f.vehiclePlate || '';
+          const fOdemeSekli = f.odeme_sekli || 'NAKIT';
+          const fKrediKartiSon4 = f.kredi_karti_son4 || '';
 
           // 1. VKN ile eşleşen cari bul
           let matchedCari = (cariler || []).find(c => c && c.vknTckn === fTedarikciVkn && c.vknTckn && c.vknTckn.length > 5);
@@ -382,6 +398,23 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
 
           // Plaka temizleme
           const rawPlate = fPlate ? fPlate.toUpperCase().replace(/\s+/g, '') : '';
+
+          // Ödeme Yöntemi ve Karşı Hesap Ataması
+          let mappedKarsiHesapKodu = '';
+          if (fOdemeSekli === 'KREDI_KARTI') {
+            let matchedBank = null;
+            if (fKrediKartiSon4) {
+              matchedBank = bankaHesaplari.find(b => b.kartNo && String(b.kartNo).endsWith(fKrediKartiSon4));
+            }
+            if (matchedBank && matchedBank.muhasebeKodu) {
+              mappedKarsiHesapKodu = matchedBank.muhasebeKodu;
+            } else {
+              mappedKarsiHesapKodu = kdvSettings.varsayilanKrediKartiKodu || '';
+            }
+          } else {
+            // NAKIT veya belirtilmemiş
+            mappedKarsiHesapKodu = kdvSettings.varsayilanKasaKodu || '';
+          }
 
           return {
             id: Date.now() + idx,
@@ -402,6 +435,7 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
               cariId: matchedCari ? matchedCari.id : undefined,
               depoId: varsayilanDepoId,
               muhasebeKodu: fMuhasebeKodu,
+              karsiHesapKodu: mappedKarsiHesapKodu,
               vehiclePlate: rawPlate
             }
           };

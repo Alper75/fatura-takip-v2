@@ -18,7 +18,9 @@ export function LucaKdvAyarlari() {
     satis: { '1': '', '10': '', '20': '' },
     satis_iade: { '1': '', '10': '', '20': '' },
     tevkifat: '',
-    stopaj: ''
+    stopaj: '',
+    varsayilanKasaKodu: '',
+    varsayilanKrediKartiKodu: ''
   });
 
   const fetchSettings = async () => {
@@ -199,6 +201,25 @@ export function LucaKdvAyarlari() {
           </CardContent>
         </Card>
 
+        {/* Varsayılan Ödeme Hesapları */}
+        <Card className="md:col-span-2">
+          <CardHeader className="pb-3 border-b border-slate-100 mb-4">
+            <CardTitle className="text-md text-cyan-700">Varsayılan Ödeme Hesapları (Yapay Zeka İçin)</CardTitle>
+            <CardDescription>Fiş/fatura yapay zeka tarafından okunurken otomatik olarak atanacak ödeme hesapları.</CardDescription>
+          </CardHeader>
+          <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-slate-700">Varsayılan Kasa Hesabı (Nakit)</label>
+              <LucaAccountSelect value={settings.varsayilanKasaKodu} onChange={(val) => updateRootSetting('varsayilanKasaKodu', val)} placeholder="Örn: 100.01" />
+              <p className="text-[10px] text-slate-500 mt-1">Yapay zeka "Nakit" ödeme tespit ettiğinde bu hesap kullanılır.</p>
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-slate-700">Varsayılan Kredi Kartı Hesabı</label>
+              <LucaAccountSelect value={settings.varsayilanKrediKartiKodu} onChange={(val) => updateRootSetting('varsayilanKrediKartiKodu', val)} placeholder="Örn: 300.01 veya 329.01" />
+              <p className="text-[10px] text-slate-500 mt-1">Yapay zeka Kredi Kartı tespit eder ancak Banka Hesapları listesinde eşleşen kart bulamazsa bu hesap kullanılır.</p>
+            </div>
+          </CardContent>
+        </Card>
       </div>
     </div>
   );
