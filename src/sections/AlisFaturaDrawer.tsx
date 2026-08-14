@@ -273,7 +273,8 @@ export function AlisFaturaDrawer() {
 Lütfen bulduğun TÜM fiş/faturaları çıkar ve aşağıdaki JSON DİZİSİ formatında döndür. 
 
 ÖNEMLİ KURAL: Eğer tek bir fişte/faturada birden fazla KDV oranı varsa (Örn: bazı ürünler %1, bazıları %20), LÜTFEN her bir KDV oranının toplam tutarını (kdv dahil) ayrı birer JSON objesi (ayrı bir fatura kaydı) olarak diziye ekle! Fatura no, tarih ve satıcı adı aynı kalsın, sadece tutar, malHizmetAdi ("... %20 KDV'li Ürünler" vb.) ve kdv_orani farklı olsun.
-ÖNEMLİ KURAL 2: Eğer bu bir akaryakıt fişi/faturası ise, fatura üzerinde yazan ARAÇ PLAKASINI mutlaka "plate" alanına yaz. 
+ÖNEMLİ KURAL 2: Eğer bu bir akaryakıt fişi/faturası ise, fatura üzerinde yazan ARAÇ PLAKASINI mutlaka "plate" alanına yaz.
+ÖNEMLİ KURAL 3: Yemek (Restoran/Lokanta), akaryakıt, konaklama, kırtasiye, ofis tüketim, market gibi şirket içi genel harcama fişleri KESİNLİKLE 7'li gider hesaplarına (Örn: 770 Genel Yönetim Giderleri) atılmalıdır. 153 Ticari Mallar hesabı SADECE satmak amacıyla alınan ürünler için kullanılır. Fişin türüne dikkat ederek en uygun hesabı seç.
 
 Aşağıdaki LUCA HESAP PLANI listesinden bu faturanın açıklamasına/türüne en uygun "kod"u seçerek "muhasebe_kodu" alanına yaz:
 ${lucaAccounts.map(a => `${a.kod}: ${a.ad}`).join('\n')}
