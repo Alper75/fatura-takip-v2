@@ -77,91 +77,100 @@ export function AlisTopluXMLUpload({ isOpen, onClose }: AlisTopluXMLUploadProps)
 
     const yeniSatirlar: XmlSatiri[] = [];
 
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      try {
-        const result = await parseInvoiceXml(file);
-        if (result.success && result.data) {
-          const data = result.data;
-          
-          const vkn = data.supplier?.vkn || '';
-          const ad = data.supplier?.ad ? `${data.supplier.ad} ${data.supplier.soyad || ''}`.trim() : 'Bilinmiyor';
-          
-          // Smart Learning: Find Cari
-          const matchedCari = cariler.find(c => c.vknTckn === vkn || c.unvan.includes(ad));
-          const eslesenCariId = matchedCari ? matchedCari.id : null;
+    const fileArray = Array.from(files);
+    const chunkSize = 20;
 
-          // Smart Learning: Find past Gider Hesabi (muhasebeKodu) for this VKN
-          let muhasebeKodu = null;
-          const pastFatura = alisFaturalari.find(f => f.tedarikciVkn === vkn && f.muhasebeKodu);
-          if (pastFatura) {
-            muhasebeKodu = pastFatura.muhasebeKodu || null;
-          } else if (matchedCari?.muhasebeKodu) {
-            muhasebeKodu = matchedCari.muhasebeKodu;
-          }
+    for (let i = 0; i < fileArray.length; i += chunkSize) {
+      const chunk = fileArray.slice(i, i + chunkSize);
+      
+      const chunkResults = await Promise.all(chunk.map(async (file, index) => {
+        try {
+          const result = await parseInvoiceXml(file);
+          if (result.success && result.data) {
+            const data = result.data;
+            
+            const vkn = data.supplier?.vkn || '';
+            const ad = data.supplier?.ad ? `${data.supplier.ad} ${data.supplier.soyad || ''}`.trim() : 'Bilinmiyor';
+            
+            // Smart Learning: Find Cari
+            const matchedCari = cariler.find(c => c.vknTckn === vkn || c.unvan.includes(ad));
+            const eslesenCariId = matchedCari ? matchedCari.id : null;
 
-          const kdv1 = typeof data.kdv1 === 'number' ? data.kdv1 : 0;
-          const kdv10 = typeof data.kdv10 === 'number' ? data.kdv10 : 0;
-          const kdv20 = typeof data.kdv20 === 'number' ? data.kdv20 : 0;
-          
-          let kdvOrani = 0;
-          if (kdv20 > 0) kdvOrani = 20;
-          else if (kdv10 > 0) kdvOrani = 10;
-          else if (kdv1 > 0) kdvOrani = 1;
-
-          const kdvTutari = kdv1 + kdv10 + kdv20;
-
-          const tevkifatTutari = typeof data.tevkifatTutari === 'number' ? data.tevkifatTutari : 0;
-          const stopajTutari = typeof data.stopajTutari === 'number' ? data.stopajTutari : 0;
-          const digerVergiler = tevkifatTutari + stopajTutari;
-
-          // PDF oluştur (opsiyonel)
-          let dosyaBase64: string | undefined = undefined;
-          let pdfDosyaAdi: string | undefined = undefined;
-          
-          if (generatePdf) {
-            try {
-              const pdfBase64 = await generatePdfFromUblXml(file);
-              if (pdfBase64) {
-                dosyaBase64 = pdfBase64;
-                pdfDosyaAdi = file.name.replace('.xml', '.pdf');
-              }
-            } catch (pdfErr) {
-              console.error('PDF dönüştürme başarısız:', pdfErr);
+            // Smart Learning: Find past Gider Hesabi (muhasebeKodu) for this VKN
+            let muhasebeKodu = null;
+            const pastFatura = alisFaturalari.find(f => f.tedarikciVkn === vkn && f.muhasebeKodu);
+            if (pastFatura) {
+              muhasebeKodu = pastFatura.muhasebeKodu || null;
+            } else if (matchedCari?.muhasebeKodu) {
+              muhasebeKodu = matchedCari.muhasebeKodu;
             }
-          }
 
-          yeniSatirlar.push({
-            id: `xml-${Date.now()}-${i}`,
-            dosyaAdi: file.name,
-            faturaNo: data.faturaNo || '',
-            faturaTarihi: data.faturaTarihi || new Date().toISOString().split('T')[0],
-            tedarikciVkn: vkn,
-            tedarikciAdi: ad,
-            matrah: parseFloat(data.matrah || '0'),
-            kdv1,
-            kdv10,
-            kdv20,
-            kdvOrani,
-            kdvTutari,
-            digerVergiler,
-            toplamTutar: parseFloat(data.toplamTutar || '0'),
-            tevkifatOrani: data.tevkifatOrani || '0',
-            tevkifatTutari,
-            stopajOrani: data.stopajOrani || '0',
-            stopajTutari,
-            tevkifatKodu: data.tevkifatKodu || '',
-            stopajKodu: data.stopajKodu || '',
-            eslesenCariId,
-            muhasebeKodu,
-            selected: true,
-            dosyaBase64,
-            pdfDosyaAdi
-          });
+            const kdv1 = typeof data.kdv1 === 'number' ? data.kdv1 : 0;
+            const kdv10 = typeof data.kdv10 === 'number' ? data.kdv10 : 0;
+            const kdv20 = typeof data.kdv20 === 'number' ? data.kdv20 : 0;
+            
+            let kdvOrani = 0;
+            if (kdv20 > 0) kdvOrani = 20;
+            else if (kdv10 > 0) kdvOrani = 10;
+            else if (kdv1 > 0) kdvOrani = 1;
+
+            const kdvTutari = kdv1 + kdv10 + kdv20;
+
+            const tevkifatTutari = typeof data.tevkifatTutari === 'number' ? data.tevkifatTutari : 0;
+            const stopajTutari = typeof data.stopajTutari === 'number' ? data.stopajTutari : 0;
+            const digerVergiler = tevkifatTutari + stopajTutari;
+
+            // PDF oluştur (opsiyonel)
+            let dosyaBase64: string | undefined = undefined;
+            let pdfDosyaAdi: string | undefined = undefined;
+            
+            if (generatePdf) {
+              try {
+                const pdfBase64 = await generatePdfFromUblXml(file);
+                if (pdfBase64) {
+                  dosyaBase64 = pdfBase64;
+                  pdfDosyaAdi = file.name.replace('.xml', '.pdf');
+                }
+              } catch (pdfErr) {
+                console.error('PDF dönüştürme başarısız:', pdfErr);
+              }
+            }
+
+            return {
+              id: `xml-${Date.now()}-${i + index}`,
+              dosyaAdi: file.name,
+              faturaNo: data.faturaNo || '',
+              faturaTarihi: data.faturaTarihi || new Date().toISOString().split('T')[0],
+              tedarikciVkn: vkn,
+              tedarikciAdi: ad,
+              matrah: parseFloat(data.matrah || '0'),
+              kdv1,
+              kdv10,
+              kdv20,
+              kdvOrani,
+              kdvTutari,
+              digerVergiler,
+              toplamTutar: parseFloat(data.toplamTutar || '0'),
+              tevkifatOrani: data.tevkifatOrani || '0',
+              tevkifatTutari,
+              stopajOrani: data.stopajOrani || '0',
+              stopajTutari,
+              tevkifatKodu: data.tevkifatKodu || '',
+              stopajKodu: data.stopajKodu || '',
+              eslesenCariId,
+              muhasebeKodu,
+              selected: true,
+              dosyaBase64,
+              pdfDosyaAdi
+            } as XmlSatiri;
+          }
+        } catch (err) {
+          console.error('XML parse error on file', file.name, err);
         }
-      } catch (err) {
-        console.error('XML parse error on file', file.name, err);
-      }
+        return null;
+      }));
+      
+      yeniSatirlar.push(...(chunkResults.filter(Boolean) as XmlSatiri[]));
     }
 
     setSatirlar(prev => [...prev, ...yeniSatirlar]);
