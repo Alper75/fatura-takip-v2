@@ -89,7 +89,7 @@ export function FaturaAktarim() {
   const formatTarih = (tarih: string) => {
     if (!tarih) return '';
     const [y, m, d] = tarih.split('-');
-    return `${d}.${m}.${y}`;
+    return `${d}/${m}/${y}`;
   };
 
   const getMuhasebeSatirlari = (fatura: any) => {
