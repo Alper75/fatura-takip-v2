@@ -113,6 +113,7 @@ export interface AlisFatura {
   kdv10?: number;
   kdv20?: number;
   muhasebeKodu?: string;
+  karsiHesapKodu?: string;
   // PDF
   pdfDosya?: string | null;
   pdfDosyaAdi?: string;
@@ -149,6 +150,7 @@ export interface AlisFaturaFormData {
   tevkifatOrani?: string;
   stopajOrani?: string;
   muhasebeKodu?: string;
+  karsiHesapKodu?: string;
   dosyaBase64?: string;
   dosyaAdi?: string;
   cariId?: string;

@@ -547,47 +547,58 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
                       Satır #{index + 1}
                     </h3>
 
-                    <div className="mb-4">
-                      <Label className="text-xs font-medium text-emerald-600 mb-1 block">Kayıtlı Tedarikçi Seç (Otomatik Doldur)</Label>
-                      <Select
-                        value={String(form.data.cariId ?? 'yok')}
-                        onValueChange={(val) => {
-                          if (val === 'yok') {
-                            setForms(prev => prev.map(fp => fp.id === form.id ? { ...fp, data: { ...fp.data, cariId: undefined } } : fp));
-                            return;
-                          }
-                          const c = (cariler || []).find(x => String(x.id ?? '') === val);
-                          if (c) {
-                            setForms(prev => prev.map(fp => {
-                              if (fp.id === form.id) {
-                                return {
-                                  ...fp,
-                                  data: {
-                                    ...fp.data,
-                                    cariId: c.id,
-                                    tedarikciAdi: c.unvan,
-                                    tedarikciVkn: c.vknTckn
-                                  },
-                                  errors: {}
-                                };
-                              }
-                              return fp;
-                            }));
-                          }
-                        }}
-                      >
-                        <SelectTrigger className="w-full h-9 bg-emerald-50/30 border-emerald-100">
-                          <SelectValue placeholder="Tedarikçilerinizden seçin..." />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="yok" className="text-slate-500 font-medium">-- Serbest Devam Et --</SelectItem>
-                          {(cariler || []).filter(c => c && c.tip !== 'musteri' && c.id !== undefined && c.id !== null && String(c.id).trim() !== '').map((c, idx) => (
-                             <SelectItem key={c.id !== undefined && c.id !== null ? String(c.id) : `cari-${idx}`} value={String(c.id ?? '')}>
-                               {String(c.unvan ?? 'Bilinmiyor')} ({String(c.vknTckn ?? '')})
-                             </SelectItem>
-                           ))}
-                        </SelectContent>
-                      </Select>
+                    <div className="grid grid-cols-2 gap-4 mb-4">
+                      <div>
+                        <Label className="text-xs font-medium text-emerald-600 mb-1 block">Kayıtlı Tedarikçi Seç (Cari)</Label>
+                        <Select
+                          value={String(form.data.cariId ?? 'yok')}
+                          onValueChange={(val) => {
+                            if (val === 'yok') {
+                              setForms(prev => prev.map(fp => fp.id === form.id ? { ...fp, data: { ...fp.data, cariId: undefined } } : fp));
+                              return;
+                            }
+                            const c = (cariler || []).find(x => String(x.id ?? '') === val);
+                            if (c) {
+                              setForms(prev => prev.map(fp => {
+                                if (fp.id === form.id) {
+                                  return {
+                                    ...fp,
+                                    data: {
+                                      ...fp.data,
+                                      cariId: c.id,
+                                      tedarikciAdi: c.unvan,
+                                      tedarikciVkn: c.vknTckn
+                                    },
+                                    errors: {}
+                                  };
+                                }
+                                return fp;
+                              }));
+                            }
+                          }}
+                        >
+                          <SelectTrigger className="w-full h-9 bg-emerald-50/30 border-emerald-100">
+                            <SelectValue placeholder="Tedarikçilerinizden seçin..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="yok" className="text-slate-500 font-medium">-- Serbest Devam Et --</SelectItem>
+                            {(cariler || []).filter(c => c && c.tip !== 'musteri' && c.id !== undefined && c.id !== null && String(c.id).trim() !== '').map((c, idx) => (
+                               <SelectItem key={c.id !== undefined && c.id !== null ? String(c.id) : `cari-${idx}`} value={String(c.id ?? '')}>
+                                 {String(c.unvan ?? 'Bilinmiyor')} ({String(c.vknTckn ?? '')})
+                               </SelectItem>
+                             ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div>
+                        <Label className="text-xs font-medium text-amber-600 mb-1 block">Ödeme / Karşı Hesap (Fişler İçin)</Label>
+                        <LucaAccountSelect
+                          value={form.data.karsiHesapKodu || ''}
+                          onChange={(val) => updateForm(form.id, 'karsiHesapKodu', val)}
+                          placeholder="Kasa / Banka hesabı seçin..."
+                          className="h-9 bg-amber-50/30 border-amber-100"
+                        />
+                      </div>
                     </div>
 
                     <div className="grid grid-cols-3 gap-4 mb-4">

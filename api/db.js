@@ -405,6 +405,9 @@ export async function initDb() {
       if (!sfInfo.rows.some(col => col.name === 'muhasebe_kodu')) {
         await client.execute(`ALTER TABLE satis_faturalari ADD COLUMN muhasebe_kodu TEXT`);
       }
+      if (!sfInfo.rows.some(col => col.name === 'karsi_hesap_kodu')) {
+        await client.execute(`ALTER TABLE satis_faturalari ADD COLUMN karsi_hesap_kodu TEXT`);
+      }
     } catch (e) {}
 
     // Alis_faturalari sync for muhasebe_kodu
@@ -430,6 +433,9 @@ export async function initDb() {
       }
       if (!afInfo.rows.some(col => col.name === 'kdv20')) {
         await client.execute(`ALTER TABLE alis_faturalari ADD COLUMN kdv20 REAL DEFAULT 0`);
+      }
+      if (!afInfo.rows.some(col => col.name === 'karsi_hesap_kodu')) {
+        await client.execute(`ALTER TABLE alis_faturalari ADD COLUMN karsi_hesap_kodu TEXT`);
       }
     } catch (e) {}
 

@@ -102,7 +102,9 @@ export function FaturaAktarim() {
     
     // Cari Kodu (Tedarikçi/Müşteri)
     let cariKod = isAlis ? '320' : '120';
-    if (fatura.cariId) {
+    if (fatura.karsiHesapKodu) {
+      cariKod = fatura.karsiHesapKodu;
+    } else if (fatura.cariId) {
       const matchedCari = cariler.find(c => c.id === fatura.cariId);
       if (matchedCari && matchedCari.muhasebeKodu) {
         cariKod = matchedCari.muhasebeKodu;

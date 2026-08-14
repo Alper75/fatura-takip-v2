@@ -38,6 +38,7 @@ interface XmlSatiri {
   
   eslesenCariId: string | null;
   muhasebeKodu: string | null; 
+  karsiHesapKodu: string | null;
   selected: boolean;
   
   dosyaBase64?: string;
@@ -115,6 +116,7 @@ export function AlisTopluXMLUpload({ isOpen, onClose }: AlisTopluXMLUploadProps)
   // Bulk selection states for dropdowns
   const [bulkCariId, setBulkCariId] = useState<string>('');
   const [bulkMuhasebeKodu, setBulkMuhasebeKodu] = useState<string>('');
+  const [bulkKarsiHesapKodu, setBulkKarsiHesapKodu] = useState<string>('');
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -214,6 +216,7 @@ export function AlisTopluXMLUpload({ isOpen, onClose }: AlisTopluXMLUploadProps)
               stopajKodu: data.stopajKodu || '',
               eslesenCariId,
               muhasebeKodu,
+              karsiHesapKodu: null,
               selected: true,
               dosyaBase64,
               pdfDosyaAdi
@@ -255,11 +258,12 @@ export function AlisTopluXMLUpload({ isOpen, onClose }: AlisTopluXMLUploadProps)
     setSatirlar(prev => prev.map(s => s.id === id ? { ...s, [field]: value } : s));
   };
 
-  const applyBulkAction = (type: 'cari' | 'hesap') => {
+  const applyBulkAction = (type: 'cari' | 'hesap' | 'karsi') => {
     setSatirlar(prev => prev.map(s => {
       if (s.selected) {
         if (type === 'cari' && bulkCariId) return { ...s, eslesenCariId: bulkCariId };
         if (type === 'hesap' && bulkMuhasebeKodu) return { ...s, muhasebeKodu: bulkMuhasebeKodu };
+        if (type === 'karsi' && bulkKarsiHesapKodu) return { ...s, karsiHesapKodu: bulkKarsiHesapKodu };
       }
       return s;
     }));
@@ -298,6 +302,7 @@ export function AlisTopluXMLUpload({ isOpen, onClose }: AlisTopluXMLUploadProps)
         tevkifatKodu: s.tevkifatKodu,
         stopajKodu: s.stopajKodu,
         muhasebeKodu: s.muhasebeKodu || undefined,
+        karsiHesapKodu: s.karsiHesapKodu || undefined,
         cariId: s.eslesenCariId || undefined,
         dosyaBase64: s.dosyaBase64,
         dosyaAdi: s.pdfDosyaAdi
@@ -437,6 +442,23 @@ export function AlisTopluXMLUpload({ isOpen, onClose }: AlisTopluXMLUploadProps)
                   <Button variant="secondary" onClick={() => applyBulkAction('hesap')} disabled={!bulkMuhasebeKodu}>Uygula</Button>
                 </div>
               </div>
+
+              <div className="flex-1 min-w-[200px]">
+                <label className="text-xs font-medium text-slate-500 mb-1 block">Toplu Karşı Hesap (Kasa/Banka) Ata</label>
+                <div className="flex gap-2">
+                  <select 
+                    className="flex h-10 w-full items-center justify-between rounded-md border border-slate-200 bg-white px-3 py-2 text-sm ring-offset-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-950 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                    value={bulkKarsiHesapKodu}
+                    onChange={(e) => setBulkKarsiHesapKodu(e.target.value)}
+                  >
+                    <option value="">Seçiniz...</option>
+                    {lucaAccounts.map(a => (
+                      <option key={a.kod} value={a.kod}>{a.kod} - {a.ad}</option>
+                    ))}
+                  </select>
+                  <Button variant="secondary" onClick={() => applyBulkAction('karsi')} disabled={!bulkKarsiHesapKodu}>Uygula</Button>
+                </div>
+              </div>
             </div>
 
             {/* Table */}
@@ -460,6 +482,7 @@ export function AlisTopluXMLUpload({ isOpen, onClose }: AlisTopluXMLUploadProps)
                       <TableHead className="text-right">D. Vergiler</TableHead>
                       <TableHead className="text-right">Toplam</TableHead>
                       <TableHead className="min-w-[180px]">Cari Eşleştirme</TableHead>
+                      <TableHead className="min-w-[150px]">Ödeme (Karşı Hesap)</TableHead>
                       <TableHead className="min-w-[180px]">Gider Hesabı</TableHead>
                       <TableHead className="w-[50px]"></TableHead>
                     </TableRow>
@@ -494,6 +517,14 @@ export function AlisTopluXMLUpload({ isOpen, onClose }: AlisTopluXMLUploadProps)
                             placeholder="Cari Seç (Eşleşmedi)"
                             options={cariler.map(c => ({ value: c.id, label: c.unvan }))}
                             onChange={(val) => updateRow(satir.id, 'eslesenCariId', val)}
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <CellDropdown 
+                            value={satir.karsiHesapKodu || ''}
+                            placeholder="Kasa/Banka Seçin..."
+                            options={lucaAccounts.map(a => ({ value: a.kod, label: `${a.kod} - ${a.ad}` }))}
+                            onChange={(val) => updateRow(satir.id, 'karsiHesapKodu', val)}
                           />
                         </TableCell>
                         <TableCell>
