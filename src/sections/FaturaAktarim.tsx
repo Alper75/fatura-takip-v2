@@ -10,7 +10,7 @@ import { FileSpreadsheet, RefreshCw, Send } from 'lucide-react';
 import { toast } from 'sonner';
 
 export function FaturaAktarim() {
-  const { apiFetch } = useApp();
+  const { apiFetch, cariler } = useApp();
   const [loading, setLoading] = useState(false);
   const [invoices, setInvoices] = useState<any[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -99,10 +99,21 @@ export function FaturaAktarim() {
     const fTarih = formatTarih(fatura.faturaTarihi);
     const evrakNo = fatura.faturaNo || fatura.id.toString();
     const aciklama = isAlis ? (fatura.tedarikciAdi || '') : `${fatura.ad || ''} ${fatura.soyad || ''}`.trim();
-    const cariKod = fatura.muhasebeKodu || (isAlis ? '320' : '120'); // Varsayılan cariler
+    
+    // Cari Kodu (Tedarikçi/Müşteri)
+    let cariKod = isAlis ? '320' : '120';
+    if (fatura.cariId) {
+      const matchedCari = cariler.find(c => c.id === fatura.cariId);
+      if (matchedCari && matchedCari.muhasebeKodu) {
+        cariKod = matchedCari.muhasebeKodu;
+      }
+    }
     
     // Matrah Hesabı (Gelir/Gider)
-    const gelirGiderKod = isAlis ? (isIade ? '600' : '153') : (isIade ? '610' : '600');
+    let gelirGiderKod = isAlis ? (isIade ? '600' : '153') : (isIade ? '610' : '600');
+    if (fatura.muhasebeKodu) {
+      gelirGiderKod = fatura.muhasebeKodu;
+    }
     
     // KDV Hesabı
     const kdvOrani = (fatura.kdvOrani || 20).toString();
