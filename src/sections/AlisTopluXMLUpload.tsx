@@ -167,12 +167,6 @@ export function AlisTopluXMLUpload({ isOpen, onClose }: AlisTopluXMLUploadProps)
             
             if (pastFaturaKdvMached) {
               muhasebeKodu = pastFaturaKdvMached.muhasebeKodu || null;
-            } else {
-              // Fallback to any past invoice if we couldn't find one with matching KDV
-              const anyPastFatura = alisFaturalari.find(f => f.tedarikciVkn === vkn && f.muhasebeKodu);
-              if (anyPastFatura) {
-                muhasebeKodu = anyPastFatura.muhasebeKodu || null;
-              }
             }
 
             const kdvTutari = kdv1 + kdv10 + kdv20;
