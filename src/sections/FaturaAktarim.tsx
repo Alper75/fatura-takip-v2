@@ -54,14 +54,14 @@ export function FaturaAktarim() {
 
       // Filter by Date
       if (startDate) {
-        allInvoices = allInvoices.filter(f => f.fatura_tarihi >= startDate);
+        allInvoices = allInvoices.filter(f => f.faturaTarihi >= startDate);
       }
       if (endDate) {
-        allInvoices = allInvoices.filter(f => f.fatura_tarihi <= endDate);
+        allInvoices = allInvoices.filter(f => f.faturaTarihi <= endDate);
       }
 
       // Sort by Date
-      allInvoices.sort((a, b) => new Date(a.fatura_tarihi).getTime() - new Date(b.fatura_tarihi).getTime());
+      allInvoices.sort((a, b) => new Date(a.faturaTarihi).getTime() - new Date(b.faturaTarihi).getTime());
       
       setInvoices(allInvoices);
       setSelectedIds([]);
@@ -95,17 +95,17 @@ export function FaturaAktarim() {
   const getMuhasebeSatirlari = (fatura: any) => {
     const satirListesi: any[] = [];
     const isAlis = fatura._type === 'ALIS';
-    const isIade = (fatura.fatura_no || '').toUpperCase().includes('İADE') || (fatura.aciklama || '').toUpperCase().includes('İADE');
-    const fTarih = formatTarih(fatura.fatura_tarihi);
-    const evrakNo = fatura.fatura_no || fatura.id.toString();
-    const aciklama = `${fatura.ad || ''} ${fatura.soyad || ''}`.trim();
-    const cariKod = fatura.muhasebe_kodu || (isAlis ? '320' : '120'); // Varsayılan cariler
+    const isIade = (fatura.faturaNo || '').toUpperCase().includes('İADE') || (fatura.aciklama || '').toUpperCase().includes('İADE');
+    const fTarih = formatTarih(fatura.faturaTarihi);
+    const evrakNo = fatura.faturaNo || fatura.id.toString();
+    const aciklama = isAlis ? (fatura.tedarikciAdi || '') : `${fatura.ad || ''} ${fatura.soyad || ''}`.trim();
+    const cariKod = fatura.muhasebeKodu || (isAlis ? '320' : '120'); // Varsayılan cariler
     
     // Matrah Hesabı (Gelir/Gider)
     const gelirGiderKod = isAlis ? (isIade ? '600' : '153') : (isIade ? '610' : '600');
     
     // KDV Hesabı
-    const kdvOrani = (fatura.kdv_orani || 20).toString();
+    const kdvOrani = (fatura.kdvOrani || 20).toString();
     let kdvKodu = '';
     
     if (settings) {
@@ -119,8 +119,8 @@ export function FaturaAktarim() {
 
     // Meblağlar
     const matrah = parseFloat(fatura.matrah) || 0;
-    const kdvTutar = parseFloat(fatura.kdv_tutari) || 0;
-    const toplam = parseFloat(fatura.alinan_ucret) || 0;
+    const kdvTutar = parseFloat(fatura.kdvTutari) || 0;
+    const toplam = isAlis ? (parseFloat(fatura.toplamTutar) || 0) : (parseFloat(fatura.alinanUcret) || 0);
     
     // Base object
     const createRow = (hesap: string, borc: number, alacak: number, detay: string) => ({
@@ -291,19 +291,19 @@ export function FaturaAktarim() {
                       <TableCell className="text-center">
                         <Checkbox checked={selectedIds.includes(inv.id)} onCheckedChange={() => toggleSelection(inv.id)} />
                       </TableCell>
-                      <TableCell>{formatTarih(inv.fatura_tarihi)}</TableCell>
-                      <TableCell className="font-mono text-xs">{inv.fatura_no}</TableCell>
+                      <TableCell>{formatTarih(inv.faturaTarihi)}</TableCell>
+                      <TableCell className="font-mono text-xs">{inv.faturaNo}</TableCell>
                       <TableCell>
                         <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${inv._type === 'ALIS' ? 'bg-red-50 text-red-700' : 'bg-green-50 text-green-700'}`}>
                           {inv._type}
                         </span>
                       </TableCell>
-                      <TableCell className="max-w-[200px] truncate" title={`${inv.ad} ${inv.soyad}`}>
-                        {inv.ad} {inv.soyad}
+                      <TableCell className="max-w-[200px] truncate" title={inv._type === 'ALIS' ? inv.tedarikciAdi : `${inv.ad || ''} ${inv.soyad || ''}`.trim()}>
+                        {inv._type === 'ALIS' ? inv.tedarikciAdi : `${inv.ad || ''} ${inv.soyad || ''}`.trim()}
                       </TableCell>
-                      <TableCell className="text-right">{parseFloat(inv.matrah).toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₺</TableCell>
-                      <TableCell className="text-right">{parseFloat(inv.kdv_tutari).toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₺</TableCell>
-                      <TableCell className="text-right font-semibold">{parseFloat(inv.alinan_ucret).toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₺</TableCell>
+                      <TableCell className="text-right">{(parseFloat(inv.matrah) || 0).toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₺</TableCell>
+                      <TableCell className="text-right">{(parseFloat(inv.kdvTutari) || 0).toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₺</TableCell>
+                      <TableCell className="text-right font-semibold">{(inv._type === 'ALIS' ? (parseFloat(inv.toplamTutar) || 0) : (parseFloat(inv.alinanUcret) || 0)).toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₺</TableCell>
                     </TableRow>
                   ))
                 )}
