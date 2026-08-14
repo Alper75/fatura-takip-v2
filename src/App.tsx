@@ -22,6 +22,7 @@ import KisiselPuantaj from './sections/KisiselPuantaj';
 import { SuperAdminPanel } from './sections/SuperAdminPanel';
 import { StokPage } from './modules/stok/pages/StokPage';
 import { LucaAyarlari } from './sections/LucaAyarlari';
+import { FaturaAktarim } from './sections/FaturaAktarim';
 import { TeklifListesi } from './sections/TeklifListesi';
 import { SiparisListesi } from './sections/SiparisListesi';
 import { MutabakatYonetimi } from './sections/MutabakatYonetimi';
@@ -103,6 +104,8 @@ function AppContent() {
             return <SuperAdminPanel />;
           case 'luca-ayarlari':
             return <LucaAyarlari />;
+          case 'fatura-aktarim':
+            return <FaturaAktarim />;
           case 'teklif-liste':
             return <TeklifListesi />;
           case 'siparis-liste':

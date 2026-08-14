@@ -8,6 +8,8 @@ import {
   CardHeader, 
   CardTitle 
 } from '@/components/ui/card';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { LucaKdvAyarlari } from './LucaKdvAyarlari';
 import { Button } from '@/components/ui/button';
 import { 
   Table, 
@@ -187,8 +189,17 @@ export function LucaAyarlari() {
           <h1 className="text-2xl font-bold text-slate-900">Luca Entegrasyonu</h1>
           <p className="text-slate-500">Hesap planı senkronizasyonu ve veri aktarım ayarları</p>
         </div>
-        <div className="flex items-center gap-2">
-          <Button 
+      </div>
+
+      <Tabs defaultValue="hesap-plani" className="w-full">
+        <TabsList className="mb-4">
+          <TabsTrigger value="hesap-plani">Hesap Planı Senkronizasyonu</TabsTrigger>
+          <TabsTrigger value="kdv-ayarlari">KDV ve Muhasebe Ayarları</TabsTrigger>
+        </TabsList>
+        
+        <TabsContent value="hesap-plani" className="space-y-6">
+          <div className="flex items-center justify-end gap-2 mb-4">
+            <Button 
             onClick={() => window.open('https://www.luca.com.tr', '_blank')}
             variant="outline"
             className="gap-2"
@@ -402,6 +413,12 @@ export function LucaAyarlari() {
           </CardContent>
         </Card>
       </div>
+      </TabsContent>
+      
+      <TabsContent value="kdv-ayarlari">
+        <LucaKdvAyarlari />
+      </TabsContent>
+    </Tabs>
     </div>
   );
 }

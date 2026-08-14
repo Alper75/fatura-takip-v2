@@ -524,6 +524,7 @@ export type ViewType =
   | 'ayarlar' 
   | 'banka-ekstre-liste' 
   | 'kesilecek-fatura-liste'
+  | 'fatura-aktarim'
   | 'personel-liste'
   | 'personel-dashboard'
   | 'izin-yonetimi'

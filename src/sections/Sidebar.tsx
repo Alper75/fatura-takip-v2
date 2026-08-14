@@ -145,6 +145,14 @@ export function Sidebar({ onItemClick }: SidebarProps) {
       adminOnly: true
     },
     {
+      id: 'fatura-aktarim',
+      label: 'Luca Fatura Aktarım',
+      icon: Receipt,
+      onClick: () => setCurrentView('fatura-aktarim'),
+      view: 'fatura-aktarim',
+      adminOnly: true
+    },
+    {
       id: 'sirket-dosyalari',
       label: 'Şirket Dosyaları',
       icon: Briefcase,
