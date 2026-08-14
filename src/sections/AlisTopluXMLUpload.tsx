@@ -139,8 +139,6 @@ export function AlisTopluXMLUpload({ isOpen, onClose }: AlisTopluXMLUploadProps)
             const pastFatura = alisFaturalari.find(f => f.tedarikciVkn === vkn && f.muhasebeKodu);
             if (pastFatura) {
               muhasebeKodu = pastFatura.muhasebeKodu || null;
-            } else if (matchedCari?.muhasebeKodu) {
-              muhasebeKodu = matchedCari.muhasebeKodu;
             }
 
             const kdv1 = typeof data.kdv1 === 'number' ? data.kdv1 : 0;
