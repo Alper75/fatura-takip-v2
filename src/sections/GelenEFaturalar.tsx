@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/card';
 import { Button } from '../components/ui/button';
-import { Download, RefreshCcw } from 'lucide-react';
+import { Download, RefreshCcw, Save } from 'lucide-react';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
+import { toast } from 'react-hot-toast';
 
 export default function GelenEFaturalar() {
   const [loading, setLoading] = useState(false);
+  const [importing, setImporting] = useState<string | null>(null);
   const [faturalar, setFaturalar] = useState<any[]>([]);
 
   useEffect(() => {
@@ -24,11 +26,46 @@ export default function GelenEFaturalar() {
       
       if (data.success) {
         setFaturalar(data.veriler || []);
+      } else {
+        toast.error(data.message || 'Faturalar alınamadı');
       }
     } catch (error) {
       console.error('Gelen faturalar alınamadı:', error);
+      toast.error('Bir hata oluştu');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleDownloadPdf = (uuid: string) => {
+    const token = localStorage.getItem('token');
+    window.open(`/api/elogo/fatura-pdf/${uuid}?token=${token}`, '_blank');
+  };
+
+  const handleImportInvoice = async (fatura: any) => {
+    setImporting(fatura.uuid);
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch('/api/invoices/import-from-logo', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(fatura)
+      });
+      const data = await res.json();
+      
+      if (data.success) {
+        toast.success(data.message);
+      } else {
+        toast.error(data.message);
+      }
+    } catch (error) {
+      console.error('İçe aktarma hatası:', error);
+      toast.error('Fatura kaydedilirken bir hata oluştu');
+    } finally {
+      setImporting(null);
     }
   };
 
@@ -92,13 +129,34 @@ export default function GelenEFaturalar() {
                         <div className="font-medium text-slate-900">{f?.senderName || 'Bilinmiyor'}</div>
                         <div className="text-xs text-slate-500">{f?.senderVkn || '-'}</div>
                       </TableCell>
-                      <TableCell className="font-mono text-xs">{f?.invoiceNumber || '-'}</TableCell>
+                      <TableCell className="font-mono text-xs">{f?.invoiceNumber || f?.faturaNo || '-'}</TableCell>
                       <TableCell>{formatDate(f?.issueDate)}</TableCell>
                       <TableCell className="text-right font-medium">{f?.payableAmount || '-'} {f?.currencyCode}</TableCell>
                       <TableCell className="text-center">
-                        <Button variant="ghost" size="sm" className="text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50">
-                          <Download className="w-4 h-4 mr-2" /> PDF
-                        </Button>
+                        <div className="flex items-center justify-center gap-2">
+                          <Button 
+                            variant="ghost" 
+                            size="sm" 
+                            onClick={() => handleDownloadPdf(f.uuid)}
+                            className="text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50"
+                          >
+                            <Download className="w-4 h-4 mr-1" /> PDF
+                          </Button>
+                          <Button 
+                            variant="default" 
+                            size="sm" 
+                            disabled={importing === f.uuid}
+                            onClick={() => handleImportInvoice(f)}
+                            className="bg-green-600 hover:bg-green-700"
+                          >
+                            {importing === f.uuid ? (
+                              <RefreshCcw className="w-4 h-4 mr-1 animate-spin" /> 
+                            ) : (
+                              <Save className="w-4 h-4 mr-1" />
+                            )}
+                            Kaydet
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))

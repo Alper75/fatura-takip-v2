@@ -8,6 +8,7 @@ import fs from 'fs';
 import xlsx from 'xlsx';
 import nodemailer from 'nodemailer';
 import { v4 as uuidv4 } from 'uuid';
+import jwt from 'jsonwebtoken';
 
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
@@ -338,6 +339,100 @@ app.get('/api/elogo/gelen-faturalar', authMiddleware, async (req, res) => {
   } catch (error) {
     console.error('eLogo gelen faturalar hatası:', error);
     res.status(500).json({ success: false, message: 'Gelen faturalar alınamadı: ' + error.message });
+  }
+});
+
+// PDF İndirme Endpoint'i
+app.get('/api/elogo/fatura-pdf/:uuid', async (req, res) => {
+  try {
+    // We don't have token in header since it's a window.open call. Let's get it from query if needed,
+    // but for simplicity we can allow it if the uuid is valid. Ideally, verify token from req.query.token.
+    const { uuid } = req.params;
+    if (!uuid) return res.status(400).send('UUID eksik');
+    
+    // Auth check via query token
+    const token = req.query.token;
+    if (!token) return res.status(401).send('Yetkisiz');
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'gizli_anahtar');
+    
+    const settings = await getCompanySettings(decoded.companyId);
+    if (!settings.elogo_username || !settings.elogo_password) {
+      return res.status(400).send('Logo ayarları eksik.');
+    }
+    
+    const elogo = new ElogoClient(settings.elogo_username, settings.elogo_password, settings.elogo_is_test === 'true');
+    const docDataRes = await elogo.getDocumentPdf(uuid);
+    
+    if (!docDataRes.success || !docDataRes.data?.document?.binaryData?.Value) {
+       return res.status(404).send('PDF bulunamadı veya Logo reddetti.');
+    }
+    
+    const base64Data = docDataRes.data.document.binaryData.Value;
+    const buffer = Buffer.from(base64Data, 'base64');
+    
+    // Check if it's a zip (PK)
+    if (buffer[0] === 0x50 && buffer[1] === 0x4B) {
+       const zip = new AdmZip(buffer);
+       const zipEntries = zip.getEntries();
+       const pdfEntry = zipEntries.find(e => e.entryName.toLowerCase().endsWith('.pdf'));
+       
+       if (pdfEntry) {
+         res.setHeader('Content-Type', 'application/pdf');
+         res.setHeader('Content-Disposition', `attachment; filename="${uuid}.pdf"`);
+         return res.send(pdfEntry.getData());
+       } else {
+         return res.status(404).send('ZIP içinde PDF bulunamadı.');
+       }
+    }
+    
+    // If it's already a PDF (starts with %PDF)
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${uuid}.pdf"`);
+    res.send(buffer);
+  } catch (error) {
+    console.error('PDF indirme hatası:', error);
+    res.status(500).send('Sunucu hatası: ' + error.message);
+  }
+});
+
+// Logo'dan Gelen Faturayı Sisteme Kaydet
+app.post('/api/invoices/import-from-logo', authMiddleware, async (req, res) => {
+  const invoice = req.body;
+  if (!invoice || !invoice.faturaNo) {
+    return res.status(400).json({ success: false, message: 'Geçersiz fatura verisi.' });
+  }
+  
+  try {
+    const { faturaNo, senderName, senderVkn, issueDate, payableAmount, currencyCode, uuid } = invoice;
+    const islemTarihi = issueDate ? issueDate.split('T')[0] : new Date().toISOString().split('T')[0];
+    
+    // Check if invoice already exists
+    const existing = client.execute({
+      sql: 'SELECT id FROM invoices WHERE company_id = ? AND fatura_no = ? AND vkn_tckn = ?',
+      args: [req.user.companyId, faturaNo, senderVkn]
+    });
+    
+    if (existing.rows && existing.rows.length > 0) {
+      return res.status(400).json({ success: false, message: 'Bu fatura zaten sisteme kaydedilmiş.' });
+    }
+    
+    // Insert into DB
+    const id = uuidv4();
+    client.execute({
+      sql: `INSERT INTO invoices 
+        (id, company_id, fatura_no, type, cari_ad, vkn_tckn, vergi_dairesi, 
+         islem_tarihi, matrah, kdv_orani, kdv_tutari, genel_toplam, para_birimi, aciklama) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [
+        id, req.user.companyId, faturaNo, 'ALIS', senderName, senderVkn, '', 
+        islemTarihi, 0, 0, 0, payableAmount, currencyCode || 'TRY', 'eLogo üzerinden içe aktarıldı (UUID: ' + uuid + ')'
+      ]
+    });
+    
+    res.json({ success: true, message: 'Fatura başarıyla kaydedildi.', data: { id, faturaNo } });
+  } catch (error) {
+    console.error('Fatura import hatası:', error);
+    res.status(500).json({ success: false, message: 'Veritabanına kaydedilirken hata oluştu: ' + error.message });
   }
 });
 
