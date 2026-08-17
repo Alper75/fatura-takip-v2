@@ -108,7 +108,7 @@ export function SatisFaturaListesi() {
     toast.loading('eLogo\'ya gönderiliyor...', { id: `elogo-${faturaId}` });
     try {
       const token = localStorage.getItem('token');
-      const res = await fetch(`http://localhost:5000/api/elogo/fatura-gonder/${faturaId}`, {
+      const res = await fetch(`/api/elogo/fatura-gonder/${faturaId}`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}` }
       });

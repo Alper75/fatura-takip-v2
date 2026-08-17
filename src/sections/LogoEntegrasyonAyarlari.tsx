@@ -24,7 +24,7 @@ export default function LogoEntegrasyonAyarlari() {
     setLoading(true);
     try {
       const token = localStorage.getItem('token');
-      const res = await fetch('http://localhost:5000/api/elogo/ayarlar', {
+      const res = await fetch('/api/elogo/ayarlar', {
         headers: {
           'Authorization': `Bearer ${token}`
         }
@@ -47,7 +47,7 @@ export default function LogoEntegrasyonAyarlari() {
     setMessage({ text: '', type: '' });
     try {
       const token = localStorage.getItem('token');
-      const res = await fetch('http://localhost:5000/api/elogo/ayarlar', {
+      const res = await fetch('/api/elogo/ayarlar', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
