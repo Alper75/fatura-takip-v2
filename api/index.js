@@ -76,7 +76,7 @@ app.get('/api/elogo/ayarlar', authMiddleware, async (req, res) => {
     const placeholders = keys.map(() => '?').join(',');
     const rs = await client.execute({
       sql: `SELECT setting_key, setting_value FROM company_settings WHERE company_id = ? AND setting_key IN (${placeholders})`,
-      args: [req.user.company_id, ...keys]
+      args: [req.user.companyId, ...keys]
     });
     const settings = { elogo_is_test: 'false' };
     for (const row of rs.rows) {
@@ -99,13 +99,13 @@ app.post('/api/elogo/ayarlar', authMiddleware, async (req, res) => {
       await client.execute({
         sql: `INSERT INTO company_settings (company_id, setting_key, setting_value) VALUES (?, ?, ?)
               ON CONFLICT(company_id, setting_key) DO UPDATE SET setting_value = excluded.setting_value`,
-        args: [req.user.company_id, key, value]
+        args: [req.user.companyId, key, value]
       });
     }
     res.json({ success: true, message: 'eLogo ayarları kaydedildi.' });
   } catch (error) {
     console.error('eLogo ayarları kaydetme hatası:', error);
-    res.status(500).json({ success: false, message: 'Ayarlar kaydedilemedi.' });
+    res.status(500).json({ success: false, message: 'Ayarlar kaydedilemedi: ' + error.message });
   }
 });
 
@@ -113,7 +113,7 @@ app.post('/api/elogo/ayarlar', authMiddleware, async (req, res) => {
 app.post('/api/elogo/fatura-gonder/:id', authMiddleware, async (req, res) => {
   try {
     const faturaId = req.params.id;
-    const companyId = req.user.company_id;
+    const companyId = req.user.companyId;
     
     // Fetch settings
     const keys = ['elogo_username', 'elogo_password', 'elogo_is_test'];
@@ -221,7 +221,7 @@ app.post('/api/elogo/fatura-gonder/:id', authMiddleware, async (req, res) => {
 
 app.get('/api/elogo/gelen-faturalar', authMiddleware, async (req, res) => {
   try {
-    const companyId = req.user.company_id;
+    const companyId = req.user.companyId;
     
     // Fetch settings
     const keys = ['elogo_username', 'elogo_password', 'elogo_is_test'];
