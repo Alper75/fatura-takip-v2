@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../co
 import { Button } from '../components/ui/button';
 import { Download, RefreshCcw, Save } from 'lucide-react';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
-import { toast } from 'react-hot-toast';
+import { toast } from 'sonner';
 
 export default function GelenEFaturalar() {
   const [loading, setLoading] = useState(false);
