@@ -158,8 +158,10 @@ export class ElogoClient {
 
     const args = {
       sessionID: this.sessionId,
-      uuid: uuid
-      // paramList is optional, omitting it gives default format (ZIP)
+      uuid: uuid,
+      paramList: {
+        'string': [ 'DOCUMENTTYPE=EINVOICE' ]
+      }
     };
 
     try {
