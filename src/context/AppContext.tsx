@@ -201,6 +201,8 @@ interface AppContextType {
   deleteSiparis: (id: string) => Promise<{ success: boolean; message?: string }>;
   apiFetch: (path: string, options?: RequestInit) => Promise<any>;
   fetchCariler: () => Promise<void>;
+  fetchAlisFaturalari: () => Promise<void>;
+  fetchSatisFaturalari: () => Promise<void>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -1703,6 +1705,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  const fetchAlisFaturalari = useCallback(async () => {
+    if (!isAuthenticated) return;
+    try {
+      const res = await apiFetch('/api/alis-faturalari');
+      if (res?.success) setAlisFaturalari(res.data || []);
+    } catch (e) { console.error("fetchAlisFaturalari error:", e); }
+  }, [isAuthenticated]);
+
+  const fetchSatisFaturalari = useCallback(async () => {
+    if (!isAuthenticated) return;
+    try {
+      const res = await apiFetch('/api/satis-faturalari');
+      if (res?.success) setSatisFaturalari(res.data || []);
+    } catch (e) { console.error("fetchSatisFaturalari error:", e); }
+  }, [isAuthenticated]);
+
   const loadAllData = useCallback(async () => {
     if (!isAuthenticated) return;
     try {
@@ -1895,7 +1913,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         updateSiparis,
         deleteSiparis,
         apiFetch,
-        fetchCariler
+        fetchCariler,
+        fetchAlisFaturalari,
+        fetchSatisFaturalari
       }}
     >
       {children}

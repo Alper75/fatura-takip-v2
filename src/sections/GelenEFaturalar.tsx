@@ -4,11 +4,13 @@ import { Button } from '../components/ui/button';
 import { Download, RefreshCcw, Save } from 'lucide-react';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { toast } from 'sonner';
+import { useApp } from '../context/AppContext';
 
 export default function GelenEFaturalar() {
   const [loading, setLoading] = useState(false);
   const [importing, setImporting] = useState<string | null>(null);
   const [faturalar, setFaturalar] = useState<any[]>([]);
+  const { fetchAlisFaturalari } = useApp();
 
   useEffect(() => {
     fetchFaturalar();
@@ -58,6 +60,7 @@ export default function GelenEFaturalar() {
       
       if (data.success) {
         toast.success(data.message);
+        fetchAlisFaturalari(); // Listeyi güncelle
       } else {
         toast.error(data.message);
       }
