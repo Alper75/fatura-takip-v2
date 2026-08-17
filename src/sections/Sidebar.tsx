@@ -19,7 +19,9 @@ import {
   Building2,
   Package,
   FileSignature,
-  ClipboardList
+  ClipboardList,
+  Settings,
+  Download
 } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
 import { cn } from '@/lib/utils';
@@ -94,6 +96,14 @@ export function Sidebar({ onItemClick }: SidebarProps) {
       icon: Receipt,
       onClick: () => setCurrentView('alis-liste'),
       view: 'alis-liste',
+      adminOnly: true
+    },
+    {
+      id: 'gelen-efaturalar',
+      label: 'Gelen E-Faturalar (Logo)',
+      icon: Download,
+      onClick: () => setCurrentView('gelen-efaturalar'),
+      view: 'gelen-efaturalar',
       adminOnly: true
     },
     {
@@ -182,6 +192,14 @@ export function Sidebar({ onItemClick }: SidebarProps) {
       icon: Calculator,
       onClick: () => setCurrentView('luca-ayarlari'),
       view: 'luca-ayarlari',
+      adminOnly: true
+    },
+    {
+      id: 'logo-ayarlari',
+      label: 'Logo (eLogo) Ayarları',
+      icon: Settings,
+      onClick: () => setCurrentView('logo-ayarlari'),
+      view: 'logo-ayarlari',
       adminOnly: true
     },
     {

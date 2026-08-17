@@ -50,7 +50,8 @@ import {
   Calendar,
   CreditCard,
   Receipt,
-  Edit
+  Edit,
+  Send
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { toast } from 'sonner';
@@ -99,6 +100,33 @@ export function SatisFaturaListesi() {
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const dekontInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const xmlInputRef = useRef<HTMLInputElement | null>(null);
+
+  const [sendingLogo, setSendingLogo] = useState<string | null>(null);
+
+  const handleSendToLogo = async (faturaId: string) => {
+    setSendingLogo(faturaId);
+    toast.loading('eLogo\'ya gönderiliyor...', { id: `elogo-${faturaId}` });
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch(`http://localhost:5000/api/elogo/fatura-gonder/${faturaId}`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (data.success) {
+        toast.success(data.message || 'Fatura başarıyla e-Fatura olarak iletildi!', { id: `elogo-${faturaId}` });
+        // Reload list
+        window.location.reload(); 
+      } else {
+        toast.error(data.message || 'Gönderim başarısız oldu.', { id: `elogo-${faturaId}` });
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error('Sunucu ile iletişim kurulamadı.', { id: `elogo-${faturaId}` });
+    } finally {
+      setSendingLogo(null);
+    }
+  };
 
   const handleXmlFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
@@ -644,6 +672,22 @@ export function SatisFaturaListesi() {
                             title="Faturayı Düzenle"
                           >
                             <Edit className="w-4 h-4" />
+                          </Button>
+
+                          {/* Logo'ya Gönder */}
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleSendToLogo(fatura.id)}
+                            disabled={sendingLogo === fatura.id}
+                            className="text-slate-400 hover:text-orange-600 hover:bg-orange-50"
+                            title="e-Fatura Gönder (Logo)"
+                          >
+                            {sendingLogo === fatura.id ? (
+                              <div className="w-4 h-4 border-2 border-orange-500 border-t-transparent rounded-full animate-spin" />
+                            ) : (
+                              <Send className="w-4 h-4" />
+                            )}
                           </Button>
 
                           {/* Silme */}

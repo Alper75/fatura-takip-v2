@@ -16,6 +16,9 @@ import { XMLParser } from 'fast-xml-parser';
 import AdmZip from 'adm-zip';
 import crypto from 'crypto';
 
+import { ElogoClient } from './services/elogoClient.js';
+import { UblBuilder } from './services/ublBuilder.js';
+
 import { client, initDb } from './db.js';
 import { generateToken, authMiddleware, adminMiddleware, superAdminMiddleware, bcrypt } from './auth.js';
 
@@ -65,6 +68,195 @@ const parser = new XMLParser({
   removeNSPrefix: true,
   parseTagValue: false, // IDs like VKN/TCKN won't be converted to numbers (prevents .0)
 });
+
+// --- eLogo Settings ---
+app.get('/api/elogo/ayarlar', authMiddleware, async (req, res) => {
+  try {
+    const keys = ['elogo_username', 'elogo_password', 'elogo_is_test'];
+    const placeholders = keys.map(() => '?').join(',');
+    const rs = await client.execute({
+      sql: `SELECT setting_key, setting_value FROM company_settings WHERE company_id = ? AND setting_key IN (${placeholders})`,
+      args: [req.user.company_id, ...keys]
+    });
+    const settings = { elogo_is_test: 'false' };
+    for (const row of rs.rows) {
+      settings[row.setting_key] = row.setting_value;
+    }
+    res.json({ success: true, settings });
+  } catch (error) {
+    console.error('eLogo ayarları okuma hatası:', error);
+    res.status(500).json({ success: false, message: 'Ayarlar okunamadı.' });
+  }
+});
+
+app.post('/api/elogo/ayarlar', authMiddleware, async (req, res) => {
+  try {
+    const { elogo_username, elogo_password, elogo_is_test } = req.body;
+    const settings = { elogo_username, elogo_password, elogo_is_test: elogo_is_test ? 'true' : 'false' };
+    
+    for (const [key, value] of Object.entries(settings)) {
+      if (value === undefined) continue;
+      await client.execute({
+        sql: `INSERT INTO company_settings (company_id, setting_key, setting_value) VALUES (?, ?, ?)
+              ON CONFLICT(company_id, setting_key) DO UPDATE SET setting_value = excluded.setting_value`,
+        args: [req.user.company_id, key, value]
+      });
+    }
+    res.json({ success: true, message: 'eLogo ayarları kaydedildi.' });
+  } catch (error) {
+    console.error('eLogo ayarları kaydetme hatası:', error);
+    res.status(500).json({ success: false, message: 'Ayarlar kaydedilemedi.' });
+  }
+});
+
+
+app.post('/api/elogo/fatura-gonder/:id', authMiddleware, async (req, res) => {
+  try {
+    const faturaId = req.params.id;
+    const companyId = req.user.company_id;
+    
+    // Fetch settings
+    const keys = ['elogo_username', 'elogo_password', 'elogo_is_test'];
+    const placeholders = keys.map(() => '?').join(',');
+    const rsSettings = await client.execute({
+      sql: `SELECT setting_key, setting_value FROM company_settings WHERE company_id = ? AND setting_key IN (${placeholders})`,
+      args: [companyId, ...keys]
+    });
+    const settings = { elogo_is_test: 'false' };
+    for (const row of rsSettings.rows) settings[row.setting_key] = row.setting_value;
+    
+    if (!settings.elogo_username || !settings.elogo_password) {
+      return res.status(400).json({ success: false, message: 'Logo ayarları eksik. Lütfen önce ayarları yapın.' });
+    }
+
+    // Fetch Invoice
+    const rsFatura = await client.execute({
+      sql: 'SELECT * FROM satis_faturalari WHERE id = ? AND company_id = ?',
+      args: [faturaId, companyId]
+    });
+    if (rsFatura.rows.length === 0) return res.status(404).json({ success: false, message: 'Fatura bulunamadı' });
+    const faturaData = rsFatura.rows[0];
+
+    // Fetch Customer
+    const rsCari = await client.execute({
+      sql: 'SELECT * FROM cariler WHERE id = ? AND company_id = ?',
+      args: [faturaData.cari_id, companyId]
+    });
+    const customer = rsCari.rows[0] || {};
+
+    // Fetch Company details (Supplier)
+    const rsCompany = await client.execute({
+      sql: 'SELECT * FROM companies WHERE id = ?',
+      args: [companyId]
+    });
+    const supplier = rsCompany.rows[0] || {};
+
+    // Fetch Items
+    const rsItems = await client.execute({
+      sql: 'SELECT * FROM satis_fatura_kalemleri WHERE fatura_id = ?',
+      args: [faturaId]
+    });
+    
+    const faturaObj = {
+      fatura_no: faturaData.fatura_no || `FAT${Date.now()}`,
+      fatura_tarihi: faturaData.tarih || new Date().toISOString(),
+      fatura_senaryo: 'TICARIFATURA',
+      para_birimi: 'TRY',
+      toplam_tutar: Number(faturaData.toplam_tutar || 0),
+      toplam_kdv_tutar: Number(faturaData.toplam_kdv || 0),
+      genel_toplam: Number(faturaData.genel_toplam || 0)
+    };
+    
+    const customerObj = {
+      firma_adi: customer.unvan,
+      vkn: customer.vkn_tckn,
+      vergi_dairesi: customer.vergi_dairesi,
+      adres: customer.adres,
+      il: customer.il,
+      ilce: customer.ilce
+    };
+    
+    const supplierObj = {
+      firma_adi: supplier.name,
+      vkn: supplier.tax_no || '11111111111',
+      vergi_dairesi: 'Merkez',
+      adres: supplier.address
+    };
+    
+    const items = rsItems.rows.map(row => ({
+      urun_adi: row.aciklama,
+      miktar: Number(row.miktar || 0),
+      birim_fiyat: Number(row.birim_fiyat || 0),
+      kdv_orani: Number(row.kdv_orani || 0)
+    }));
+
+    const ublXml = UblBuilder.buildInvoiceXml(faturaObj, supplierObj, customerObj, items);
+    
+    // Zip XML
+    const zip = new AdmZip();
+    const xmlFilename = `${faturaObj.fatura_no}.xml`;
+    zip.addFile(xmlFilename, Buffer.from(ublXml, 'utf8'));
+    const zipBuffer = zip.toBuffer();
+    const zipBase64 = zipBuffer.toString('base64');
+    
+    // eLogo Client
+    const elogo = new ElogoClient(settings.elogo_username, settings.elogo_password, settings.elogo_is_test === 'true');
+    const sendRes = await elogo.sendDocument('EINVOICE', zipBase64, `${faturaObj.fatura_no}.zip`);
+    
+    if (sendRes.success) {
+      await client.execute({
+        sql: 'UPDATE satis_faturalari SET durum = ?, gib_uuid = ? WHERE id = ?',
+        args: ['e-Fatura Gönderildi', sendRes.refId, faturaId]
+      });
+      return res.json({ success: true, message: 'Fatura eLogo üzerinden başarıyla gönderildi.', refId: sendRes.refId });
+    } else {
+      return res.status(500).json({ success: false, message: sendRes.message });
+    }
+
+  } catch (error) {
+    console.error('eLogo fatura gönderim hatası:', error);
+    res.status(500).json({ success: false, message: 'Fatura gönderilemedi.' });
+  }
+});
+
+app.get('/api/elogo/gelen-faturalar', authMiddleware, async (req, res) => {
+  try {
+    const companyId = req.user.company_id;
+    
+    // Fetch settings
+    const keys = ['elogo_username', 'elogo_password', 'elogo_is_test'];
+    const placeholders = keys.map(() => '?').join(',');
+    const rsSettings = await client.execute({
+      sql: `SELECT setting_key, setting_value FROM company_settings WHERE company_id = ? AND setting_key IN (${placeholders})`,
+      args: [companyId, ...keys]
+    });
+    const settings = { elogo_is_test: 'false' };
+    for (const row of rsSettings.rows) settings[row.setting_key] = row.setting_value;
+    
+    if (!settings.elogo_username || !settings.elogo_password) {
+      return res.status(400).json({ success: false, message: 'Logo ayarları eksik. Lütfen önce ayarları yapın.' });
+    }
+
+    const elogo = new ElogoClient(settings.elogo_username, settings.elogo_password, settings.elogo_is_test === 'true');
+    
+    const endDate = new Date().toISOString();
+    const beginDateObj = new Date();
+    beginDateObj.setDate(beginDateObj.getDate() - 30); // Last 30 days
+    const beginDate = beginDateObj.toISOString();
+
+    const response = await elogo.getDocumentList('EINVOICE', beginDate, endDate, 2);
+    if (!response.success) {
+      return res.status(500).json({ success: false, message: response.message });
+    }
+    
+    // response.data contains the list of documents
+    res.json({ success: true, veriler: response.data?.GetDocumentListResult?.document?.map ? response.data.GetDocumentListResult.document : [] });
+  } catch (error) {
+    console.error('eLogo gelen faturalar hatası:', error);
+    res.status(500).json({ success: false, message: 'Gelen faturalar alınamadı.' });
+  }
+});
+
 
 app.post('/api/invoices/parse-xml', authMiddleware, upload.single('file'), async (req, res) => {
   if (!req.file) return res.status(400).json({ success: false, message: 'XML dosyası gereklidir.' });

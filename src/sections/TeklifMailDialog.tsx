@@ -33,16 +33,6 @@ export function TeklifMailDialog({ open, onOpenChange, teklif }: Props) {
   const [smtpSecure, setSmtpSecure] = useState(true);
   const [template, setTemplate] = useState('Sayın [müşteri],\n\nSize özel hazırladığımız teklifimizi aşağıdaki linkten inceleyebilirsiniz:\n\n[link]\n\nİyi çalışmalar dileriz.');
 
-  useEffect(() => {
-    if (open) {
-      loadSettings();
-      if (teklif) {
-        setTo(teklif.musteri_eposta || '');
-        setSubject(`Teklif Detayınız - ${teklif.teklif_no}`);
-      }
-    }
-  }, [open, teklif]);
-
   const loadSettings = async () => {
     try {
       const res = await apiFetch('/api/settings/smtp');
@@ -58,6 +48,16 @@ export function TeklifMailDialog({ open, onOpenChange, teklif }: Props) {
       console.error('SMTP ayarları yüklenemedi', error);
     }
   };
+
+  useEffect(() => {
+    if (open) {
+      loadSettings();
+      if (teklif) {
+        setTo(teklif.musteri_eposta || '');
+        setSubject(`Teklif Detayınız - ${teklif.teklif_no}`);
+      }
+    }
+  }, [open, teklif]);
 
   useEffect(() => {
     if (teklif && template) {

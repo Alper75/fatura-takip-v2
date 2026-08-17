@@ -205,7 +205,7 @@ export interface CekSenet {
   aciklama?: string;
 }
 
-export interface CekSenetFormData extends Omit<CekSenet, 'id'> {}
+export type CekSenetFormData = Omit<CekSenet, 'id'>;
 
 // ==================== BANKA HESAPLARI ====================
 export interface BankaHesabi {
@@ -221,7 +221,7 @@ export interface BankaHesabi {
   muhasebeKodu?: string;
 }
 
-export interface BankaHesabiFormData extends Omit<BankaHesabi, 'id'> {}
+export type BankaHesabiFormData = Omit<BankaHesabi, 'id'>;
 
 // ==================== KULLANICI ====================
 export interface User {
