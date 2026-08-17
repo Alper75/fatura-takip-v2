@@ -160,7 +160,7 @@ export class ElogoClient {
       sessionID: this.sessionId,
       uuid: uuid,
       paramList: {
-        'string': [ 'DOCUMENTTYPE=EINVOICE' ]
+        'string': [ 'DOCUMENTTYPE=EINVOICE', 'DATAFORMAT=UBL' ]
       }
     };
 
