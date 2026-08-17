@@ -15,6 +15,12 @@ export class ElogoClient {
   async init() {
     if (!this.client) {
       this.client = await soap.createClientAsync(this.apiUrl);
+      // Logo'nun production sunucusu (IIS), WSDL'deki tüm namespace'lerin Envelope'a
+      // eklenmesi durumunda header boyutu limiti nedeniyle 400 Bad Request fırlatır.
+      // Bunu engellemek için node-soap'un otomatik oluşturduğu Envelope namespace'lerini temizliyoruz.
+      if (this.client.wsdl) {
+        this.client.wsdl.xmlnsInEnvelope = '';
+      }
     }
   }
 
