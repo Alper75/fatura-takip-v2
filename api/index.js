@@ -245,15 +245,20 @@ app.get('/api/elogo/gelen-faturalar', authMiddleware, async (req, res) => {
     const beginDate = beginDateObj.toISOString();
 
     const response = await elogo.getDocumentList('EINVOICE', beginDate, endDate, 2);
+    console.log('eLogo GetDocumentList response:', JSON.stringify(response, null, 2));
+
     if (!response.success) {
       return res.status(500).json({ success: false, message: response.message });
     }
     
     // response.data contains the list of documents
-    res.json({ success: true, veriler: response.data?.GetDocumentListResult?.document?.map ? response.data.GetDocumentListResult.document : [] });
+    const docList = response.data?.GetDocumentListResult?.document || response.data?.GetDocumentListResult?.documentList?.document || [];
+    const documents = Array.isArray(docList) ? docList : (docList ? [docList] : []);
+    
+    res.json({ success: true, veriler: documents });
   } catch (error) {
     console.error('eLogo gelen faturalar hatası:', error);
-    res.status(500).json({ success: false, message: 'Gelen faturalar alınamadı.' });
+    res.status(500).json({ success: false, message: 'Gelen faturalar alınamadı: ' + error.message });
   }
 });
 
