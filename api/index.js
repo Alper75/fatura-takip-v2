@@ -392,7 +392,13 @@ app.get('/api/elogo/fatura-pdf/:uuid', async (req, res) => {
     if (!token) return res.status(401).send('Yetkisiz');
     const decoded = jwt.verify(token, process.env.JWT_SECRET || 'gizli_anahtar');
     
-    const settings = await getCompanySettings(decoded.companyId);
+    // Ayarları getir
+    const settingsRes = await client.execute({
+      sql: 'SELECT setting_key, setting_value FROM company_settings WHERE company_id = ?',
+      args: [decoded.companyId]
+    });
+    const settings = settingsRes.rows.reduce((acc, row) => ({ ...acc, [row.setting_key]: row.setting_value }), {});
+    
     if (!settings.elogo_username || !settings.elogo_password) {
       return res.status(400).send('Logo ayarları eksik.');
     }
@@ -444,8 +450,8 @@ app.post('/api/invoices/import-from-logo', authMiddleware, async (req, res) => {
     const islemTarihi = issueDate ? issueDate.split('T')[0] : new Date().toISOString().split('T')[0];
     
     // Check if invoice already exists
-    const existing = client.execute({
-      sql: 'SELECT id FROM invoices WHERE company_id = ? AND fatura_no = ? AND vkn_tckn = ?',
+    const existing = await client.execute({
+      sql: 'SELECT id FROM alis_faturalari WHERE company_id = ? AND fatura_no = ? AND tedarikci_vkn = ?',
       args: [req.user.companyId, faturaNo, senderVkn]
     });
     
@@ -455,14 +461,21 @@ app.post('/api/invoices/import-from-logo', authMiddleware, async (req, res) => {
     
     // Insert into DB
     const id = uuidv4();
-    client.execute({
-      sql: `INSERT INTO invoices 
-        (id, company_id, fatura_no, type, cari_ad, vkn_tckn, vergi_dairesi, 
-         islem_tarihi, matrah, kdv_orani, kdv_tutari, genel_toplam, para_birimi, aciklama) 
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    await client.execute({
+      sql: `INSERT INTO alis_faturalari 
+        (id, fatura_no, fatura_tarihi, tedarikci_adi, tedarikci_vkn, mal_hizmet_adi, 
+         toplam_tutar, kdv_orani, kdv_tutari, matrah, tevkifat_orani, tevkifat_tutari, 
+         stopaj_orani, stopaj_tutari, muhasebe_kodu, karsi_hesap_kodu, pdf_dosya, pdf_dosya_adi, 
+         odeme_tarihi, odeme_durumu, odeme_dekontu, odeme_dekontu_adi, cari_id, vade_tarihi, 
+         aciklama, olusturma_tarihi, company_id, kdv1, kdv10, kdv20) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       args: [
-        id, req.user.companyId, faturaNo, 'ALIS', senderName, senderVkn, '', 
-        islemTarihi, matrah || 0, kdvOrani || 0, kdvTutari || 0, payableAmount, currencyCode || 'TRY', 'eLogo üzerinden içe aktarıldı (UUID: ' + uuid + ')'
+        id, faturaNo, islemTarihi, senderName, senderVkn, 'eLogo Gelen Fatura',
+        payableAmount, kdvOrani || 0, kdvTutari || 0, matrah || 0, '0', 0,
+        '0', 0, null, null, null, null,
+        null, 'odenmedi', null, null, null, null,
+        'eLogo üzerinden içe aktarıldı (UUID: ' + uuid + ')', new Date().toISOString().split('T')[0], req.user.companyId,
+        (kdvOrani === 1 ? kdvTutari : 0), (kdvOrani === 10 ? kdvTutari : 0), (kdvOrani === 20 ? kdvTutari : 0)
       ]
     });
     
