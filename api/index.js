@@ -252,10 +252,17 @@ app.get('/api/elogo/gelen-faturalar', authMiddleware, async (req, res) => {
     }
     
     // response.data contains the list of documents
-    const docList = response.data?.GetDocumentListResult?.document || response.data?.GetDocumentListResult?.documentList?.document || [];
-    const documents = Array.isArray(docList) ? docList : (docList ? [docList] : []);
+    const docListRaw = response.data?.docList?.Document || response.data?.docList?.document || response.data?.GetDocumentListResult?.document || [];
+    const documents = Array.isArray(docListRaw) ? docListRaw : (docListRaw ? [docListRaw] : []);
     
-    res.json({ success: true, veriler: documents });
+    // Sadece başarılı olanları (veya parse edilebilenleri) dönelim
+    const formattedDocs = documents.map(d => ({
+      ...d,
+      faturaNo: d.documentId,
+      uuid: d.documentUuid
+    }));
+
+    res.json({ success: true, veriler: formattedDocs, rawLogoResponse: response.data });
   } catch (error) {
     console.error('eLogo gelen faturalar hatası:', error);
     res.status(500).json({ success: false, message: 'Gelen faturalar alınamadı: ' + error.message });

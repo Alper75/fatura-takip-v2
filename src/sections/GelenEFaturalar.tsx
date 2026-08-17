@@ -20,6 +20,8 @@ export default function GelenEFaturalar() {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       const data = await res.json();
+      console.log("=== LOGO RAW RESPONSE ===", data.rawLogoResponse);
+      
       if (data.success) {
         setFaturalar(data.veriler || []);
       }
