@@ -343,7 +343,7 @@ app.get('/api/elogo/gelen-faturalar', authMiddleware, async (req, res) => {
             const percent = parseFloat(getText(sub['Percent'])) || parseFloat(getText(taxCat?.['Percent'])) || 0;
             const amount = parseFloat(getText(sub['TaxAmount'])) || 0;
             
-            if (taxCode === '0015' || !taxCode) { // 0015 KDV Kodudur
+            if (taxCode === '0015' || taxCode === '15' || taxCode === 15 || !taxCode) { // 0015 KDV Kodudur
               kdvTutari += amount;
               kdvOrani = percent; // Eğer birden fazla oran varsa sonuncuyu veya ağırlıklıyı alırız, basitlik için tek oran varsayımı
             }
@@ -420,21 +420,17 @@ app.get('/api/elogo/fatura-pdf/:uuid', async (req, res) => {
        const pdfEntry = zipEntries.find(e => e.entryName.toLowerCase().endsWith('.pdf'));
        
        if (pdfEntry) {
-         res.setHeader('Content-Type', 'application/pdf');
-         res.setHeader('Content-Disposition', `attachment; filename="${uuid}.pdf"`);
-         return res.send(pdfEntry.getData());
+         return res.json({ success: true, base64: pdfEntry.getData().toString('base64'), filename: `${uuid}.pdf` });
        } else {
-         return res.status(404).send('ZIP içinde PDF bulunamadı.');
+         return res.status(404).json({ success: false, message: 'ZIP içinde PDF bulunamadı.' });
        }
     }
     
     // If it's already a PDF (starts with %PDF)
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename="${uuid}.pdf"`);
-    res.send(buffer);
+    return res.json({ success: true, base64: buffer.toString('base64'), filename: `${uuid}.pdf` });
   } catch (error) {
     console.error('PDF indirme hatası:', error);
-    res.status(500).send('Sunucu hatası: ' + error.message);
+    res.status(500).json({ success: false, message: 'Sunucu hatası: ' + error.message });
   }
 });
 

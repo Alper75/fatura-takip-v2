@@ -39,9 +39,34 @@ export default function GelenEFaturalar() {
     }
   };
 
-  const handleDownloadPdf = (uuid: string) => {
-    const token = localStorage.getItem('token');
-    window.open(`/api/elogo/fatura-pdf/${uuid}?token=${token}`, '_blank');
+  const handleDownloadPdf = async (uuid: string) => {
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch(`/api/elogo/fatura-pdf/${uuid}?token=${token}`);
+      const data = await res.json();
+      
+      if (data.success && data.base64) {
+        // Decode base64 to blob
+        const byteCharacters = atob(data.base64);
+        const byteNumbers = new Array(byteCharacters.length);
+        for (let i = 0; i < byteCharacters.length; i++) {
+          byteNumbers[i] = byteCharacters.charCodeAt(i);
+        }
+        const byteArray = new Uint8Array(byteNumbers);
+        const blob = new Blob([byteArray], { type: 'application/pdf' });
+        
+        // Trigger download
+        const link = document.createElement('a');
+        link.href = window.URL.createObjectURL(blob);
+        link.download = data.filename || `${uuid}.pdf`;
+        link.click();
+      } else {
+        toast.error(data.message || 'PDF indirilemedi');
+      }
+    } catch (error) {
+      console.error('PDF indirme hatası:', error);
+      toast.error('PDF indirilirken hata oluştu');
+    }
   };
 
   const handleImportInvoice = async (fatura: any) => {
