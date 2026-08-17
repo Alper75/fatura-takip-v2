@@ -151,4 +151,25 @@ export class ElogoClient {
       return { success: false, message: error.message };
     }
   }
+
+  async getDocumentData(uuid) {
+    await this.init();
+    if (!this.sessionId) await this.login();
+
+    const args = {
+      sessionID: this.sessionId,
+      uuid: uuid,
+      paramList: {
+        'string': [ 'FORMAT=UBL' ]
+      }
+    };
+
+    try {
+      const [result] = await this.client.GetDocumentDataAsync(args);
+      return { success: true, data: result };
+    } catch (error) {
+      console.error('eLogo GetDocumentData Error:', error);
+      return { success: false, message: error.message };
+    }
+  }
 }

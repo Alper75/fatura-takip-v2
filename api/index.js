@@ -256,11 +256,81 @@ app.get('/api/elogo/gelen-faturalar', authMiddleware, async (req, res) => {
     const documents = Array.isArray(docListRaw) ? docListRaw : (docListRaw ? [docListRaw] : []);
     
     // Sadece başarılı olanları (veya parse edilebilenleri) dönelim
-    const formattedDocs = documents.map(d => ({
-      ...d,
-      faturaNo: d.documentId,
-      uuid: d.documentUuid
-    }));
+    
+    const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_' });
+    
+    // Concurrency limit for requests to avoid Logo rate limiting
+    const fetchInvoiceDetails = async (doc) => {
+      try {
+        const uuid = doc.documentUuid || doc.uuid;
+        if (!uuid) return { ...doc, senderName: 'Geçersiz UUID', faturaNo: doc.documentId || '-' };
+        
+        const docDataRes = await elogo.getDocumentData(uuid);
+        if (!docDataRes.success || !docDataRes.data?.document?.binaryData?.Value) {
+           return { ...doc, senderName: 'Veri Çekilemedi', faturaNo: doc.documentId || '-' };
+        }
+        
+        const base64Data = docDataRes.data.document.binaryData.Value;
+        const buffer = Buffer.from(base64Data, 'base64');
+        let xmlString = '';
+        
+        // ZIP (PK) or XML (<)
+        if (buffer[0] === 0x50 && buffer[1] === 0x4B) {
+           const zip = new AdmZip(buffer);
+           const zipEntries = zip.getEntries();
+           if (zipEntries.length > 0) {
+             xmlString = zipEntries[0].getData().toString('utf8');
+           }
+        } else {
+           xmlString = buffer.toString('utf8');
+        }
+        
+        if (!xmlString) return { ...doc, senderName: 'XML Boş', faturaNo: doc.documentId || '-' };
+        
+        const parsed = parser.parse(xmlString);
+        const invoice = parsed.Invoice || parsed['Invoice'];
+        if (!invoice) return { ...doc, senderName: 'Geçersiz XML', faturaNo: doc.documentId || '-' };
+        
+        const supplierParty = invoice['cac:AccountingSupplierParty']?.['cac:Party'];
+        let senderName = 'Bilinmiyor';
+        let senderVkn = '-';
+        
+        if (supplierParty) {
+          senderName = supplierParty['cac:PartyName']?.['cbc:Name'] || supplierParty['cac:PartyLegalEntity']?.['cbc:RegistrationName'] || 'Bilinmiyor';
+          const schemeID = supplierParty['cac:PartyIdentification']?.['cbc:ID']?.['@_schemeID'];
+          const vknID = supplierParty['cac:PartyIdentification']?.['cbc:ID'];
+          senderVkn = typeof vknID === 'object' ? vknID['#text'] : (vknID || '-');
+        }
+        
+        const issueDate = invoice['cbc:IssueDate'] || '';
+        const faturaNo = invoice['cbc:ID'] || doc.documentId || '';
+        const totals = invoice['cac:LegalMonetaryTotal'];
+        
+        let payableAmount = 0;
+        let currencyCode = 'TRY';
+        if (totals && totals['cbc:PayableAmount']) {
+          payableAmount = typeof totals['cbc:PayableAmount'] === 'object' ? totals['cbc:PayableAmount']['#text'] : totals['cbc:PayableAmount'];
+          currencyCode = typeof totals['cbc:PayableAmount'] === 'object' ? totals['cbc:PayableAmount']['@_currencyID'] : 'TRY';
+        }
+
+        return {
+          ...doc,
+          faturaNo,
+          uuid,
+          senderName,
+          senderVkn,
+          issueDate,
+          payableAmount,
+          currencyCode
+        };
+      } catch (err) {
+        console.error('Invoice parse error for UUID', doc.documentUuid, err);
+        return { ...doc, senderName: 'Hata', faturaNo: doc.documentId || '-' };
+      }
+    };
+
+    // Tüm fatura detaylarını paralel olarak çek
+    const formattedDocs = await Promise.all(documents.map(d => fetchInvoiceDetails(d)));
 
     res.json({ success: true, veriler: formattedDocs, rawLogoResponse: response.data });
   } catch (error) {
