@@ -267,7 +267,9 @@ app.get('/api/elogo/gelen-faturalar', authMiddleware, async (req, res) => {
         
         const docDataRes = await elogo.getDocumentData(uuid);
         if (!docDataRes.success || !docDataRes.data?.document?.binaryData?.Value) {
-           return { ...doc, senderName: 'Veri Çekilemedi', faturaNo: doc.documentId || '-' };
+           console.log(`GetDocumentData failed for UUID ${uuid}. Response:`, JSON.stringify(docDataRes));
+           const errMsg = docDataRes.data?.GetDocumentDataResult?.resultMsg || docDataRes.message || 'Hata';
+           return { ...doc, senderName: 'XML Alınamadı (' + errMsg + ')', faturaNo: doc.documentId || '-' };
         }
         
         const base64Data = docDataRes.data.document.binaryData.Value;
