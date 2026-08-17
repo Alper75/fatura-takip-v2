@@ -258,7 +258,7 @@ app.get('/api/elogo/gelen-faturalar', authMiddleware, async (req, res) => {
     
     // Sadece başarılı olanları (veya parse edilebilenleri) dönelim
     
-    const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_' });
+    const ublParser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_', removeNSPrefix: true });
     
     // Concurrency limit for requests to avoid Logo rate limiting
     const fetchInvoiceDetails = async (doc) => {
@@ -290,30 +290,64 @@ app.get('/api/elogo/gelen-faturalar', authMiddleware, async (req, res) => {
         
         if (!xmlString) return { ...doc, senderName: 'XML Boş', faturaNo: doc.documentId || '-' };
         
-        const parsed = parser.parse(xmlString);
-        const invoice = parsed.Invoice || parsed['Invoice'];
-        if (!invoice) return { ...doc, senderName: 'Geçersiz XML', faturaNo: doc.documentId || '-' };
+        const parsed = ublParser.parse(xmlString);
+        const inv = parsed.Invoice;
+        if (!inv) return { ...doc, senderName: 'Geçersiz XML', faturaNo: doc.documentId || '-' };
         
-        const supplierParty = invoice['cac:AccountingSupplierParty']?.['cac:Party'];
+        const getText = (node) => (typeof node === 'object' && node !== null) ? (node['#text'] || '') : (node || '');
+        
+        const supplierParty = inv['AccountingSupplierParty']?.['Party'];
         let senderName = 'Bilinmiyor';
         let senderVkn = '-';
         
         if (supplierParty) {
-          senderName = supplierParty['cac:PartyName']?.['cbc:Name'] || supplierParty['cac:PartyLegalEntity']?.['cbc:RegistrationName'] || 'Bilinmiyor';
-          const schemeID = supplierParty['cac:PartyIdentification']?.['cbc:ID']?.['@_schemeID'];
-          const vknID = supplierParty['cac:PartyIdentification']?.['cbc:ID'];
-          senderVkn = typeof vknID === 'object' ? vknID['#text'] : (vknID || '-');
+          const partyName = Array.isArray(supplierParty['PartyName']) ? supplierParty['PartyName'][0] : supplierParty['PartyName'];
+          senderName = getText(partyName?.['Name']) || getText(supplierParty['PartyLegalEntity']?.['RegistrationName']) || getText(supplierParty['Person']?.['FirstName']) + ' ' + getText(supplierParty['Person']?.['FamilyName']);
+          
+          const idNode = supplierParty['PartyIdentification'];
+          const idArray = Array.isArray(idNode) ? idNode : (idNode ? [idNode] : []);
+          for (const ident of idArray) {
+             const id = ident['ID'];
+             if (!id) continue;
+             const isVkn = id['@_schemeID'] === 'VKN' || id['@_schemeID'] === 'TCKN';
+             const val = isVkn ? id['#text'] : (id['#text'] || id);
+             if (val) {
+               senderVkn = String(val).replace('.0', '');
+               break;
+             }
+          }
         }
         
-        const issueDate = invoice['cbc:IssueDate'] || '';
-        const faturaNo = invoice['cbc:ID'] || doc.documentId || '';
-        const totals = invoice['cac:LegalMonetaryTotal'];
+        const issueDate = getText(inv['IssueDate']);
+        const faturaNo = getText(inv['ID']) || doc.documentId || '';
+        const totals = inv['LegalMonetaryTotal'];
         
-        let payableAmount = 0;
-        let currencyCode = 'TRY';
-        if (totals && totals['cbc:PayableAmount']) {
-          payableAmount = typeof totals['cbc:PayableAmount'] === 'object' ? totals['cbc:PayableAmount']['#text'] : totals['cbc:PayableAmount'];
-          currencyCode = typeof totals['cbc:PayableAmount'] === 'object' ? totals['cbc:PayableAmount']['@_currencyID'] : 'TRY';
+        const payableAmount = parseFloat(getText(totals?.['PayableAmount'])) || 0;
+        const currencyCode = (typeof totals?.['PayableAmount'] === 'object' ? totals['PayableAmount']['@_currencyID'] : 'TRY') || 'TRY';
+        const matrah = parseFloat(getText(totals?.['TaxExclusiveAmount'])) || 0;
+        
+        // KDV Hesaplama
+        let kdvTutari = 0;
+        let kdvOrani = 0;
+        const taxTotal = inv['TaxTotal'];
+        const taxTotalArray = Array.isArray(taxTotal) ? taxTotal : (taxTotal ? [taxTotal] : []);
+        
+        for (const tt of taxTotalArray) {
+          const subtotals = tt['TaxSubtotal'];
+          if (!subtotals) continue;
+          const subArr = Array.isArray(subtotals) ? subtotals : [subtotals];
+          for (const sub of subArr) {
+            const taxCat = sub['TaxCategory'];
+            const taxScheme = taxCat?.['TaxScheme']?.['TaxTypeCode']?.['#text'] || taxCat?.['TaxScheme']?.['TaxTypeCode'];
+            const taxCode = getText(taxScheme);
+            const percent = parseFloat(getText(sub['Percent'])) || parseFloat(getText(taxCat?.['Percent'])) || 0;
+            const amount = parseFloat(getText(sub['TaxAmount'])) || 0;
+            
+            if (taxCode === '0015' || !taxCode) { // 0015 KDV Kodudur
+              kdvTutari += amount;
+              kdvOrani = percent; // Eğer birden fazla oran varsa sonuncuyu veya ağırlıklıyı alırız, basitlik için tek oran varsayımı
+            }
+          }
         }
 
         return {
@@ -324,7 +358,10 @@ app.get('/api/elogo/gelen-faturalar', authMiddleware, async (req, res) => {
           senderVkn,
           issueDate,
           payableAmount,
-          currencyCode
+          currencyCode,
+          matrah,
+          kdvOrani,
+          kdvTutari
         };
       } catch (err) {
         console.error('Invoice parse error for UUID', doc.documentUuid, err);
@@ -403,7 +440,7 @@ app.post('/api/invoices/import-from-logo', authMiddleware, async (req, res) => {
   }
   
   try {
-    const { faturaNo, senderName, senderVkn, issueDate, payableAmount, currencyCode, uuid } = invoice;
+    const { faturaNo, senderName, senderVkn, issueDate, payableAmount, currencyCode, uuid, matrah, kdvOrani, kdvTutari } = invoice;
     const islemTarihi = issueDate ? issueDate.split('T')[0] : new Date().toISOString().split('T')[0];
     
     // Check if invoice already exists
@@ -425,7 +462,7 @@ app.post('/api/invoices/import-from-logo', authMiddleware, async (req, res) => {
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       args: [
         id, req.user.companyId, faturaNo, 'ALIS', senderName, senderVkn, '', 
-        islemTarihi, 0, 0, 0, payableAmount, currencyCode || 'TRY', 'eLogo üzerinden içe aktarıldı (UUID: ' + uuid + ')'
+        islemTarihi, matrah || 0, kdvOrani || 0, kdvTutari || 0, payableAmount, currencyCode || 'TRY', 'eLogo üzerinden içe aktarıldı (UUID: ' + uuid + ')'
       ]
     });
     
