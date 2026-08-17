@@ -538,6 +538,8 @@ export type ViewType =
   | 'stok-yonetimi'
   | 'super-admin'
   | 'luca-ayarlari'
+  | 'logo-ayarlari'
+  | 'gelen-efaturalar'
   | 'teklif-liste'
   | 'siparis-liste'
   | 'mutabakat-yonetimi'

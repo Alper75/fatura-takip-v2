@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/card';
 import { Input } from '../components/ui/input';
 import { Button } from '../components/ui/button';
@@ -134,7 +134,7 @@ export default function LogoEntegrasyonAyarlari() {
             </Label>
           </div>
 
-          <Alert variant="warning" className="bg-yellow-50 border-yellow-200">
+          <Alert variant="default" className="bg-yellow-50 border-yellow-200">
             <AlertCircle className="h-4 w-4 text-yellow-600" />
             <AlertTitle className="text-yellow-800">Önemli Bilgi</AlertTitle>
             <AlertDescription className="text-yellow-700">
