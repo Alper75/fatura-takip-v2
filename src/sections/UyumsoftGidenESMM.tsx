@@ -53,7 +53,7 @@ export default function UyumsoftGidenESMM() {
   const handleDownloadPdf = async (uuid: string) => {
     try {
       const token = localStorage.getItem('token');
-      const res = await fetch(`/api/uyumsoft/fatura-pdf/${uuid}?token=${token}`);
+      const res = await fetch(`/api/uyumsoft/esmm-pdf/${uuid}?token=${token}`);
       const data = await res.json();
       
       if (data.success && data.base64) {
