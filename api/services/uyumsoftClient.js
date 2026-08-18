@@ -213,7 +213,7 @@ export class UyumsoftClient {
   async getVoucherPdf(uuid) {
     await this.init();
     try {
-      const args = { voucherId: uuid };
+      const args = { documentId: uuid };
       const [result] = await this.voucherClient.GetPdfAsync(args);
       
       const base64Data = result?.GetPdfResult?.Value?.Data || '';
