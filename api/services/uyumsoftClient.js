@@ -14,6 +14,18 @@ export class UyumsoftClient {
   async init() {
     if (!this.client) {
       this.client = await soap.createClientAsync(this.apiUrl);
+      
+      // Ensure namespaces are defined in the envelope to prevent WCF deserialization errors
+      if (this.client.wsdl) {
+        const defaultXmlns = this.client.wsdl.xmlnsInEnvelope || '';
+        if (!defaultXmlns.includes('xmlns:ns1=')) {
+          this.client.wsdl.xmlnsInEnvelope = defaultXmlns + 
+            ' xmlns:ns1="http://www.w3.org/2001/XMLSchema"' +
+            ' xmlns:ns2="http://schemas.microsoft.com/2003/10/Serialization/"' +
+            ' xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"';
+        }
+      }
+
       // Uyumsoft uses WS-Security
       const wsSecurity = new soap.WSSecurity(this.username, this.password, {
         hasTimeStamp: false,
@@ -58,8 +70,8 @@ export class UyumsoftClient {
     try {
       const args = {
         query: {
-          CreateStartDate: beginDate.split('T')[0] + 'T00:00:00',
-          CreateEndDate: endDate.split('T')[0] + 'T23:59:59',
+          CreateStartDate: new Date(beginDate.split('T')[0] + 'T00:00:00Z'),
+          CreateEndDate: new Date(endDate.split('T')[0] + 'T23:59:59Z'),
           PageIndex: 0,
           PageSize: 100
         }
