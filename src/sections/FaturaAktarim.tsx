@@ -20,6 +20,7 @@ export function FaturaAktarim() {
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [filterType, setFilterType] = useState<'ALL' | 'ALIS' | 'SATIS'>('ALL');
+  const [aracGideriIds, setAracGideriIds] = useState<string[]>([]);
 
   useEffect(() => {
     fetchSettings();
@@ -92,15 +93,16 @@ export function FaturaAktarim() {
     return `${d}/${m}/${y}`;
   };
 
-  const getMuhasebeSatirlari = (fatura: any) => {
+  const getMuhasebeSatirlari = (fatura: any, isAracGideri: boolean = false) => {
     const satirListesi: any[] = [];
     const isAlis = fatura._type === 'ALIS';
-    const isIade = (fatura.faturaNo || '').toUpperCase().includes('İADE') || (fatura.aciklama || '').toUpperCase().includes('İADE');
-    const fTarih = formatTarih(fatura.faturaTarihi);
-    const evrakNo = fatura.faturaNo || fatura.id.toString();
-    const aciklama = isAlis ? (fatura.tedarikciAdi || '') : `${fatura.ad || ''} ${fatura.soyad || ''}`.trim();
+    const isIade = isAlis ? (parseFloat(fatura.toplamTutar || 0) < 0 || (fatura.malHizmetAdi && String(fatura.malHizmetAdi).toLowerCase().includes('iade'))) : (parseFloat(fatura.alinanUcret || 0) < 0 || (fatura.aciklama && String(fatura.aciklama).toLowerCase().includes('iade')));
     
-    // Cari Kodu (Tedarikçi/Müşteri)
+    const evrakNo = fatura.faturaNo || fatura.id.toString();
+    const fTarih = formatTarih(fatura.faturaTarihi);
+    const aciklama = isAlis ? `${fatura.tedarikciAdi || ''} - ${fatura.malHizmetAdi || ''}` : `${fatura.ad || ''} ${fatura.soyad || ''}`.trim();
+    
+    // Cari Kodu
     let cariKod = isAlis ? '320' : '120';
     if (fatura.karsiHesapKodu) {
       cariKod = fatura.karsiHesapKodu;
@@ -111,7 +113,7 @@ export function FaturaAktarim() {
       }
     }
     
-    // Matrah Hesabı (Gelir/Gider)
+    // Matrah Hesabı
     let gelirGiderKod = isAlis ? (isIade ? '600' : '153') : (isIade ? '610' : '600');
     if (fatura.muhasebeKodu) {
       gelirGiderKod = fatura.muhasebeKodu;
@@ -120,7 +122,6 @@ export function FaturaAktarim() {
     // KDV Hesabı
     const kdvOrani = (fatura.kdvOrani || 20).toString();
     let kdvKodu = '';
-    
     if (settings) {
       if (isAlis) {
         kdvKodu = isIade ? settings.alis_iade?.[kdvOrani] : settings.alis?.[kdvOrani];
@@ -133,9 +134,22 @@ export function FaturaAktarim() {
     // Meblağlar
     const matrah = parseFloat(fatura.matrah) || 0;
     const kdvTutar = parseFloat(fatura.kdvTutari) || 0;
+    const oivTutar = isAlis ? (parseFloat(fatura.oivTutari) || 0) : 0;
     const toplam = isAlis ? (parseFloat(fatura.toplamTutar) || 0) : (parseFloat(fatura.alinanUcret) || 0);
     
-    // Base object
+    // KKEG / Araç Gider Kısıtlaması %70-%30
+    let giderMatrah = matrah;
+    let giderKdv = kdvTutar;
+    let kkegMatrah = 0;
+    let kkegKdv = 0;
+    
+    if (isAracGideri && isAlis && !isIade) {
+      giderMatrah = Number((matrah * 0.70).toFixed(2));
+      kkegMatrah = Number((matrah * 0.30).toFixed(2));
+      giderKdv = Number((kdvTutar * 0.70).toFixed(2));
+      kkegKdv = Number((kdvTutar * 0.30).toFixed(2));
+    }
+
     const createRow = (hesap: string, borc: number, alacak: number, detay: string) => ({
         'Fiş No': '',
         'Fiş Tarihi': fTarih,
@@ -155,32 +169,32 @@ export function FaturaAktarim() {
 
     if (isAlis) {
         if (!isIade) {
-            // Normal Alış
-            satirListesi.push(createRow(gelirGiderKod, matrah, 0, aciklama));
-            satirListesi.push(createRow(kdvKodu, kdvTutar, 0, aciklama));
+            satirListesi.push(createRow(gelirGiderKod, giderMatrah, 0, aciklama));
+            if (kkegMatrah > 0) satirListesi.push(createRow(settings?.aracGiderKkegKodu || '689.02', kkegMatrah, 0, aciklama + ' (%30 KKEG Matrah)'));
+            
+            if (giderKdv > 0) satirListesi.push(createRow(kdvKodu, giderKdv, 0, aciklama));
+            if (kkegKdv > 0) satirListesi.push(createRow(settings?.aracGiderKkegKodu || '689.02', kkegKdv, 0, aciklama + ' (%30 KKEG KDV)'));
+            
+            if (oivTutar > 0) satirListesi.push(createRow(settings?.oivKodu || '689.01', oivTutar, 0, aciklama + ' (ÖİV)'));
+            
             satirListesi.push(createRow(cariKod, 0, toplam, aciklama));
         } else {
-            // Alış İade (Satıcıya)
             satirListesi.push(createRow(cariKod, toplam, 0, aciklama));
             satirListesi.push(createRow(gelirGiderKod, 0, matrah, aciklama));
             satirListesi.push(createRow(kdvKodu, 0, kdvTutar, aciklama));
+            if (oivTutar > 0) satirListesi.push(createRow(settings?.oivKodu || '689.01', 0, oivTutar, aciklama + ' (ÖİV İade)'));
         }
     } else {
         if (!isIade) {
-            // Normal Satış
             satirListesi.push(createRow(cariKod, toplam, 0, aciklama));
             satirListesi.push(createRow(gelirGiderKod, 0, matrah, aciklama));
             satirListesi.push(createRow(kdvKodu, 0, kdvTutar, aciklama));
         } else {
-            // Satış İade (Müşteriden)
             satirListesi.push(createRow(gelirGiderKod, matrah, 0, aciklama));
             satirListesi.push(createRow(kdvKodu, kdvTutar, 0, aciklama));
             satirListesi.push(createRow(cariKod, 0, toplam, aciklama));
         }
     }
-    
-    // Tevkifat / Stopaj eklenecekse buraya ilave satırlar yazılabilir...
-
     return satirListesi;
   };
 
@@ -192,7 +206,7 @@ export function FaturaAktarim() {
     const selectedInvoices = invoices.filter(inv => selectedIds.includes(inv.id));
     
     selectedInvoices.forEach(inv => {
-      exportData = [...exportData, ...getMuhasebeSatirlari(inv)];
+      exportData = [...exportData, ...getMuhasebeSatirlari(inv, aracGideriIds.includes(inv.id))];
     });
 
     const ws = XLSX.utils.json_to_sheet(exportData);
@@ -210,7 +224,7 @@ export function FaturaAktarim() {
     const selectedInvoices = invoices.filter(inv => selectedIds.includes(inv.id));
     
     selectedInvoices.forEach(inv => {
-      const excelRows = getMuhasebeSatirlari(inv);
+      const excelRows = getMuhasebeSatirlari(inv, aracGideriIds.includes(inv.id));
       // Excel satırlarını eklenti formatına çevir
       const extRows = excelRows.map(row => ({
         tarih: row['Evrak Tarihi'],
@@ -291,6 +305,7 @@ export function FaturaAktarim() {
                   <TableHead>Unvan / İsim</TableHead>
                   <TableHead className="text-right">Matrah</TableHead>
                   <TableHead className="text-right">KDV</TableHead>
+                  <TableHead className="text-center w-[90px]">Araç Gideri</TableHead>
                   <TableHead className="text-right">Toplam</TableHead>
                 </TableRow>
               </TableHeader>
@@ -317,6 +332,18 @@ export function FaturaAktarim() {
                       </TableCell>
                       <TableCell className="text-right">{(parseFloat(inv.matrah) || 0).toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₺</TableCell>
                       <TableCell className="text-right">{(parseFloat(inv.kdvTutari) || 0).toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₺</TableCell>
+                      <TableCell className="text-center">
+                        {inv._type === 'ALIS' && (
+                          <Checkbox 
+                            checked={aracGideriIds.includes(inv.id)} 
+                            onCheckedChange={(checked) => {
+                              if (checked) setAracGideriIds(prev => [...prev, inv.id]);
+                              else setAracGideriIds(prev => prev.filter(id => id !== inv.id));
+                            }} 
+                            title="Araç Gideri Kısıtlaması (%70 Gider, %30 KKEG)"
+                          />
+                        )}
+                      </TableCell>
                       <TableCell className="text-right font-semibold">{(inv._type === 'ALIS' ? (parseFloat(inv.toplamTutar) || 0) : (parseFloat(inv.alinanUcret) || 0)).toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₺</TableCell>
                     </TableRow>
                   ))

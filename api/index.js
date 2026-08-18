@@ -334,7 +334,7 @@ app.get('/api/elogo/gelen-faturalar', authMiddleware, async (req, res) => {
         
         // KDV Hesaplama
         let kdvTutari = 0;
-        let kdvOrani = 0;
+        let oivTutari = 0;
         const taxTotal = inv['TaxTotal'];
         const taxTotalArray = Array.isArray(taxTotal) ? taxTotal : (taxTotal ? [taxTotal] : []);
         
@@ -351,7 +351,9 @@ app.get('/api/elogo/gelen-faturalar', authMiddleware, async (req, res) => {
             
             if (taxCode === '0015' || taxCode === '15' || taxCode === 15 || !taxCode) { // 0015 KDV Kodudur
               kdvTutari += amount;
-              kdvOrani = percent; // Eğer birden fazla oran varsa sonuncuyu veya ağırlıklıyı alırız, basitlik için tek oran varsayımı
+              kdvOrani = percent; 
+            } else if (taxCode === '4080' || taxCode === '0021' || taxCode === 4080 || taxCode === 21) {
+              oivTutari += amount;
             }
           }
         }
@@ -382,6 +384,7 @@ app.get('/api/elogo/gelen-faturalar', authMiddleware, async (req, res) => {
           matrah,
           kdvOrani,
           kdvTutari,
+          oivTutari,
           faturaAciklama
         };
       } catch (err) {
@@ -463,7 +466,7 @@ app.post('/api/invoices/import-from-logo', authMiddleware, async (req, res) => {
   }
   
   try {
-    const { faturaNo, senderName, senderVkn, issueDate, payableAmount, currencyCode, uuid, matrah, kdvOrani, kdvTutari, faturaAciklama } = invoice;
+    const { faturaNo, senderName, senderVkn, issueDate, payableAmount, currencyCode, uuid, matrah, kdvOrani, kdvTutari, oivTutari, faturaAciklama } = invoice;
     const islemTarihi = issueDate ? issueDate.split('T')[0] : new Date().toISOString().split('T')[0];
     
     // Check if invoice already exists
@@ -517,15 +520,15 @@ app.post('/api/invoices/import-from-logo', authMiddleware, async (req, res) => {
          toplam_tutar, kdv_orani, kdv_tutari, matrah, tevkifat_orani, tevkifat_tutari, 
          stopaj_orani, stopaj_tutari, muhasebe_kodu, karsi_hesap_kodu, pdf_dosya, pdf_dosya_adi, 
          odeme_tarihi, odeme_durumu, odeme_dekontu, odeme_dekontu_adi, cari_id, vade_tarihi, 
-         aciklama, olusturma_tarihi, company_id, kdv1, kdv10, kdv20) 
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         aciklama, olusturma_tarihi, company_id, kdv1, kdv10, kdv20, oiv_tutari) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       args: [
-        id, faturaNo, islemTarihi, senderName, senderVkn, 'eLogo Gelen Fatura',
+        id, faturaNo, islemTarihi, senderName, senderVkn, faturaAciklama || 'eLogo Gelen Fatura',
         payableAmount, kdvOrani || 0, kdvTutari || 0, matrah || 0, '0', 0,
         '0', 0, null, null, pdfDosyaBase64, pdfDosyaAdi,
         null, 'odenmedi', null, null, null, null,
         'eLogo üzerinden içe aktarıldı (UUID: ' + uuid + ')', new Date().toISOString().split('T')[0], req.user.companyId,
-        (kdvOrani === 1 ? kdvTutari : 0), (kdvOrani === 10 ? kdvTutari : 0), (kdvOrani === 20 ? kdvTutari : 0)
+        (kdvOrani === 1 ? kdvTutari : 0), (kdvOrani === 10 ? kdvTutari : 0), (kdvOrani === 20 ? kdvTutari : 0), oivTutari || 0
       ]
     });
     
@@ -1984,7 +1987,7 @@ app.get('/api/alis-faturalari', authMiddleware, async (req, res) => {
         tedarikciVkn: r.tedarikci_vkn, malHizmetAdi: r.mal_hizmet_adi, toplamTutar: r.toplam_tutar, 
         kdvOrani: r.kdv_orani, kdvTutari: r.kdv_tutari, matrah: r.matrah, tevkifatOrani: r.tevkifat_orani, 
         tevkifatTutari: r.tevkifat_tutari, stopajOrani: r.stopaj_orani, stopajTutari: r.stopaj_tutari, 
-        kdv1: r.kdv1, kdv10: r.kdv10, kdv20: r.kdv20,
+        kdv1: r.kdv1, kdv10: r.kdv10, kdv20: r.kdv20, oivTutari: r.oiv_tutari,
         muhasebeKodu: r.muhasebe_kodu, karsiHesapKodu: r.karsi_hesap_kodu, pdfDosya: r.pdf_dosya, pdfDosyaAdi: r.pdf_dosya_adi, 
         odemeTarihi: r.odeme_tarihi, odemeDurumu: r.odeme_durumu, odemeDekontu: r.odeme_dekontu, 
         odemeDekontuAdi: r.odeme_dekontu_adi, cariId: r.cari_id, vadeTarihi: r.vade_tarihi, 
@@ -2001,8 +2004,8 @@ app.post('/api/alis-faturalari', authMiddleware, async (req, res) => {
   const f = req.body;
   try {
     await client.execute({
-      sql: 'INSERT INTO alis_faturalari (id,fatura_no,fatura_tarihi,tedarikci_adi,tedarikci_vkn,mal_hizmet_adi,toplam_tutar,kdv_orani,kdv_tutari,matrah,tevkifat_orani,tevkifat_tutari,stopaj_orani,stopaj_tutari,muhasebe_kodu,karsi_hesap_kodu,pdf_dosya,pdf_dosya_adi,odeme_tarihi,odeme_durumu,odeme_dekontu,odeme_dekontu_adi,cari_id,vade_tarihi,aciklama,olusturma_tarihi,company_id,urun_id,depo_id,vehicle_plate,kdv1,kdv10,kdv20) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
-      args: [n(f.id),n(f.faturaNo),n(f.faturaTarihi),n(f.tedarikciAdi),n(f.tedarikciVkn),n(f.malHizmetAdi),n(f.toplamTutar),n(f.kdvOrani),n(f.kdvTutari),n(f.matrah),n(f.tevkifatOrani),n(f.tevkifatTutari),n(f.stopajOrani),n(f.stopajTutari),n(f.muhasebeKodu),n(f.karsiHesapKodu),n(f.pdfDosya),n(f.pdfDosyaAdi),n(f.odemeTarihi),n(f.odemeDurumu||'odenmedi'),n(f.odemeDekontu),n(f.odemeDekontuAdi),n(f.cariId),n(f.vadeTarihi),n(f.aciklama),n(f.olusturmaTarihi),req.user.companyId,n(f.urunId),n(f.depoId),n(f.vehiclePlate),n(f.kdv1),n(f.kdv10),n(f.kdv20)]
+      sql: 'INSERT INTO alis_faturalari (id,fatura_no,fatura_tarihi,tedarikci_adi,tedarikci_vkn,mal_hizmet_adi,toplam_tutar,kdv_orani,kdv_tutari,matrah,tevkifat_orani,tevkifat_tutari,stopaj_orani,stopaj_tutari,muhasebe_kodu,karsi_hesap_kodu,pdf_dosya,pdf_dosya_adi,odeme_tarihi,odeme_durumu,odeme_dekontu,odeme_dekontu_adi,cari_id,vade_tarihi,aciklama,olusturma_tarihi,company_id,urun_id,depo_id,vehicle_plate,kdv1,kdv10,kdv20,oiv_tutari) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+      args: [n(f.id),n(f.faturaNo),n(f.faturaTarihi),n(f.tedarikciAdi),n(f.tedarikciVkn),n(f.malHizmetAdi),n(f.toplamTutar),n(f.kdvOrani),n(f.kdvTutari),n(f.matrah),n(f.tevkifatOrani),n(f.tevkifatTutari),n(f.stopajOrani),n(f.stopajTutari),n(f.muhasebeKodu),n(f.karsiHesapKodu),n(f.pdfDosya),n(f.pdfDosyaAdi),n(f.odemeTarihi),n(f.odemeDurumu||'odenmedi'),n(f.odemeDekontu),n(f.odemeDekontuAdi),n(f.cariId),n(f.vadeTarihi),n(f.aciklama),n(f.olusturmaTarihi),req.user.companyId,n(f.urunId),n(f.depoId),n(f.vehiclePlate),n(f.kdv1),n(f.kdv10),n(f.kdv20),n(f.oivTutari)]
     });
     
     // Çoklu stok hareketleri oluştur (GIRIS - alış = stoğa giriş)
@@ -2707,7 +2710,7 @@ app.post('/api/gib/invoice-details', authMiddleware, async (req, res) => {
       
       const getAd = (party) => {
         const partyName = Array.isArray(party?.['PartyName']) ? party?.['PartyName'][0] : party?.['PartyName'];
-        return getText(partyName?.['Name']) || getText(party?.['Person']?.['FirstName']) || '';
+        return getText(partyName?.['Name']) || getText(party?.['PartyLegalEntity']?.['RegistrationName']) || getText(party?.['Person']?.['FirstName']) || '';
       };
       const getSoyad = (party) => getText(party?.['Person']?.['FamilyName']) || '';
 
@@ -4245,7 +4248,10 @@ app.get('/api/cron/sync-elogo', async (req, res) => {
           const totals = inv['LegalMonetaryTotal'];
           const payableAmount = parseFloat(getText(totals?.['PayableAmount'])) || 0;
           const matrah = parseFloat(getText(totals?.['TaxExclusiveAmount'])) || 0;
-          let kdvTutari = 0; let kdvOrani = 0;
+          
+          let kdvTutari = 0; 
+          let kdvOrani = 0;
+          let oivTutari = 0;
           const taxTotal = inv['TaxTotal'];
           const taxTotalArray = Array.isArray(taxTotal) ? taxTotal : (taxTotal ? [taxTotal] : []);
           for (const tt of taxTotalArray) {
@@ -4256,9 +4262,14 @@ app.get('/api/cron/sync-elogo', async (req, res) => {
               const taxCat = sub['TaxCategory'];
               const taxScheme = taxCat?.['TaxScheme']?.['TaxTypeCode']?.['#text'] || taxCat?.['TaxScheme']?.['TaxTypeCode'];
               const taxCode = getText(taxScheme);
+              const percent = parseFloat(getText(sub['Percent'])) || parseFloat(getText(taxCat?.['Percent'])) || 0;
+              const amount = parseFloat(getText(sub['TaxAmount'])) || 0;
+
               if (taxCode === '0015' || taxCode === '15' || taxCode === 15 || !taxCode) {
-                kdvTutari += parseFloat(getText(sub['TaxAmount'])) || 0;
-                kdvOrani = parseFloat(getText(sub['Percent'])) || parseFloat(getText(taxCat?.['Percent'])) || 0;
+                kdvTutari += amount;
+                kdvOrani = percent;
+              } else if (taxCode === '4080' || taxCode === '0021' || taxCode === 4080 || taxCode === 21) {
+                oivTutari += amount;
               }
             }
           }
@@ -4308,15 +4319,15 @@ app.get('/api/cron/sync-elogo', async (req, res) => {
                toplam_tutar, kdv_orani, kdv_tutari, matrah, tevkifat_orani, tevkifat_tutari, 
                stopaj_orani, stopaj_tutari, muhasebe_kodu, karsi_hesap_kodu, pdf_dosya, pdf_dosya_adi, 
                odeme_tarihi, odeme_durumu, odeme_dekontu, odeme_dekontu_adi, cari_id, vade_tarihi, 
-               aciklama, olusturma_tarihi, company_id, kdv1, kdv10, kdv20) 
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+               aciklama, olusturma_tarihi, company_id, kdv1, kdv10, kdv20, oiv_tutari) 
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             args: [
               id, faturaNo, islemTarihi, senderName, senderVkn, faturaAciklama,
               payableAmount, kdvOrani || 0, kdvTutari || 0, matrah || 0, '0', 0,
               '0', 0, null, null, pdfDosyaBase64, pdfDosyaAdi,
               null, 'odenmedi', null, null, null, null,
               'eLogo üzerinden otomatik içe aktarıldı (UUID: ' + uuid + ')', new Date().toISOString().split('T')[0], companyId,
-              (kdvOrani === 1 ? kdvTutari : 0), (kdvOrani === 10 ? kdvTutari : 0), (kdvOrani === 20 ? kdvTutari : 0)
+              (kdvOrani === 1 ? kdvTutari : 0), (kdvOrani === 10 ? kdvTutari : 0), (kdvOrani === 20 ? kdvTutari : 0), oivTutari || 0
             ]
           });
           totalSynced++;

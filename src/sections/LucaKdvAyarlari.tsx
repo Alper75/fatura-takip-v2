@@ -183,6 +183,24 @@ export function LucaKdvAyarlari() {
           </CardContent>
         </Card>
 
+        {/* Özel Gider ve KKEG Hesapları */}
+        <Card className="md:col-span-2">
+          <CardHeader className="pb-3 border-b border-slate-100 mb-4">
+            <CardTitle className="text-md text-red-700">Özel Gider ve KKEG Hesapları</CardTitle>
+            <CardDescription>Özel İletişim Vergisi (ÖİV) ve Araç Gider Kısıtlamasından doğan KKEG hesapları</CardDescription>
+          </CardHeader>
+          <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-slate-700">ÖİV (Özel İletişim Vergisi) Hesabı</label>
+              <LucaAccountSelect value={settings.oivKodu} onChange={(val) => updateRootSetting('oivKodu', val)} placeholder="Örn: 689.01" />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-slate-700">Araç Gider Kısıtlaması (%30 KKEG) Hesabı</label>
+              <LucaAccountSelect value={settings.aracGiderKkegKodu} onChange={(val) => updateRootSetting('aracGiderKkegKodu', val)} placeholder="Örn: 689.02" />
+            </div>
+          </CardContent>
+        </Card>
+
         {/* Diğer Kesintiler (Tevkifat / Stopaj) */}
         <Card className="md:col-span-2">
           <CardHeader className="pb-3 border-b border-slate-100 mb-4">
