@@ -1,6 +1,6 @@
 app.get('/api/uyumsoft/giden-faturalar', authMiddleware, async (req, res) => {
   try {
-    let { beginDate, endDate } = req.query;
+    let { baslangic, bitis } = req.query; let beginDate = baslangic; let endDate = bitis;
     
     if (!beginDate || !endDate) {
       endDate = new Date().toISOString();
@@ -135,7 +135,7 @@ app.get('/api/uyumsoft/giden-faturalar', authMiddleware, async (req, res) => {
 
 app.get('/api/uyumsoft/giden-esmm', authMiddleware, async (req, res) => {
   try {
-    let { beginDate, endDate } = req.query;
+    let { baslangic, bitis } = req.query; let beginDate = baslangic; let endDate = bitis;
     
     if (!beginDate || !endDate) {
       endDate = new Date().toISOString();
