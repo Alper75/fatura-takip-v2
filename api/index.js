@@ -332,8 +332,8 @@ app.get('/api/elogo/gelen-faturalar', authMiddleware, async (req, res) => {
         const currencyCode = (typeof totals?.['PayableAmount'] === 'object' ? totals['PayableAmount']['@_currencyID'] : 'TRY') || 'TRY';
         const matrah = parseFloat(getText(totals?.['TaxExclusiveAmount'])) || 0;
         
-        // KDV Hesaplama
         let kdvTutari = 0;
+        let kdvOrani = 0;
         let oivTutari = 0;
         const taxTotal = inv['TaxTotal'];
         const taxTotalArray = Array.isArray(taxTotal) ? taxTotal : (taxTotal ? [taxTotal] : []);
