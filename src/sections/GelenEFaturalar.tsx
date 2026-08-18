@@ -269,8 +269,8 @@ export default function GelenEFaturalar() {
                         </TableCell>
                         <TableCell>
                           <div className="font-medium text-slate-700">{f?.invoiceNumber || f?.faturaNo || '-'}</div>
-                          <div className="text-[11px] text-slate-400 font-mono mt-0.5" title={f.uuid}>
-                            {f.uuid.split('-')[0]}...
+                          <div className="text-[11px] text-slate-400 font-mono mt-0.5" title={f?.uuid || ''}>
+                            {f?.uuid ? `${f.uuid.split('-')[0]}...` : 'Geçersiz UUID'}
                           </div>
                         </TableCell>
                         <TableCell>
