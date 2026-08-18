@@ -20,7 +20,6 @@ import {
   Package,
   FileSignature,
   ClipboardList,
-  Settings,
   Download
 } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
