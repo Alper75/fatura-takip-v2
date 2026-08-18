@@ -28,7 +28,7 @@
   "crons": [
     {
       "path": "/api/cron/sync-elogo",
-      "schedule": "0 * * * *"
+      "schedule": "0 0 * * *"
     }
   ]
 }
