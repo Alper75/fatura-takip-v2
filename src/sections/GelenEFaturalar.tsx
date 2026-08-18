@@ -10,7 +10,8 @@ export default function GelenEFaturalar() {
   const [loading, setLoading] = useState(false);
   const [importing, setImporting] = useState<string | null>(null);
   const [faturalar, setFaturalar] = useState<any[]>([]);
-  const { fetchAlisFaturalari } = useApp();
+  const [savedInvoices, setSavedInvoices] = useState<string[]>([]);
+  const { fetchAlisFaturalari, alisFaturalari } = useApp();
 
   useEffect(() => {
     fetchFaturalar();
@@ -59,7 +60,10 @@ export default function GelenEFaturalar() {
         const link = document.createElement('a');
         link.href = window.URL.createObjectURL(blob);
         link.download = data.filename || `${uuid}.pdf`;
+        document.body.appendChild(link);
         link.click();
+        document.body.removeChild(link);
+        window.URL.revokeObjectURL(link.href);
       } else {
         toast.error(data.message || 'PDF indirilemedi');
       }
@@ -85,6 +89,7 @@ export default function GelenEFaturalar() {
       
       if (data.success) {
         toast.success(data.message);
+        setSavedInvoices(prev => [...prev, fatura.uuid]);
         fetchAlisFaturalari(); // Listeyi güncelle
       } else {
         toast.error(data.message);
@@ -151,43 +156,62 @@ export default function GelenEFaturalar() {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  faturalar.map((f, i) => (
-                    <TableRow key={i} className="hover:bg-slate-50/50">
-                      <TableCell>
-                        <div className="font-medium text-slate-900">{f?.senderName || 'Bilinmiyor'}</div>
-                        <div className="text-xs text-slate-500">{f?.senderVkn || '-'}</div>
-                      </TableCell>
-                      <TableCell className="font-mono text-xs">{f?.invoiceNumber || f?.faturaNo || '-'}</TableCell>
-                      <TableCell>{formatDate(f?.issueDate)}</TableCell>
-                      <TableCell className="text-right font-medium">{f?.payableAmount || '-'} {f?.currencyCode}</TableCell>
-                      <TableCell className="text-center">
-                        <div className="flex items-center justify-center gap-2">
-                          <Button 
-                            variant="ghost" 
-                            size="sm" 
-                            onClick={() => handleDownloadPdf(f.uuid)}
-                            className="text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50"
-                          >
-                            <Download className="w-4 h-4 mr-1" /> PDF
-                          </Button>
-                          <Button 
-                            variant="default" 
-                            size="sm" 
-                            disabled={importing === f.uuid}
-                            onClick={() => handleImportInvoice(f)}
-                            className="bg-green-600 hover:bg-green-700"
-                          >
-                            {importing === f.uuid ? (
-                              <RefreshCcw className="w-4 h-4 mr-1 animate-spin" /> 
-                            ) : (
-                              <Save className="w-4 h-4 mr-1" />
-                            )}
-                            Kaydet
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))
+                  faturalar.map((f, i) => {
+                    const isSaved = savedInvoices.includes(f.uuid) || alisFaturalari.some(a => a.faturaNo === f.faturaNo);
+                    return (
+                      <TableRow key={i} className={isSaved ? "bg-green-100/50 hover:bg-green-100/70" : "hover:bg-slate-50"}>
+                        <TableCell>
+                          <div className="font-medium text-slate-800">{f?.senderName || 'Bilinmiyor'}</div>
+                          <div className="text-xs text-slate-500 mt-0.5">VKN: {f?.senderVkn || '-'}</div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="font-medium text-slate-700">{f?.invoiceNumber || f?.faturaNo || '-'}</div>
+                          <div className="text-[11px] text-slate-400 font-mono mt-0.5" title={f.uuid}>
+                            {f.uuid.split('-')[0]}...
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-slate-600">
+                          {formatDate(f?.issueDate)}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="font-medium text-slate-900">
+                            {new Intl.NumberFormat('tr-TR', { style: 'currency', currency: f?.currencyCode || 'TRY' }).format(f?.payableAmount || 0)}
+                          </div>
+                          {f?.matrah > 0 && (
+                            <div className="text-[10px] text-slate-500 mt-0.5">
+                              Matrah: {new Intl.NumberFormat('tr-TR', { style: 'currency', currency: f.currencyCode || 'TRY' }).format(f.matrah)}
+                            </div>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center justify-center gap-2">
+                            <Button 
+                              variant="outline" 
+                              size="sm"
+                              className="h-8 gap-1.5 text-slate-600 hover:text-blue-600 hover:bg-blue-50 hover:border-blue-200"
+                              onClick={() => handleDownloadPdf(f.uuid)}
+                            >
+                              <Download className="w-3.5 h-3.5" /> PDF
+                            </Button>
+                            <Button 
+                              variant="default" 
+                              size="sm"
+                              disabled={importing === f.uuid || isSaved}
+                              className={`h-8 gap-1.5 shadow-sm ${isSaved ? 'bg-green-600 hover:bg-green-700 text-white' : 'bg-slate-800 hover:bg-slate-700'}`}
+                              onClick={() => handleImportInvoice(f)}
+                            >
+                              {importing === f.uuid ? (
+                                <RefreshCcw className="w-3.5 h-3.5 animate-spin" />
+                              ) : (
+                                <Save className="w-3.5 h-3.5" />
+                              )}
+                              {isSaved ? "Kaydedildi" : "Kaydet"}
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })
                 )}
               </TableBody>
             </Table>

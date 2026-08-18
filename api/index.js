@@ -455,6 +455,39 @@ app.post('/api/invoices/import-from-logo', authMiddleware, async (req, res) => {
       return res.status(400).json({ success: false, message: 'Bu fatura zaten sisteme kaydedilmiş.' });
     }
     
+    // Otomatik olarak PDF'i de eLogo'dan çekip kaydedelim
+    let pdfDosyaBase64 = null;
+    let pdfDosyaAdi = null;
+    try {
+      const settingsRes = await client.execute({
+        sql: 'SELECT setting_key, setting_value FROM company_settings WHERE company_id = ?',
+        args: [req.user.companyId]
+      });
+      const settings = settingsRes.rows.reduce((acc, row) => ({ ...acc, [row.setting_key]: row.setting_value }), {});
+      if (settings.elogo_username && settings.elogo_password) {
+        const elogo = new ElogoClient(settings.elogo_username, settings.elogo_password, settings.elogo_is_test === 'true');
+        const docDataRes = await elogo.getDocumentPdf(uuid);
+        if (docDataRes.success && docDataRes.data?.document?.binaryData?.Value) {
+          const base64Data = docDataRes.data.document.binaryData.Value;
+          const buffer = Buffer.from(base64Data, 'base64');
+          if (buffer[0] === 0x50 && buffer[1] === 0x4B) { // ZIP
+             const zip = new AdmZip(buffer);
+             const zipEntries = zip.getEntries();
+             const pdfEntry = zipEntries.find(e => e.entryName.toLowerCase().endsWith('.pdf'));
+             if (pdfEntry) {
+               pdfDosyaBase64 = `data:application/pdf;base64,${pdfEntry.getData().toString('base64')}`;
+               pdfDosyaAdi = `${uuid}.pdf`;
+             }
+          } else {
+             pdfDosyaBase64 = `data:application/pdf;base64,${base64Data}`;
+             pdfDosyaAdi = `${uuid}.pdf`;
+          }
+        }
+      }
+    } catch(e) {
+      console.error("PDF otomatik çekme hatası:", e);
+    }
+    
     // Insert into DB
     const id = uuidv4();
     await client.execute({
@@ -468,7 +501,7 @@ app.post('/api/invoices/import-from-logo', authMiddleware, async (req, res) => {
       args: [
         id, faturaNo, islemTarihi, senderName, senderVkn, 'eLogo Gelen Fatura',
         payableAmount, kdvOrani || 0, kdvTutari || 0, matrah || 0, '0', 0,
-        '0', 0, null, null, null, null,
+        '0', 0, null, null, pdfDosyaBase64, pdfDosyaAdi,
         null, 'odenmedi', null, null, null, null,
         'eLogo üzerinden içe aktarıldı (UUID: ' + uuid + ')', new Date().toISOString().split('T')[0], req.user.companyId,
         (kdvOrani === 1 ? kdvTutari : 0), (kdvOrani === 10 ? kdvTutari : 0), (kdvOrani === 20 ? kdvTutari : 0)
