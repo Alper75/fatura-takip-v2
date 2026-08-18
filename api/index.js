@@ -356,16 +356,14 @@ app.get('/api/elogo/gelen-faturalar', authMiddleware, async (req, res) => {
           }
         }
 
-        const notes = inv['Note'];
-        const noteArray = Array.isArray(notes) ? notes : (notes ? [notes] : []);
-        let faturaAciklama = noteArray.map(n => getText(n)).filter(n => n).join(' - ');
+        const lines = inv['InvoiceLine'];
+        const lineArr = Array.isArray(lines) ? lines : (lines ? [lines] : []);
+        let faturaAciklama = lineArr.map(l => getText(l?.['Item']?.['Name'])).filter(n => n).join(', ');
         
         if (!faturaAciklama) {
-          const lines = inv['InvoiceLine'];
-          const lineArr = Array.isArray(lines) ? lines : (lines ? [lines] : []);
-          if (lineArr.length > 0) {
-            faturaAciklama = getText(lineArr[0]?.['Item']?.['Name']);
-          }
+          const notes = inv['Note'];
+          const noteArray = Array.isArray(notes) ? notes : (notes ? [notes] : []);
+          faturaAciklama = noteArray.map(n => getText(n)).filter(n => n).join(' - ');
         }
         
         if (!faturaAciklama) {
@@ -4265,16 +4263,16 @@ app.get('/api/cron/sync-elogo', async (req, res) => {
             }
           }
           
-          const notes = inv['Note'];
-          const noteArray = Array.isArray(notes) ? notes : (notes ? [notes] : []);
-          let faturaAciklama = noteArray.map(n => getText(n)).filter(n => n).join(' - ');
+          const lines = inv['InvoiceLine'];
+          const lineArr = Array.isArray(lines) ? lines : (lines ? [lines] : []);
+          let faturaAciklama = lineArr.map(l => getText(l?.['Item']?.['Name'])).filter(n => n).join(', ');
+          
           if (!faturaAciklama) {
-            const lines = inv['InvoiceLine'];
-            const lineArr = Array.isArray(lines) ? lines : (lines ? [lines] : []);
-            if (lineArr.length > 0) {
-              faturaAciklama = getText(lineArr[0]?.['Item']?.['Name']);
-            }
+            const notes = inv['Note'];
+            const noteArray = Array.isArray(notes) ? notes : (notes ? [notes] : []);
+            faturaAciklama = noteArray.map(n => getText(n)).filter(n => n).join(' - ');
           }
+          
           if (!faturaAciklama) {
             faturaAciklama = 'eLogo Gelen Fatura (Oto)';
           }
