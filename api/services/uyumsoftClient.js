@@ -86,7 +86,15 @@ export class UyumsoftClient {
         [result] = await this.client.GetOutboxInvoiceListAsync(args);
       }
       
-      return { success: true, data: result };
+      const itemsRaw = result?.GetInboxInvoiceListResult?.Value?.Items || result?.GetOutboxInvoiceListResult?.Value?.Items;
+      const itemsArr = Array.isArray(itemsRaw) ? itemsRaw : (itemsRaw ? [itemsRaw] : []);
+      
+      const mappedDocs = itemsArr.map(item => ({
+         documentUuid: item.InvoiceId,
+         documentId: item.DocumentId
+      }));
+
+      return { success: true, data: { docList: { Document: mappedDocs } } };
     } catch (error) {
       console.error('Uyumsoft GetDocumentList Error:', error);
       return { success: false, message: this._extractFaultMessage(error) };
@@ -97,12 +105,14 @@ export class UyumsoftClient {
     await this.init();
 
     try {
-      // Typically GetInboxInvoice or GetInvoice method
       const args = { invoiceId: uuid, format: 'UBL' };
       const [result] = await this.client.GetInboxInvoiceAsync(args);
       
-      // Need to format result to match elogoClient format so api/index.js doesn't break
-      return { success: true, data: result };
+      const base64Data = result?.GetInboxInvoiceResult?.Value?.Data;
+      return { 
+        success: true, 
+        data: { document: { binaryData: { Value: base64Data } } } 
+      };
     } catch (error) {
       console.error('Uyumsoft GetDocumentData Error:', error);
       return { success: false, message: error.message };
