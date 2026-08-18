@@ -363,7 +363,39 @@ export function Sidebar({ onItemClick }: SidebarProps) {
                           : "text-slate-500 hover:bg-slate-50 hover:text-slate-900"
                       )}
                     >
-                      Uyumsoft
+                      Uyumsoft Gelen Faturalar
+                    </button>
+                  </li>
+                  <li>
+                    <button
+                      onClick={() => {
+                        setCurrentView('giden-uyumsoft-faturalar');
+                        onItemClick?.();
+                      }}
+                      className={cn(
+                        "w-full text-left py-2 px-3 text-sm rounded-md transition-all",
+                        currentView === 'giden-uyumsoft-faturalar'
+                          ? "bg-slate-100 text-primary font-semibold" 
+                          : "text-slate-500 hover:bg-slate-50 hover:text-slate-900"
+                      )}
+                    >
+                      Uyumsoft Giden Faturalar
+                    </button>
+                  </li>
+                  <li>
+                    <button
+                      onClick={() => {
+                        setCurrentView('giden-uyumsoft-esmm');
+                        onItemClick?.();
+                      }}
+                      className={cn(
+                        "w-full text-left py-2 px-3 text-sm rounded-md transition-all",
+                        currentView === 'giden-uyumsoft-esmm'
+                          ? "bg-slate-100 text-primary font-semibold" 
+                          : "text-slate-500 hover:bg-slate-50 hover:text-slate-900"
+                      )}
+                    >
+                      Uyumsoft Giden e-SMM
                     </button>
                   </li>
                   <li>

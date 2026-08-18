@@ -31,6 +31,8 @@ import { PublicMutabakatView } from './sections/PublicMutabakatView';
 import EntegratorAyarlari from './sections/EntegratorAyarlari';
 import GelenEFaturalar from './sections/GelenEFaturalar';
 import GelenUyumsoftFaturalar from './sections/GelenUyumsoftFaturalar';
+import UyumsoftGidenFaturalar from './sections/UyumsoftGidenFaturalar';
+import UyumsoftGidenESMM from './sections/UyumsoftGidenESMM';
 import { SirketDosyalari } from './sections/SirketDosyalari';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
@@ -115,6 +117,10 @@ function AppContent() {
             return <GelenEFaturalar />;
           case 'gelen-uyumsoft-faturalar':
             return <GelenUyumsoftFaturalar />;
+          case 'giden-uyumsoft-faturalar':
+            return <UyumsoftGidenFaturalar />;
+          case 'giden-uyumsoft-esmm':
+            return <UyumsoftGidenESMM />;
           case 'teklif-liste':
             return <TeklifListesi />;
           case 'siparis-liste':

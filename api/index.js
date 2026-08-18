@@ -527,6 +527,11 @@ app.get('/api/uyumsoft/gelen-faturalar', authMiddleware, async (req, res) => {
     // Concurrency limit for requests to avoid Logo rate limiting
     const fetchInvoiceDetails = async (doc) => {
       try {
+        if (doc.isPrePopulated) {
+          // Uyumsoft Makbuz/Outbox provides info directly in the list, skip XML fetch
+          return doc;
+        }
+
         const uuid = doc.documentUuid || doc.uuid;
         if (!uuid) return { ...doc, senderName: 'Geçersiz UUID', faturaNo: doc.documentId || '-' };
         
@@ -4617,3 +4622,4 @@ if (process.env.NODE_ENV !== 'production') {
 }
 
 export default app;
+

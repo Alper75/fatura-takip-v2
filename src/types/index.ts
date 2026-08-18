@@ -541,6 +541,8 @@ export type ViewType =
   | 'entegrasyon-ayarlari'
   | 'gelen-efaturalar'
   | 'gelen-uyumsoft-faturalar'
+  | 'giden-uyumsoft-faturalar'
+  | 'giden-uyumsoft-esmm'
   | 'teklif-liste'
   | 'siparis-liste'
   | 'mutabakat-yonetimi'
