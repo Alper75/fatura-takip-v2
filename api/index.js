@@ -4261,12 +4261,12 @@ app.get('/api/cron/sync-elogo', async (req, res) => {
                  const pZip = new AdmZip(pBuffer);
                  const pEntry = pZip.getEntries().find(e => e.entryName.toLowerCase().endsWith('.pdf'));
                  if (pEntry) {
-                   pdfDosyaBase64 = \`data:application/pdf;base64,\${pEntry.getData().toString('base64')}\`;
-                   pdfDosyaAdi = \`\${uuid}.pdf\`;
+                   pdfDosyaBase64 = `data:application/pdf;base64,${pEntry.getData().toString('base64')}`;
+                   pdfDosyaAdi = `${uuid}.pdf`;
                  }
               } else {
-                 pdfDosyaBase64 = \`data:application/pdf;base64,\${pdfRes.data.document.binaryData.Value}\`;
-                 pdfDosyaAdi = \`\${uuid}.pdf\`;
+                 pdfDosyaBase64 = `data:application/pdf;base64,${pdfRes.data.document.binaryData.Value}`;
+                 pdfDosyaAdi = `${uuid}.pdf`;
               }
             }
           } catch(e) { console.error("Cron PDF fetch error:", e); }
@@ -4274,13 +4274,13 @@ app.get('/api/cron/sync-elogo', async (req, res) => {
           // DB Insert
           const id = uuidv4();
           await client.execute({
-            sql: \`INSERT INTO alis_faturalari 
+            sql: `INSERT INTO alis_faturalari 
               (id, fatura_no, fatura_tarihi, tedarikci_adi, tedarikci_vkn, mal_hizmet_adi, 
                toplam_tutar, kdv_orani, kdv_tutari, matrah, tevkifat_orani, tevkifat_tutari, 
                stopaj_orani, stopaj_tutari, muhasebe_kodu, karsi_hesap_kodu, pdf_dosya, pdf_dosya_adi, 
                odeme_tarihi, odeme_durumu, odeme_dekontu, odeme_dekontu_adi, cari_id, vade_tarihi, 
                aciklama, olusturma_tarihi, company_id, kdv1, kdv10, kdv20) 
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)\`,
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             args: [
               id, faturaNo, islemTarihi, senderName, senderVkn, 'eLogo Gelen Fatura (Oto)',
               payableAmount, kdvOrani || 0, kdvTutari || 0, matrah || 0, '0', 0,
