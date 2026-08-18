@@ -18,6 +18,7 @@ import AdmZip from 'adm-zip';
 import crypto from 'crypto';
 
 import { ElogoClient } from './services/elogoClient.js';
+import { UyumsoftClient } from './services/uyumsoftClient.js';
 import { UblBuilder } from './services/ublBuilder.js';
 
 import { client, initDb } from './db.js';
