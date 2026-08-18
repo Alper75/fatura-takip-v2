@@ -11,6 +11,14 @@ export default function GelenEFaturalar() {
   const [importing, setImporting] = useState<string | null>(null);
   const [faturalar, setFaturalar] = useState<any[]>([]);
   const [savedInvoices, setSavedInvoices] = useState<string[]>([]);
+  const [selectedInvoices, setSelectedInvoices] = useState<string[]>([]);
+  const [bulkImporting, setBulkImporting] = useState(false);
+  
+  const today = new Date().toISOString().split('T')[0];
+  const thirtyDaysAgo = new Date(new Date().setDate(new Date().getDate() - 30)).toISOString().split('T')[0];
+  const [startDate, setStartDate] = useState(thirtyDaysAgo);
+  const [endDate, setEndDate] = useState(today);
+
   const { fetchAlisFaturalari, alisFaturalari } = useApp();
 
   useEffect(() => {
@@ -21,7 +29,9 @@ export default function GelenEFaturalar() {
     setLoading(true);
     try {
       const token = localStorage.getItem('token');
-      const res = await fetch('/api/elogo/gelen-faturalar', {
+      const startIso = new Date(startDate).toISOString();
+      const endIso = new Date(endDate).toISOString();
+      const res = await fetch(`/api/elogo/gelen-faturalar?baslangic=${startIso}&bitis=${endIso}`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       const data = await res.json();
@@ -102,6 +112,42 @@ export default function GelenEFaturalar() {
     }
   };
 
+  const handleBulkImport = async () => {
+    if (selectedInvoices.length === 0) return;
+    setBulkImporting(true);
+    let basarili = 0;
+    const token = localStorage.getItem('token');
+
+    for (const uuid of selectedInvoices) {
+      const fatura = faturalar.find(f => f.uuid === uuid);
+      if (!fatura) continue;
+      
+      try {
+        const res = await fetch('/api/invoices/import-from-logo', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify(fatura)
+        });
+        const data = await res.json();
+        if (data.success) {
+          basarili++;
+          setSavedInvoices(prev => [...prev, fatura.uuid]);
+        }
+      } catch (error) {
+        console.error('Toplu aktarma hatası:', error);
+      }
+    }
+    
+    toast.success(`${basarili} fatura başarıyla kaydedildi!`);
+    setSelectedInvoices([]);
+    fetchAlisFaturalari();
+    setBulkImporting(false);
+  };
+
+
   const formatDate = (dateStr: string) => {
     if (!dateStr) return '-';
     try {
@@ -113,28 +159,69 @@ export default function GelenEFaturalar() {
 
   return (
     <div className="space-y-6 max-w-6xl mx-auto p-4 sm:p-6 pb-20">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <h2 className="text-2xl font-bold text-gray-900 tracking-tight">Gelen E-Faturalar (eLogo)</h2>
-          <p className="text-muted-foreground mt-1">Son 30 güne ait eLogo portalınıza gelen e-Faturalar.</p>
+          <p className="text-muted-foreground mt-1">eLogo portalınıza gelen e-Faturaları görüntüleyin ve kaydedin.</p>
         </div>
-        <Button onClick={fetchFaturalar} disabled={loading} variant="outline" className="gap-2">
-          <RefreshCcw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /> Yenile
-        </Button>
+        <div className="flex items-center gap-2">
+          <input 
+            type="date" 
+            className="border border-gray-300 rounded-md px-3 py-2 text-sm"
+            value={startDate}
+            onChange={(e) => setStartDate(e.target.value)}
+          />
+          <span className="text-gray-500">-</span>
+          <input 
+            type="date" 
+            className="border border-gray-300 rounded-md px-3 py-2 text-sm"
+            value={endDate}
+            onChange={(e) => setEndDate(e.target.value)}
+          />
+          <Button onClick={fetchFaturalar} disabled={loading} variant="outline" className="gap-2 ml-2">
+            <RefreshCcw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /> Getir
+          </Button>
+        </div>
       </div>
 
       <Card className="border-none shadow-md bg-white">
-        <CardHeader className="border-b bg-gray-50/50 pb-4">
-          <CardTitle className="text-lg text-gray-800">Fatura Listesi</CardTitle>
-          <CardDescription>
-            GİB üzerinden tarafınıza kesilen faturalar.
-          </CardDescription>
+        <CardHeader className="border-b bg-gray-50/50 pb-4 flex flex-row items-center justify-between">
+          <div>
+            <CardTitle className="text-lg text-gray-800">Fatura Listesi</CardTitle>
+            <CardDescription>
+              GİB üzerinden tarafınıza kesilen faturalar.
+            </CardDescription>
+          </div>
+          {selectedInvoices.length > 0 && (
+            <Button 
+              onClick={handleBulkImport} 
+              disabled={bulkImporting} 
+              className="bg-indigo-600 hover:bg-indigo-700"
+            >
+              {bulkImporting ? <RefreshCcw className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
+              Seçilenleri Kaydet ({selectedInvoices.length})
+            </Button>
+          )}
         </CardHeader>
         <CardContent className="pt-0 px-0">
           <div className="overflow-x-auto">
             <Table>
               <TableHeader className="bg-slate-50">
                 <TableRow>
+                  <TableHead className="w-12 text-center">
+                    <input 
+                      type="checkbox" 
+                      className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                      checked={faturalar.length > 0 && selectedInvoices.length === faturalar.filter(f => !(savedInvoices.includes(f.uuid) || alisFaturalari.some(a => a.faturaNo === f.faturaNo))).length && faturalar.filter(f => !(savedInvoices.includes(f.uuid) || alisFaturalari.some(a => a.faturaNo === f.faturaNo))).length > 0}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSelectedInvoices(faturalar.filter(f => !(savedInvoices.includes(f.uuid) || alisFaturalari.some(a => a.faturaNo === f.faturaNo))).map(f => f.uuid));
+                        } else {
+                          setSelectedInvoices([]);
+                        }
+                      }}
+                    />
+                  </TableHead>
                   <TableHead className="font-semibold text-slate-600">Gönderen / VKN</TableHead>
                   <TableHead className="font-semibold text-slate-600">Fatura No</TableHead>
                   <TableHead className="font-semibold text-slate-600">Tarih</TableHead>
@@ -160,6 +247,21 @@ export default function GelenEFaturalar() {
                     const isSaved = savedInvoices.includes(f.uuid) || alisFaturalari.some(a => a.faturaNo === f.faturaNo);
                     return (
                       <TableRow key={i} className={isSaved ? "bg-green-100/50 hover:bg-green-100/70" : "hover:bg-slate-50"}>
+                        <TableCell className="text-center">
+                          <input 
+                            type="checkbox" 
+                            className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer disabled:opacity-50"
+                            checked={selectedInvoices.includes(f.uuid)}
+                            disabled={isSaved}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setSelectedInvoices(prev => [...prev, f.uuid]);
+                              } else {
+                                setSelectedInvoices(prev => prev.filter(id => id !== f.uuid));
+                              }
+                            }}
+                          />
+                        </TableCell>
                         <TableCell>
                           <div className="font-medium text-slate-800">{f?.senderName || 'Bilinmiyor'}</div>
                           <div className="text-xs text-slate-500 mt-0.5">VKN: {f?.senderVkn || '-'}</div>

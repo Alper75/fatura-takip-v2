@@ -24,5 +24,11 @@
       "source": "/(.*)",
       "destination": "/"
     }
+  ],
+  "crons": [
+    {
+      "path": "/api/cron/sync-elogo",
+      "schedule": "0 * * * *"
+    }
   ]
 }

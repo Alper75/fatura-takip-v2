@@ -240,10 +240,16 @@ app.get('/api/elogo/gelen-faturalar', authMiddleware, async (req, res) => {
 
     const elogo = new ElogoClient(settings.elogo_username, settings.elogo_password, settings.elogo_is_test === 'true');
     
-    const endDate = new Date().toISOString();
-    const beginDateObj = new Date();
-    beginDateObj.setDate(beginDateObj.getDate() - 30); // Last 30 days
-    const beginDate = beginDateObj.toISOString();
+    let beginDate, endDate;
+    if (req.query.baslangic && req.query.bitis) {
+      beginDate = req.query.baslangic;
+      endDate = req.query.bitis;
+    } else {
+      endDate = new Date().toISOString();
+      const beginDateObj = new Date();
+      beginDateObj.setDate(beginDateObj.getDate() - 30); // Last 30 days
+      beginDate = beginDateObj.toISOString();
+    }
 
     const response = await elogo.getDocumentList('EINVOICE', beginDate, endDate, 2);
     console.log('eLogo GetDocumentList response:', JSON.stringify(response, null, 2));
@@ -4114,6 +4120,187 @@ app.get('/api/download/:filename', (req, res) => {
     res.download(filePath, fileName);
   } else {
     res.status(404).json({ success: false, message: 'Dosya bulunamadı.' });
+  }
+});
+
+// --- VERCEL CRON: OTOMATİK FATURA SENKRONİZASYONU ---
+app.get('/api/cron/sync-elogo', async (req, res) => {
+  // Optional security check for Vercel Cron Secret
+  if (process.env.CRON_SECRET && req.headers.authorization !== `Bearer ${process.env.CRON_SECRET}`) {
+    return res.status(401).json({ success: false, message: 'Unauthorized' });
+  }
+
+  try {
+    // 1. eLogo ayarları girilmiş tüm firmaları bul
+    const rsCompanies = await client.execute(`
+      SELECT company_id 
+      FROM company_settings 
+      WHERE setting_key = 'elogo_username' AND setting_value IS NOT NULL AND setting_value != ''
+    `);
+    
+    const companyIds = rsCompanies.rows.map(r => r.company_id);
+    console.log(`Cron: ${companyIds.length} firma için eLogo senkronizasyonu başlatılıyor...`);
+
+    const endDate = new Date().toISOString();
+    const beginDateObj = new Date();
+    beginDateObj.setDate(beginDateObj.getDate() - 2); // Son 2 gün
+    const beginDate = beginDateObj.toISOString();
+
+    const ublParser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_', removeNSPrefix: true });
+    
+    let totalSynced = 0;
+
+    for (const companyId of companyIds) {
+      try {
+        // Firma ayarlarını çek
+        const keys = ['elogo_username', 'elogo_password', 'elogo_is_test'];
+        const placeholders = keys.map(() => '?').join(',');
+        const rsSettings = await client.execute({
+          sql: `SELECT setting_key, setting_value FROM company_settings WHERE company_id = ? AND setting_key IN (${placeholders})`,
+          args: [companyId, ...keys]
+        });
+        const settings = { elogo_is_test: 'false' };
+        for (const row of rsSettings.rows) settings[row.setting_key] = row.setting_value;
+        
+        if (!settings.elogo_username || !settings.elogo_password) continue;
+
+        const elogo = new ElogoClient(settings.elogo_username, settings.elogo_password, settings.elogo_is_test === 'true');
+        const response = await elogo.getDocumentList('EINVOICE', beginDate, endDate, 2);
+        
+        if (!response.success) continue;
+        
+        const docListRaw = response.data?.docList?.Document || response.data?.docList?.document || response.data?.GetDocumentListResult?.document || [];
+        const documents = Array.isArray(docListRaw) ? docListRaw : (docListRaw ? [docListRaw] : []);
+        
+        for (const doc of documents) {
+          const uuid = doc.documentUuid || doc.uuid;
+          if (!uuid) continue;
+
+          // Veritabanında var mı kontrol et
+          const existing = await client.execute({
+            sql: 'SELECT id FROM alis_faturalari WHERE company_id = ? AND aciklama LIKE ?',
+            args: [companyId, `%${uuid}%`]
+          });
+          if (existing.rows && existing.rows.length > 0) continue; // Zaten kayıtlı
+
+          // XML ve PDF çek (Detaylı parse)
+          const docDataRes = await elogo.getDocumentData(uuid);
+          if (!docDataRes.success || !docDataRes.data?.document?.binaryData?.Value) continue;
+          
+          const base64Data = docDataRes.data.document.binaryData.Value;
+          const buffer = Buffer.from(base64Data, 'base64');
+          let xmlString = '';
+          
+          if (buffer[0] === 0x50 && buffer[1] === 0x4B) {
+             const zip = new AdmZip(buffer);
+             const zipEntries = zip.getEntries();
+             if (zipEntries.length > 0) xmlString = zipEntries[0].getData().toString('utf8');
+          } else {
+             xmlString = buffer.toString('utf8');
+          }
+          if (!xmlString) continue;
+          
+          const parsed = ublParser.parse(xmlString);
+          const inv = parsed.Invoice;
+          if (!inv) continue;
+          
+          const getText = (node) => (typeof node === 'object' && node !== null) ? (node['#text'] || '') : (node || '');
+          const supplierParty = inv['AccountingSupplierParty']?.['Party'];
+          let senderName = 'Bilinmiyor';
+          let senderVkn = '-';
+          if (supplierParty) {
+            const partyName = Array.isArray(supplierParty['PartyName']) ? supplierParty['PartyName'][0] : supplierParty['PartyName'];
+            senderName = getText(partyName?.['Name']) || getText(supplierParty['PartyLegalEntity']?.['RegistrationName']) || getText(supplierParty['Person']?.['FirstName']) + ' ' + getText(supplierParty['Person']?.['FamilyName']);
+            const idNode = supplierParty['PartyIdentification'];
+            const idArray = Array.isArray(idNode) ? idNode : (idNode ? [idNode] : []);
+            for (const ident of idArray) {
+               const id = ident['ID'];
+               if (!id) continue;
+               const isVkn = id['@_schemeID'] === 'VKN' || id['@_schemeID'] === 'TCKN';
+               const val = isVkn ? id['#text'] : (id['#text'] || id);
+               if (val) {
+                 senderVkn = String(val).replace('.0', '');
+                 break;
+               }
+            }
+          }
+          
+          const issueDate = getText(inv['IssueDate']);
+          const faturaNo = getText(inv['ID']) || doc.documentId || '';
+          const totals = inv['LegalMonetaryTotal'];
+          const payableAmount = parseFloat(getText(totals?.['PayableAmount'])) || 0;
+          const matrah = parseFloat(getText(totals?.['TaxExclusiveAmount'])) || 0;
+          let kdvTutari = 0; let kdvOrani = 0;
+          const taxTotal = inv['TaxTotal'];
+          const taxTotalArray = Array.isArray(taxTotal) ? taxTotal : (taxTotal ? [taxTotal] : []);
+          for (const tt of taxTotalArray) {
+            const subtotals = tt['TaxSubtotal'];
+            if (!subtotals) continue;
+            const subArr = Array.isArray(subtotals) ? subtotals : [subtotals];
+            for (const sub of subArr) {
+              const taxCat = sub['TaxCategory'];
+              const taxScheme = taxCat?.['TaxScheme']?.['TaxTypeCode']?.['#text'] || taxCat?.['TaxScheme']?.['TaxTypeCode'];
+              const taxCode = getText(taxScheme);
+              if (taxCode === '0015' || taxCode === '15' || taxCode === 15 || !taxCode) {
+                kdvTutari += parseFloat(getText(sub['TaxAmount'])) || 0;
+                kdvOrani = parseFloat(getText(sub['Percent'])) || parseFloat(getText(taxCat?.['Percent'])) || 0;
+              }
+            }
+          }
+
+          const islemTarihi = issueDate ? issueDate.split('T')[0] : new Date().toISOString().split('T')[0];
+
+          // PDF Çek
+          let pdfDosyaBase64 = null;
+          let pdfDosyaAdi = null;
+          try {
+            const pdfRes = await elogo.getDocumentPdf(uuid);
+            if (pdfRes.success && pdfRes.data?.document?.binaryData?.Value) {
+              const pBuffer = Buffer.from(pdfRes.data.document.binaryData.Value, 'base64');
+              if (pBuffer[0] === 0x50 && pBuffer[1] === 0x4B) { 
+                 const pZip = new AdmZip(pBuffer);
+                 const pEntry = pZip.getEntries().find(e => e.entryName.toLowerCase().endsWith('.pdf'));
+                 if (pEntry) {
+                   pdfDosyaBase64 = \`data:application/pdf;base64,\${pEntry.getData().toString('base64')}\`;
+                   pdfDosyaAdi = \`\${uuid}.pdf\`;
+                 }
+              } else {
+                 pdfDosyaBase64 = \`data:application/pdf;base64,\${pdfRes.data.document.binaryData.Value}\`;
+                 pdfDosyaAdi = \`\${uuid}.pdf\`;
+              }
+            }
+          } catch(e) { console.error("Cron PDF fetch error:", e); }
+
+          // DB Insert
+          const id = uuidv4();
+          await client.execute({
+            sql: \`INSERT INTO alis_faturalari 
+              (id, fatura_no, fatura_tarihi, tedarikci_adi, tedarikci_vkn, mal_hizmet_adi, 
+               toplam_tutar, kdv_orani, kdv_tutari, matrah, tevkifat_orani, tevkifat_tutari, 
+               stopaj_orani, stopaj_tutari, muhasebe_kodu, karsi_hesap_kodu, pdf_dosya, pdf_dosya_adi, 
+               odeme_tarihi, odeme_durumu, odeme_dekontu, odeme_dekontu_adi, cari_id, vade_tarihi, 
+               aciklama, olusturma_tarihi, company_id, kdv1, kdv10, kdv20) 
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)\`,
+            args: [
+              id, faturaNo, islemTarihi, senderName, senderVkn, 'eLogo Gelen Fatura (Oto)',
+              payableAmount, kdvOrani || 0, kdvTutari || 0, matrah || 0, '0', 0,
+              '0', 0, null, null, pdfDosyaBase64, pdfDosyaAdi,
+              null, 'odenmedi', null, null, null, null,
+              'eLogo üzerinden otomatik içe aktarıldı (UUID: ' + uuid + ')', new Date().toISOString().split('T')[0], companyId,
+              (kdvOrani === 1 ? kdvTutari : 0), (kdvOrani === 10 ? kdvTutari : 0), (kdvOrani === 20 ? kdvTutari : 0)
+            ]
+          });
+          totalSynced++;
+        }
+      } catch (err) {
+        console.error(`Cron error for company ${companyId}:`, err);
+      }
+    }
+    
+    res.json({ success: true, message: `Cron tamamlandı. ${totalSynced} fatura aktarıldı.` });
+  } catch (error) {
+    console.error('Cron genel hatası:', error);
+    res.status(500).json({ success: false, message: error.message });
   }
 });
 
