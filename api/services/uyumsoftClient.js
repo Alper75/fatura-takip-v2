@@ -133,11 +133,9 @@ export class UyumsoftClient {
     await this.init();
     try {
       const args = {
-        query: {
-          CreateStartDate: beginDate.split('T')[0] + 'T00:00:00',
-          CreateEndDate: endDate.split('T')[0] + 'T23:59:59',
-          PageIndex: 0,
-          PageSize: 100
+        context: {
+          CreationSartDate: beginDate.split('T')[0] + 'T00:00:00',
+          CreationEndDate: endDate.split('T')[0] + 'T23:59:59'
         }
       };
 
