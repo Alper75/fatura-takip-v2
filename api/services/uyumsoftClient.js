@@ -101,9 +101,16 @@ export class UyumsoftClient {
       const itemsArr = Array.isArray(itemsRaw) ? itemsRaw : (itemsRaw ? [itemsRaw] : []);
       
       const mappedDocs = itemsArr.map(item => ({
-         documentUuid: item.InvoiceId || item.Id || item.uuid,
-         documentId: item.DocumentId || item.FaturaNo
+         documentUuid: item.InvoiceId || item.Id || item.uuid || item.invoiceId || item.id,
+         documentId: item.DocumentId || item.FaturaNo || item.documentId
       })).filter(doc => doc.documentUuid); // Remove any completely invalid mapping
+
+      if (mappedDocs.length === 0) {
+        // Return raw result as a message to debug what Uyumsoft actually sent!
+        let debugStr = '';
+        try { debugStr = JSON.stringify(result).substring(0, 1000); } catch(e){}
+        return { success: false, message: 'Fatura bulunamadı veya parse edilemedi. Gelen veri: ' + debugStr };
+      }
 
       return { success: true, data: { docList: { Document: mappedDocs } } };
     } catch (error) {
