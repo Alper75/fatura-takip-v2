@@ -356,6 +356,22 @@ app.get('/api/elogo/gelen-faturalar', authMiddleware, async (req, res) => {
           }
         }
 
+        const notes = inv['Note'];
+        const noteArray = Array.isArray(notes) ? notes : (notes ? [notes] : []);
+        let faturaAciklama = noteArray.map(n => getText(n)).filter(n => n).join(' - ');
+        
+        if (!faturaAciklama) {
+          const lines = inv['InvoiceLine'];
+          const lineArr = Array.isArray(lines) ? lines : (lines ? [lines] : []);
+          if (lineArr.length > 0) {
+            faturaAciklama = getText(lineArr[0]?.['Item']?.['Name']);
+          }
+        }
+        
+        if (!faturaAciklama) {
+          faturaAciklama = 'eLogo Gelen Fatura';
+        }
+
         return {
           ...doc,
           faturaNo,
@@ -367,7 +383,8 @@ app.get('/api/elogo/gelen-faturalar', authMiddleware, async (req, res) => {
           currencyCode,
           matrah,
           kdvOrani,
-          kdvTutari
+          kdvTutari,
+          faturaAciklama
         };
       } catch (err) {
         console.error('Invoice parse error for UUID', doc.documentUuid, err);
@@ -448,7 +465,7 @@ app.post('/api/invoices/import-from-logo', authMiddleware, async (req, res) => {
   }
   
   try {
-    const { faturaNo, senderName, senderVkn, issueDate, payableAmount, currencyCode, uuid, matrah, kdvOrani, kdvTutari } = invoice;
+    const { faturaNo, senderName, senderVkn, issueDate, payableAmount, currencyCode, uuid, matrah, kdvOrani, kdvTutari, faturaAciklama } = invoice;
     const islemTarihi = issueDate ? issueDate.split('T')[0] : new Date().toISOString().split('T')[0];
     
     // Check if invoice already exists
@@ -4247,6 +4264,20 @@ app.get('/api/cron/sync-elogo', async (req, res) => {
               }
             }
           }
+          
+          const notes = inv['Note'];
+          const noteArray = Array.isArray(notes) ? notes : (notes ? [notes] : []);
+          let faturaAciklama = noteArray.map(n => getText(n)).filter(n => n).join(' - ');
+          if (!faturaAciklama) {
+            const lines = inv['InvoiceLine'];
+            const lineArr = Array.isArray(lines) ? lines : (lines ? [lines] : []);
+            if (lineArr.length > 0) {
+              faturaAciklama = getText(lineArr[0]?.['Item']?.['Name']);
+            }
+          }
+          if (!faturaAciklama) {
+            faturaAciklama = 'eLogo Gelen Fatura (Oto)';
+          }
 
           const islemTarihi = issueDate ? issueDate.split('T')[0] : new Date().toISOString().split('T')[0];
 
@@ -4282,7 +4313,7 @@ app.get('/api/cron/sync-elogo', async (req, res) => {
                aciklama, olusturma_tarihi, company_id, kdv1, kdv10, kdv20) 
               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             args: [
-              id, faturaNo, islemTarihi, senderName, senderVkn, 'eLogo Gelen Fatura (Oto)',
+              id, faturaNo, islemTarihi, senderName, senderVkn, faturaAciklama,
               payableAmount, kdvOrani || 0, kdvTutari || 0, matrah || 0, '0', 0,
               '0', 0, null, null, pdfDosyaBase64, pdfDosyaAdi,
               null, 'odenmedi', null, null, null, null,

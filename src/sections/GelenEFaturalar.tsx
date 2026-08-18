@@ -224,6 +224,7 @@ export default function GelenEFaturalar() {
                   </TableHead>
                   <TableHead className="font-semibold text-slate-600">Gönderen / VKN</TableHead>
                   <TableHead className="font-semibold text-slate-600">Fatura No</TableHead>
+                  <TableHead className="font-semibold text-slate-600">Açıklama</TableHead>
                   <TableHead className="font-semibold text-slate-600">Tarih</TableHead>
                   <TableHead className="font-semibold text-slate-600 text-right">Tutar</TableHead>
                   <TableHead className="font-semibold text-slate-600 text-center">İşlem</TableHead>
@@ -270,6 +271,11 @@ export default function GelenEFaturalar() {
                           <div className="font-medium text-slate-700">{f?.invoiceNumber || f?.faturaNo || '-'}</div>
                           <div className="text-[11px] text-slate-400 font-mono mt-0.5" title={f.uuid}>
                             {f.uuid.split('-')[0]}...
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="text-sm text-slate-600 truncate max-w-[200px]" title={f?.faturaAciklama}>
+                            {f?.faturaAciklama || 'Belirtilmemiş'}
                           </div>
                         </TableCell>
                         <TableCell className="text-slate-600">
