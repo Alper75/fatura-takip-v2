@@ -13,17 +13,20 @@ export class UyumsoftClient {
 
   async init() {
     if (!this.client) {
-      this.client = await soap.createClientAsync(this.apiUrl);
+      this.client = await soap.createClientAsync(this.apiUrl, {
+        ignoredNamespaces: {
+          namespaces: ['targetNamespace', 'typedNamespace'],
+          override: true
+        }
+      });
       
       // Ensure namespaces are defined in the envelope to prevent WCF deserialization errors
       if (this.client.wsdl) {
         const defaultXmlns = this.client.wsdl.xmlnsInEnvelope || '';
-        if (!defaultXmlns.includes('xmlns:ns1=')) {
-          this.client.wsdl.xmlnsInEnvelope = defaultXmlns + 
-            ' xmlns:ns1="http://www.w3.org/2001/XMLSchema"' +
-            ' xmlns:ns2="http://schemas.microsoft.com/2003/10/Serialization/"' +
-            ' xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"';
-        }
+        let addXmlns = '';
+        if (!defaultXmlns.includes('xmlns:ns1=')) addXmlns += ' xmlns:ns1="http://www.w3.org/2001/XMLSchema"';
+        if (!defaultXmlns.includes('xmlns:ns2=')) addXmlns += ' xmlns:ns2="http://schemas.microsoft.com/2003/10/Serialization/"';
+        this.client.wsdl.xmlnsInEnvelope = defaultXmlns + addXmlns;
       }
 
       // Uyumsoft uses WS-Security
@@ -35,31 +38,30 @@ export class UyumsoftClient {
     }
   }
 
+  _extractFaultMessage(error) {
+    let msg = error.message;
+    try {
+      if (error.root && error.root.Envelope && error.root.Envelope.Body && error.root.Envelope.Body.Fault) {
+        const fault = error.root.Envelope.Body.Fault;
+        msg = fault.faultstring?.$value || fault.faultstring || msg;
+      } else if (error.response && error.response.data) {
+        msg += ' (HTTP ' + error.response.status + ')';
+      }
+    } catch (e) {}
+    return msg;
+  }
+
   /**
    * Send E-Invoice or E-Archive Document
    */
   async sendDocument(documentType, zipDataBase64, zipFileName, alias = null) {
     await this.init();
 
-    // In Uyumsoft, usually it's SendDocument or SendInvoice
-    // This requires WSDL inspection, but assuming a standard SendInvoice method
-    const args = {
-      invoices: {
-        InvoiceInfo: [
-          // The structure here is highly specific to Uyumsoft WSDL
-          // Usually requires UBL XML mapped or Base64 inside a specific tag.
-          // Since we might be sending UBL Base64 directly:
-          // Uyumsoft usually uses SaveAsDraft or SendDocument
-        ]
-      }
-    };
-
     try {
-      // Mocked for now, as WSDL mapping is required
       return { success: false, message: 'Uyumsoft giden fatura henüz desteklenmiyor.' };
     } catch (error) {
       console.error('Uyumsoft SendDocument Error:', error);
-      return { success: false, message: error.message };
+      return { success: false, message: this._extractFaultMessage(error) };
     }
   }
 
@@ -70,8 +72,8 @@ export class UyumsoftClient {
     try {
       const args = {
         query: {
-          CreateStartDate: new Date(beginDate.split('T')[0] + 'T00:00:00Z'),
-          CreateEndDate: new Date(endDate.split('T')[0] + 'T23:59:59Z'),
+          CreateStartDate: beginDate.split('T')[0] + 'T00:00:00',
+          CreateEndDate: endDate.split('T')[0] + 'T23:59:59',
           PageIndex: 0,
           PageSize: 100
         }
@@ -87,7 +89,7 @@ export class UyumsoftClient {
       return { success: true, data: result };
     } catch (error) {
       console.error('Uyumsoft GetDocumentList Error:', error);
-      return { success: false, message: error.message };
+      return { success: false, message: this._extractFaultMessage(error) };
     }
   }
 
