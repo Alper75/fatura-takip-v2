@@ -28,8 +28,9 @@ import { SiparisListesi } from './sections/SiparisListesi';
 import { MutabakatYonetimi } from './sections/MutabakatYonetimi';
 import { PublicTeklifView } from './sections/PublicTeklifView';
 import { PublicMutabakatView } from './sections/PublicMutabakatView';
-import LogoEntegrasyonAyarlari from './sections/LogoEntegrasyonAyarlari';
+import EntegratorAyarlari from './sections/EntegratorAyarlari';
 import GelenEFaturalar from './sections/GelenEFaturalar';
+import GelenUyumsoftFaturalar from './sections/GelenUyumsoftFaturalar';
 import { SirketDosyalari } from './sections/SirketDosyalari';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
@@ -108,10 +109,12 @@ function AppContent() {
             return <LucaAyarlari />;
           case 'fatura-aktarim':
             return <FaturaAktarim />;
-          case 'logo-ayarlari':
-            return <LogoEntegrasyonAyarlari />;
+          case 'entegrasyon-ayarlari':
+            return <EntegratorAyarlari />;
           case 'gelen-efaturalar':
             return <GelenEFaturalar />;
+          case 'gelen-uyumsoft-faturalar':
+            return <GelenUyumsoftFaturalar />;
           case 'teklif-liste':
             return <TeklifListesi />;
           case 'siparis-liste':

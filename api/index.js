@@ -70,30 +70,47 @@ const parser = new XMLParser({
   parseTagValue: false, // IDs like VKN/TCKN won't be converted to numbers (prevents .0)
 });
 
-// --- eLogo Settings ---
-app.get('/api/elogo/ayarlar', authMiddleware, async (req, res) => {
+// --- Integrator Settings ---
+app.get('/api/integrator/ayarlar', authMiddleware, async (req, res) => {
   try {
-    const keys = ['elogo_username', 'elogo_password', 'elogo_is_test'];
+    const keys = [
+      'active_integrator',
+      'elogo_username', 'elogo_password', 'elogo_is_test',
+      'uyumsoft_username', 'uyumsoft_password', 'uyumsoft_is_test'
+    ];
     const placeholders = keys.map(() => '?').join(',');
     const rs = await client.execute({
       sql: `SELECT setting_key, setting_value FROM company_settings WHERE company_id = ? AND setting_key IN (${placeholders})`,
       args: [req.user.companyId, ...keys]
     });
-    const settings = { elogo_is_test: 'false' };
+    const settings = { elogo_is_test: 'false', uyumsoft_is_test: 'false', active_integrator: 'elogo' };
     for (const row of rs.rows) {
       settings[row.setting_key] = row.setting_value;
     }
     res.json({ success: true, settings });
   } catch (error) {
-    console.error('eLogo ayarları okuma hatası:', error);
+    console.error('Entegratör ayarları okuma hatası:', error);
     res.status(500).json({ success: false, message: 'Ayarlar okunamadı.' });
   }
 });
 
-app.post('/api/elogo/ayarlar', authMiddleware, async (req, res) => {
+app.post('/api/integrator/ayarlar', authMiddleware, async (req, res) => {
   try {
-    const { elogo_username, elogo_password, elogo_is_test } = req.body;
-    const settings = { elogo_username, elogo_password, elogo_is_test: elogo_is_test ? 'true' : 'false' };
+    const { 
+      active_integrator,
+      elogo_username, elogo_password, elogo_is_test,
+      uyumsoft_username, uyumsoft_password, uyumsoft_is_test
+    } = req.body;
+    
+    const settings = { 
+      active_integrator: active_integrator || 'elogo',
+      elogo_username, 
+      elogo_password, 
+      elogo_is_test: elogo_is_test ? 'true' : 'false',
+      uyumsoft_username,
+      uyumsoft_password,
+      uyumsoft_is_test: uyumsoft_is_test ? 'true' : 'false'
+    };
     
     for (const [key, value] of Object.entries(settings)) {
       if (value === undefined) continue;
@@ -103,9 +120,9 @@ app.post('/api/elogo/ayarlar', authMiddleware, async (req, res) => {
         args: [req.user.companyId, key, value]
       });
     }
-    res.json({ success: true, message: 'eLogo ayarları kaydedildi.' });
+    res.json({ success: true, message: 'Entegratör ayarları kaydedildi.' });
   } catch (error) {
-    console.error('eLogo ayarları kaydetme hatası:', error);
+    console.error('Entegratör ayarları kaydetme hatası:', error);
     res.status(500).json({ success: false, message: 'Ayarlar kaydedilemedi: ' + error.message });
   }
 });

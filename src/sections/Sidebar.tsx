@@ -34,6 +34,7 @@ interface SidebarProps {
 export function Sidebar({ onItemClick }: SidebarProps) {
   const { user, currentPersonnel, currentView, setCurrentView, openSatisDrawer, openAlisDrawer, logout, companies, openSirketBilgileri } = useApp();
   const [isPersonnelOpen, setIsPersonnelOpen] = useState(false);
+  const [isEntegrasyonOpen, setIsEntegrasyonOpen] = useState(false);
 
   useEffect(() => {
     const personnelViews: ViewType[] = [
@@ -43,6 +44,13 @@ export function Sidebar({ onItemClick }: SidebarProps) {
     ];
     if (personnelViews.includes(currentView)) {
       setIsPersonnelOpen(true);
+    }
+    
+    const entegrasyonViews: ViewType[] = [
+      'gelen-efaturalar', 'gelen-uyumsoft-faturalar', 'entegrasyon-ayarlari'
+    ];
+    if (entegrasyonViews.includes(currentView)) {
+      setIsEntegrasyonOpen(true);
     }
   }, [currentView]);
 
@@ -96,14 +104,6 @@ export function Sidebar({ onItemClick }: SidebarProps) {
       icon: Receipt,
       onClick: () => setCurrentView('alis-liste'),
       view: 'alis-liste',
-      adminOnly: true
-    },
-    {
-      id: 'gelen-efaturalar',
-      label: 'Gelen E-Faturalar (Logo)',
-      icon: Download,
-      onClick: () => setCurrentView('gelen-efaturalar'),
-      view: 'gelen-efaturalar',
       adminOnly: true
     },
     {
@@ -192,14 +192,6 @@ export function Sidebar({ onItemClick }: SidebarProps) {
       icon: Calculator,
       onClick: () => setCurrentView('luca-ayarlari'),
       view: 'luca-ayarlari',
-      adminOnly: true
-    },
-    {
-      id: 'logo-ayarlari',
-      label: 'Logo (eLogo) Ayarları',
-      icon: Settings,
-      onClick: () => setCurrentView('logo-ayarlari'),
-      view: 'logo-ayarlari',
       adminOnly: true
     },
     {
@@ -321,6 +313,76 @@ export function Sidebar({ onItemClick }: SidebarProps) {
                       </button>
                     </li>
                   ))}
+                </ul>
+              )}
+            </li>
+          )}
+
+          {/* Fatura Entegrasyonları Collapsible Section */}
+          {(isAdmin || isSuperAdmin) && (
+            <li>
+              <Button
+                variant="ghost"
+                onClick={() => setIsEntegrasyonOpen(!isEntegrasyonOpen)}
+                className={cn(
+                  "w-full justify-start gap-3 h-11 font-medium transition-all",
+                  isEntegrasyonOpen ? "text-slate-900" : "text-slate-600"
+                )}
+              >
+                <Download className="w-4 h-4 text-slate-500" />
+                <span className="flex-1 text-left">Fatura Entegrasyonları</span>
+                {isEntegrasyonOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+              </Button>
+              {isEntegrasyonOpen && (
+                <ul className="mt-1 ml-9 space-y-1">
+                  <li>
+                    <button
+                      onClick={() => {
+                        setCurrentView('gelen-efaturalar');
+                        onItemClick?.();
+                      }}
+                      className={cn(
+                        "w-full text-left py-2 px-3 text-sm rounded-md transition-all",
+                        currentView === 'gelen-efaturalar'
+                          ? "bg-slate-100 text-primary font-semibold" 
+                          : "text-slate-500 hover:bg-slate-50 hover:text-slate-900"
+                      )}
+                    >
+                      Logo (eLogo)
+                    </button>
+                  </li>
+                  <li>
+                    <button
+                      onClick={() => {
+                        setCurrentView('gelen-uyumsoft-faturalar');
+                        onItemClick?.();
+                      }}
+                      className={cn(
+                        "w-full text-left py-2 px-3 text-sm rounded-md transition-all",
+                        currentView === 'gelen-uyumsoft-faturalar'
+                          ? "bg-slate-100 text-primary font-semibold" 
+                          : "text-slate-500 hover:bg-slate-50 hover:text-slate-900"
+                      )}
+                    >
+                      Uyumsoft
+                    </button>
+                  </li>
+                  <li>
+                    <button
+                      onClick={() => {
+                        setCurrentView('entegrasyon-ayarlari');
+                        onItemClick?.();
+                      }}
+                      className={cn(
+                        "w-full text-left py-2 px-3 text-sm rounded-md transition-all",
+                        currentView === 'entegrasyon-ayarlari'
+                          ? "bg-slate-100 text-primary font-semibold" 
+                          : "text-slate-500 hover:bg-slate-50 hover:text-slate-900"
+                      )}
+                    >
+                      Ayarlar
+                    </button>
+                  </li>
                 </ul>
               )}
             </li>
