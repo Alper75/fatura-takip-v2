@@ -352,7 +352,8 @@ app.get('/api/elogo/gelen-faturalar', authMiddleware, async (req, res) => {
             if (taxCode === '0015' || taxCode === '15' || taxCode === 15 || !taxCode) { // 0015 KDV Kodudur
               kdvTutari += amount;
               kdvOrani = percent; 
-            } else if (taxCode === '4080' || taxCode === '0021' || taxCode === 4080 || taxCode === 21) {
+            } else {
+              // ÖİV (4080), ÖTV (0071), TK (8001, 8002) vb. tüm diğer vergiler
               oivTutari += amount;
             }
           }
@@ -4268,7 +4269,7 @@ app.get('/api/cron/sync-elogo', async (req, res) => {
               if (taxCode === '0015' || taxCode === '15' || taxCode === 15 || !taxCode) {
                 kdvTutari += amount;
                 kdvOrani = percent;
-              } else if (taxCode === '4080' || taxCode === '0021' || taxCode === 4080 || taxCode === 21) {
+              } else {
                 oivTutari += amount;
               }
             }
