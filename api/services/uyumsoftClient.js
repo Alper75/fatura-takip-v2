@@ -86,13 +86,24 @@ export class UyumsoftClient {
         [result] = await this.client.GetOutboxInvoiceListAsync(args);
       }
       
-      const itemsRaw = result?.GetInboxInvoiceListResult?.Value?.Items || result?.GetOutboxInvoiceListResult?.Value?.Items;
+      let itemsRaw = result?.GetInboxInvoiceListResult?.Value?.Items || result?.GetOutboxInvoiceListResult?.Value?.Items;
+      
+      // WCF and node-soap often wrap arrays in another property (e.g., { InboxInvoiceInfo: [ ... ] })
+      if (itemsRaw && typeof itemsRaw === 'object' && !Array.isArray(itemsRaw)) {
+        const keys = Object.keys(itemsRaw);
+        if (keys.length === 1 && Array.isArray(itemsRaw[keys[0]])) {
+           itemsRaw = itemsRaw[keys[0]];
+        } else if (keys.length === 1) {
+           itemsRaw = [itemsRaw[keys[0]]];
+        }
+      }
+
       const itemsArr = Array.isArray(itemsRaw) ? itemsRaw : (itemsRaw ? [itemsRaw] : []);
       
       const mappedDocs = itemsArr.map(item => ({
-         documentUuid: item.InvoiceId,
-         documentId: item.DocumentId
-      }));
+         documentUuid: item.InvoiceId || item.Id || item.uuid,
+         documentId: item.DocumentId || item.FaturaNo
+      })).filter(doc => doc.documentUuid); // Remove any completely invalid mapping
 
       return { success: true, data: { docList: { Document: mappedDocs } } };
     } catch (error) {
