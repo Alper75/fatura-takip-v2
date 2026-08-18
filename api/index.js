@@ -434,11 +434,15 @@ app.get('/api/uyumsoft/giden-faturalar', authMiddleware, async (req, res) => {
     }
 
     const keys = ['uyumsoft_username', 'uyumsoft_password', 'uyumsoft_is_test'];
-    const db = getDb();
-    const rows = await db.all(`SELECT key, value FROM settings WHERE key IN (${keys.map(() => '?').join(',')})`, keys);
+    const placeholders = keys.map(() => '?').join(',');
+    
+    const rs = await client.execute({
+      sql: `SELECT setting_key, setting_value FROM company_settings WHERE company_id = ? AND setting_key IN (${placeholders})`,
+      args: [req.user.companyId, ...keys]
+    });
     
     const settings = { uyumsoft_is_test: 'false' };
-    rows.forEach(r => { settings[r.key] = r.value; });
+    rs.rows.forEach(r => { settings[r.setting_key] = r.setting_value; });
 
     if (!settings.uyumsoft_username || !settings.uyumsoft_password) {
       return res.status(400).json({ success: false, message: 'Uyumsoft bilgileri eksik' });
@@ -569,11 +573,15 @@ app.get('/api/uyumsoft/giden-esmm', authMiddleware, async (req, res) => {
     }
 
     const keys = ['uyumsoft_username', 'uyumsoft_password', 'uyumsoft_is_test'];
-    const db = getDb();
-    const rows = await db.all(`SELECT key, value FROM settings WHERE key IN (${keys.map(() => '?').join(',')})`, keys);
+    const placeholders = keys.map(() => '?').join(',');
+    
+    const rs = await client.execute({
+      sql: `SELECT setting_key, setting_value FROM company_settings WHERE company_id = ? AND setting_key IN (${placeholders})`,
+      args: [req.user.companyId, ...keys]
+    });
     
     const settings = { uyumsoft_is_test: 'false' };
-    rows.forEach(r => { settings[r.key] = r.value; });
+    rs.rows.forEach(r => { settings[r.setting_key] = r.setting_value; });
 
     if (!settings.uyumsoft_username || !settings.uyumsoft_password) {
       return res.status(400).json({ success: false, message: 'Uyumsoft bilgileri eksik' });
@@ -3978,7 +3986,7 @@ app.get('/api/settings/smtp', authMiddleware, async (req, res) => {
     });
     
     let settings = {};
-    rs.rows.forEach(r => { settings[r.setting_key] = r.setting_value; });
+    rs.rs.rows.forEach(r => { settings[r.setting_key] = r.setting_value; });
     res.json({ success: true, settings });
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }
 });
@@ -4009,7 +4017,7 @@ app.post('/api/teklifler/:id/send-email', authMiddleware, async (req, res) => {
     });
     
     let config = {};
-    configRs.rows.forEach(r => { config[r.setting_key] = r.setting_value; });
+    configRs.rs.rows.forEach(r => { config[r.setting_key] = r.setting_value; });
     
     if (!config.smtp_host || !config.smtp_user || !config.smtp_pass) {
       return res.status(400).json({ success: false, message: 'SMTP ayarları eksik. Lütfen önce "Ayarlar" sekmesinden e-posta bilgilerinizi tanımlayın.' });
@@ -4134,7 +4142,7 @@ app.post('/api/mutabakatlar/:id/send-mail', authMiddleware, async (req, res) => 
       args: [req.user.companyId]
     });
     const config = {};
-    rsSettings.rows.forEach(r => { config[r.setting_key] = r.setting_value; });
+    rsSettings.rs.rows.forEach(r => { config[r.setting_key] = r.setting_value; });
 
     const transporter = nodemailer.createTransport({
       host: config.smtp_host,
@@ -4325,7 +4333,7 @@ app.post('/api/mutabakatlar/analyze/:id', authMiddleware, async (req, res) => {
     let apiKey = process.env.GEMINI_API_KEY;
     let aiModel = 'gemini-2.5-flash'; // default model
     
-    rsSettings.rows.forEach(r => {
+    rsSettings.rs.rows.forEach(r => {
       if (r.setting_key === 'gemini_api_key') apiKey = r.setting_value || apiKey;
       if (r.setting_key === 'gemini_model' && r.setting_value) aiModel = r.setting_value;
     });
