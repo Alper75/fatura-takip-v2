@@ -87,7 +87,7 @@ export default function UyumsoftGidenESMM() {
     setImporting(fatura.uuid);
     try {
       const token = localStorage.getItem('token');
-      const res = await fetch('/api/invoices/import-from-logo', {
+      const res = await fetch('/api/invoices/import-satis', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -123,7 +123,7 @@ export default function UyumsoftGidenESMM() {
       if (!fatura) continue;
       
       try {
-        const res = await fetch('/api/invoices/import-from-logo', {
+        const res = await fetch('/api/invoices/import-satis', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',

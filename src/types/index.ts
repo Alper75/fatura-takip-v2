@@ -539,7 +539,7 @@ export type ViewType =
   | 'super-admin'
   | 'luca-ayarlari'
   | 'entegrasyon-ayarlari'
-  | 'gelen-efaturalar'
+  | 'gelen-efaturalar' | 'giden-elogo-faturalar'
   | 'gelen-uyumsoft-faturalar'
   | 'giden-uyumsoft-faturalar'
   | 'giden-uyumsoft-esmm'

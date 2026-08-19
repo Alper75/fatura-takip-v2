@@ -6,7 +6,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import { toast } from 'sonner';
 import { useApp } from '../context/AppContext';
 
-export default function UyumsoftGidenFaturalar() {
+export default function GidenElogoFaturalar() {
   const [loading, setLoading] = useState(false);
   const [importing, setImporting] = useState<string | null>(null);
   const [faturalar, setFaturalar] = useState<any[]>([]);
@@ -31,7 +31,7 @@ export default function UyumsoftGidenFaturalar() {
       const token = localStorage.getItem('token');
       const startIso = new Date(startDate).toISOString();
       const endIso = new Date(endDate).toISOString();
-      const res = await fetch(`/api/uyumsoft/giden-faturalar?baslangic=${startIso}&bitis=${endIso}`, {
+      const res = await fetch(`/api/elogo/giden-faturalar?baslangic=${startIso}&bitis=${endIso}`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       const data = await res.json();
@@ -53,7 +53,7 @@ export default function UyumsoftGidenFaturalar() {
   const handleDownloadPdf = async (uuid: string) => {
     try {
       const token = localStorage.getItem('token');
-      const res = await fetch(`/api/uyumsoft/fatura-pdf/${uuid}?token=${token}`);
+      const res = await fetch(`/api/elogo/fatura-pdf/${uuid}?token=${token}`);
       const data = await res.json();
       
       if (data.success && data.base64) {
@@ -161,8 +161,8 @@ export default function UyumsoftGidenFaturalar() {
     <div className="space-y-6 max-w-6xl mx-auto p-4 sm:p-6 pb-20">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-gray-900 tracking-tight">Gelen E-Faturalar (Uyumsoft)</h2>
-          <p className="text-muted-foreground mt-1">Uyumsoft portalınıza gelen e-Faturaları görüntüleyin ve kaydedin.</p>
+          <h2 className="text-2xl font-bold text-gray-900 tracking-tight">Gelen E-Faturalar (eLogo)</h2>
+          <p className="text-muted-foreground mt-1">eLogo portalınıza gelen e-Faturaları görüntüleyin ve kaydedin.</p>
         </div>
         <div className="flex items-center gap-2">
           <input 

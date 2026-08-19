@@ -347,7 +347,7 @@ export function Sidebar({ onItemClick }: SidebarProps) {
                           : "text-slate-500 hover:bg-slate-50 hover:text-slate-900"
                       )}
                     >
-                      Logo (eLogo)
+                      eLogo Gelen Faturalar
                     </button>
                   </li>
                   <li>
@@ -364,6 +364,22 @@ export function Sidebar({ onItemClick }: SidebarProps) {
                       )}
                     >
                       Uyumsoft Gelen Faturalar
+                    </button>
+                  </li>
+                  <li>
+                    <button
+                      onClick={() => {
+                        setCurrentView('giden-elogo-faturalar');
+                        onItemClick?.();
+                      }}
+                      className={cn(
+                        "w-full text-left py-2 px-3 text-sm rounded-md transition-all",
+                        currentView === 'giden-elogo-faturalar'
+                          ? "bg-slate-100 text-primary font-semibold" 
+                          : "text-slate-500 hover:bg-slate-50 hover:text-slate-900"
+                      )}
+                    >
+                      eLogo Giden Faturalar
                     </button>
                   </li>
                   <li>

@@ -30,6 +30,7 @@ import { PublicTeklifView } from './sections/PublicTeklifView';
 import { PublicMutabakatView } from './sections/PublicMutabakatView';
 import EntegratorAyarlari from './sections/EntegratorAyarlari';
 import GelenEFaturalar from './sections/GelenEFaturalar';
+import GidenElogoFaturalar from './sections/GidenElogoFaturalar';
 import GelenUyumsoftFaturalar from './sections/GelenUyumsoftFaturalar';
 import UyumsoftGidenFaturalar from './sections/UyumsoftGidenFaturalar';
 import UyumsoftGidenESMM from './sections/UyumsoftGidenESMM';
@@ -115,6 +116,8 @@ function AppContent() {
             return <EntegratorAyarlari />;
           case 'gelen-efaturalar':
             return <GelenEFaturalar />;
+          case 'giden-elogo-faturalar':
+            return <GidenElogoFaturalar />;
           case 'gelen-uyumsoft-faturalar':
             return <GelenUyumsoftFaturalar />;
           case 'giden-uyumsoft-faturalar':

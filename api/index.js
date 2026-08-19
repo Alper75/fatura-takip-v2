@@ -422,6 +422,186 @@ app.get('/api/elogo/gelen-faturalar', authMiddleware, async (req, res) => {
   }
 });
 
+app.get('/api/elogo/giden-faturalar', authMiddleware, async (req, res) => {
+  try {
+    const companyId = req.user.companyId;
+    
+    // Fetch settings
+    const keys = ['elogo_username', 'elogo_password', 'elogo_is_test'];
+    const placeholders = keys.map(() => '?').join(',');
+    const rsSettings = await client.execute({
+      sql: `SELECT setting_key, setting_value FROM company_settings WHERE company_id = ? AND setting_key IN (${placeholders})`,
+      args: [companyId, ...keys]
+    });
+    const settings = { elogo_is_test: 'false' };
+    for (const row of rsSettings.rows) settings[row.setting_key] = row.setting_value;
+    
+    if (!settings.elogo_username || !settings.elogo_password) {
+      return res.status(400).json({ success: false, message: 'Logo ayarları eksik. Lütfen önce ayarları yapın.' });
+    }
+
+    const elogo = new ElogoClient(settings.elogo_username, settings.elogo_password, settings.elogo_is_test === 'true');
+    
+    let beginDate, endDate;
+    if (req.query.baslangic && req.query.bitis) {
+      beginDate = req.query.baslangic;
+      endDate = req.query.bitis;
+    } else {
+      endDate = new Date().toISOString();
+      const beginDateObj = new Date();
+      beginDateObj.setDate(beginDateObj.getDate() - 30); // Last 30 days
+      beginDate = beginDateObj.toISOString();
+    }
+
+    // opType = 1 for OUTBOX
+    const response = await elogo.getDocumentList('EINVOICE', beginDate, endDate, 1);
+    console.log('eLogo Giden GetDocumentList response:', JSON.stringify(response, null, 2));
+
+    if (!response.success) {
+      return res.status(500).json({ success: false, message: response.message });
+    }
+    
+    const docListRaw = response.data?.docList?.Document || response.data?.docList?.document || response.data?.GetDocumentListResult?.document || [];
+    const documents = Array.isArray(docListRaw) ? docListRaw : (docListRaw ? [docListRaw] : []);
+    
+    const ublParser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_', removeNSPrefix: true });
+    
+    const fetchInvoiceDetails = async (doc) => {
+      try {
+        const uuid = doc.documentUuid || doc.uuid;
+        if (!uuid) return { ...doc, senderName: 'Geçersiz UUID', faturaNo: doc.documentId || '-' };
+        
+        const docDataRes = await elogo.getDocumentData(uuid);
+        if (!docDataRes.success || !docDataRes.data?.document?.binaryData?.Value) {
+           console.log(`GetDocumentData failed for UUID ${uuid}. Response:`, JSON.stringify(docDataRes));
+           const errMsg = docDataRes.data?.GetDocumentDataResult?.resultMsg || docDataRes.message || 'Hata';
+           return { ...doc, senderName: 'XML Alınamadı (' + errMsg + ')', faturaNo: doc.documentId || '-' };
+        }
+        
+        const base64Data = docDataRes.data.document.binaryData.Value;
+        const buffer = Buffer.from(base64Data, 'base64');
+        let xmlString = '';
+        
+        if (buffer[0] === 0x50 && buffer[1] === 0x4B) {
+           const zip = new AdmZip(buffer);
+           const zipEntries = zip.getEntries();
+           if (zipEntries.length > 0) {
+             xmlString = zipEntries[0].getData().toString('utf8');
+           }
+        } else {
+           xmlString = buffer.toString('utf8');
+        }
+        
+        if (!xmlString) return { ...doc, senderName: 'XML Boş', faturaNo: doc.documentId || '-' };
+        
+        const parsed = ublParser.parse(xmlString);
+        const inv = parsed.Invoice;
+        if (!inv) return { ...doc, senderName: 'Geçersiz XML', faturaNo: doc.documentId || '-' };
+        
+        const getText = (node) => (typeof node === 'object' && node !== null) ? (node['#text'] || '') : (node || '');
+        
+        // Giden faturada müşteri bilgisi AccountingCustomerParty içindedir.
+        const customerParty = inv['AccountingCustomerParty']?.['Party'];
+        let senderName = 'Bilinmiyor';
+        let senderVkn = '-';
+        
+        if (customerParty) {
+          const partyName = Array.isArray(customerParty['PartyName']) ? customerParty['PartyName'][0] : customerParty['PartyName'];
+          senderName = getText(partyName?.['Name']) || getText(customerParty['PartyLegalEntity']?.['RegistrationName']) || getText(customerParty['Person']?.['FirstName']) + ' ' + getText(customerParty['Person']?.['FamilyName']);
+          
+          const idNode = customerParty['PartyIdentification'];
+          const idArray = Array.isArray(idNode) ? idNode : (idNode ? [idNode] : []);
+          for (const ident of idArray) {
+             const id = ident['ID'];
+             if (!id) continue;
+             const isVkn = id['@_schemeID'] === 'VKN' || id['@_schemeID'] === 'TCKN';
+             const val = isVkn ? id['#text'] : (id['#text'] || id);
+             if (val) {
+               senderVkn = String(val).replace('.0', '');
+               break;
+             }
+          }
+        }
+        
+        const issueDate = getText(inv['IssueDate']);
+        const faturaNo = getText(inv['ID']) || doc.documentId || '';
+        const totals = inv['LegalMonetaryTotal'];
+        
+        const payableAmount = parseFloat(getText(totals?.['PayableAmount'])) || 0;
+        const currencyCode = (typeof totals?.['PayableAmount'] === 'object' ? totals['PayableAmount']['@_currencyID'] : 'TRY') || 'TRY';
+        const matrah = parseFloat(getText(totals?.['TaxExclusiveAmount'])) || 0;
+        
+        let kdvTutari = 0;
+        let kdvOrani = 0;
+        let oivTutari = 0;
+        const taxTotal = inv['TaxTotal'];
+        const taxTotalArray = Array.isArray(taxTotal) ? taxTotal : (taxTotal ? [taxTotal] : []);
+        
+        for (const tt of taxTotalArray) {
+          const subtotals = tt['TaxSubtotal'];
+          if (!subtotals) continue;
+          const subArr = Array.isArray(subtotals) ? subtotals : [subtotals];
+          for (const sub of subArr) {
+            const taxCat = sub['TaxCategory'];
+            const taxScheme = taxCat?.['TaxScheme']?.['TaxTypeCode']?.['#text'] || taxCat?.['TaxScheme']?.['TaxTypeCode'];
+            const taxCode = getText(taxScheme);
+            const percent = parseFloat(getText(sub['Percent'])) || parseFloat(getText(taxCat?.['Percent'])) || 0;
+            const amount = parseFloat(getText(sub['TaxAmount'])) || 0;
+            
+            if (taxCode === '0015' || taxCode === '15' || taxCode === 15 || !taxCode) {
+              kdvTutari += amount;
+              kdvOrani = percent; 
+            } else {
+              oivTutari += amount;
+            }
+          }
+        }
+
+        const lines = inv['InvoiceLine'];
+        const lineArr = Array.isArray(lines) ? lines : (lines ? [lines] : []);
+        let faturaAciklama = lineArr.map(l => getText(l?.['Item']?.['Name'])).filter(n => n).join(', ');
+        
+        if (!faturaAciklama) {
+          const notes = inv['Note'];
+          const noteArray = Array.isArray(notes) ? notes : (notes ? [notes] : []);
+          faturaAciklama = noteArray.map(n => getText(n)).filter(n => n).join(' - ');
+        }
+        
+        if (!faturaAciklama) {
+          faturaAciklama = 'eLogo Giden Fatura';
+        }
+
+        return {
+          ...doc,
+          faturaNo,
+          uuid,
+          senderName, // Bu aslında alıcı adı ama frontend'de aynı kolon adını kullanıyoruz
+          senderVkn,  // Bu aslında alıcı vkn
+          issueDate,
+          payableAmount,
+          currencyCode,
+          matrah,
+          kdvOrani,
+          kdvTutari,
+          oivTutari,
+          faturaAciklama
+        };
+      } catch (err) {
+        console.error('Invoice parse error for UUID', doc.documentUuid, err);
+        return { ...doc, senderName: 'Hata', faturaNo: doc.documentId || '-' };
+      }
+    };
+
+    const formattedDocs = await Promise.all(documents.map(d => fetchInvoiceDetails(d)));
+
+    res.json({ success: true, veriler: formattedDocs, rawLogoResponse: response.data });
+  } catch (error) {
+    console.error('eLogo giden faturalar hatası:', error);
+    res.status(500).json({ success: false, message: 'Giden faturalar alınamadı: ' + error.message });
+  }
+});
+
+
 app.get('/api/uyumsoft/giden-faturalar', authMiddleware, async (req, res) => {
   try {
     let { baslangic, bitis } = req.query; let beginDate = baslangic; let endDate = bitis;
@@ -956,6 +1136,115 @@ app.get('/api/uyumsoft/fatura-pdf/:uuid', async (req, res) => {
 });
 
 // Logo'dan Gelen Faturayı Sisteme Kaydet
+
+
+app.post('/api/invoices/import-satis', authMiddleware, async (req, res) => {
+  const invoice = req.body;
+  if (!invoice || !invoice.faturaNo) {
+    return res.status(400).json({ success: false, message: 'Geçersiz belge verisi.' });
+  }
+  
+  try {
+    const { faturaNo, senderName, senderVkn, issueDate, payableAmount, currencyCode, uuid, matrah, kdvOrani, kdvTutari, oivTutari, faturaAciklama } = invoice;
+    const islemTarihi = issueDate ? issueDate.split('T')[0] : new Date().toISOString().split('T')[0];
+    
+    // Check if invoice already exists in satis_faturalari
+    const existing = await client.execute({
+      sql: 'SELECT id FROM satis_faturalari WHERE company_id = ? AND fatura_no = ? AND tc_vkn = ?',
+      args: [req.user.companyId, faturaNo, senderVkn]
+    });
+    
+    if (existing.rows && existing.rows.length > 0) {
+      return res.status(400).json({ success: false, message: 'Bu belge zaten satış listesine kaydedilmiş.' });
+    }
+    
+    // Otomatik olarak PDF'i de eLogo veya Uyumsoft'tan çekip kaydedelim (ikisini de deneyebiliriz)
+    let pdfDosyaBase64 = null;
+    let pdfDosyaAdi = null;
+    try {
+      const settingsRes = await client.execute({
+        sql: 'SELECT setting_key, setting_value FROM company_settings WHERE company_id = ?',
+        args: [req.user.companyId]
+      });
+      const settings = settingsRes.rows.reduce((acc, row) => ({ ...acc, [row.setting_key]: row.setting_value }), {});
+      
+      // İlk eLogo dene
+      if (settings.elogo_username && settings.elogo_password) {
+        const elogo = new ElogoClient(settings.elogo_username, settings.elogo_password, settings.elogo_is_test === 'true');
+        const docDataRes = await elogo.getDocumentPdf(uuid);
+        if (docDataRes.success && docDataRes.data?.document?.binaryData?.Value) {
+          const base64Data = docDataRes.data.document.binaryData.Value;
+          const buffer = Buffer.from(base64Data, 'base64');
+          if (buffer[0] === 0x50 && buffer[1] === 0x4B) { // ZIP
+             const zip = new AdmZip(buffer);
+             const zipEntries = zip.getEntries();
+             const pdfEntry = zipEntries.find(e => e.entryName.toLowerCase().endsWith('.pdf'));
+             if (pdfEntry) {
+               pdfDosyaBase64 = `data:application/pdf;base64,${pdfEntry.getData().toString('base64')}`;
+               pdfDosyaAdi = `${uuid}.pdf`;
+             }
+          } else {
+             pdfDosyaBase64 = `data:application/pdf;base64,${base64Data}`;
+             pdfDosyaAdi = `${uuid}.pdf`;
+          }
+        }
+      }
+      
+      // eLogo yoksa veya çekemediyse Uyumsoft dene
+      if (!pdfDosyaBase64 && settings.uyumsoft_username && settings.uyumsoft_password) {
+        const { UyumsoftClient } = require('./services/uyumsoftClient.js');
+        const uyumsoft = new UyumsoftClient(settings.uyumsoft_username, settings.uyumsoft_password, settings.uyumsoft_is_test === 'true');
+        // Makbuz mu Fatura mı ayırmak için prefix'e bakabiliriz ama şimdilik fatura olarak deneyelim
+        let docDataRes = await uyumsoft.getDocumentPdf(uuid);
+        if (!docDataRes.success) {
+           // Fatura PDF başarısızsa makbuz PDF dene
+           docDataRes = await uyumsoft.getVoucherPdf(uuid);
+        }
+        
+        if (docDataRes.success && docDataRes.data?.document?.binaryData?.Value) {
+          const base64Data = docDataRes.data.document.binaryData.Value;
+          const buffer = Buffer.from(base64Data, 'base64');
+          if (buffer[0] === 0x50 && buffer[1] === 0x4B) { // ZIP
+             const zip = new AdmZip(buffer);
+             const zipEntries = zip.getEntries();
+             const pdfEntry = zipEntries.find(e => e.entryName.toLowerCase().endsWith('.pdf'));
+             if (pdfEntry) {
+               pdfDosyaBase64 = `data:application/pdf;base64,${pdfEntry.getData().toString('base64')}`;
+               pdfDosyaAdi = `${uuid}.pdf`;
+             }
+          } else {
+             pdfDosyaBase64 = `data:application/pdf;base64,${base64Data}`;
+             pdfDosyaAdi = `${uuid}.pdf`;
+          }
+        }
+      }
+    } catch(e) {
+      console.error("PDF otomatik çekme hatası (import-satis):", e);
+    }
+    
+    // Insert into DB (satis_faturalari)
+    const id = uuidv4();
+    await client.execute({
+      sql: `INSERT INTO satis_faturalari 
+        (id, fatura_no, fatura_tarihi, ad, tc_vkn, mal_hizmet_adi, 
+         alinan_ucret, kdv_orani, kdv_tutari, matrah, tevkifat_orani, tevkifat_tutari, 
+         stopaj_orani, stopaj_tutari, muhasebe_kodu, pdf_dosya, pdf_dosya_adi, 
+         odeme_tarihi, odeme_durumu, cari_id, vade_tarihi, aciklama, olusturma_tarihi, company_id, gib_uuid) 
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      args: [
+        id, faturaNo, islemTarihi, senderName || 'Bilinmiyor', senderVkn || '', faturaAciklama || 'Entegratör Satış Faturası',
+        payableAmount, kdvOrani || 0, kdvTutari || 0, matrah || 0, 0, 0,
+        0, 0, '', pdfDosyaBase64, pdfDosyaAdi,
+        null, 'odenmedi', null, null, faturaAciklama || '', new Date().toISOString(), req.user.companyId, uuid
+      ]
+    });
+
+    res.json({ success: true, message: 'Belge satış listesine başarıyla eklendi.', id });
+  } catch (error) {
+    console.error('Import from Logo/Uyumsoft (satis) hatası:', error);
+    res.status(500).json({ success: false, message: 'Belge kaydedilirken hata oluştu: ' + error.message });
+  }
+});
 
 
 app.post('/api/invoices/import-from-logo', authMiddleware, async (req, res) => {
