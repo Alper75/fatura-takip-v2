@@ -5256,7 +5256,7 @@ app.post('/api/ai/learn', authMiddleware, async (req, res) => {
     });
     
     let apiKey = (process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY);
-    let aiModel = 'gemini-1.5-pro'; // Better for large context
+    let aiModel = 'gemini-2.5-flash'; // Better for large context
     
     rsSettings.rows.forEach(r => {
       if (r.setting_key === 'gemini_api_key') apiKey = r.setting_value || apiKey;
