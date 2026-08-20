@@ -20,7 +20,8 @@ import {
   Package,
   FileSignature,
   ClipboardList,
-  Download
+  Download,
+  BrainCircuit
 } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
 import { cn } from '@/lib/utils';
@@ -183,6 +184,14 @@ export function Sidebar({ onItemClick }: SidebarProps) {
       icon: Package,
       onClick: () => setCurrentView('stok-yonetimi'),
       view: 'stok-yonetimi',
+      adminOnly: true
+    },
+    {
+      id: 'akilli-ogrenme',
+      label: 'Akıllı Öğrenme (AI)',
+      icon: BrainCircuit,
+      onClick: () => setCurrentView('akilli-ogrenme' as any),
+      view: 'akilli-ogrenme',
       adminOnly: true
     },
     {
