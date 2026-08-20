@@ -53,17 +53,39 @@ export function AlisFaturaDrawer() {
 
   const [forms, setForms] = useState<FormEntry[]>([]);
   const [isUrunFormOpen, setIsUrunFormOpen] = useState(false);
+  const [kurallar, setKurallar] = useState<any[]>([]);
+
+  // Kuralları Çek
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    fetch('/api/yapay-zeka-kurallari', { headers: { Authorization: `Bearer ${token}` } })
+      .then(res => res.json())
+      .then(data => {
+        if (data.success) setKurallar(data.kurallar.filter((k: any) => k.kural_tipi === 'fatura'));
+      })
+      .catch(console.error);
+  }, []);
 
   // Initialize with one form if open and empty
   useEffect(() => {
     if (isAlisDrawerOpen && forms.length === 0) {
       if (alisInitialData) {
-        setForms([{ id: Date.now(), data: { ...INITIAL_FORM, ...alisInitialData }, tutarTuru: 'dahil', errors: {} }]);
+        let aiKodu = alisInitialData.muhasebeKodu;
+        if (!aiKodu && kurallar.length > 0) {
+           const text = `${alisInitialData.tedarikciAdi || ''} ${alisInitialData.malHizmetAdi || ''}`.toLowerCase();
+           for (const rule of kurallar) {
+             if (text.includes(rule.anahtar_kelime.toLowerCase())) {
+               aiKodu = rule.muhasebe_kodu;
+               break;
+             }
+           }
+        }
+        setForms([{ id: Date.now(), data: { ...INITIAL_FORM, ...alisInitialData, muhasebeKodu: aiKodu }, tutarTuru: 'dahil', errors: {} }]);
       } else {
         setForms([{ id: Date.now(), data: INITIAL_FORM, tutarTuru: 'dahil', errors: {} }]);
       }
     }
-  }, [isAlisDrawerOpen, alisInitialData]);
+  }, [isAlisDrawerOpen, alisInitialData, kurallar]);
 
   const varsayilanDepoId = depolar?.find(d => d.varsayilan)?.id || depolar?.[0]?.id || '';
 
@@ -120,7 +142,21 @@ export function AlisFaturaDrawer() {
         const newErrors = { ...f.errors };
         delete newErrors[field as keyof AlisFaturaFormData];
 
-        return { ...f, data: { ...f.data, [field]: value }, errors: newErrors };
+        const newData = { ...f.data, [field]: value };
+        
+        // Akıllı Öğrenme: Açıklama veya Satıcı değiştiğinde kural tetikle
+        if ((field === 'malHizmetAdi' || field === 'tedarikciAdi') && !newData.muhasebeKodu && kurallar.length > 0) {
+           const text = `${newData.tedarikciAdi || ''} ${newData.malHizmetAdi || ''}`.toLowerCase();
+           for (const rule of kurallar) {
+             if (text.includes(rule.anahtar_kelime.toLowerCase())) {
+               newData.muhasebeKodu = rule.muhasebe_kodu;
+               toast.success(`Kural eşleşti: ${rule.muhasebe_kodu} atandı!`);
+               break;
+             }
+           }
+        }
+
+        return { ...f, data: newData, errors: newErrors };
       }
       return f;
     }));

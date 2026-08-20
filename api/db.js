@@ -291,6 +291,20 @@ export async function initDb() {
       );
     `);
 
+    // Yapay Zeka Kuralları (Akıllı Öğrenme)
+    await client.execute(`
+      CREATE TABLE IF NOT EXISTS yapay_zeka_kurallari (
+        id TEXT PRIMARY KEY,
+        company_id INTEGER NOT NULL,
+        kural_tipi TEXT NOT NULL, -- 'fatura' veya 'banka'
+        kural_adi TEXT,
+        anahtar_kelime TEXT NOT NULL,
+        muhasebe_kodu TEXT NOT NULL,
+        olusturma_tarihi DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE
+      );
+    `);
+
     // Column sync
     const tablesToUpdate = [
       'cariler','cari_hareketler','satis_faturalari','alis_faturalari',

@@ -35,6 +35,7 @@ import GelenUyumsoftFaturalar from './sections/GelenUyumsoftFaturalar';
 import UyumsoftGidenFaturalar from './sections/UyumsoftGidenFaturalar';
 import UyumsoftGidenESMM from './sections/UyumsoftGidenESMM';
 import { SirketDosyalari } from './sections/SirketDosyalari';
+import AkilliOgrenme from './sections/AkilliOgrenme';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 const queryClient = new QueryClient({
