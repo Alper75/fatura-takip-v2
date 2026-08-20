@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label';
 
 export default function AkilliOgrenme() {
   const [muavinFile, setMuavinFile] = useState<File | null>(null);
-  const [digerFile, setDigerFile] = useState<File | null>(null);
+  const [digerFiles, setDigerFiles] = useState<File[]>([]);
   const [kuralTipi, setKuralTipi] = useState<'fatura' | 'banka'>('fatura');
   
   const [loading, setLoading] = useState(false);
@@ -43,8 +43,63 @@ export default function AkilliOgrenme() {
     });
   };
 
+  const parseMultipleXMLsForAI = async (files: File[]) => {
+    let combinedData: any[] = [];
+    for (const file of files) {
+      if (file.name.toLowerCase().endsWith('.xml')) {
+        const text = await file.text();
+        const parser = new DOMParser();
+        const xmlDoc = parser.parseFromString(text, "text/xml");
+        
+        let partyName = "";
+        const partyNameNodes = xmlDoc.getElementsByTagName("cbc:Name");
+        // Genellikle ilk cbc:Name firma adıdır (cac:PartyName altında)
+        if (partyNameNodes.length > 0) {
+          partyName = partyNameNodes[0]?.textContent || '';
+        }
+        
+        const items: string[] = [];
+        const invoiceLines = xmlDoc.getElementsByTagName("cac:InvoiceLine");
+        for (let i = 0; i < invoiceLines.length; i++) {
+           const itemNodes = invoiceLines[i].getElementsByTagName("cac:Item");
+           if (itemNodes.length > 0) {
+              const nameNodes = itemNodes[0].getElementsByTagName("cbc:Name");
+              if (nameNodes.length > 0 && nameNodes[0].textContent) {
+                items.push(nameNodes[0].textContent);
+              }
+           }
+        }
+        
+        if (partyName || items.length > 0) {
+          combinedData.push({ firma: partyName, urunler: items });
+        }
+      }
+    }
+    
+    // Tekilleştirme (Büyük veriyi küçültmek için)
+    const uniqueMap = new Map();
+    combinedData.forEach(d => {
+      if (!uniqueMap.has(d.firma)) {
+        uniqueMap.set(d.firma, new Set(d.urunler));
+      } else {
+        d.urunler.forEach((u: string) => uniqueMap.get(d.firma).add(u));
+      }
+    });
+    
+    const finalData = Array.from(uniqueMap.entries()).map(([firma, urunlerSet]) => ({
+      firma,
+      urunler: Array.from(urunlerSet)
+    }));
+    
+    // JSON'ı Base64'e çeviriyoruz ki backend standart akışında alsın
+    const jsonString = JSON.stringify(finalData);
+    // Use btoa safely for unicode
+    const base64 = btoa(new TextEncoder().encode(jsonString).reduce((data, byte) => data + String.fromCharCode(byte), ''));
+    return `data:application/json;base64,${base64}`;
+  };
+
   const handleLearn = async () => {
-    if (!muavinFile || !digerFile) {
+    if (!muavinFile || digerFiles.length === 0) {
       toast.error('Lütfen hem Muavin Defter hem de Dış Veri (Fatura/Banka) dosyalarını yükleyin.');
       return;
     }
@@ -54,7 +109,20 @@ export default function AkilliOgrenme() {
     const token = localStorage.getItem('token');
     try {
       const muavinBase64 = await fileToBase64(muavinFile);
-      const faturalarBase64 = await fileToBase64(digerFile);
+      
+      let faturalarBase64 = "";
+      let faturalarFileName = "";
+
+      // Eğer birden fazla XML varsa veya fatura tipi ise kendi parser'ımızı kullan
+      if (kuralTipi === 'fatura' && digerFiles[0].name.toLowerCase().endsWith('.xml')) {
+        toast.info(`${digerFiles.length} adet XML optimize ediliyor...`);
+        faturalarBase64 = await parseMultipleXMLsForAI(digerFiles);
+        faturalarFileName = "toplu_faturalar_ozeti.json";
+      } else {
+        // Excel veya tek dosya ise standart
+        faturalarBase64 = await fileToBase64(digerFiles[0]);
+        faturalarFileName = digerFiles[0].name;
+      }
 
       const response = await fetch('/api/ai/learn', {
         method: 'POST',
@@ -66,7 +134,7 @@ export default function AkilliOgrenme() {
           kuralTipi,
           muavinFileName: muavinFile.name,
           muavinBase64,
-          faturalarFileName: digerFile.name,
+          faturalarFileName: faturalarFileName,
           faturalarBase64
         })
       });
@@ -170,13 +238,13 @@ export default function AkilliOgrenme() {
                 <div className="flex bg-slate-100 p-1 rounded-lg">
                   <button 
                     className={`flex-1 py-1.5 px-3 rounded-md text-sm font-medium transition-all ${kuralTipi === 'fatura' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-                    onClick={() => setKuralTipi('fatura')}
+                    onClick={() => { setKuralTipi('fatura'); setDigerFiles([]); }}
                   >
                     Faturalar (Alış/Satış)
                   </button>
                   <button 
                     className={`flex-1 py-1.5 px-3 rounded-md text-sm font-medium transition-all ${kuralTipi === 'banka' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-                    onClick={() => setKuralTipi('banka')}
+                    onClick={() => { setKuralTipi('banka'); setDigerFiles([]); }}
                   >
                     Banka Ekstreleri
                   </button>
@@ -185,7 +253,7 @@ export default function AkilliOgrenme() {
 
               <div className="space-y-4">
                 <div className="p-4 border-2 border-dashed border-slate-200 rounded-xl hover:border-indigo-300 transition-colors bg-slate-50 relative">
-                  <input type="file" className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" onChange={e => setMuavinFile(e.target.files?.[0] || null)} />
+                  <input type="file" accept=".xlsx,.xls" className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" onChange={e => setMuavinFile(e.target.files?.[0] || null)} />
                   <div className="flex flex-col items-center justify-center text-center gap-2">
                     <FileSpreadsheet className="h-8 w-8 text-slate-400" />
                     <div>
@@ -196,12 +264,22 @@ export default function AkilliOgrenme() {
                 </div>
 
                 <div className="p-4 border-2 border-dashed border-slate-200 rounded-xl hover:border-indigo-300 transition-colors bg-slate-50 relative">
-                  <input type="file" className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" onChange={e => setDigerFile(e.target.files?.[0] || null)} />
+                  <input 
+                    type="file" 
+                    multiple 
+                    accept={kuralTipi === 'fatura' ? ".xml,.xlsx,.xls" : ".xlsx,.xls"} 
+                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" 
+                    onChange={e => setDigerFiles(Array.from(e.target.files || []))} 
+                  />
                   <div className="flex flex-col items-center justify-center text-center gap-2">
                     <UploadCloud className="h-8 w-8 text-slate-400" />
                     <div>
-                      <p className="font-medium text-sm text-slate-700">{kuralTipi === 'fatura' ? 'Geçmiş Faturalar' : 'Banka Ekstresi'}</p>
-                      <p className="text-xs text-slate-500">{digerFile ? digerFile.name : (kuralTipi === 'fatura' ? 'XML veya Excel yükle' : 'Excel dosyası yükle (.xlsx)')}</p>
+                      <p className="font-medium text-sm text-slate-700">{kuralTipi === 'fatura' ? 'Geçmiş Faturalar (Çoklu XML Seçebilirsiniz)' : 'Banka Ekstresi'}</p>
+                      <p className="text-xs text-slate-500">
+                        {digerFiles.length > 0 
+                          ? (digerFiles.length === 1 ? digerFiles[0].name : `${digerFiles.length} adet dosya seçildi`) 
+                          : (kuralTipi === 'fatura' ? 'Toplu XML veya Excel yükle' : 'Excel dosyası yükle (.xlsx)')}
+                      </p>
                     </div>
                   </div>
                 </div>
@@ -209,7 +287,7 @@ export default function AkilliOgrenme() {
 
               <Button 
                 onClick={handleLearn} 
-                disabled={loading || !muavinFile || !digerFile} 
+                disabled={loading || !muavinFile || digerFiles.length === 0} 
                 className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white shadow-md transition-all group"
               >
                 {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <BrainCircuit className="mr-2 h-4 w-4 group-hover:scale-110 transition-transform" />}
@@ -248,7 +326,7 @@ export default function AkilliOgrenme() {
                         <Button size="sm" variant="outline" className="text-emerald-600 border-emerald-200 hover:bg-emerald-50" onClick={() => handleSaveRule(rule, idx)}>
                           <Check className="h-4 w-4" />
                         </Button>
-                        <Button size="sm" variant="ghost" className="text-rose-500 hover:bg-rose-50" onClick={() => setGeneratedRules(prev => prev.filter((_, i) => i !== idx))}>
+                        <Button size="sm" variant="outline" className="text-red-500 border-red-200 hover:bg-red-50" onClick={() => setGeneratedRules(prev => prev.filter((_, i) => i !== idx))}>
                           <X className="h-4 w-4" />
                         </Button>
                       </div>
@@ -260,32 +338,34 @@ export default function AkilliOgrenme() {
           )}
 
           <Card className="shadow-sm">
-            <CardHeader className="pb-3 border-b">
-              <CardTitle className="text-lg">Kayıtlı Kurallar (Hafıza)</CardTitle>
-              <CardDescription>Sistem bu kuralları kullanarak eşleşen kayıtların hesap kodunu otomatik doldurur.</CardDescription>
+            <CardHeader className="pb-4 border-b border-slate-100">
+              <CardTitle className="text-lg">Hafızadaki Kurallar</CardTitle>
+              <CardDescription>Sistemin daha önceden öğrenip kaydettiği otomatik atama kuralları.</CardDescription>
             </CardHeader>
             <CardContent className="p-0">
               {savedRules.length === 0 ? (
-                <div className="p-8 text-center text-slate-500">
-                  <BrainCircuit className="h-10 w-10 mx-auto text-slate-300 mb-3" />
-                  <p>Henüz kayıtlı bir kural bulunmuyor.</p>
+                <div className="p-10 text-center text-slate-500">
+                  <BrainCircuit className="h-10 w-10 mx-auto text-slate-200 mb-3" />
+                  <p>Henüz hafızada kural yok.</p>
                 </div>
               ) : (
                 <div className="divide-y divide-slate-100">
-                  {savedRules.map((rule) => (
-                    <div key={rule.id} className="p-4 flex items-center justify-between hover:bg-slate-50 transition-colors group">
+                  {savedRules.map((rule, idx) => (
+                    <div key={idx} className="p-4 flex items-center justify-between hover:bg-slate-50">
                       <div className="flex-1">
                         <div className="flex items-center gap-2 mb-1">
-                          <Badge variant="secondary" className={`text-xs ${rule.kural_tipi === 'fatura' ? 'bg-blue-100 text-blue-700' : 'bg-emerald-100 text-emerald-700'}`}>
-                            {rule.kural_tipi.toUpperCase()}
-                          </Badge>
-                          <span className="font-semibold text-slate-800">{rule.anahtar_kelime}</span>
+                          <span className="font-medium text-slate-700">{rule.anahtar_kelime}</span>
                           <span className="text-slate-400 text-sm">➔</span>
-                          <span className="font-mono text-sm font-semibold text-indigo-700">{rule.muhasebe_kodu}</span>
+                          <Badge variant="secondary" className="bg-slate-100 text-slate-700">
+                            {rule.muhasebe_kodu}
+                          </Badge>
+                          <Badge variant="outline" className="text-[10px] ml-2 text-slate-400">
+                            {rule.kural_tipi === 'fatura' ? 'Fatura' : 'Banka'}
+                          </Badge>
                         </div>
                         <p className="text-xs text-slate-500">{rule.kural_adi}</p>
                       </div>
-                      <Button size="icon" variant="ghost" className="text-slate-400 hover:text-rose-600 opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => handleDeleteRule(rule.id)}>
+                      <Button size="sm" variant="ghost" className="text-slate-400 hover:text-red-600 hover:bg-red-50" onClick={() => handleDeleteRule(rule.id)}>
                         <Trash2 className="h-4 w-4" />
                       </Button>
                     </div>
