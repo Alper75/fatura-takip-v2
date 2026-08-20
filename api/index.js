@@ -4738,7 +4738,7 @@ app.post('/api/mutabakatlar/analyze/:id', authMiddleware, async (req, res) => {
       args: [req.user.companyId]
     });
     
-    let apiKey = process.env.GEMINI_API_KEY;
+    let apiKey = (process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY);
     let aiModel = 'gemini-2.5-flash'; // default model
     
     rsSettings.rs.rows.forEach(r => {
@@ -5255,7 +5255,7 @@ app.post('/api/ai/learn', authMiddleware, async (req, res) => {
       args: [req.user.companyId]
     });
     
-    let apiKey = process.env.GEMINI_API_KEY;
+    let apiKey = (process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY);
     let aiModel = 'gemini-1.5-pro'; // Better for large context
     
     rsSettings.rows.forEach(r => {
