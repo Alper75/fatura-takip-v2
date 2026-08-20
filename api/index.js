@@ -377,6 +377,29 @@ app.get('/api/elogo/gelen-faturalar', authMiddleware, async (req, res) => {
           }
         }
 
+        const withholdingTaxTotal = inv['WithholdingTaxTotal'];
+        const withhTotalArray = Array.isArray(withholdingTaxTotal) ? withholdingTaxTotal : (withholdingTaxTotal ? [withholdingTaxTotal] : []);
+        for (const wt of withhTotalArray) {
+          const subtotals = wt['TaxSubtotal'];
+          if (!subtotals) continue;
+          const subArr = Array.isArray(subtotals) ? subtotals : [subtotals];
+          for (const sub of subArr) {
+             const taxCat = sub['TaxCategory'];
+             const taxScheme = taxCat?.['TaxScheme']?.['TaxTypeCode']?.['#text'] || taxCat?.['TaxScheme']?.['TaxTypeCode'];
+             const taxCode = getText(taxScheme);
+             const percent = parseFloat(getText(sub['Percent'])) || parseFloat(getText(taxCat?.['Percent'])) || 0;
+             const amount = parseFloat(getText(sub['TaxAmount'])) || 0;
+             
+             if (taxCode === '0003' || String(taxCode).includes('Stopaj')) {
+                stopajTutari += amount;
+                stopajOrani = percent;
+             } else {
+                tevkifatTutari += amount;
+                tevkifatOrani = percent;
+             }
+          }
+        }
+        
         const lines = inv['InvoiceLine'];
         const lineArr = Array.isArray(lines) ? lines : (lines ? [lines] : []);
         let faturaAciklama = lineArr.map(l => getText(l?.['Item']?.['Name'])).filter(n => n).join(', ');
@@ -557,6 +580,29 @@ app.get('/api/elogo/giden-faturalar', authMiddleware, async (req, res) => {
           }
         }
 
+        const withholdingTaxTotal = inv['WithholdingTaxTotal'];
+        const withhTotalArray = Array.isArray(withholdingTaxTotal) ? withholdingTaxTotal : (withholdingTaxTotal ? [withholdingTaxTotal] : []);
+        for (const wt of withhTotalArray) {
+          const subtotals = wt['TaxSubtotal'];
+          if (!subtotals) continue;
+          const subArr = Array.isArray(subtotals) ? subtotals : [subtotals];
+          for (const sub of subArr) {
+             const taxCat = sub['TaxCategory'];
+             const taxScheme = taxCat?.['TaxScheme']?.['TaxTypeCode']?.['#text'] || taxCat?.['TaxScheme']?.['TaxTypeCode'];
+             const taxCode = getText(taxScheme);
+             const percent = parseFloat(getText(sub['Percent'])) || parseFloat(getText(taxCat?.['Percent'])) || 0;
+             const amount = parseFloat(getText(sub['TaxAmount'])) || 0;
+             
+             if (taxCode === '0003' || String(taxCode).includes('Stopaj')) {
+                stopajTutari += amount;
+                stopajOrani = percent;
+             } else {
+                tevkifatTutari += amount;
+                tevkifatOrani = percent;
+             }
+          }
+        }
+        
         const lines = inv['InvoiceLine'];
         const lineArr = Array.isArray(lines) ? lines : (lines ? [lines] : []);
         let faturaAciklama = lineArr.map(l => getText(l?.['Item']?.['Name'])).filter(n => n).join(', ');
@@ -1035,6 +1081,29 @@ app.get('/api/uyumsoft/gelen-faturalar', authMiddleware, async (req, res) => {
           }
         }
 
+        const withholdingTaxTotal = inv['WithholdingTaxTotal'];
+        const withhTotalArray = Array.isArray(withholdingTaxTotal) ? withholdingTaxTotal : (withholdingTaxTotal ? [withholdingTaxTotal] : []);
+        for (const wt of withhTotalArray) {
+          const subtotals = wt['TaxSubtotal'];
+          if (!subtotals) continue;
+          const subArr = Array.isArray(subtotals) ? subtotals : [subtotals];
+          for (const sub of subArr) {
+             const taxCat = sub['TaxCategory'];
+             const taxScheme = taxCat?.['TaxScheme']?.['TaxTypeCode']?.['#text'] || taxCat?.['TaxScheme']?.['TaxTypeCode'];
+             const taxCode = getText(taxScheme);
+             const percent = parseFloat(getText(sub['Percent'])) || parseFloat(getText(taxCat?.['Percent'])) || 0;
+             const amount = parseFloat(getText(sub['TaxAmount'])) || 0;
+             
+             if (taxCode === '0003' || String(taxCode).includes('Stopaj')) {
+                stopajTutari += amount;
+                stopajOrani = percent;
+             } else {
+                tevkifatTutari += amount;
+                tevkifatOrani = percent;
+             }
+          }
+        }
+        
         const lines = inv['InvoiceLine'];
         const lineArr = Array.isArray(lines) ? lines : (lines ? [lines] : []);
         let faturaAciklama = lineArr.map(l => getText(l?.['Item']?.['Name'])).filter(n => n).join(', ');
@@ -1145,7 +1214,7 @@ app.post('/api/invoices/import-satis', authMiddleware, async (req, res) => {
   }
   
   try {
-    const { faturaNo, senderName, senderVkn, issueDate, payableAmount, currencyCode, uuid, matrah, kdvOrani, kdvTutari, oivTutari, faturaAciklama } = invoice;
+    const { faturaNo, senderName, senderVkn, issueDate, payableAmount, currencyCode, uuid, matrah, kdvOrani, kdvTutari, oivTutari, faturaAciklama, stopajOrani, stopajTutari, tevkifatOrani, tevkifatTutari } = invoice;
     const islemTarihi = issueDate ? issueDate.split('T')[0] : new Date().toISOString().split('T')[0];
     
     // Check if invoice already exists in satis_faturalari
@@ -1233,8 +1302,8 @@ app.post('/api/invoices/import-satis', authMiddleware, async (req, res) => {
         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       args: [
         id, faturaNo, islemTarihi, senderName || 'Bilinmiyor', senderVkn || '', faturaAciklama || 'Entegratör Satış Faturası',
-        payableAmount, kdvOrani || 0, kdvTutari || 0, matrah || 0, 0, 0,
-        0, 0, '', pdfDosyaBase64, pdfDosyaAdi,
+        payableAmount, kdvOrani || 0, kdvTutari || 0, matrah || 0, tevkifatOrani || 0, tevkifatTutari || 0,
+        stopajOrani || 0, stopajTutari || 0, '', pdfDosyaBase64, pdfDosyaAdi,
         null, 'odenmedi', null, null, faturaAciklama || '', new Date().toISOString(), req.user.companyId, uuid
       ]
     });

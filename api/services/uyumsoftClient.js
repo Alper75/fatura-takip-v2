@@ -170,7 +170,11 @@ export class UyumsoftClient {
          taxTotal: item.TotalTaxAmount || item.VatAmount || 0,
          taxExclusiveAmount: item.GrossTotal || item.VatTaxableAmount || 0,
          currencyCode: item.CurrencyCode || 'TRY',
-         faturaNo: item.VoucherNumber || item.FaturaNo
+         faturaNo: item.VoucherNumber || item.FaturaNo,
+         stopajTutari: item.WithholdingTaxAmount || item.WithholdingAmount || item.StoppageAmount || item.TotalWithholdingTaxAmount || 0,
+         stopajOrani: item.WithholdingTaxRate || item.WithholdingRate || item.StoppageRate || 0,
+         tevkifatTutari: item.WithholdingAmount || 0, // Fallback, could overlap with stopaj depending on Uyumsoft response
+         tevkifatOrani: item.WithholdingRate || 0
       })).filter(doc => doc.documentUuid);
 
       if (mappedDocs.length === 0) {
