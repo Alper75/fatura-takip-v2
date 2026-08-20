@@ -133,6 +133,8 @@ function AppContent() {
             return <MutabakatYonetimi />;
           case 'sirket-dosyalari':
             return <SirketDosyalari />;
+          case 'akilli-ogrenme':
+            return <AkilliOgrenme />;
           default:
             return <Dashboard />; // Default to Dashboard if currentView is not recognized
         }

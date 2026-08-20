@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { toast } from 'react-hot-toast';
+import { toast } from 'sonner';
 import { Loader2, BrainCircuit, UploadCloud, Trash2, Check, X, FileSpreadsheet } from 'lucide-react';
 import { Label } from '@/components/ui/label';
 
@@ -23,7 +23,7 @@ export default function AkilliOgrenme() {
     const token = localStorage.getItem('token');
     try {
       const res = await fetch('/api/yapay-zeka-kurallari', {
-        headers: { Authorization: \`Bearer \${token}\` }
+        headers: { Authorization: `Bearer ${token}` }
       });
       const data = await res.json();
       if (data.success) {
@@ -60,7 +60,7 @@ export default function AkilliOgrenme() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': \`Bearer \${token}\`
+          'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({
           kuralTipi,
@@ -75,7 +75,7 @@ export default function AkilliOgrenme() {
       if (data.success) {
         setGeneratedRules(data.rules || []);
         if (data.rules && data.rules.length > 0) {
-          toast.success(\`\${data.rules.length} kural çıkarıldı!\`);
+          toast.success(`${data.rules.length} kural çıkarıldı!`);
         } else {
           toast('Öğrenilecek kural bulunamadı veya veriler eşleşmedi.', { icon: 'ℹ️' });
         }
@@ -95,10 +95,10 @@ export default function AkilliOgrenme() {
     try {
       const res = await fetch('/api/yapay-zeka-kurallari', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: \`Bearer \${token}\` },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({
           kural_tipi: kuralTipi,
-          kural_adi: rule.kural_adi || \`\${kuralTipi.toUpperCase()} Kuralı\`,
+          kural_adi: rule.kural_adi || `${kuralTipi.toUpperCase()} Kuralı`,
           anahtar_kelime: rule.anahtar_kelime,
           muhasebe_kodu: rule.muhasebe_kodu
         })
@@ -119,9 +119,9 @@ export default function AkilliOgrenme() {
   const handleDeleteRule = async (id: string) => {
     const token = localStorage.getItem('token');
     try {
-      const res = await fetch(\`/api/yapay-zeka-kurallari/\${id}\`, {
+      const res = await fetch(`/api/yapay-zeka-kurallari/${id}`, {
         method: 'DELETE',
-        headers: { Authorization: \`Bearer \${token}\` }
+        headers: { Authorization: `Bearer ${token}` }
       });
       if (res.ok) {
         toast.success('Kural silindi');
@@ -169,13 +169,13 @@ export default function AkilliOgrenme() {
                 <Label className="text-sm font-semibold">Öğrenme Hedefi (Kural Tipi)</Label>
                 <div className="flex bg-slate-100 p-1 rounded-lg">
                   <button 
-                    className={\`flex-1 py-1.5 px-3 rounded-md text-sm font-medium transition-all \${kuralTipi === 'fatura' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}\`}
+                    className={`flex-1 py-1.5 px-3 rounded-md text-sm font-medium transition-all ${kuralTipi === 'fatura' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
                     onClick={() => setKuralTipi('fatura')}
                   >
                     Faturalar (Alış/Satış)
                   </button>
                   <button 
-                    className={\`flex-1 py-1.5 px-3 rounded-md text-sm font-medium transition-all \${kuralTipi === 'banka' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}\`}
+                    className={`flex-1 py-1.5 px-3 rounded-md text-sm font-medium transition-all ${kuralTipi === 'banka' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
                     onClick={() => setKuralTipi('banka')}
                   >
                     Banka Ekstreleri
@@ -276,7 +276,7 @@ export default function AkilliOgrenme() {
                     <div key={rule.id} className="p-4 flex items-center justify-between hover:bg-slate-50 transition-colors group">
                       <div className="flex-1">
                         <div className="flex items-center gap-2 mb-1">
-                          <Badge variant="secondary" className={\`text-xs \${rule.kural_tipi === 'fatura' ? 'bg-blue-100 text-blue-700' : 'bg-emerald-100 text-emerald-700'}\`}>
+                          <Badge variant="secondary" className={`text-xs ${rule.kural_tipi === 'fatura' ? 'bg-blue-100 text-blue-700' : 'bg-emerald-100 text-emerald-700'}`}>
                             {rule.kural_tipi.toUpperCase()}
                           </Badge>
                           <span className="font-semibold text-slate-800">{rule.anahtar_kelime}</span>

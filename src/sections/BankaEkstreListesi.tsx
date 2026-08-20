@@ -121,18 +121,7 @@ export function BankaEkstreListesi() {
 
   // Kural Form State
   
-  const [yapayZekaKurallari, setYapayZekaKurallari] = useState<any[]>([]);
-  useEffect(() => {
-    const token = localStorage.getItem('token');
-    fetch('/api/yapay-zeka-kurallari', { headers: { Authorization: `Bearer ${token}` } })
-      .then(res => res.json())
-      .then(data => {
-        if (data.success) {
-          setYapayZekaKurallari(data.kurallar.filter((k: any) => k.kural_tipi === 'banka'));
-        }
-      })
-      .catch(console.error);
-  }, []);
+  
 
   const [kuralForm, setKuralForm] = useState({
     anahtarKelime: '',
@@ -504,7 +493,6 @@ export function BankaEkstreListesi() {
     toast.success(`Kural ${count} adet geçmiş harekete uygulandı.`);
   };
 
-  */
   const handleTransferleriBul = () => {
     let count = 0;
     for (const h of cariHareketler) {

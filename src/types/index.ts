@@ -546,7 +546,8 @@ export type ViewType =
   | 'teklif-liste'
   | 'siparis-liste'
   | 'mutabakat-yonetimi'
-  | 'sirket-dosyalari';
+  | 'sirket-dosyalari'
+  | 'akilli-ogrenme';
 
 // ==================== FATURA DURUMU ====================
 export type OdemeDurumu = 'odenmedi' | 'odendi' | 'bekliyor';
