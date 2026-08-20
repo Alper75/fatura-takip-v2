@@ -1261,7 +1261,7 @@ app.post('/api/invoices/import-satis', authMiddleware, async (req, res) => {
       
       // eLogo yoksa veya çekemediyse Uyumsoft dene
       if (!pdfDosyaBase64 && settings.uyumsoft_username && settings.uyumsoft_password) {
-        const { UyumsoftClient } = require('./services/uyumsoftClient.js');
+        const { UyumsoftClient } = await import('./services/uyumsoftClient.js');
         const uyumsoft = new UyumsoftClient(settings.uyumsoft_username, settings.uyumsoft_password, settings.uyumsoft_is_test === 'true');
         // Makbuz mu Fatura mı ayırmak için prefix'e bakabiliriz ama şimdilik fatura olarak deneyelim
         let docDataRes = await uyumsoft.getDocumentPdf(uuid);
@@ -5308,7 +5308,6 @@ Dış Veri:
 ${faturalarText}
 `;
 
-    const { default: axios } = require('axios');
     const safeModelName = aiModel.trim();
     
     const geminiRes = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/${safeModelName}:generateContent?key=${apiKey.trim()}`, {
