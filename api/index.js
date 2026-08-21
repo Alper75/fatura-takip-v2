@@ -5293,10 +5293,15 @@ app.post('/api/ai/learn', authMiddleware, async (req, res) => {
     const faturalarText = decodePayload(faturalarBase64).substring(0, 500000);
 
     // Here we construct a prompt and attach the data
+    const kuralOzelTalimat = kuralTipi === 'fatura' 
+      ? "ÖNEMLİ: Şuan FATURA kuralları oluşturuyorsun. Muavin defterdeki banka hareketlerini (EFT, Havale, Banka isimleri, POS, 102'li hesaplar) KESİNLİKLE DİKKATE ALMA. Sadece fatura, fiş, masraf, alış/satış işlemlerine odaklan."
+      : "ÖNEMLİ: Şuan BANKA kuralları oluşturuyorsun. Lütfen sadece banka hesap özetindeki veya muavindeki banka hareketleri, POS işlemleri, komisyonlar ve para transferleri için kurallar oluştur.";
+
     const prompt = `Sen kıdemli bir mali müşavir ve veri analistisin. Sana bir firmanın geçmiş dönem "Muavin Defter" dökümü ve "Fatura Listesi (veya Banka Listesi)" verilerini vereceğim.
 Amacın, geçmiş işlemlere bakarak deterministik muhasebe kodu atama kuralları çıkarmaktır.
 
 Verilen kural tipi: ${kuralTipi} (fatura veya banka)
+${kuralOzelTalimat}
 
 ÇIKTI FORMATI:
 Sadece JSON dizisi döndür. Başka hiçbir açıklama yazma.
@@ -5308,7 +5313,7 @@ Sadece JSON dizisi döndür. Başka hiçbir açıklama yazma.
 
 KURALLAR:
 1. Kurallar mantıklı ve spesifik olmalıdır. "A.Ş." gibi çok genel kelimeler kullanma.
-2. Sadece en çok tekrar eden ve en emin olduğun kuralları çıkar (max 20 adet).
+2. Sınır yok! Bulabildiğin kadar çok sayıda ama sadece doğruluğundan emin olduğun güçlü kurallar çıkar. Ne kadar çok kural çıkarırsan o kadar iyi.
 
 VERİLER:
 Muavin Verisi:
