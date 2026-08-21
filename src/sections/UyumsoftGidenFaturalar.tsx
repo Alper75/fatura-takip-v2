@@ -297,7 +297,6 @@ export default function UyumsoftGidenFaturalar() {
           </div>
           </CardContent>
         </Card>
-      </div>
 
       <IntegrationImportPreviewModal 
         isOpen={showPreviewModal}

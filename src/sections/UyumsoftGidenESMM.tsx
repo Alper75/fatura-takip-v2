@@ -298,7 +298,6 @@ export default function UyumsoftGidenESMM() {
           </div>
           </CardContent>
         </Card>
-      </div>
 
       <IntegrationImportPreviewModal 
         isOpen={showPreviewModal}
