@@ -1214,7 +1214,7 @@ app.post('/api/invoices/import-satis', authMiddleware, async (req, res) => {
   }
   
   try {
-    const { faturaNo, senderName, senderVkn, issueDate, payableAmount, currencyCode, uuid, matrah, kdvOrani, kdvTutari, oivTutari, faturaAciklama, stopajOrani, stopajTutari, tevkifatOrani, tevkifatTutari, muhasebeKodu } = invoice;
+    const { faturaNo, senderName, senderVkn, issueDate, payableAmount, currencyCode, uuid, matrah, kdvOrani, kdvTutari, oivTutari, faturaAciklama, stopajOrani, stopajTutari, tevkifatOrani, tevkifatTutari, muhasebeKodu, cariId } = invoice;
     const islemTarihi = issueDate ? issueDate.split('T')[0] : new Date().toISOString().split('T')[0];
     
     // Check if invoice already exists in satis_faturalari
@@ -1304,7 +1304,7 @@ app.post('/api/invoices/import-satis', authMiddleware, async (req, res) => {
         id, faturaNo, islemTarihi, senderName || 'Bilinmiyor', senderVkn || '', faturaAciklama || 'Entegratör Satış Faturası',
         payableAmount, kdvOrani || 0, kdvTutari || 0, matrah || 0, tevkifatOrani || 0, tevkifatTutari || 0,
         stopajOrani || 0, stopajTutari || 0, muhasebeKodu || null, pdfDosyaBase64, pdfDosyaAdi,
-        null, 'odenmedi', null, null, faturaAciklama || '', new Date().toISOString(), req.user.companyId, uuid
+        null, 'odenmedi', cariId || null, null, faturaAciklama || '', new Date().toISOString(), req.user.companyId, uuid
       ]
     });
 
@@ -1323,7 +1323,7 @@ app.post('/api/invoices/import-from-logo', authMiddleware, async (req, res) => {
   }
   
   try {
-    const { faturaNo, senderName, senderVkn, issueDate, payableAmount, currencyCode, uuid, matrah, kdvOrani, kdvTutari, oivTutari, faturaAciklama, muhasebeKodu } = invoice;
+    const { faturaNo, senderName, senderVkn, issueDate, payableAmount, currencyCode, uuid, matrah, kdvOrani, kdvTutari, oivTutari, faturaAciklama, muhasebeKodu, cariId } = invoice;
     const islemTarihi = issueDate ? issueDate.split('T')[0] : new Date().toISOString().split('T')[0];
     
     // Check if invoice already exists
@@ -1383,7 +1383,7 @@ app.post('/api/invoices/import-from-logo', authMiddleware, async (req, res) => {
         id, faturaNo, islemTarihi, senderName, senderVkn, faturaAciklama || 'eLogo Gelen Fatura',
         payableAmount, kdvOrani || 0, kdvTutari || 0, matrah || 0, '0', 0,
         '0', 0, muhasebeKodu || null, null, pdfDosyaBase64, pdfDosyaAdi,
-        null, 'odenmedi', null, null, null, null,
+        null, 'odenmedi', null, null, cariId || null, null,
         'eLogo üzerinden içe aktarıldı (UUID: ' + uuid + ')', new Date().toISOString().split('T')[0], req.user.companyId,
         (kdvOrani === 1 ? kdvTutari : 0), (kdvOrani === 10 ? kdvTutari : 0), (kdvOrani === 20 ? kdvTutari : 0), oivTutari || 0
       ]

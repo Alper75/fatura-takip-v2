@@ -5,6 +5,7 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Save, BrainCircuit, FileCheck } from 'lucide-react';
 import { toast } from 'sonner';
+import { useApp } from '../context/AppContext';
 
 interface IntegrationImportPreviewModalProps {
   isOpen: boolean;
@@ -15,6 +16,7 @@ interface IntegrationImportPreviewModalProps {
 }
 
 export function IntegrationImportPreviewModal({ isOpen, onClose, invoices, importApiUrl, onSuccess }: IntegrationImportPreviewModalProps) {
+  const { cariler } = useApp();
   const [items, setItems] = useState<any[]>([]);
   const [saving, setSaving] = useState(false);
   const [kurallar, setKurallar] = useState<any[]>([]);
@@ -22,7 +24,21 @@ export function IntegrationImportPreviewModal({ isOpen, onClose, invoices, impor
 
   useEffect(() => {
     if (isOpen) {
-      setItems([...invoices]);
+      // Auto-match cariler by VKN or Unvan
+      const mappedInvoices = invoices.map(item => {
+        const vkn = item.senderVkn || item.aliciVkn || item.vknTckn || item.tcVkn || '';
+        const unvan = (item.senderName || item.aliciUnvan || item.ad || '').toLowerCase();
+        let cariId = item.cariId || null;
+        if (!cariId && cariler) {
+          const matched = cariler.find(c => 
+            (vkn && c.vknTckn === vkn) || 
+            (unvan && c.unvan?.toLowerCase() === unvan)
+          );
+          if (matched) cariId = matched.id;
+        }
+        return { ...item, cariId };
+      });
+      setItems(mappedInvoices);
       setRulesApplied(false);
       // Fetch AI rules when opened
       const token = localStorage.getItem('token');
@@ -35,7 +51,7 @@ export function IntegrationImportPreviewModal({ isOpen, onClose, invoices, impor
         })
         .catch(console.error);
     }
-  }, [isOpen, invoices]);
+  }, [isOpen, invoices, cariler]);
 
   // Apply AI rules once rules are fetched and items exist
   useEffect(() => {
@@ -63,6 +79,12 @@ export function IntegrationImportPreviewModal({ isOpen, onClose, invoices, impor
   const handleUpdateCode = (idx: number, val: string) => {
     const newItems = [...items];
     newItems[idx].muhasebeKodu = val;
+    setItems(newItems);
+  };
+
+  const handleUpdateCari = (idx: number, val: string) => {
+    const newItems = [...items];
+    newItems[idx].cariId = val;
     setItems(newItems);
   };
 
@@ -122,6 +144,7 @@ export function IntegrationImportPreviewModal({ isOpen, onClose, invoices, impor
                 <TableHead>Tarih</TableHead>
                 <TableHead>Ünvan</TableHead>
                 <TableHead className="text-right">Tutar</TableHead>
+                <TableHead className="min-w-[150px]">Cari Seçimi</TableHead>
                 <TableHead className="text-center">Muhasebe Kodu</TableHead>
               </TableRow>
             </TableHeader>
@@ -130,11 +153,23 @@ export function IntegrationImportPreviewModal({ isOpen, onClose, invoices, impor
                 <TableRow key={idx}>
                   <TableCell className="font-mono text-xs">{item.faturaNo || item.belgeNumarasi}</TableCell>
                   <TableCell>{item.issueDate?.split('T')[0] || item.tarih}</TableCell>
-                  <TableCell className="max-w-[200px] truncate" title={item.senderName || item.aliciUnvan}>
+                  <TableCell className="max-w-[150px] truncate" title={item.senderName || item.aliciUnvan}>
                     {item.senderName || item.aliciUnvan}
                   </TableCell>
                   <TableCell className="text-right font-medium text-emerald-600">
                     {formatCurrency(item.payableAmount || item.toplamTutar)}
+                  </TableCell>
+                  <TableCell>
+                    <select 
+                      className="w-full text-xs p-1.5 border rounded-md border-slate-200"
+                      value={item.cariId || ''}
+                      onChange={(e) => handleUpdateCari(idx, e.target.value)}
+                    >
+                      <option value="">Seçiniz...</option>
+                      {cariler.map(c => (
+                        <option key={c.id} value={c.id}>{c.unvan}</option>
+                      ))}
+                    </select>
                   </TableCell>
                   <TableCell className="text-center">
                     <Input 
