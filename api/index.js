@@ -5294,17 +5294,17 @@ app.post('/api/ai/learn', authMiddleware, async (req, res) => {
 
     // Here we construct a prompt and attach the data
     const kuralOzelTalimat = kuralTipi === 'fatura' 
-      ? "ÖNEMLİ: Şuan FATURA kuralları oluşturuyorsun. Muavin defterdeki banka hareketlerini (EFT, Havale, Banka isimleri, POS, 102'li hesaplar) KESİNLİKLE DİKKATE ALMA. Sadece fatura, fiş, masraf, alış/satış işlemlerine odaklan."
+      ? "ÖNEMLİ: Şuan FATURA/FİŞ kuralları oluşturuyorsun. Lütfen muavin defterdeki banka para transferlerini (EFT, Havale, 102 banka hesapları) KURAL OLARAK ÖNERME. Onun yerine satıcı firma ünvanlarına, masraf kalemlerine ve alış/satış faturalarına odaklan."
       : "ÖNEMLİ: Şuan BANKA kuralları oluşturuyorsun. Lütfen sadece banka hesap özetindeki veya muavindeki banka hareketleri, POS işlemleri, komisyonlar ve para transferleri için kurallar oluştur.";
 
-    const prompt = `Sen kıdemli bir mali müşavir ve veri analistisin. Sana bir firmanın geçmiş dönem "Muavin Defter" dökümü ve "Fatura Listesi (veya Banka Listesi)" verilerini vereceğim.
+    const prompt = `Sen kıdemli bir mali müşavir ve yapay zeka veri analistisin. Sana bir firmanın geçmiş dönem "Muavin Defter" dökümü ve dış veri kaynağını (Fatura Listesi veya Banka Ekstresi) vereceğim.
 Amacın, geçmiş işlemlere bakarak deterministik muhasebe kodu atama kuralları çıkarmaktır.
 
 Verilen kural tipi: ${kuralTipi} (fatura veya banka)
 ${kuralOzelTalimat}
 
 ÇIKTI FORMATI:
-Sadece JSON dizisi döndür. Başka hiçbir açıklama yazma.
+Sadece ve sadece JSON dizisi döndür. Başka hiçbir açıklama, yorum veya kod bloğu işareti (\`\`\`) yazma.
 Örnek Çıktı:
 [
   { "anahtar_kelime": "YEMEKSEPETİ", "muhasebe_kodu": "770.01.001", "kural_adi": "Yemek Giderleri" },
@@ -5312,8 +5312,8 @@ Sadece JSON dizisi döndür. Başka hiçbir açıklama yazma.
 ]
 
 KURALLAR:
-1. Kurallar mantıklı ve spesifik olmalıdır. "A.Ş." gibi çok genel kelimeler kullanma.
-2. Sınır yok! Bulabildiğin kadar çok sayıda ama sadece doğruluğundan emin olduğun güçlü kurallar çıkar. Ne kadar çok kural çıkarırsan o kadar iyi.
+1. Kurallar mantıklı ve spesifik olmalıdır. "A.Ş." veya "LTD" gibi çok genel kelimeler kullanma. Daha belirleyici firma veya işlem adları seç.
+2. Eşleşme bulduğun tüm anlamlı işlemleri kural olarak ekle. Sınır yok! Ne kadar çok doğru kural çıkarırsan o kadar iyi.
 
 VERİLER:
 Muavin Verisi:
@@ -5327,7 +5327,7 @@ ${faturalarText}
     
     const geminiRes = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/${safeModelName}:generateContent?key=${apiKey.trim()}`, {
       contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: { temperature: 0.1 }
+      generationConfig: { temperature: 0.3 }
     });
 
     const aiText = geminiRes.data?.candidates?.[0]?.content?.parts?.[0]?.text || "[]";
