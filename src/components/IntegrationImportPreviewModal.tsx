@@ -195,12 +195,12 @@ export function IntegrationImportPreviewModal({ isOpen, onClose, invoices, impor
                  const ruleRes = await fetch('/api/yapay-zeka-kurallari', {
                    method: 'POST',
                    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-                   body: JSON.stringify({ kuralTipi: 'fatura', anahtarKelime: senderName, muhasebeKodu: item.muhasebeKodu })
+                   body: JSON.stringify({ kural_tipi: 'fatura', kural_adi: 'Otomatik Kural: ' + senderName, anahtar_kelime: senderName, muhasebe_kodu: item.muhasebeKodu })
                  });
                  if (ruleRes.ok) {
                     const ruleData = await ruleRes.json();
                     if (ruleData.success) {
-                       setKurallar(prev => [...prev, { id: ruleData.id, kural_tipi: 'fatura', anahtar_kelime: senderName, muhasebe_kodu: item.muhasebeKodu }]);
+                       setKurallar(prev => [...prev, { id: ruleData.id || Date.now().toString(), kural_tipi: 'fatura', anahtar_kelime: senderName, muhasebe_kodu: item.muhasebeKodu }]);
                     }
                  }
                } catch (e) { console.error('Kural ekleme hatası', e); }
