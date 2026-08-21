@@ -5221,6 +5221,16 @@ app.get('/api/yapay-zeka-kurallari', authMiddleware, async (req, res) => {
 app.post('/api/yapay-zeka-kurallari', authMiddleware, async (req, res) => {
   try {
     const { kural_tipi, kural_adi, anahtar_kelime, muhasebe_kodu } = req.body;
+    
+    const checkResult = await client.execute({
+      sql: 'SELECT id FROM yapay_zeka_kurallari WHERE company_id = ? AND kural_tipi = ? AND anahtar_kelime = ?',
+      args: [req.user.companyId, kural_tipi, anahtar_kelime]
+    });
+
+    if (checkResult.rows && checkResult.rows.length > 0) {
+      return res.json({ success: true, message: 'Bu anahtar kelime için zaten bir kural var, atlandı.', skipped: true });
+    }
+
     const id = uuidv4();
     await client.execute({
       sql: 'INSERT INTO yapay_zeka_kurallari (id, company_id, kural_tipi, kural_adi, anahtar_kelime, muhasebe_kodu) VALUES (?, ?, ?, ?, ?, ?)',
