@@ -191,6 +191,19 @@ export function IntegrationImportPreviewModal({ isOpen, onClose, invoices, impor
   };
 
   const handleSaveAll = async () => {
+    // Validation check
+    const unassignedCari = items.find(item => !item.cariId);
+    if (unassignedCari) {
+      toast.error(`Lütfen tüm faturalar için "Cari Seçimi" yapınız. (${unassignedCari.faturaNo || unassignedCari.belgeNumarasi || 'İsimsiz Fatura'})`);
+      return;
+    }
+    
+    const unassignedCode = items.find(item => !item.muhasebeKodu);
+    if (unassignedCode) {
+      toast.error(`Lütfen tüm faturalar için "Muhasebe Kodu" belirleyiniz. (${unassignedCode.faturaNo || unassignedCode.belgeNumarasi || 'İsimsiz Fatura'})`);
+      return;
+    }
+
     setSaving(true);
     let successCount = 0;
     try {
