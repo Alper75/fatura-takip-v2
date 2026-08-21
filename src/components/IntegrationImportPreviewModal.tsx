@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './ui/dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { Button } from './ui/button';
-import { Input } from './ui/input';
 import { Save, BrainCircuit, FileCheck } from 'lucide-react';
 import { toast } from 'sonner';
 import { useApp } from '../context/AppContext';
@@ -15,8 +14,76 @@ interface IntegrationImportPreviewModalProps {
   onSuccess: (importedCount: number) => void;
 }
 
+const CellDropdown = ({ value, options, onChange, placeholder }: { value: string; options: {value: string, label: string}[]; onChange: (v: string) => void, placeholder: string }) => {
+  const [isEditing, setIsEditing] = useState(false);
+  const [search, setSearch] = useState('');
+  
+  if (!isEditing) {
+    const displayValue = options.find(o => o.value === value)?.label || value;
+    return (
+      <div 
+        className={`text-sm p-2 border border-slate-200 hover:border-indigo-400 rounded-md cursor-pointer min-h-[36px] flex items-center bg-white ${!displayValue ? 'text-rose-500 font-medium bg-rose-50' : 'text-slate-700 line-clamp-1'}`}
+        onClick={() => { setIsEditing(true); setSearch(value || ''); }}
+        title={displayValue || placeholder}
+      >
+        {displayValue || placeholder}
+      </div>
+    );
+  }
+
+  const filtered = options.filter(o => o.label.toLowerCase().includes(search.toLowerCase()) || o.value.toLowerCase().includes(search.toLowerCase()));
+
+  return (
+    <div className="relative">
+      <input 
+        autoFocus
+        className="flex h-9 w-full items-center justify-between rounded-md border border-indigo-500 bg-white px-3 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+        value={search}
+        placeholder="Ara veya Kod Yaz..."
+        onChange={e => setSearch(e.target.value)}
+        onKeyDown={e => {
+           if (e.key === 'Enter') {
+             onChange(search);
+             setIsEditing(false);
+           }
+        }}
+        onBlur={() => setTimeout(() => {
+           if (search !== value) onChange(search);
+           setIsEditing(false);
+        }, 150)}
+      />
+      <div className="absolute top-full left-0 w-full min-w-[250px] max-h-48 overflow-auto bg-white border border-slate-200 shadow-xl rounded-md z-50 mt-1 p-1">
+        <div 
+          className="text-sm p-2 hover:bg-slate-100 cursor-pointer text-slate-500 rounded"
+          onClick={() => { onChange(''); setIsEditing(false); }}
+        >
+          {placeholder} (Temizle)
+        </div>
+        {filtered.length === 0 && search && (
+           <div 
+             className="text-sm p-2 hover:bg-indigo-50 cursor-pointer text-indigo-700 font-medium rounded truncate"
+             onClick={() => { onChange(search); setIsEditing(false); }}
+           >
+             "{search}" olarak kullan (Yeni Kural)
+           </div>
+        )}
+        {filtered.map(o => (
+          <div 
+            key={o.value} 
+            className="text-sm p-2 hover:bg-indigo-50 cursor-pointer text-slate-700 rounded truncate"
+            onClick={() => { onChange(o.value); setIsEditing(false); }}
+            title={o.label}
+          >
+            {o.label}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
 export function IntegrationImportPreviewModal({ isOpen, onClose, invoices, importApiUrl, onSuccess }: IntegrationImportPreviewModalProps) {
-  const { cariler } = useApp();
+  const { cariler, lucaAccounts } = useApp();
   const [items, setItems] = useState<any[]>([]);
   const [saving, setSaving] = useState(false);
   const [kurallar, setKurallar] = useState<any[]>([]);
@@ -115,6 +182,33 @@ export function IntegrationImportPreviewModal({ isOpen, onClose, invoices, impor
     let successCount = 0;
     try {
       const token = localStorage.getItem('token');
+      
+      // Auto-create rules for manually assigned codes
+      for (const item of items) {
+        if (item.muhasebeKodu) {
+          const senderName = (item.senderName || item.aliciUnvan || item.ad || '').trim();
+          if (senderName) {
+            const exactRuleExists = kurallar.some(k => k.anahtar_kelime.toLowerCase() === senderName.toLowerCase());
+            
+            if (!exactRuleExists) {
+               try {
+                 const ruleRes = await fetch('/api/yapay-zeka-kurallari', {
+                   method: 'POST',
+                   headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                   body: JSON.stringify({ kuralTipi: 'fatura', anahtarKelime: senderName, muhasebeKodu: item.muhasebeKodu })
+                 });
+                 if (ruleRes.ok) {
+                    const ruleData = await ruleRes.json();
+                    if (ruleData.success) {
+                       setKurallar(prev => [...prev, { id: ruleData.id, kural_tipi: 'fatura', anahtar_kelime: senderName, muhasebe_kodu: item.muhasebeKodu }]);
+                    }
+                 }
+               } catch (e) { console.error('Kural ekleme hatası', e); }
+            }
+          }
+        }
+      }
+
       for (const item of items) {
         const payload = { ...item };
         const res = await fetch(importApiUrl, {
@@ -144,7 +238,7 @@ export function IntegrationImportPreviewModal({ isOpen, onClose, invoices, impor
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-5xl">
+      <DialogContent className="max-w-[95vw] lg:max-w-7xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <FileCheck className="w-5 h-5 text-indigo-600" />
@@ -166,8 +260,8 @@ export function IntegrationImportPreviewModal({ isOpen, onClose, invoices, impor
                 <TableHead>Tarih</TableHead>
                 <TableHead>Ünvan</TableHead>
                 <TableHead className="text-right">Tutar</TableHead>
-                <TableHead className="min-w-[150px]">Cari Seçimi</TableHead>
-                <TableHead className="text-center">Muhasebe Kodu</TableHead>
+                <TableHead className="min-w-[200px]">Cari Seçimi</TableHead>
+                <TableHead className="min-w-[250px]">Muhasebe Kodu</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -181,9 +275,9 @@ export function IntegrationImportPreviewModal({ isOpen, onClose, invoices, impor
                   <TableCell className="text-right font-medium text-emerald-600">
                     {formatCurrency(item.payableAmount || item.toplamTutar)}
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="align-top">
                     <select 
-                      className="w-full text-xs p-1.5 border rounded-md border-slate-200"
+                      className="w-full text-sm p-2 border rounded-md border-slate-200 bg-white"
                       value={item.cariId || ''}
                       onChange={(e) => handleUpdateCari(idx, e.target.value)}
                     >
@@ -193,12 +287,12 @@ export function IntegrationImportPreviewModal({ isOpen, onClose, invoices, impor
                       ))}
                     </select>
                   </TableCell>
-                  <TableCell className="text-center">
-                    <Input 
-                      placeholder="Hesap Kodu..." 
+                  <TableCell className="align-top">
+                    <CellDropdown 
                       value={item.muhasebeKodu || ''}
-                      onChange={(e) => handleUpdateCode(idx, e.target.value)}
-                      className="w-32 mx-auto text-center font-mono text-sm border-indigo-200 focus-visible:ring-indigo-500"
+                      placeholder="Hesap Seçin veya Kod Yazın..."
+                      options={(lucaAccounts || []).map((a: any) => ({ value: a.kod, label: `${a.kod} - ${a.ad}` }))}
+                      onChange={(val) => handleUpdateCode(idx, val)}
                     />
                   </TableCell>
                 </TableRow>
