@@ -191,16 +191,12 @@ export function IntegrationImportPreviewModal({ isOpen, onClose, invoices, impor
   };
 
   const handleSaveAll = async () => {
-    // Validation check
-    const unassignedCari = items.find(item => !item.cariId);
-    if (unassignedCari) {
-      toast.error(`Lütfen tüm faturalar için "Cari Seçimi" yapınız. (${unassignedCari.faturaNo || unassignedCari.belgeNumarasi || 'İsimsiz Fatura'})`);
-      return;
-    }
-    
-    const unassignedCode = items.find(item => !item.muhasebeKodu);
-    if (unassignedCode) {
-      toast.error(`Lütfen tüm faturalar için "Muhasebe Kodu" belirleyiniz. (${unassignedCode.faturaNo || unassignedCode.belgeNumarasi || 'İsimsiz Fatura'})`);
+    // Sadece Cari ve Muhasebe kodu dolu olanları filtrele
+    const validItems = items.filter(item => item.cariId && item.muhasebeKodu);
+    const skippedCount = items.length - validItems.length;
+
+    if (validItems.length === 0) {
+      toast.error('Aktarılacak geçerli fatura bulunamadı. Lütfen en az bir fatura için Cari ve Hesap seçiniz.');
       return;
     }
 
@@ -209,8 +205,8 @@ export function IntegrationImportPreviewModal({ isOpen, onClose, invoices, impor
     try {
       const token = localStorage.getItem('token');
       
-      // Auto-create rules for manually assigned codes
-      for (const item of items) {
+      // Auto-create rules for manually assigned codes (only for valid items)
+      for (const item of validItems) {
         if (item.muhasebeKodu) {
           const senderName = (item.senderName || item.aliciUnvan || item.ad || '').trim();
           if (senderName) {
@@ -235,7 +231,7 @@ export function IntegrationImportPreviewModal({ isOpen, onClose, invoices, impor
         }
       }
 
-      for (const item of items) {
+      for (const item of validItems) {
         const payload = { ...item };
         const res = await fetch(importApiUrl, {
           method: 'POST',
@@ -247,7 +243,13 @@ export function IntegrationImportPreviewModal({ isOpen, onClose, invoices, impor
           successCount++;
         }
       }
-      toast.success(`${successCount} fatura başarıyla aktarıldı.`);
+      
+      let msg = `${successCount} fatura başarıyla aktarıldı.`;
+      if (skippedCount > 0) {
+        msg += ` ${skippedCount} fatura eksik bilgi nedeniyle atlandı.`;
+      }
+      toast.success(msg);
+      
       onSuccess(successCount);
       onClose();
     } catch (err: any) {
