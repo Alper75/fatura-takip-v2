@@ -13,7 +13,7 @@ export default function GidenElogoFaturalar() {
   const [faturalar, setFaturalar] = useState<any[]>([]);
   const [savedInvoices, setSavedInvoices] = useState<string[]>([]);
   const [selectedInvoices, setSelectedInvoices] = useState<string[]>([]);
-  const [bulkImporting, setBulkImporting] = useState(false);
+  
   const [showPreviewModal, setShowPreviewModal] = useState(false);
   
   const today = new Date().toISOString().split('T')[0];
@@ -167,10 +167,10 @@ export default function GidenElogoFaturalar() {
           {selectedInvoices.length > 0 && (
             <Button 
               onClick={handleBulkImport} 
-              disabled={bulkImporting} 
+               
               className="bg-indigo-600 hover:bg-indigo-700"
             >
-              {bulkImporting ? <RefreshCcw className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
+              <Save className="w-4 h-4 mr-2" />
               Seçilenleri Kaydet ({selectedInvoices.length})
             </Button>
           )}
@@ -304,7 +304,7 @@ export default function GidenElogoFaturalar() {
         onClose={() => setShowPreviewModal(false)}
         invoices={faturalar.filter(f => selectedInvoices.includes(f.uuid))}
         importApiUrl="/api/invoices/import-satis"
-        onSuccess={(count) => {
+        onSuccess={() => {
           setSavedInvoices(prev => [...prev, ...selectedInvoices]);
           setSelectedInvoices([]);
           fetchAlisFaturalari();

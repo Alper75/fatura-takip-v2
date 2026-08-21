@@ -13,7 +13,7 @@ export default function UyumsoftGidenFaturalar() {
   const [faturalar, setFaturalar] = useState<any[]>([]);
   const [savedInvoices, setSavedInvoices] = useState<string[]>([]);
   const [selectedInvoices, setSelectedInvoices] = useState<string[]>([]);
-  const [bulkImporting, setBulkImporting] = useState(false);
+  
   const [showPreviewModal, setShowPreviewModal] = useState(false);
   
   const today = new Date().toISOString().split('T')[0];
@@ -303,7 +303,7 @@ export default function UyumsoftGidenFaturalar() {
         onClose={() => setShowPreviewModal(false)}
         invoices={faturalar.filter(f => selectedInvoices.includes(f.uuid))}
         importApiUrl="/api/invoices/import-satis"
-        onSuccess={(count) => {
+        onSuccess={() => {
           setSavedInvoices(prev => [...prev, ...selectedInvoices]);
           setSelectedInvoices([]);
           fetchAlisFaturalari();
