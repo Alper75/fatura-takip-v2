@@ -5,6 +5,7 @@ import { Download, RefreshCcw, Save } from 'lucide-react';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { toast } from 'sonner';
 import { useApp } from '../context/AppContext';
+import { IntegrationImportPreviewModal } from '../components/IntegrationImportPreviewModal';
 
 export default function UyumsoftGidenFaturalar() {
   const [loading, setLoading] = useState(false);
@@ -13,6 +14,7 @@ export default function UyumsoftGidenFaturalar() {
   const [savedInvoices, setSavedInvoices] = useState<string[]>([]);
   const [selectedInvoices, setSelectedInvoices] = useState<string[]>([]);
   const [bulkImporting, setBulkImporting] = useState(false);
+  const [showPreviewModal, setShowPreviewModal] = useState(false);
   
   const today = new Date().toISOString().split('T')[0];
   const thirtyDaysAgo = new Date(new Date().setDate(new Date().getDate() - 30)).toISOString().split('T')[0];
@@ -112,39 +114,9 @@ export default function UyumsoftGidenFaturalar() {
     }
   };
 
-  const handleBulkImport = async () => {
+  const handleBulkImport = () => {
     if (selectedInvoices.length === 0) return;
-    setBulkImporting(true);
-    let basarili = 0;
-    const token = localStorage.getItem('token');
-
-    for (const uuid of selectedInvoices) {
-      const fatura = faturalar.find(f => f.uuid === uuid);
-      if (!fatura) continue;
-      
-      try {
-        const res = await fetch('/api/invoices/import-satis', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-          },
-          body: JSON.stringify(fatura)
-        });
-        const data = await res.json();
-        if (data.success) {
-          basarili++;
-          setSavedInvoices(prev => [...prev, fatura.uuid]);
-        }
-      } catch (error) {
-        console.error('Toplu aktarma hatası:', error);
-      }
-    }
-    
-    toast.success(`${basarili} fatura başarıyla kaydedildi!`);
-    setSelectedInvoices([]);
-    fetchAlisFaturalari();
-    setBulkImporting(false);
+    setShowPreviewModal(true);
   };
 
 
@@ -195,10 +167,9 @@ export default function UyumsoftGidenFaturalar() {
           {selectedInvoices.length > 0 && (
             <Button 
               onClick={handleBulkImport} 
-              disabled={bulkImporting} 
               className="bg-indigo-600 hover:bg-indigo-700"
             >
-              {bulkImporting ? <RefreshCcw className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
+              <Save className="w-4 h-4 mr-2" />
               Seçilenleri Kaydet ({selectedInvoices.length})
             </Button>
           )}
@@ -324,8 +295,21 @@ export default function UyumsoftGidenFaturalar() {
               </TableBody>
             </Table>
           </div>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      </div>
+
+      <IntegrationImportPreviewModal 
+        isOpen={showPreviewModal}
+        onClose={() => setShowPreviewModal(false)}
+        invoices={faturalar.filter(f => selectedInvoices.includes(f.uuid))}
+        importApiUrl="/api/invoices/import-satis"
+        onSuccess={(count) => {
+          setSavedInvoices(prev => [...prev, ...selectedInvoices]);
+          setSelectedInvoices([]);
+          fetchAlisFaturalari();
+        }}
+      />
     </div>
   );
 }
