@@ -83,7 +83,7 @@ const CellDropdown = ({ value, options, onChange, placeholder }: { value: string
 };
 
 export function IntegrationImportPreviewModal({ isOpen, onClose, invoices, importApiUrl, onSuccess }: IntegrationImportPreviewModalProps) {
-  const { cariler, lucaAccounts } = useApp();
+  const { cariler, lucaAccounts, alisFaturalari, satisFaturalari } = useApp();
   const [items, setItems] = useState<any[]>([]);
   const [saving, setSaving] = useState(false);
   const [kurallar, setKurallar] = useState<any[]>([]);
@@ -123,7 +123,20 @@ export function IntegrationImportPreviewModal({ isOpen, onClose, invoices, impor
           });
           if (matched) cariId = matched.id;
         }
-        return { ...item, cariId };
+
+        // Smart Learning: Check past invoices for the same VKN
+        let pastMuhasebeKodu = item.muhasebeKodu || null;
+        if (!pastMuhasebeKodu && vkn) {
+          const pastAlis = (alisFaturalari || []).find((f: any) => f.tedarikciVkn === vkn && f.muhasebeKodu);
+          if (pastAlis) {
+             pastMuhasebeKodu = pastAlis.muhasebeKodu;
+          } else {
+             const pastSatis = (satisFaturalari || []).find((f: any) => f.tcVkn === vkn && f.muhasebeKodu);
+             if (pastSatis) pastMuhasebeKodu = pastSatis.muhasebeKodu;
+          }
+        }
+
+        return { ...item, cariId, muhasebeKodu: pastMuhasebeKodu };
       });
       setItems(mappedInvoices);
       setRulesApplied(false);
