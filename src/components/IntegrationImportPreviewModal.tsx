@@ -21,25 +21,47 @@ export function IntegrationImportPreviewModal({ isOpen, onClose, invoices, impor
   const [saving, setSaving] = useState(false);
   const [kurallar, setKurallar] = useState<any[]>([]);
   const [rulesApplied, setRulesApplied] = useState(false);
+  const [initialized, setInitialized] = useState(false);
 
   useEffect(() => {
-    if (isOpen) {
+    if (!isOpen) {
+      setInitialized(false);
+      setRulesApplied(false);
+      return;
+    }
+    
+    if (isOpen && !initialized) {
       // Auto-match cariler by VKN or Unvan
       const mappedInvoices = invoices.map(item => {
-        const vkn = item.senderVkn || item.aliciVkn || item.vknTckn || item.tcVkn || '';
-        const unvan = (item.senderName || item.aliciUnvan || item.ad || '').toLowerCase();
+        const vkn = String(item.senderVkn || item.aliciVkn || item.vknTckn || item.tcVkn || '').trim();
+        const unvan = String(item.senderName || item.aliciUnvan || item.ad || '').toLowerCase().trim();
         let cariId = item.cariId || null;
         if (!cariId && cariler) {
-          const matched = cariler.find(c => 
-            (vkn && c.vknTckn === vkn) || 
-            (unvan && c.unvan?.toLowerCase() === unvan)
-          );
+          const matched = cariler.find(c => {
+            if (vkn && c.vknTckn) {
+               const cVkn = String(c.vknTckn).trim();
+               if (cVkn === vkn) return true;
+               if (cVkn.endsWith(vkn) || vkn.endsWith(cVkn)) {
+                 if (cVkn.length >= 10 && vkn.length >= 10) return true;
+               }
+            }
+            if (unvan && c.unvan) {
+              const cariUnvan = String(c.unvan).toLowerCase().trim();
+              if (cariUnvan === unvan) return true;
+              if (cariUnvan.length > 5 && unvan.length > 5) {
+                return cariUnvan.includes(unvan) || unvan.includes(cariUnvan);
+              }
+            }
+            return false;
+          });
           if (matched) cariId = matched.id;
         }
         return { ...item, cariId };
       });
       setItems(mappedInvoices);
       setRulesApplied(false);
+      setInitialized(true);
+      
       // Fetch AI rules when opened
       const token = localStorage.getItem('token');
       fetch('/api/yapay-zeka-kurallari', { headers: { Authorization: `Bearer ${token}` } })
@@ -51,7 +73,7 @@ export function IntegrationImportPreviewModal({ isOpen, onClose, invoices, impor
         })
         .catch(console.error);
     }
-  }, [isOpen, invoices, cariler]);
+  }, [isOpen, invoices, cariler, initialized]);
 
   // Apply AI rules once rules are fetched and items exist
   useEffect(() => {
