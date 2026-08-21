@@ -21,7 +21,7 @@ export default function UyumsoftGidenESMM() {
   const [startDate, setStartDate] = useState(thirtyDaysAgo);
   const [endDate, setEndDate] = useState(today);
 
-  const { fetchAlisFaturalari, alisFaturalari } = useApp();
+  const { fetchSatisFaturalari, fetchCariHareketler, satisFaturalari } = useApp();
 
   useEffect(() => {
     fetchFaturalar();
@@ -102,7 +102,7 @@ export default function UyumsoftGidenESMM() {
       if (data.success) {
         toast.success(data.message);
         setSavedInvoices(prev => [...prev, fatura.uuid]);
-        fetchAlisFaturalari(); // Listeyi güncelle
+        fetchSatisFaturalari(); fetchCariHareketler(); // Listeyi güncelle
       } else {
         toast.error(data.message);
       }
@@ -184,10 +184,10 @@ export default function UyumsoftGidenESMM() {
                     <input 
                       type="checkbox" 
                       className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
-                      checked={faturalar.length > 0 && selectedInvoices.length === faturalar.filter(f => !(savedInvoices.includes(f.uuid) || alisFaturalari.some(a => a.faturaNo === f.faturaNo))).length && faturalar.filter(f => !(savedInvoices.includes(f.uuid) || alisFaturalari.some(a => a.faturaNo === f.faturaNo))).length > 0}
+                      checked={faturalar.length > 0 && selectedInvoices.length === faturalar.filter(f => !(savedInvoices.includes(f.uuid) || satisFaturalari.some(a => a.faturaNo === f.faturaNo))).length && faturalar.filter(f => !(savedInvoices.includes(f.uuid) || satisFaturalari.some(a => a.faturaNo === f.faturaNo))).length > 0}
                       onChange={(e) => {
                         if (e.target.checked) {
-                          setSelectedInvoices(faturalar.filter(f => !(savedInvoices.includes(f.uuid) || alisFaturalari.some(a => a.faturaNo === f.faturaNo))).map(f => f.uuid));
+                          setSelectedInvoices(faturalar.filter(f => !(savedInvoices.includes(f.uuid) || satisFaturalari.some(a => a.faturaNo === f.faturaNo))).map(f => f.uuid));
                         } else {
                           setSelectedInvoices([]);
                         }
@@ -217,7 +217,7 @@ export default function UyumsoftGidenESMM() {
                   </TableRow>
                 ) : (
                   faturalar.map((f, i) => {
-                    const isSaved = savedInvoices.includes(f.uuid) || alisFaturalari.some(a => a.faturaNo === f.faturaNo);
+                    const isSaved = savedInvoices.includes(f.uuid) || satisFaturalari.some(a => a.faturaNo === f.faturaNo);
                     return (
                       <TableRow key={i} className={isSaved ? "bg-green-100/50 hover:bg-green-100/70" : "hover:bg-slate-50"}>
                         <TableCell className="text-center">
@@ -307,7 +307,7 @@ export default function UyumsoftGidenESMM() {
         onSuccess={() => {
           setSavedInvoices(prev => [...prev, ...selectedInvoices]);
           setSelectedInvoices([]);
-          fetchAlisFaturalari();
+          fetchSatisFaturalari(); fetchCariHareketler();
         }}
       />
     </div>

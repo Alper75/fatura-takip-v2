@@ -201,6 +201,7 @@ interface AppContextType {
   deleteSiparis: (id: string) => Promise<{ success: boolean; message?: string }>;
   apiFetch: (path: string, options?: RequestInit) => Promise<any>;
   fetchCariler: () => Promise<void>;
+  fetchCariHareketler: () => Promise<void>;
   fetchAlisFaturalari: () => Promise<void>;
   fetchSatisFaturalari: () => Promise<void>;
 }
@@ -1705,6 +1706,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  const fetchCariHareketler = useCallback(async () => {
+    if (!isAuthenticated) return;
+    try {
+      const res = await apiFetch('/api/cari-hareketler');
+      if (res?.success) setCariHareketler(res.data || []);
+    } catch (e) { console.error("fetchCariHareketler error:", e); }
+  }, [isAuthenticated]);
+
   const fetchAlisFaturalari = useCallback(async () => {
     if (!isAuthenticated) return;
     try {
@@ -1914,6 +1923,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         deleteSiparis,
         apiFetch,
         fetchCariler,
+        fetchCariHareketler,
         fetchAlisFaturalari,
         fetchSatisFaturalari
       }}

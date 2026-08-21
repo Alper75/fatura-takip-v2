@@ -21,7 +21,7 @@ export default function GelenEFaturalar() {
   const [startDate, setStartDate] = useState(thirtyDaysAgo);
   const [endDate, setEndDate] = useState(today);
 
-  const { fetchAlisFaturalari, alisFaturalari } = useApp();
+  const { fetchAlisFaturalari, fetchCariHareketler, alisFaturalari } = useApp();
 
   useEffect(() => {
     fetchFaturalar();
@@ -102,7 +102,7 @@ export default function GelenEFaturalar() {
       if (data.success) {
         toast.success(data.message);
         setSavedInvoices(prev => [...prev, fatura.uuid]);
-        fetchAlisFaturalari(); // Listeyi güncelle
+        fetchAlisFaturalari(); fetchCariHareketler(); // Listeyi güncelle
       } else {
         toast.error(data.message);
       }
@@ -307,7 +307,7 @@ export default function GelenEFaturalar() {
         onSuccess={() => {
           setSavedInvoices(prev => [...prev, ...selectedInvoices]);
           setSelectedInvoices([]);
-          fetchAlisFaturalari();
+          fetchAlisFaturalari(); fetchCariHareketler();
         }}
       />
     </div>

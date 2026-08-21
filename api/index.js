@@ -1308,6 +1308,17 @@ app.post('/api/invoices/import-satis', authMiddleware, async (req, res) => {
       ]
     });
 
+    if (cariId) {
+      const cariHareketId = 'ch' + Date.now().toString() + Math.random().toString(36).substr(2, 5);
+      await client.execute({
+        sql: 'INSERT INTO cari_hareketler (id,cari_id,tarih,islem_turu,tutar,aciklama,bagli_fatura_id,olusturma_tarihi,company_id) VALUES (?,?,?,?,?,?,?,?,?)',
+        args: [
+          cariHareketId, cariId, islemTarihi, 'satis_faturasi', payableAmount || 0,
+          (faturaAciklama || 'Entegratör Satış Faturası').substring(0, 255), id, new Date().toISOString().split('T')[0], req.user.companyId
+        ]
+      });
+    }
+
     res.json({ success: true, message: 'Belge satış listesine başarıyla eklendi.', id });
   } catch (error) {
     console.error('Import from Logo/Uyumsoft (satis) hatası:', error);
@@ -1384,10 +1395,21 @@ app.post('/api/invoices/import-from-logo', authMiddleware, async (req, res) => {
         payableAmount, kdvOrani || 0, kdvTutari || 0, matrah || 0, '0', 0,
         '0', 0, muhasebeKodu || null, null, pdfDosyaBase64, pdfDosyaAdi,
         null, 'odenmedi', null, null, cariId || null, null,
-        'eLogo üzerinden içe aktarıldı (UUID: ' + uuid + ')', new Date().toISOString().split('T')[0], req.user.companyId,
+        'eLogo Üzerinden içe aktarıldı (UUID: ' + uuid + ')', new Date().toISOString().split('T')[0], req.user.companyId,
         (kdvOrani === 1 ? kdvTutari : 0), (kdvOrani === 10 ? kdvTutari : 0), (kdvOrani === 20 ? kdvTutari : 0), oivTutari || 0
       ]
     });
+
+    if (cariId) {
+      const cariHareketId = 'ch' + Date.now().toString() + Math.random().toString(36).substr(2, 5);
+      await client.execute({
+        sql: 'INSERT INTO cari_hareketler (id,cari_id,tarih,islem_turu,tutar,aciklama,bagli_fatura_id,olusturma_tarihi,company_id) VALUES (?,?,?,?,?,?,?,?,?)',
+        args: [
+          cariHareketId, cariId, islemTarihi, 'alis_faturasi', payableAmount || 0,
+          (faturaAciklama || 'eLogo Gelen Fatura').substring(0, 255), id, new Date().toISOString().split('T')[0], req.user.companyId
+        ]
+      });
+    }
     
     res.json({ success: true, message: 'Fatura başarıyla kaydedildi.', data: { id, faturaNo } });
   } catch (error) {
