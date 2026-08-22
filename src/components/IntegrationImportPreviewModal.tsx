@@ -202,6 +202,7 @@ export function IntegrationImportPreviewModal({ isOpen, onClose, invoices, impor
 
     setSaving(true);
     let successCount = 0;
+    let errorMessages: string[] = [];
     try {
       const token = localStorage.getItem('token');
       
@@ -241,17 +242,28 @@ export function IntegrationImportPreviewModal({ isOpen, onClose, invoices, impor
         const data = await res.json();
         if (data.success) {
           successCount++;
+        } else {
+          errorMessages.push(data.message || 'Bilinmeyen Hata');
         }
       }
       
       let msg = `${successCount} fatura başarıyla aktarıldı.`;
       if (skippedCount > 0) {
-        msg += ` ${skippedCount} fatura eksik bilgi nedeniyle atlandı.`;
+        msg += ` ${skippedCount} fatura Cari/Hesap bilgisi eksik olduğu için atlandı.`;
       }
-      toast.success(msg);
       
-      onSuccess(successCount);
-      onClose();
+      if (successCount > 0) {
+        toast.success(msg);
+        onSuccess(successCount);
+        onClose();
+      } else {
+        // If no successes, show error
+        if (errorMessages.length > 0) {
+          toast.error(`Aktarım başarısız: ${errorMessages[0]}`);
+        } else {
+          toast.info(msg);
+        }
+      }
     } catch (err: any) {
       toast.error('Toplu aktarım hatası: ' + err.message);
     } finally {
