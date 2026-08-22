@@ -299,7 +299,7 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
     try {
       // 1. Get key & model from company settings if possible
       let apiKey = import.meta.env.VITE_GEMINI_API_KEY || '';
-      let aiModel = 'gemini-2.5-flash';
+      let aiModel = 'gemini-1.5-flash';
       
       try {
         const keyRes = await apiFetch('/api/settings/gemini_api_key');
@@ -320,7 +320,7 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
         return;
       }
 
-      const safeModelName = aiModel ? aiModel.trim() : 'gemini-2.5-flash';
+      const safeModelName = aiModel ? aiModel.trim() : 'gemini-1.5-flash';
       const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${safeModelName}:generateContent?key=${apiKey}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
