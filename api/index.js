@@ -1295,13 +1295,13 @@ app.post('/api/invoices/import-satis', authMiddleware, async (req, res) => {
     const id = uuidv4();
     await client.execute({
       sql: `INSERT INTO satis_faturalari 
-        (id, fatura_no, fatura_tarihi, ad, tc_vkn, mal_hizmet_adi, 
+        (id, fatura_no, fatura_tarihi, ad, tc_vkn, 
          alinan_ucret, kdv_orani, kdv_tutari, matrah, tevkifat_orani, tevkifat_tutari, 
          stopaj_orani, stopaj_tutari, muhasebe_kodu, pdf_dosya, pdf_dosya_adi, 
          odeme_tarihi, odeme_durumu, cari_id, vade_tarihi, aciklama, olusturma_tarihi, company_id, gib_uuid) 
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       args: [
-        id, faturaNo, islemTarihi, senderName || 'Bilinmiyor', senderVkn || '', faturaAciklama || 'Entegratör Satış Faturası',
+        id, faturaNo, islemTarihi, senderName || 'Bilinmiyor', senderVkn || '',
         payableAmount, kdvOrani || 0, kdvTutari || 0, matrah || 0, tevkifatOrani || 0, tevkifatTutari || 0,
         stopajOrani || 0, stopajTutari || 0, muhasebeKodu || null, pdfDosyaBase64, pdfDosyaAdi,
         null, 'odenmedi', cariId || null, null, faturaAciklama || '', new Date().toISOString(), req.user.companyId, uuid
