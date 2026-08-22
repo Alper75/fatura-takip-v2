@@ -282,7 +282,7 @@ app.get('/api/elogo/gelen-faturalar', authMiddleware, async (req, res) => {
     
     // Sadece başarılı olanları (veya parse edilebilenleri) dönelim
     
-    const ublParser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_', removeNSPrefix: true });
+    const ublParser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_', removeNSPrefix: true, parseTagValue: false });
     
     // Concurrency limit for requests to avoid Logo rate limiting
     const fetchInvoiceDetails = async (doc) => {
@@ -487,7 +487,7 @@ app.get('/api/elogo/giden-faturalar', authMiddleware, async (req, res) => {
     const docListRaw = response.data?.docList?.Document || response.data?.docList?.document || response.data?.GetDocumentListResult?.document || [];
     const documents = Array.isArray(docListRaw) ? docListRaw : (docListRaw ? [docListRaw] : []);
     
-    const ublParser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_', removeNSPrefix: true });
+    const ublParser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_', removeNSPrefix: true, parseTagValue: false });
     
     const fetchInvoiceDetails = async (doc) => {
       try {
@@ -684,7 +684,7 @@ app.get('/api/uyumsoft/giden-faturalar', authMiddleware, async (req, res) => {
     const docListRaw = response.data?.docList?.Document || [];
     const documents = Array.isArray(docListRaw) ? docListRaw : (docListRaw ? [docListRaw] : []);
     
-    const ublParser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_', removeNSPrefix: true });
+    const ublParser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_', removeNSPrefix: true, parseTagValue: false });
     
     const fetchInvoiceDetails = async (doc) => {
       try {
@@ -981,7 +981,7 @@ app.get('/api/uyumsoft/gelen-faturalar', authMiddleware, async (req, res) => {
     
     // Sadece başarılı olanları (veya parse edilebilenleri) dönelim
     
-    const ublParser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_', removeNSPrefix: true });
+    const ublParser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_', removeNSPrefix: true, parseTagValue: false });
     
     // Concurrency limit for requests to avoid Logo rate limiting
     const fetchInvoiceDetails = async (doc) => {
@@ -5043,7 +5043,7 @@ app.get('/api/cron/sync-elogo', async (req, res) => {
     beginDateObj.setDate(beginDateObj.getDate() - 2); // Son 2 gün
     const beginDate = beginDateObj.toISOString();
 
-    const ublParser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_', removeNSPrefix: true });
+    const ublParser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_', removeNSPrefix: true, parseTagValue: false });
     
     let totalSynced = 0;
 
