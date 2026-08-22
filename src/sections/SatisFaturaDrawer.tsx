@@ -400,12 +400,12 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
         setAiAddedCount(newForms.length);
         toast.success(`AI tarafından ${newForms.length} adet satış belgesi çıkarıldı!`);
       }
-    } catch (err: any) {
-      console.error(err);
-      toast.error('AI analizi başarısız oldu.');
-    } finally {
-      setIsScanning(false);
-    }
+      } catch (err: any) {
+        console.error(err);
+        toast.error('AI analizi başarısız: ' + (err.message || 'Bilinmeyen hata'));
+      } finally {
+        setIsScanning(false);
+      }
   };
 
   const formatCurrency = (val: number) => {

@@ -482,7 +482,7 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
       }
     } catch (err: any) {
       console.error(err);
-      toast.error('AI analizi başarısız oldu.');
+      toast.error('AI analizi başarısız: ' + (err.message || 'Bilinmeyen Hata'));
     } finally {
       setIsScanning(false);
     }
