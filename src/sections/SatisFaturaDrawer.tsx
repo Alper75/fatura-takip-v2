@@ -111,7 +111,8 @@ export function SatisFaturaDrawer() {
 
   // AI States
   const [isDragging, setIsDragging] = useState(false);
-  const [uploadedFile, setUploadedFile] = useState<UploadedFile | null>(null);
+  const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
+  const [scanProgress, setScanProgress] = useState<{ current: number, total: number } | null>(null);
   const [isScanning, setIsScanning] = useState(false);
   const [aiAddedCount, setAiAddedCount] = useState(0);
 
@@ -196,7 +197,8 @@ export function SatisFaturaDrawer() {
 
   const handleClose = () => {
     setForms([{ id: Date.now(), data: INITIAL_FORM, tutarTuru: 'dahil', errors: {}, stokKalemleri: [] }]);
-    setUploadedFile(null);
+    setUploadedFiles([]);
+    setScanProgress(null);
     setAiAddedCount(0);
     setIsScanning(false);
     closeSatisDrawer();
@@ -224,8 +226,8 @@ export function SatisFaturaDrawer() {
             kdvTutari: hes.kdvTutari,
             tevkifatTutari: hes.tevkifatTutari,
             stopajTutari: hes.stopajTutari,
-            dosyaBase64: uploadedFile?.base64,
-            dosyaAdi: uploadedFile?.name,
+            dosyaBase64: (f.data as any).dosyaBase64 || '',
+            dosyaAdi: (f.data as any).dosyaAdi || '',
             stokKalemleri: f.stokKalemleri.filter(sk => sk.urunId && sk.urunId !== 'yok'),
           };
 
@@ -246,27 +248,98 @@ export function SatisFaturaDrawer() {
   };
 
   // --- IMAGES & AI ---
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      processImageFile(e.target.files[0]);
+  const compressImage = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          let width = img.width;
+          let height = img.height;
+          const MAX = 1600;
+
+          if (width > height) {
+            if (width > MAX) { height = Math.round(height * (MAX / width)); width = MAX; }
+          } else {
+            if (height > MAX) { width = Math.round(width * (MAX / height)); height = MAX; }
+          }
+
+          canvas.width = width; canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx?.drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL('image/jpeg', 0.7));
+        };
+        img.onerror = reject;
+        img.src = e.target?.result as string;
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      await processFiles(Array.from(e.target.files));
     }
   };
 
-  const processImageFile = (file: File) => {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const b64 = e.target?.result as string;
-      setUploadedFile({ base64: b64, mimeType: file.type, name: file.name });
+  const processFiles = async (files: File[]) => {
+    setIsScanning(true);
+    try {
+      const newFiles: UploadedFile[] = [];
+      for (const file of files) {
+        if (file.type.startsWith('image/')) {
+          const b64 = await compressImage(file);
+          newFiles.push({ base64: b64, mimeType: 'image/jpeg', name: file.name });
+        } else {
+          const b64 = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = (e) => resolve(e.target?.result as string);
+            reader.onerror = reject;
+            reader.readAsDataURL(file);
+          });
+          newFiles.push({ base64: b64, mimeType: file.type, name: file.name });
+        }
+      }
+      setUploadedFiles(prev => [...prev, ...newFiles]);
       setAiAddedCount(0);
-    };
-    reader.readAsDataURL(file);
+    } catch (err) {
+      toast.error('Dosya işlenirken hata oluştu.');
+    } finally {
+      setIsScanning(false);
+    }
   };
 
   const scanImage = async () => {
-    if (!uploadedFile) return;
+    if (uploadedFiles.length === 0) return;
 
     setIsScanning(true);
-    const rawBase64 = uploadedFile.base64.split(',')[1];
+    let totalAdded = 0;
+    
+    let apiKey = import.meta.env.VITE_GEMINI_API_KEY || '';
+    let aiModel = 'gemini-2.5-flash';
+    
+    try {
+      const keyRes = await apiFetch('/api/settings/gemini_api_key');
+      if (keyRes && keyRes.value) {
+        apiKey = keyRes.value;
+      }
+      const modelRes = await apiFetch('/api/settings/gemini_model');
+      if (modelRes && modelRes.value) {
+        aiModel = modelRes.value;
+      }
+    } catch (keyErr) {
+      console.warn('Ayarlardan Gemini API anahtarı alınamadı, yerel değişken kullanılacak:', keyErr);
+    }
+
+    if (!apiKey) {
+      toast.error('Yapay zeka anahtarı (Gemini API Key) bulunamadı. Lütfen ayarlardan tanımlayın.');
+      setIsScanning(false);
+      return;
+    }
+
+    const safeModelName = aiModel ? aiModel.trim() : 'gemini-2.5-flash';
 
     const prompt = `Bu dosyada BİRDEN FAZLA ayrı SATIŞ faturası veya fişi olabilir. Lütfen bulduğun TÜM belgeleri çıkar.
 Eğer AYNI belgenin içinde KDV oranları parçalanmışsa faturayı kendi içinde farklı oranlara göre böl.
@@ -296,116 +369,103 @@ SADECE JSON döndür:
 }
 Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
 
-    try {
-      // 1. Get key & model from company settings if possible
-      let apiKey = import.meta.env.VITE_GEMINI_API_KEY || '';
-      let aiModel = 'gemini-2.5-flash';
+    for (let i = 0; i < uploadedFiles.length; i++) {
+      const file = uploadedFiles[i];
+      setScanProgress({ current: i + 1, total: uploadedFiles.length });
       
       try {
-        const keyRes = await apiFetch('/api/settings/gemini_api_key');
-        if (keyRes && keyRes.value) {
-          apiKey = keyRes.value;
-        }
-        const modelRes = await apiFetch('/api/settings/gemini_model');
-        if (modelRes && modelRes.value) {
-          aiModel = modelRes.value;
-        }
-      } catch (keyErr) {
-        console.warn('Ayarlardan Gemini API anahtarı alınamadı, yerel değişken kullanılacak:', keyErr);
-      }
-
-      if (!apiKey) {
-        toast.error('Yapay zeka anahtarı (Gemini API Key) bulunamadı. Lütfen ayarlardan tanımlayın.');
-        setIsScanning(false);
-        return;
-      }
-
-      const safeModelName = aiModel ? aiModel.trim() : 'gemini-2.5-flash';
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${safeModelName}:generateContent?key=${apiKey}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{
-            parts: [
-              { text: prompt },
-              { inline_data: { mime_type: uploadedFile.mimeType, data: rawBase64 } }
-            ]
-          }],
-          generationConfig: { responseMimeType: "application/json" }
-        })
-      });
-
-      const data = await response.json();
-      if (data.error) throw new Error(data.error.message || 'API Hatası');
-
-      const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-      console.log('Gemini raw response text (Sales):', text);
-      
-      const clean = text.replace(/```json|```/g, '').trim();
-      const parsed = JSON.parse(clean);
-      console.log('Gemini parsed JSON (Sales):', parsed);
-
-      if (parsed.hata) {
-        toast.error('Belge okunamadı: ' + parsed.hata);
-      } else {
-        const fList = parsed.faturalar ? parsed.faturalar : (Array.isArray(parsed) ? parsed : [parsed]);
-        
-        const newForms: FormEntry[] = fList.map((f: any, idx: number) => {
-          // Robust key extraction with fallbacks (camelCase & snake_case support)
-          const fAd = f.ad || f.ad_soyad || f.adSoyad || f.isim || f.unvan || f.tedarikciAdi || f.tedarikci_adi || f.vendor || f.customer || '';
-          const fSoyad = f.soyad || f.soyisim || '-';
-          const fTcVkn = f.tcVkn || f.tc_vkn || f.tcVkn || f.tc || f.vkn || f.tckn || f.tedarikciVkn || f.tedarikci_vkn || '';
-          const fAdres = f.adres || f.address || 'Adres Bulunamadı';
-          const fFaturaTarihi = f.faturaTarihi || f.fatura_tarihi || f.tarih || f.date || INITIAL_FORM.faturaTarihi;
-          const fTutar = f.tutar || f.toplam_tutar || f.toplamTutar || f.amount || f.total || '';
-          const fTutarTur = f.tutar_tur || f.tutarTuru || f.tutar_type || 'dahil';
-          const fKdvOrani = f.kdv_orani || f.kdvOrani || f.kdv || '20';
-          const fTevkifatOrani = f.tevkifat_orani || f.tevkifatOrani || f.tevkifat || '0';
-          const fStopajOrani = f.stopaj_orani || f.stopajOrani || f.stopaj || '0';
-          const fAciklama = f.aciklama || f.note || f.not || '';
-          const fMuhasebeKodu = f.muhasebe_kodu || f.muhasebeKodu || f.account_code || f.accountCode || '';
-
-          // 1. VKN/TCKN ile eşleşen cari bul
-          let matchedCari = (cariler || []).find(c => c && c.vknTckn === fTcVkn && c.vknTckn && c.vknTckn.length > 5);
-          
-          // 2. VKN yoksa isimden (fuzzy match benzeri) ara
-          if (!matchedCari && fAd) {
-            const searchName = fAd.toLowerCase();
-            matchedCari = cariler.find(c => c.unvan && c.unvan.toLowerCase().includes(searchName));
-          }
-
-          return {
-            id: Date.now() + idx,
-            tutarTuru: fTutarTur || 'dahil',
-            errors: {},
-            stokKalemleri: [],
-            data: {
-              ad: matchedCari ? (matchedCari.unvan || '') : fAd,
-              soyad: matchedCari ? '-' : fSoyad,
-              tcVkn: matchedCari ? (matchedCari.vknTckn || '') : fTcVkn,
-              adres: matchedCari ? (matchedCari.adres || 'Adres Bulunamadı') : fAdres,
-              faturaTarihi: fFaturaTarihi,
-              vadeTarihi: '',
-              alinanUcret: fTutar?.toString() || '',
-              kdvOrani: fKdvOrani ? fKdvOrani.toString() : '20',
-              tevkifatOrani: fTevkifatOrani?.toString() || '0',
-              stopajOrani: fStopajOrani?.toString() || '0',
-              aciklama: fAciklama,
-              cariId: matchedCari ? matchedCari.id : undefined,
-              muhasebeKodu: fMuhasebeKodu
-            }
-          };
+        const rawBase64 = file.base64.split(',')[1];
+        const aiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${safeModelName}:generateContent?key=${apiKey}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{
+              parts: [
+                { text: prompt },
+                { inline_data: { mime_type: file.mimeType, data: rawBase64 } }
+              ]
+            }],
+            generationConfig: { responseMimeType: "application/json" }
+          })
         });
-        setForms(newForms);
-        setAiAddedCount(newForms.length);
-        toast.success(`AI tarafından ${newForms.length} adet satış belgesi çıkarıldı!`);
-      }
+
+        const data = await aiResponse.json();
+        if (data.error) throw new Error(data.error.message || 'API Hatası');
+
+        const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+        console.log(`Gemini raw response text for file ${i}:`, text);
+        
+        const clean = text.replace(/```json|```/g, '').trim();
+        const parsed = JSON.parse(clean);
+
+        if (parsed.hata) {
+          toast.error(`${file.name} okunamadı: ${parsed.hata}`);
+        } else {
+          const fList = parsed.faturalar ? parsed.faturalar : (Array.isArray(parsed) ? parsed : [parsed]);
+          
+          const newForms: FormEntry[] = fList.map((f: any, idx: number) => {
+            const fAd = f.ad || f.ad_soyad || f.adSoyad || f.isim || f.unvan || f.tedarikciAdi || f.tedarikci_adi || f.vendor || f.customer || '';
+            const fSoyad = f.soyad || f.soyisim || '-';
+            const fTcVkn = f.tcVkn || f.tc_vkn || f.tcVkn || f.tc || f.vkn || f.tckn || f.tedarikciVkn || f.tedarikci_vkn || '';
+            const fAdres = f.adres || f.address || 'Adres Bulunamadı';
+            const fFaturaTarihi = f.faturaTarihi || f.fatura_tarihi || f.tarih || f.date || INITIAL_FORM.faturaTarihi;
+            const fTutar = f.tutar || f.toplam_tutar || f.toplamTutar || f.amount || f.total || '';
+            const fTutarTur = f.tutar_tur || f.tutarTuru || f.tutar_type || 'dahil';
+            const fKdvOrani = f.kdv_orani || f.kdvOrani || f.kdv || '20';
+            const fTevkifatOrani = f.tevkifat_orani || f.tevkifatOrani || f.tevkifat || '0';
+            const fStopajOrani = f.stopaj_orani || f.stopajOrani || f.stopaj || '0';
+            const fAciklama = f.aciklama || f.note || f.not || '';
+            const fMuhasebeKodu = f.muhasebe_kodu || f.muhasebeKodu || f.account_code || f.accountCode || '';
+
+            let matchedCari = (cariler || []).find(c => c && c.vknTckn === fTcVkn && c.vknTckn && c.vknTckn.length > 5);
+            if (!matchedCari && fAd) {
+              const searchName = fAd.toLowerCase();
+              matchedCari = cariler.find(c => c.unvan && c.unvan.toLowerCase().includes(searchName));
+            }
+
+            return {
+              id: Date.now() + idx + Math.random(),
+              tutarTuru: fTutarTur || 'dahil',
+              errors: {},
+              stokKalemleri: [],
+              data: {
+                ad: matchedCari ? (matchedCari.unvan || '') : fAd,
+                soyad: matchedCari ? '-' : fSoyad,
+                tcVkn: matchedCari ? (matchedCari.vknTckn || '') : fTcVkn,
+                adres: matchedCari ? (matchedCari.adres || 'Adres Bulunamadı') : fAdres,
+                faturaTarihi: fFaturaTarihi,
+                vadeTarihi: '',
+                alinanUcret: fTutar?.toString() || '',
+                kdvOrani: fKdvOrani ? fKdvOrani.toString() : '20',
+                tevkifatOrani: fTevkifatOrani?.toString() || '0',
+                stopajOrani: fStopajOrani?.toString() || '0',
+                aciklama: fAciklama,
+                cariId: matchedCari ? matchedCari.id : undefined,
+                muhasebeKodu: fMuhasebeKodu,
+                dosyaBase64: file.base64,
+                dosyaAdi: file.name
+              }
+            };
+          });
+
+          setForms(prev => {
+            const hasEmptyInitial = prev.length === 1 && !prev[0].data.tcVkn && !prev[0].data.ad;
+            const currentForms = hasEmptyInitial ? [] : [...prev];
+            return [...currentForms, ...newForms];
+          });
+          
+          totalAdded += newForms.length;
+          setAiAddedCount(prev => prev + newForms.length);
+        }
       } catch (err: any) {
-        console.error(err);
-        toast.error('AI analizi başarısız: ' + (err.message || 'Bilinmeyen hata'));
-      } finally {
-        setIsScanning(false);
+        console.error('File index', i, 'error:', err);
+        toast.error(`${file.name} okunamadı: ${err.message || 'Bilinmeyen Hata'}`);
       }
+    }
+
+    setScanProgress(null);
+    setIsScanning(false);
+    if (totalAdded > 0) toast.success(`AI tarafından toplam ${totalAdded} adet sonuç PDF/Resimlerden çıkarıldı!`);
   };
 
   const formatCurrency = (val: number) => {
@@ -458,7 +518,7 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
         <div className="py-6 space-y-6">
           {/* AI UPLOAD ZONE */}
           <div className="space-y-3">
-            {!uploadedFile ? (
+            {uploadedFiles.length === 0 ? (
               <div
                 className={cn(
                   "border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-colors relative",
@@ -469,43 +529,72 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
                 onDrop={(e) => {
                   e.preventDefault();
                   setIsDragging(false);
-                  if (e.dataTransfer.files?.[0]) processImageFile(e.dataTransfer.files[0]);
+                  if (e.dataTransfer.files?.length > 0) processFiles(Array.from(e.dataTransfer.files));
                 }}
                 onClick={() => fileInputRef.current?.click()}
               >
-                <input type="file" ref={fileInputRef} className="hidden" accept="image/*,application/pdf" onChange={handleFileChange} />
+                <input type="file" ref={fileInputRef} className="hidden" accept="image/*,application/pdf" multiple onChange={handleFileChange} />
                 <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center mx-auto mb-3">
                   <FileText className="w-6 h-6 text-slate-500" />
                 </div>
                 <h4 className="font-semibold text-slate-900">PDF veya Resim (Fatura/Fiş) Yükleyin</h4>
-                <p className="text-sm text-slate-500 mt-1">Sürükleyip bırakarak toplu belge okumayı başlatın</p>
+                <p className="text-sm text-slate-500 mt-1">Gelişmiş AI modeli birden fazla PDF ve resmi anında okur!</p>
               </div>
             ) : (
-              <div className="relative border rounded-xl overflow-hidden bg-slate-50 group">
-                {uploadedFile.mimeType === 'application/pdf' ? (
-                  <div className="w-full h-48 flex flex-col items-center justify-center bg-slate-100/50">
-                    <FileText className="w-16 h-16 text-red-400 mb-2" />
-                    <p className="font-medium text-slate-600 truncate px-8">{uploadedFile.name}</p>
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                  {uploadedFiles.map((file, idx) => (
+                    <div key={idx} className="relative border rounded-lg overflow-hidden bg-slate-50 group aspect-square flex items-center justify-center">
+                      {file.mimeType === 'application/pdf' ? (
+                        <div className="flex flex-col items-center justify-center p-2 text-center">
+                          <FileText className="w-8 h-8 text-red-400 mb-1" />
+                          <p className="text-xs font-medium text-slate-600 truncate w-full px-2">{file.name}</p>
+                        </div>
+                      ) : (
+                        <img src={file.base64} alt={file.name} className="w-full h-full object-cover" />
+                      )}
+                      
+                      <div className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <Button type="button" size="icon" variant="destructive" className="h-6 w-6 rounded-full shadow-sm" onClick={(e) => {
+                          e.stopPropagation();
+                          setUploadedFiles(prev => prev.filter((_, i) => i !== idx));
+                        }}>
+                          <X className="w-3 h-3" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                  
+                  {/* Add more button */}
+                  <div 
+                    onClick={() => fileInputRef.current?.click()}
+                    className="border-2 border-dashed border-slate-200 rounded-lg flex flex-col items-center justify-center cursor-pointer hover:border-indigo-400 hover:bg-slate-50 transition-colors aspect-square"
+                  >
+                    <Plus className="w-6 h-6 text-slate-400 mb-1" />
+                    <span className="text-xs text-slate-500 font-medium">Dosya Ekle</span>
+                    <input type="file" ref={fileInputRef} className="hidden" accept="image/*,application/pdf" multiple onChange={handleFileChange} />
                   </div>
-                ) : (
-                  <img src={uploadedFile.base64} alt="Belge" className="w-full h-48 object-contain bg-slate-100/50" />
-                )}
-
-                <div className="absolute top-2 right-2 flex gap-2">
-                  <Button type="button" size="icon" variant="destructive" className="h-8 w-8 rounded-full shadow-sm" onClick={() => { setUploadedFile(null); setAiAddedCount(0); }}>
-                    <X className="w-4 h-4" />
-                  </Button>
                 </div>
+
                 {aiAddedCount === 0 && (
-                  <div className="absolute bottom-4 left-1/2 -translate-x-1/2">
+                  <div className="flex justify-center">
                     <Button
                       type="button"
                       onClick={scanImage}
                       disabled={isScanning}
-                      className="bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg font-semibold rounded-full px-6"
+                      className="bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg font-semibold rounded-full px-8 py-6 text-lg"
                     >
-                      {isScanning ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Sparkles className="w-4 h-4 mr-2" />}
-                      AI ile Analiz Et
+                      {isScanning ? (
+                        <>
+                          <Loader2 className="w-5 h-5 mr-3 animate-spin" />
+                          {scanProgress ? `Diziliyor (${scanProgress.current}/${scanProgress.total})...` : 'Analiz Ediliyor...'}
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles className="w-5 h-5 mr-3" />
+                          Tümünü Analiz Et ({uploadedFiles.length} Dosya)
+                        </>
+                      )}
                     </Button>
                   </div>
                 )}
@@ -513,10 +602,11 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
             )}
 
             {aiAddedCount > 0 && (
-              <div className="bg-indigo-50 border border-indigo-100 rounded-lg p-3 flex items-start gap-3">
-                <CheckCircle2 className="w-5 h-5 text-indigo-600 mt-0.5" />
-                <div className="text-sm text-indigo-900">
-                  <span className="font-semibold">Tarama tamamlandı!</span> Belgeden <b>{aiAddedCount} adet</b> sonuç çıkarıldı.
+              <div className="bg-emerald-50 border border-emerald-100 rounded-lg p-4 flex items-start gap-3">
+                <CheckCircle2 className="w-6 h-6 text-emerald-600 shrink-0" />
+                <div className="text-sm text-emerald-900">
+                  <span className="font-semibold text-base block mb-1">Tarama tamamlandı!</span> 
+                  Yüklediğiniz dosyalardan toplam <b>{aiAddedCount} adet</b> satış faturası çıkarıldı.
                 </div>
               </div>
             )}
