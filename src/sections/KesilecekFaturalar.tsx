@@ -936,7 +936,7 @@ export function KesilecekFaturalar() {
       }
 
       if (finalAmount === 0) {
-        finalAmount = parseGibAmount(gibInv.tutar || gibInv.toplamTutar || gibInv.odenecekTutar || gibInv.vergilerDahilToplamTutar);
+        finalAmount = parseGibAmount(gibInv.tutar || gibInv.faturaTutari || gibInv.toplamTutar || gibInv.odenecekTutar || gibInv.vergilerDahilToplamTutar);
       }
 
       const parts = (gibInv.belgeTarihi || '').split('/');
@@ -1013,7 +1013,7 @@ export function KesilecekFaturalar() {
         }
 
         if (finalAmount === 0) {
-          finalAmount = parseGibAmount(gibInv.tutar || gibInv.toplamTutar || gibInv.odenecekTutar || gibInv.vergilerDahilToplamTutar);
+          finalAmount = parseGibAmount(gibInv.tutar || gibInv.faturaTutari || gibInv.toplamTutar || gibInv.odenecekTutar || gibInv.vergilerDahilToplamTutar);
         }
 
         const parts = (gibInv.belgeTarihi || '').split('/');
@@ -1805,7 +1805,7 @@ export function KesilecekFaturalar() {
                     <TableBody>
                       {gibInvoices.map((inv) => {
                         const isAlreadyImported = inv.isImported || satisFaturalari.some(sf => sf.faturaNo === inv.belgeNumarasi);
-                        const invTutar = parseGibAmount(inv.tutar || inv.toplamTutar || inv.odenecekTutar || inv.vergilerDahilToplamTutar);
+                        const invTutar = parseGibAmount(inv.tutar || inv.faturaTutari || inv.toplamTutar || inv.odenecekTutar || inv.vergilerDahilToplamTutar);
                         const aliciUnvan = getAliciUnvan(inv);
                         
                         return (
