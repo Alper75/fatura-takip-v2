@@ -1006,10 +1006,17 @@ export function KesilecekFaturalar() {
               finalAmount = detailsResult.tutar || 0;
               if (detailsResult.aliciUnvan) finalAliciUnvan = detailsResult.aliciUnvan;
               if (detailsResult.aliciVknTckn) finalVkn = detailsResult.aliciVknTckn;
+              if (finalAmount === 0) toast.error('Arka plan tutarı 0 olarak parse etti!');
+            } else {
+              toast.error('GİB Detay Hatası: ' + detailsResult.message);
             }
+          } else {
+            const errText = await detailsResponse.text();
+            toast.error('Sunucu Hatası (500): ' + errText);
           }
         } catch (detailsErr) {
           console.error('Detaylar getirilemedi:', detailsErr);
+          toast.error('Ağ Hatası: Detaylar getirilemedi');
         }
 
         if (finalAmount === 0) {
