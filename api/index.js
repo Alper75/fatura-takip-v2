@@ -3555,15 +3555,26 @@ app.post('/api/gib/invoice-details', authMiddleware, async (req, res) => {
     const zip = new AdmZip(Buffer.from(zipResponse.data));
     const zipEntries = zip.getEntries();
     
+    let xmlContent = null;
+    let htmlContent = null;
+    
     const xmlEntry = zipEntries.find(entry => entry.entryName.endsWith('.xml'));
-    if (!xmlEntry) {
-      throw new Error('ZIP içinde XML faturası bulunamadı.');
+    if (xmlEntry) {
+      xmlContent = xmlEntry.getData().toString('utf8');
+    } else {
+      const htmlEntry = zipEntries.find(entry => entry.entryName.endsWith('.html') || entry.entryName.endsWith('.htm'));
+      if (htmlEntry) {
+        htmlContent = htmlEntry.getData().toString('utf8');
+      } else {
+        throw new Error('ZIP içinde XML veya HTML faturası bulunamadı.');
+      }
     }
 
-    const xmlContent = xmlEntry.getData().toString('utf8');
-    const jsonObj = parser.parse(xmlContent);
+    let parsedData = { success: true, tutar: 0, matrah: 0, kdvTutari: 0, aliciVknTckn: '', aliciUnvan: '' };
     
-    let parsedData = {};
+    if (xmlContent) {
+      const jsonObj = parser.parse(xmlContent);
+    
     if (jsonObj.Invoice) {
       const inv = jsonObj.Invoice;
       const monTotal = inv['LegalMonetaryTotal'];
@@ -3601,8 +3612,21 @@ app.post('/api/gib/invoice-details', authMiddleware, async (req, res) => {
         aliciVknTckn: getVkn(customerParty),
         aliciUnvan: (getAd(customerParty) + ' ' + getSoyad(customerParty)).trim()
       };
-    } else {
-      throw new Error('XML formatı standart UBL-TR değil.');
+      } else {
+        throw new Error('XML formatı standart UBL-TR değil.');
+      }
+    } else if (htmlContent) {
+      // Parse amount from HTML table
+      const tutarMatch = htmlContent.match(/(?:Ödenecek\s*Tutar|Genel\s*Toplam).*?<\/td>\s*<td[^>]*>\s*([\d\.,]+)\s*<\/td>/i);
+      if (tutarMatch && tutarMatch[1]) {
+        let str = tutarMatch[1].trim();
+        if (str.includes(',') && str.includes('.')) {
+          str = str.replace(/\./g, '').replace(/,/g, '.');
+        } else if (str.includes(',')) {
+          str = str.replace(/,/g, '.');
+        }
+        parsedData.tutar = parseFloat(str) || 0;
+      }
     }
 
     return res.json(parsedData);

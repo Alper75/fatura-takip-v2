@@ -1813,9 +1813,7 @@ export function KesilecekFaturalar() {
                             <TableCell className="text-xs py-2">{inv.belgeTarihi}</TableCell>
                             <TableCell className="text-xs py-2 font-mono font-medium">{inv.belgeNumarasi || 'Taslak'}</TableCell>
                             <TableCell className="text-xs py-2 max-w-[180px] truncate">{aliciUnvan}</TableCell>
-                            <TableCell className="text-xs py-2 text-right font-bold" title={JSON.stringify(inv)}>
-                              {invTutar === 0 ? <div className="text-[9px] text-red-500 font-normal max-w-[200px] overflow-hidden whitespace-nowrap text-left">{JSON.stringify(inv)}</div> : formatCurrency(invTutar)}
-                            </TableCell>
+                            <TableCell className="text-xs py-2 text-right font-bold">{formatCurrency(invTutar)}</TableCell>
                             <TableCell className="text-xs py-2 text-right">
                               <div className="flex justify-end items-center gap-1.5">
                                 <Button
