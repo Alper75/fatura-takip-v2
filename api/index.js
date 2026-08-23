@@ -3616,17 +3616,25 @@ app.post('/api/gib/invoice-details', authMiddleware, async (req, res) => {
         throw new Error('XML formatı standart UBL-TR değil.');
       }
     } else if (htmlContent) {
-      // Parse amount from HTML table
-      const tutarMatch = htmlContent.match(/(?:Ödenecek\s*Tutar|Genel\s*Toplam).*?<\/td>\s*<td[^>]*>\s*([\d\.,]+)\s*<\/td>/i);
-      if (tutarMatch && tutarMatch[1]) {
-        let str = tutarMatch[1].trim();
-        if (str.includes(',') && str.includes('.')) {
-          str = str.replace(/\./g, '').replace(/,/g, '.');
-        } else if (str.includes(',')) {
-          str = str.replace(/,/g, '.');
+      // Parse amount from HTML table (ignoring ' TL' or other symbols)
+      const extractAmount = (label) => {
+        const regex = new RegExp(`(?:${label}).*?<\\/td>\\s*<td[^>]*>[^\\d]*([\\d\\.,]+).*?<\\/td>`, 'i');
+        const match = htmlContent.match(regex);
+        if (match && match[1]) {
+          let str = match[1].trim();
+          if (str.includes(',') && str.includes('.')) {
+            str = str.replace(/\./g, '').replace(/,/g, '.');
+          } else if (str.includes(',')) {
+            str = str.replace(/,/g, '.');
+          }
+          return parseFloat(str) || 0;
         }
-        parsedData.tutar = parseFloat(str) || 0;
-      }
+        return 0;
+      };
+
+      parsedData.tutar = extractAmount('Ödenecek\\s*Tutar|Genel\\s*Toplam');
+      parsedData.matrah = extractAmount('Mal\\s*Hizmet\\s*Toplam\\s*Tutar[ıi]|Tevkifata\\s*Tabi\\s*İşlem\\s*Tutar[ıi]');
+      parsedData.kdvTutari = extractAmount('Hesaplanan\\s*KDV');
     }
 
     return res.json(parsedData);
