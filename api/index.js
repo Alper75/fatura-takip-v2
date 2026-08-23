@@ -3624,9 +3624,9 @@ app.post('/api/gib/invoice-details', authMiddleware, async (req, res) => {
         throw new Error('XML formatı standart UBL-TR değil.');
       }
     } else if (htmlContent) {
-      // Parse amount from HTML table (ignoring ' TL' or other symbols)
+      // Parse amount from HTML table (ignoring ' TL' or other symbols, and supporting newlines)
       const extractAmount = (label) => {
-        const regex = new RegExp(`(?:${label}).*?<\\/td>\\s*<td[^>]*>[^\\d]*([\\d\\.,]+).*?<\\/td>`, 'i');
+        const regex = new RegExp(`(?:${label})[\\s\\S]*?<\\/td>\\s*<td[^>]*>[^\\d]*([\\d\\.,]+)[\\s\\S]*?<\\/td>`, 'i');
         const match = htmlContent.match(regex);
         if (match && match[1]) {
           let str = match[1].trim();
