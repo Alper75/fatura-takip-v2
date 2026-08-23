@@ -320,7 +320,7 @@ export function AlisFaturaDrawer() {
     let totalAdded = 0;
     
     let apiKey = import.meta.env.VITE_GEMINI_API_KEY || '';
-    let aiModel = 'gemini-2.5-flash';
+    let aiModel = 'gemini-1.5-flash';
     
     try {
       const keyRes = await apiFetch('/api/settings/gemini_api_key');
@@ -341,7 +341,7 @@ export function AlisFaturaDrawer() {
       return;
     }
 
-    const safeModelName = aiModel ? aiModel.trim() : 'gemini-2.5-flash';
+    const safeModelName = aiModel ? aiModel.trim() : 'gemini-1.5-flash';
     
     const [settingsRes, bankaRes] = await Promise.all([
       apiFetch('/api/settings/luca_kdv_ayarlari').catch(() => null),

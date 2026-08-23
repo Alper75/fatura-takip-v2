@@ -29,7 +29,7 @@ export function MutabakatYonetimi() {
   const [activeTab, setActiveTab] = useState('liste');
   const [selectedAnalysis, setSelectedAnalysis] = useState<any>(null);
   const [geminiKey, setGeminiKey] = useState('');
-  const [geminiModel, setGeminiModel] = useState('gemini-2.5-flash');
+  const [geminiModel, setGeminiModel] = useState('gemini-1.5-flash');
   const [isSavingKey, setIsSavingKey] = useState(false);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   
@@ -587,7 +587,6 @@ export function MutabakatYonetimi() {
                       <SelectValue placeholder="Model seçin" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="gemini-2.5-flash">Gemini 2.5 Flash (Fatura Sistemindeki - Yeni & Çok Hızlı)</SelectItem>
                       <SelectItem value="gemini-1.5-flash">Gemini 1.5 Flash (Klasik - Hızlı & Ekonomik)</SelectItem>
                       <SelectItem value="gemini-1.5-pro">Gemini 1.5 Pro (Daha Zeki, Ancak Yavaş)</SelectItem>
                       <SelectItem value="gemini-1.5-flash-8b">Gemini 1.5 Flash-8B (En Hızlı)</SelectItem>
