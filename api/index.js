@@ -3547,27 +3547,35 @@ app.post('/api/gib/invoice-details', authMiddleware, async (req, res) => {
     token = await client.getToken(credentials.username, credentials.password);
     const downloadUrl = client.getDownloadURL(token, uuid, { signed: signed !== false });
 
-    const zipResponse = await axios.get(downloadUrl, {
-      responseType: 'arraybuffer',
-      headers: client.buildHeaders()
-    });
-
-    const zip = new AdmZip(Buffer.from(zipResponse.data));
-    const zipEntries = zip.getEntries();
-    
     let xmlContent = null;
     let htmlContent = null;
-    
-    const xmlEntry = zipEntries.find(entry => entry.entryName.endsWith('.xml'));
-    if (xmlEntry) {
-      xmlContent = xmlEntry.getData().toString('utf8');
-    } else {
-      const htmlEntry = zipEntries.find(entry => entry.entryName.endsWith('.html') || entry.entryName.endsWith('.htm'));
-      if (htmlEntry) {
-        htmlContent = htmlEntry.getData().toString('utf8');
+
+    try {
+      const zipResponse = await axios.get(downloadUrl, {
+        responseType: 'arraybuffer',
+        headers: client.buildHeaders()
+      });
+      const zip = new AdmZip(Buffer.from(zipResponse.data));
+      const zipEntries = zip.getEntries();
+      
+      const xmlEntry = zipEntries.find(entry => entry.entryName.endsWith('.xml'));
+      if (xmlEntry) {
+        xmlContent = xmlEntry.getData().toString('utf8');
       } else {
-        throw new Error('ZIP içinde XML veya HTML faturası bulunamadı.');
+        const htmlEntry = zipEntries.find(entry => entry.entryName.endsWith('.html') || entry.entryName.endsWith('.htm'));
+        if (htmlEntry) htmlContent = htmlEntry.getData().toString('utf8');
       }
+    } catch (zipErr) {
+      console.warn('ZIP okunamadı (muhtemelen PDF veya HTML döndü), doğrudan HTML alınacak:', zipErr.message);
+    }
+
+    if (!xmlContent && !htmlContent) {
+      // Fallback: Fetch HTML directly
+      htmlContent = await client.getInvoiceHTML(token, uuid, { signed: signed !== false });
+    }
+    
+    if (!xmlContent && !htmlContent) {
+      throw new Error('Fatura detayı (XML veya HTML) alınamadı.');
     }
 
     let parsedData = { success: true, tutar: 0, matrah: 0, kdvTutari: 0, aliciVknTckn: '', aliciUnvan: '' };
