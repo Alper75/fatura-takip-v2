@@ -521,7 +521,7 @@ SADECE JSON döndür. Beklenen format:
 İşlem Türleri şunlardan biri olmalı: tahsilat, odeme, vergi_kdv, maas_odemesi, banka_masrafi, kredi_karti_odemesi, genel_gider. 
 Girişler (alacak) genellikle tahsilat, çıkışlar (borç) genellikle odeme veya giderdir.`;
 
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`, {
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -593,7 +593,7 @@ SADECE JSON döndür:
 }
 İşlem Türleri: tahsilat, odeme, vergi_kdv, maas_odemesi, banka_masrafi, kredi_karti_odemesi, genel_gider.`;
 
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`, {
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
