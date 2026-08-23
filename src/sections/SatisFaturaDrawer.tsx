@@ -283,7 +283,7 @@ export function SatisFaturaDrawer() {
     let totalAdded = 0;
     
     let apiKey = import.meta.env.VITE_GEMINI_API_KEY || '';
-    let aiModel = 'gemini-1.5-flash';
+    let aiModel = 'gemini-3.6-flash';
     
     try {
       const keyRes = await apiFetch('/api/settings/gemini_api_key');
@@ -304,7 +304,7 @@ export function SatisFaturaDrawer() {
       return;
     }
 
-    const safeModelName = aiModel ? aiModel.trim() : 'gemini-1.5-flash';
+    const safeModelName = aiModel ? aiModel.trim() : 'gemini-3.6-flash';
 
     const prompt = `Bu dosyada BİRDEN FAZLA ayrı SATIŞ faturası veya fişi olabilir. Lütfen bulduğun TÜM belgeleri çıkar.
 Eğer AYNI belgenin içinde KDV oranları parçalanmışsa faturayı kendi içinde farklı oranlara göre böl.
