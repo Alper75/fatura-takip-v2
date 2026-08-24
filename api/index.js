@@ -3648,6 +3648,14 @@ app.post('/api/gib/invoice-details', authMiddleware, async (req, res) => {
       parsedData.kdvTutari = extractAmount('Hesaplanan\\s*KDV');
       parsedData.debugHtml = htmlContent.substring(0, 500) + '...'; // only first 500 chars to avoid huge payload
       parsedData.debugRegexMatches = debugRegexMatches;
+
+      if (parsedData.tutar === 0) {
+        console.error("====== GİB REGEX PARSE HATASI ======");
+        console.error("Bulunamayan Etiketler:", debugRegexMatches);
+        console.error("--- HTML İÇERİĞİ BAŞLANGICI ---");
+        console.error(htmlContent);
+        console.error("--- HTML İÇERİĞİ BİTİŞİ ---");
+      }
     }
 
     return res.json(parsedData);
