@@ -929,6 +929,8 @@ export function KesilecekFaturalar() {
             finalAmount = detailsResult.tutar || 0;
             if (detailsResult.aliciUnvan) finalAliciUnvan = detailsResult.aliciUnvan;
             if (detailsResult.aliciVknTckn) finalVkn = detailsResult.aliciVknTckn;
+            if (detailsResult.tevkifatTutari) gibInv.tevkifatTutari = detailsResult.tevkifatTutari;
+            if (detailsResult.stopajTutari) gibInv.stopajTutari = detailsResult.stopajTutari;
           }
         }
       } catch (detailsErr) {
@@ -939,7 +941,7 @@ export function KesilecekFaturalar() {
         finalAmount = parseGibAmount(gibInv.tutar || gibInv.faturaTutari || gibInv.toplamTutar || gibInv.odenecekTutar || gibInv.vergilerDahilToplamTutar);
       }
 
-      const parts = (gibInv.belgeTarihi || '').split('/');
+      const parts = (gibInv.belgeTarihi || '').split(/-|\//);
       const formattedDate = parts.length === 3 ? `${parts[2]}-${parts[1]}-${parts[0]}` : new Date().toISOString().split('T')[0];
       
       const matchingCari = cariler.find(c => c.vknTckn === finalVkn);
@@ -957,9 +959,11 @@ export function KesilecekFaturalar() {
         alinanUcret: finalAmount.toString(),
         faturaTarihi: formattedDate,
         kdvOrani: '20',
-        tevkifatOrani: '0',
+        tevkifatOrani: gibInv.tevkifatTutari ? '2/10' : '0',
+        tevkifatTutari: gibInv.tevkifatTutari || 0,
         tevkifatKodu: '',
-        stopajOrani: '0',
+        stopajOrani: gibInv.stopajTutari ? '20' : '0',
+        stopajTutari: gibInv.stopajTutari || 0,
         stopajKodu: '',
         faturaNo: gibInv.belgeNumarasi || '',
         aciklama: gibInv.aciklama || 'GİB e-Arşiv Portalından aktarıldı. Alıcı: ' + finalAliciUnvan,
@@ -1044,10 +1048,12 @@ export function KesilecekFaturalar() {
           alinanUcret: finalAmount.toString(),
           faturaTarihi: formattedDate,
           kdvOrani: '20',
-          tevkifatOrani: '0',
-          tevkifatKodu: '',
-          stopajOrani: '0',
-          stopajKodu: '',
+        tevkifatOrani: gibInv.tevkifatTutari ? '2/10' : '0',
+        tevkifatTutari: gibInv.tevkifatTutari || 0,
+        tevkifatKodu: '',
+        stopajOrani: gibInv.stopajTutari ? '20' : '0',
+        stopajTutari: gibInv.stopajTutari || 0,
+        stopajKodu: '',
           faturaNo: gibInv.belgeNumarasi || '',
           aciklama: gibInv.aciklama || 'GİB e-Arşiv Portalından aktarıldı. Alıcı: ' + finalAliciUnvan,
           cariId: cariIdAll,
