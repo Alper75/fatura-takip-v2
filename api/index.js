@@ -3625,10 +3625,12 @@ app.post('/api/gib/invoice-details', authMiddleware, async (req, res) => {
       }
     } else if (htmlContent) {
       // Parse amount from HTML table (ignoring ' TL' or other symbols, and supporting newlines)
+      let debugRegexMatches = {};
       const extractAmount = (label) => {
         const regex = new RegExp(`(?:${label})[\\s\\S]*?<\\/td>\\s*<td[^>]*>[^\\d]*([\\d\\.,]+)[\\s\\S]*?<\\/td>`, 'i');
         const match = htmlContent.match(regex);
         if (match && match[1]) {
+          debugRegexMatches[label] = match[1];
           let str = match[1].trim();
           if (str.includes(',') && str.includes('.')) {
             str = str.replace(/\./g, '').replace(/,/g, '.');
@@ -3637,12 +3639,15 @@ app.post('/api/gib/invoice-details', authMiddleware, async (req, res) => {
           }
           return parseFloat(str) || 0;
         }
+        debugRegexMatches[label] = 'NOT_FOUND';
         return 0;
       };
 
-      parsedData.tutar = extractAmount('Ödenecek\\s*Tutar|Genel\\s*Toplam');
+      parsedData.tutar = extractAmount('[ÖoÖO]denecek\\s*Tutar|Genel\\s*Toplam');
       parsedData.matrah = extractAmount('Mal\\s*Hizmet\\s*Toplam\\s*Tutar[ıi]|Tevkifata\\s*Tabi\\s*İşlem\\s*Tutar[ıi]');
       parsedData.kdvTutari = extractAmount('Hesaplanan\\s*KDV');
+      parsedData.debugHtml = htmlContent.substring(0, 500) + '...'; // only first 500 chars to avoid huge payload
+      parsedData.debugRegexMatches = debugRegexMatches;
     }
 
     return res.json(parsedData);

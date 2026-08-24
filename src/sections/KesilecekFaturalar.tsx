@@ -1006,7 +1006,10 @@ export function KesilecekFaturalar() {
               finalAmount = detailsResult.tutar || 0;
               if (detailsResult.aliciUnvan) finalAliciUnvan = detailsResult.aliciUnvan;
               if (detailsResult.aliciVknTckn) finalVkn = detailsResult.aliciVknTckn;
-              if (finalAmount === 0) toast.error('Arka plan tutarı 0 olarak parse etti!');
+              if (finalAmount === 0) {
+                console.error("GİB Parse Hatası Debug Bilgisi:", detailsResult);
+                toast.error(`Tutar bulunamadı! Detay: ${JSON.stringify(detailsResult.debugRegexMatches || {})}`);
+              }
             } else {
               toast.error('GİB Detay Hatası: ' + detailsResult.message);
             }
