@@ -3624,54 +3624,60 @@ app.post('/api/gib/invoice-details', authMiddleware, async (req, res) => {
         throw new Error('XML formatı standart UBL-TR değil.');
       }
     } else if (htmlContent) {
-      // Parse amount from HTML table by finding the row and getting the last number
-      let debugRegexMatches = {};
-      const extractAmount = (label) => {
-        // Find the label and then the next TD cell's content
-        const regex = new RegExp(`(?:\\s*${label}\\s*)[\\s\\S]*?<\\/td>\\s*<td[^>]*>([^<]+)<\\/td>`, 'i');
-        const match = htmlContent.match(regex);
-        
-        let lastNumber = 'NOT_FOUND';
-        
-        if (match && match[1]) {
-           const numMatch = match[1].match(/[^\d]*([\d\.,]+)/);
-           if (numMatch && numMatch[1]) {
-             lastNumber = numMatch[1];
-           }
-        } else {
-           // Fallback: search within the same cell if it's formatted inline
-           const inlineRegex = new RegExp(`(?:\\s*${label}\\s*)[^\d]*([\d\.,]+)`, 'i');
-           const inlineMatch = htmlContent.match(inlineRegex);
-           if (inlineMatch && inlineMatch[1]) {
-              lastNumber = inlineMatch[1];
-           }
-        }
-
-        debugRegexMatches[label] = lastNumber;
-
-        if (lastNumber !== 'NOT_FOUND') {
-          let str = lastNumber.trim();
-          if (str.includes(',') && str.includes('.')) {
-            str = str.replace(/\./g, '').replace(/,/g, '.');
-          } else if (str.includes(',')) {
-            str = str.replace(/,/g, '.');
+      // Parse amount from HTML table by extracting text from table cells
+      const parseAmount = (str) => {
+        if (!str) return 0;
+        let clean = str.replace(/[^\d\.,]/g, '');
+        if (!clean) return 0;
+        if (clean.includes(',') && clean.includes('.')) {
+          if (clean.lastIndexOf(',') > clean.lastIndexOf('.')) {
+            clean = clean.replace(/\./g, '').replace(/,/g, '.');
+          } else {
+            clean = clean.replace(/,/g, '');
           }
-          return parseFloat(str) || 0;
+        } else if (clean.includes(',')) {
+          clean = clean.replace(/,/g, '.');
+        }
+        return parseFloat(clean) || 0;
+      };
+
+      const rows = [];
+      const trRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
+      let trMatch;
+      while ((trMatch = trRegex.exec(htmlContent)) !== null) {
+        const tdRegex = /<td[^>]*>([\s\S]*?)<\/td>/gi;
+        const tds = [];
+        let tdMatch;
+        while ((tdMatch = tdRegex.exec(trMatch[1])) !== null) {
+          const text = tdMatch[1].replace(/<[^>]+>/g, '').trim();
+          if (text) tds.push(text);
+        }
+        if (tds.length >= 2) {
+          rows.push(tds);
+        }
+      }
+
+      const extractAmount = (keywords, excludeKeywords = []) => {
+        for (const tds of rows) {
+          const labelCell = tds[tds.length - 2];
+          const amountCell = tds[tds.length - 1];
+          const matchesKeyword = keywords.some(k => new RegExp(k, 'i').test(labelCell));
+          const matchesExclude = excludeKeywords.some(k => new RegExp(k, 'i').test(labelCell));
+          if (matchesKeyword && !matchesExclude) return parseAmount(amountCell);
         }
         return 0;
       };
 
-      parsedData.tutar = extractAmount('denecek\\s*Tutar|Genel\\s*Toplam');
-      parsedData.matrah = extractAmount('Mal\\s*Hizmet\\s*Toplam\\s*Tutar[ıi]|Tevkifata\\s*Tabi\\s*İşlem\\s*Tutar[ıi]');
-      parsedData.kdvTutari = extractAmount('Hesaplanan\\s*KDV(?!\\s*Tevkifat)'); // kdv tevkifatı ile karışmaması için
-      parsedData.tevkifatTutari = extractAmount('KDV\\s*Tevkifat');
-      parsedData.stopajTutari = extractAmount('STOPAJ');
+      parsedData.tutar = extractAmount(['Ödenecek Tutar', 'Genel Toplam']);
+      parsedData.matrah = extractAmount(['Mal Hizmet Toplam', 'Tevkifata Tabi İşlem Tutarı']);
+      parsedData.kdvTutari = extractAmount(['Hesaplanan KDV'], ['Tevkifat', 'Tevkifata Tabi', 'İade']);
+      parsedData.tevkifatTutari = extractAmount(['KDV Tevkifat']);
+      parsedData.stopajTutari = extractAmount(['STOPAJ']);
       parsedData.debugHtml = htmlContent.substring(0, 500) + '...'; // only first 500 chars to avoid huge payload
-      parsedData.debugRegexMatches = debugRegexMatches;
 
       if (parsedData.tutar === 0) {
-        console.error("====== GİB REGEX PARSE HATASI ======");
-        console.error("Bulunamayan Etiketler:", debugRegexMatches);
+        console.error("====== GİB PARSE HATASI ======");
+        console.error("Bulunamayan Etiketler, HTML'den ayıklanan metinler:", rows);
         console.error("--- HTML İÇERİĞİ BAŞLANGICI ---");
         console.error(htmlContent);
         console.error("--- HTML İÇERİĞİ BİTİŞİ ---");
