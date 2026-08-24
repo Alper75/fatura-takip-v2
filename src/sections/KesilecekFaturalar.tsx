@@ -931,6 +931,8 @@ export function KesilecekFaturalar() {
             if (detailsResult.aliciVknTckn) finalVkn = detailsResult.aliciVknTckn;
             if (detailsResult.tevkifatTutari) gibInv.tevkifatTutari = detailsResult.tevkifatTutari;
             if (detailsResult.stopajTutari) gibInv.stopajTutari = detailsResult.stopajTutari;
+              if (detailsResult.matrah) gibInv.matrah = detailsResult.matrah;
+              if (detailsResult.kdvTutari) gibInv.kdvTutari = detailsResult.kdvTutari;
           }
         }
       } catch (detailsErr) {
@@ -957,6 +959,8 @@ export function KesilecekFaturalar() {
         adres: 'GİB e-Arşiv Portaldan Aktarıldı',
         hizmetAdi: 'Muhtelif İşlemler (GİB Aktarım)',
         alinanUcret: finalAmount.toString(),
+        matrah: gibInv.matrah || finalAmount,
+        kdvTutari: gibInv.kdvTutari || 0,
         faturaTarihi: formattedDate,
         kdvOrani: '20',
         tevkifatOrani: gibInv.tevkifatTutari ? '2/10' : '0',
@@ -1030,7 +1034,7 @@ export function KesilecekFaturalar() {
           finalAmount = parseGibAmount(gibInv.tutar || gibInv.faturaTutari || gibInv.toplamTutar || gibInv.odenecekTutar || gibInv.vergilerDahilToplamTutar);
         }
 
-        const parts = (gibInv.belgeTarihi || '').split('/');
+        const parts = (gibInv.belgeTarihi || '').split(/-|\//);
         const formattedDate = parts.length === 3 ? `${parts[2]}-${parts[1]}-${parts[0]}` : new Date().toISOString().split('T')[0];
         
         const matchingCariAll = cariler.find(c => c.vknTckn === finalVkn);
@@ -1046,8 +1050,10 @@ export function KesilecekFaturalar() {
           adres: 'GİB e-Arşiv Portaldan Aktarıldı',
           hizmetAdi: 'Muhtelif İşlemler (GİB Aktarım)',
           alinanUcret: finalAmount.toString(),
-          faturaTarihi: formattedDate,
-          kdvOrani: '20',
+        matrah: gibInv.matrah || finalAmount,
+        kdvTutari: gibInv.kdvTutari || 0,
+        faturaTarihi: formattedDate,
+        kdvOrani: '20',
         tevkifatOrani: gibInv.tevkifatTutari ? '2/10' : '0',
         tevkifatTutari: gibInv.tevkifatTutari || 0,
         tevkifatKodu: '',
