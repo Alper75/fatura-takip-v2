@@ -3665,7 +3665,9 @@ app.post('/api/gib/invoice-details', authMiddleware, async (req, res) => {
 
       parsedData.tutar = extractAmount('denecek\\s*Tutar|Genel\\s*Toplam');
       parsedData.matrah = extractAmount('Mal\\s*Hizmet\\s*Toplam\\s*Tutar[ıi]|Tevkifata\\s*Tabi\\s*İşlem\\s*Tutar[ıi]');
-      parsedData.kdvTutari = extractAmount('Hesaplanan\\s*KDV');
+      parsedData.kdvTutari = extractAmount('Hesaplanan\\s*KDV(?!\\s*Tevkifat)'); // kdv tevkifatı ile karışmaması için
+      parsedData.tevkifatTutari = extractAmount('KDV\\s*Tevkifat');
+      parsedData.stopajTutari = extractAmount('STOPAJ');
       parsedData.debugHtml = htmlContent.substring(0, 500) + '...'; // only first 500 chars to avoid huge payload
       parsedData.debugRegexMatches = debugRegexMatches;
 
