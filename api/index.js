@@ -2777,8 +2777,8 @@ app.put('/api/satis-faturalari/:id', authMiddleware, async (req, res) => {
   const f = req.body;
   try {
     await client.execute({
-      sql: 'UPDATE satis_faturalari SET fatura_no=?,odeme_tarihi=?,odeme_durumu=?,odeme_dekontu=?,odeme_dekontu_adi=?,pdf_dosya=?,pdf_dosya_adi=?,muhasebe_kodu=?,tc_vkn=?,ad=?,soyad=?,adres=?,aciklama=?,urun_id=?,depo_id=?,gib_uuid=? WHERE id=? AND company_id = ?',
-      args: [n(f.faturaNo),n(f.odemeTarihi),n(f.odemeDurumu),n(f.odemeDekontu),n(f.odemeDekontuAdi),n(f.pdfDosya),n(f.pdfDosyaAdi),n(f.muhasebeKodu),n(f.tcVkn),n(f.ad),n(f.soyad),n(f.adres),n(f.aciklama),n(f.urunId),n(f.depoId),n(f.gibUuid),req.params.id, req.user.companyId]
+      sql: 'UPDATE satis_faturalari SET fatura_no=?,odeme_tarihi=?,odeme_durumu=?,odeme_dekontu=?,odeme_dekontu_adi=?,pdf_dosya=?,pdf_dosya_adi=?,muhasebe_kodu=?,tc_vkn=?,ad=?,soyad=?,adres=?,aciklama=?,urun_id=?,depo_id=?,gib_uuid=?,kdv_orani=COALESCE(?,kdv_orani),alinan_ucret=COALESCE(?,alinan_ucret),matrah=COALESCE(?,matrah),kdv_tutari=COALESCE(?,kdv_tutari),tevkifat_orani=COALESCE(?,tevkifat_orani),tevkifat_tutari=COALESCE(?,tevkifat_tutari),stopaj_orani=COALESCE(?,stopaj_orani),stopaj_tutari=COALESCE(?,stopaj_tutari),fatura_tarihi=COALESCE(?,fatura_tarihi),vade_tarihi=COALESCE(?,vade_tarihi),tevkifat_kodu=COALESCE(?,tevkifat_kodu),stopaj_kodu=COALESCE(?,stopaj_kodu) WHERE id=? AND company_id = ?',
+      args: [n(f.faturaNo),n(f.odemeTarihi),n(f.odemeDurumu),n(f.odemeDekontu),n(f.odemeDekontuAdi),n(f.pdfDosya),n(f.pdfDosyaAdi),n(f.muhasebeKodu),n(f.tcVkn),n(f.ad),n(f.soyad),n(f.adres),n(f.aciklama),n(f.urunId),n(f.depoId),n(f.gibUuid),n(f.kdvOrani),n(f.alinanUcret),n(f.matrah),n(f.kdvTutari),n(f.tevkifatOrani),n(f.tevkifatTutari),n(f.stopajOrani),n(f.stopajTutari),n(f.faturaTarihi),n(f.vadeTarihi),n(f.tevkifatKodu),n(f.stopajKodu),req.params.id, req.user.companyId]
     });
 
     // Stok hareketlerini güncelle (Önce eskileri sil, sonra yenileri ekle)
@@ -2924,8 +2924,8 @@ app.put('/api/alis-faturalari/:id', authMiddleware, async (req, res) => {
   const f = req.body;
   try {
     await client.execute({
-      sql: 'UPDATE alis_faturalari SET odeme_tarihi=?,odeme_durumu=?,odeme_dekontu=?,odeme_dekontu_adi=?,pdf_dosya=?,pdf_dosya_adi=?,vehicle_plate=? WHERE id=? AND company_id = ?',
-      args: [n(f.odemeTarihi),n(f.odemeDurumu),n(f.odemeDekontu),n(f.odemeDekontuAdi),n(f.pdfDosya),n(f.pdfDosyaAdi),n(f.vehiclePlate),req.params.id, req.user.companyId]
+      sql: 'UPDATE alis_faturalari SET odeme_tarihi=?,odeme_durumu=?,odeme_dekontu=?,odeme_dekontu_adi=?,pdf_dosya=?,pdf_dosya_adi=?,vehicle_plate=?,fatura_no=COALESCE(?,fatura_no),fatura_tarihi=COALESCE(?,fatura_tarihi),tedarikci_adi=COALESCE(?,tedarikci_adi),tedarikci_vkn=COALESCE(?,tedarikci_vkn),mal_hizmet_adi=COALESCE(?,mal_hizmet_adi),toplam_tutar=COALESCE(?,toplam_tutar),kdv_orani=COALESCE(?,kdv_orani),kdv_tutari=COALESCE(?,kdv_tutari),matrah=COALESCE(?,matrah),tevkifat_orani=COALESCE(?,tevkifat_orani),tevkifat_tutari=COALESCE(?,tevkifat_tutari),stopaj_orani=COALESCE(?,stopaj_orani),stopaj_tutari=COALESCE(?,stopaj_tutari),muhasebe_kodu=COALESCE(?,muhasebe_kodu),karsi_hesap_kodu=COALESCE(?,karsi_hesap_kodu),aciklama=COALESCE(?,aciklama),vade_tarihi=COALESCE(?,vade_tarihi) WHERE id=? AND company_id = ?',
+      args: [n(f.odemeTarihi),n(f.odemeDurumu),n(f.odemeDekontu),n(f.odemeDekontuAdi),n(f.pdfDosya),n(f.pdfDosyaAdi),n(f.vehiclePlate),n(f.faturaNo),n(f.faturaTarihi),n(f.tedarikciAdi),n(f.tedarikciVkn),n(f.malHizmetAdi),n(f.toplamTutar),n(f.kdvOrani),n(f.kdvTutari),n(f.matrah),n(f.tevkifatOrani),n(f.tevkifatTutari),n(f.stopajOrani),n(f.stopajTutari),n(f.muhasebeKodu),n(f.karsiHesapKodu),n(f.aciklama),n(f.vadeTarihi),req.params.id, req.user.companyId]
     });
     res.json({ success: true });
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }
@@ -3612,11 +3612,48 @@ app.post('/api/gib/invoice-details', authMiddleware, async (req, res) => {
       };
       const getSoyad = (party) => getText(party?.['Person']?.['FamilyName']) || '';
 
+      // UBL-TR vergi ayrıştırma
+      // TaxTotal içindeki TaxSubtotal'lardan KDV (0015) ve Stopaj (0003) ayıklama
+      let xmlKdvTutari = 0;
+      let xmlStopajTutari = 0;
+      
+      const taxSubtotals = taxTotal?.['TaxSubtotal'];
+      if (taxSubtotals) {
+        const subtotalArr = Array.isArray(taxSubtotals) ? taxSubtotals : [taxSubtotals];
+        for (const sub of subtotalArr) {
+          const taxScheme = sub?.['TaxCategory']?.['TaxScheme'] || sub?.['TaxScheme'];
+          const schemeId = getText(taxScheme?.['ID']) || '';
+          const taxAmount = parseFloat(sub?.['TaxAmount']?.['#text'] || sub?.['TaxAmount'] || 0);
+          
+          if (schemeId === '0015' || schemeId === 'KDV' || String(getText(taxScheme?.['Name'])).toUpperCase().includes('KDV')) {
+            xmlKdvTutari += taxAmount;
+          } else if (schemeId === '0003' || String(getText(taxScheme?.['Name'])).toUpperCase().includes('STOPAJ')) {
+            xmlStopajTutari += taxAmount;
+          }
+        }
+      }
+      // Fallback: üst düzey TaxAmount'tan KDV al
+      if (xmlKdvTutari === 0) {
+        xmlKdvTutari = parseFloat(taxTotal?.['TaxAmount']?.['#text'] || taxTotal?.['TaxAmount'] || 0);
+      }
+
+      // WithholdingTaxTotal → KDV Tevkifatı
+      let xmlTevkifatTutari = 0;
+      const withholdingTax = inv['WithholdingTaxTotal'];
+      if (withholdingTax) {
+        const whArr = Array.isArray(withholdingTax) ? withholdingTax : [withholdingTax];
+        for (const wh of whArr) {
+          xmlTevkifatTutari += parseFloat(wh?.['TaxAmount']?.['#text'] || wh?.['TaxAmount'] || 0);
+        }
+      }
+
       parsedData = {
         success: true,
         tutar: parseFloat(monTotal?.['PayableAmount']?.['#text'] || monTotal?.['PayableAmount'] || 0),
         matrah: parseFloat(monTotal?.['TaxExclusiveAmount']?.['#text'] || monTotal?.['TaxExclusiveAmount'] || 0),
-        kdvTutari: parseFloat(taxTotal?.['TaxAmount']?.['#text'] || taxTotal?.['TaxAmount'] || 0),
+        kdvTutari: xmlKdvTutari,
+        tevkifatTutari: xmlTevkifatTutari,
+        stopajTutari: xmlStopajTutari,
         aliciVknTckn: getVkn(customerParty),
         aliciUnvan: (getAd(customerParty) + ' ' + getSoyad(customerParty)).trim()
       };
