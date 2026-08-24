@@ -573,7 +573,7 @@ export const AYLAR = [
   { value: 5, label: 'Mayıs' },
   { value: 6, label: 'Haziran' },
   { value: 7, label: 'Temmuz' },
-  { value: 8, label: 'Aralık' },
+  { value: 8, label: 'Ağustos' },
   { value: 9, label: 'Eylül' },
   { value: 10, label: 'Ekim' },
   { value: 11, label: 'Kasım' },

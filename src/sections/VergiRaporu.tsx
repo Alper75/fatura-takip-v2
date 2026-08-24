@@ -32,7 +32,7 @@ import {
 
 export function VergiRaporu() {
   const { satisFaturalari, alisFaturalari, getVergiRaporu } = useApp();
-  const [selectedYil, setSelectedYil] = useState(2024);
+  const [selectedYil, setSelectedYil] = useState(new Date().getFullYear());
   const [selectedAy, setSelectedAy] = useState(new Date().getMonth() + 1);
 
   // Mevcut yılları bul
