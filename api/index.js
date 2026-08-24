@@ -3624,14 +3624,35 @@ app.post('/api/gib/invoice-details', authMiddleware, async (req, res) => {
         throw new Error('XML formatı standart UBL-TR değil.');
       }
     } else if (htmlContent) {
-      // Parse amount from HTML table (ignoring ' TL' or other symbols, and supporting newlines)
+      // Parse amount from HTML table by finding the row and getting the last number
       let debugRegexMatches = {};
       const extractAmount = (label) => {
-        const regex = new RegExp(`(?:${label})[\\s\\S]*?<\\/td>\\s*<td[^>]*>[^\\d]*([\\d\\.,]+)[\\s\\S]*?<\\/td>`, 'i');
-        const match = htmlContent.match(regex);
-        if (match && match[1]) {
-          debugRegexMatches[label] = match[1];
-          let str = match[1].trim();
+        const rowRegex = new RegExp(`<tr[^>]*>[\\s\\S]*?(?:${label})[\\s\\S]*?<\\/tr>`, 'i');
+        const rowMatch = htmlContent.match(rowRegex);
+        if (!rowMatch) {
+          debugRegexMatches[label] = 'NOT_FOUND';
+          return 0;
+        }
+
+        const rowHtml = rowMatch[0];
+        const tdRegex = /<td[^>]*>([\s\S]*?)<\/td>/gi;
+        let lastNumber = 'NOT_FOUND';
+        
+        let tdMatch;
+        while ((tdMatch = tdRegex.exec(rowHtml)) !== null) {
+          const tdContent = tdMatch[1];
+          // Sadece sayısal formatı (virgül ve nokta içeren) arıyoruz
+          const numMatch = tdContent.match(/[^\d]*([\d\.,]+)/);
+          if (numMatch && numMatch[1]) {
+            // Eğer % gibi bir işaret varsa ama asıl tutar son sütundaysa son numarayı tutar
+            lastNumber = numMatch[1];
+          }
+        }
+
+        debugRegexMatches[label] = lastNumber;
+
+        if (lastNumber !== 'NOT_FOUND') {
+          let str = lastNumber.trim();
           if (str.includes(',') && str.includes('.')) {
             str = str.replace(/\./g, '').replace(/,/g, '.');
           } else if (str.includes(',')) {
@@ -3639,11 +3660,10 @@ app.post('/api/gib/invoice-details', authMiddleware, async (req, res) => {
           }
           return parseFloat(str) || 0;
         }
-        debugRegexMatches[label] = 'NOT_FOUND';
         return 0;
       };
 
-      parsedData.tutar = extractAmount('[ÖoÖO]denecek\\s*Tutar|Genel\\s*Toplam');
+      parsedData.tutar = extractAmount('denecek\\s*Tutar|Genel\\s*Toplam');
       parsedData.matrah = extractAmount('Mal\\s*Hizmet\\s*Toplam\\s*Tutar[ıi]|Tevkifata\\s*Tabi\\s*İşlem\\s*Tutar[ıi]');
       parsedData.kdvTutari = extractAmount('Hesaplanan\\s*KDV');
       parsedData.debugHtml = htmlContent.substring(0, 500) + '...'; // only first 500 chars to avoid huge payload
