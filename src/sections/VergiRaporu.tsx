@@ -39,11 +39,13 @@ export function VergiRaporu() {
   const availableYillar = useMemo(() => {
     const yillar = new Set<number>();
     satisFaturalari.forEach(f => {
-      const yil = new Date(f.faturaTarihi).getFullYear();
+      if (!f.faturaTarihi) return;
+      const yil = parseInt(f.faturaTarihi.substring(0, 4), 10);
       if (!isNaN(yil)) yillar.add(yil);
     });
     alisFaturalari.forEach(f => {
-      const yil = new Date(f.faturaTarihi).getFullYear();
+      if (!f.faturaTarihi) return;
+      const yil = parseInt(f.faturaTarihi.substring(0, 4), 10);
       if (!isNaN(yil)) yillar.add(yil);
     });
     // Her zaman mevcut yılı ekle
@@ -72,8 +74,9 @@ export function VergiRaporu() {
 
     satisFaturalari
       .filter(f => {
-        const d = new Date(f.faturaTarihi);
-        return !isNaN(d.getTime()) && d.getFullYear() === selectedYil;
+        if (!f.faturaTarihi) return false;
+        const yil = parseInt(f.faturaTarihi.substring(0, 4), 10);
+        return !isNaN(yil) && yil === selectedYil;
       })
       .forEach(f => {
         toplamSatisMatrah += (Number(f.matrah) || 0);
@@ -82,8 +85,9 @@ export function VergiRaporu() {
 
     alisFaturalari
       .filter(f => {
-        const d = new Date(f.faturaTarihi);
-        return !isNaN(d.getTime()) && d.getFullYear() === selectedYil;
+        if (!f.faturaTarihi) return false;
+        const yil = parseInt(f.faturaTarihi.substring(0, 4), 10);
+        return !isNaN(yil) && yil === selectedYil;
       })
       .forEach(f => {
         toplamAlisMatrah += (Number(f.matrah) || 0);

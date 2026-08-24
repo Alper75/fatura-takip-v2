@@ -1520,14 +1520,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     // Ä°lgili ay ve yÄ±ldaki satÄ±ÅŸ faturalarÄ±
     const aylikSatislar = satisFaturalari.filter(f => {
-      const faturaTarihi = new Date(f.faturaTarihi);
-      return faturaTarihi.getFullYear() === yil && faturaTarihi.getMonth() + 1 === ay;
+      if (!f.faturaTarihi) return false;
+      const parts = f.faturaTarihi.split('-');
+      if (parts.length < 2) return false;
+      return parseInt(parts[0], 10) === yil && parseInt(parts[1], 10) === ay;
     });
 
     // Ä°lgili ay ve yÄ±ldaki alÄ±ÅŸ faturalarÄ±
     const aylikAlislar = alisFaturalari.filter(f => {
-      const faturaTarihi = new Date(f.faturaTarihi);
-      return faturaTarihi.getFullYear() === yil && faturaTarihi.getMonth() + 1 === ay;
+      if (!f.faturaTarihi) return false;
+      const parts = f.faturaTarihi.split('-');
+      if (parts.length < 2) return false;
+      return parseInt(parts[0], 10) === yil && parseInt(parts[1], 10) === ay;
     });
 
     // KDV Hesaplamaları
@@ -1542,8 +1546,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     // Gelir Vergisi HesaplamasÄ± (KÃ¼mÃ¼latif - yÄ±lbaÅŸÄ±ndan itibaren)
     const yilBasiSatislar = satisFaturalari.filter(f => {
-      const faturaTarihi = new Date(f.faturaTarihi);
-      return faturaTarihi.getFullYear() === yil && faturaTarihi.getMonth() + 1 <= ay;
+      if (!f.faturaTarihi) return false;
+      const parts = f.faturaTarihi.split('-');
+      if (parts.length < 2) return false;
+      return parseInt(parts[0], 10) === yil && parseInt(parts[1], 10) <= ay;
     });
 
     const toplamMatrah = yilBasiSatislar.reduce((acc, f) => acc + (Number(f.matrah) || 0), 0);
