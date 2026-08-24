@@ -381,9 +381,10 @@ export interface VergiRaporu {
   ayAdi: string;
   yil: number;
   // KDV
-  hesaplananKDV: number; // Satışlardan hesaplanan KDV
+  hesaplananKDV: number; // Satışlardan hesaplanan brüt KDV
+  netHesaplananKDV: number; // Tevkifat düşülmüş beyan edilecek net KDV (hesaplananKDV - toplamSatisTevkifat)
   indirilecekKDV: number; // Alışlardan indirilecek KDV
-  odenecekKDV: number; // hesaplananKDV - indirilecekKDV
+  odenecekKDV: number; // netHesaplananKDV - indirilecekKDV
   toplamSatisTevkifat: number;
   toplamAlisTevkifat: number;
   toplamSatisStopaj: number;

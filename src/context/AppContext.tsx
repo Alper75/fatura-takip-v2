@@ -1534,17 +1534,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return parseInt(parts[0], 10) === yil && parseInt(parts[1], 10) === ay;
     });
 
-    // KDV Hesaplamaları
-    const hesaplananKDV = aylikSatislar.reduce((acc, f) => acc + (Number(f.kdvTutari) || 0), 0);
-    const indirilecekKDV = aylikAlislar.reduce((acc, f) => acc + (Number(f.kdvTutari) || 0), 0);
-    const odenecekKDV = Math.max(0, hesaplananKDV - indirilecekKDV);
-
     const toplamSatisTevkifat = aylikSatislar.reduce((acc, f) => acc + (Number(f.tevkifatTutari) || 0), 0);
     const toplamAlisTevkifat = aylikAlislar.reduce((acc, f) => acc + (Number(f.tevkifatTutari) || 0), 0);
     const toplamSatisStopaj = aylikSatislar.reduce((acc, f) => acc + (Number(f.stopajTutari) || 0), 0);
     const toplamAlisStopaj = aylikAlislar.reduce((acc, f) => acc + (Number(f.stopajTutari) || 0), 0);
 
-    // Gelir Vergisi HesaplamasÄ± (KÃ¼mÃ¼latif - yÄ±lbaÅŸÄ±ndan itibaren)
+    // KDV Hesaplamaları (Tevkifat düşülmüş Net Hesaplanan KDV = Satıcının Tahsil Ettiği / Beyan Ettiği KDV)
+    const hesaplananKDV = aylikSatislar.reduce((acc, f) => acc + (Number(f.kdvTutari) || 0), 0);
+    const netHesaplananKDV = Math.max(0, hesaplananKDV - toplamSatisTevkifat);
+    const indirilecekKDV = aylikAlislar.reduce((acc, f) => acc + (Number(f.kdvTutari) || 0), 0);
+    const odenecekKDV = Math.max(0, netHesaplananKDV - indirilecekKDV);
+
+    // Gelir Vergisi Hesaplaması (Kümülatif - yılbaşından itibaren)
     const yilBasiSatislar = satisFaturalari.filter(f => {
       if (!f.faturaTarihi) return false;
       const parts = f.faturaTarihi.split('-');
@@ -1560,6 +1561,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       ayAdi,
       yil,
       hesaplananKDV: Math.round(hesaplananKDV * 100) / 100,
+      netHesaplananKDV: Math.round(netHesaplananKDV * 100) / 100,
       indirilecekKDV: Math.round(indirilecekKDV * 100) / 100,
       odenecekKDV: Math.round(odenecekKDV * 100) / 100,
       toplamSatisTevkifat: Math.round(toplamSatisTevkifat * 100) / 100,

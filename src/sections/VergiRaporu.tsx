@@ -69,6 +69,7 @@ export function VergiRaporu() {
   const yillikOzet = useMemo(() => {
     let toplamSatisMatrah = 0;
     let toplamSatisKDV = 0;
+    let toplamSatisTevkifat = 0;
     let toplamAlisMatrah = 0;
     let toplamAlisKDV = 0;
 
@@ -81,6 +82,7 @@ export function VergiRaporu() {
       .forEach(f => {
         toplamSatisMatrah += (Number(f.matrah) || 0);
         toplamSatisKDV += (Number(f.kdvTutari) || 0);
+        toplamSatisTevkifat += (Number(f.tevkifatTutari) || 0);
       });
 
     alisFaturalari
@@ -94,12 +96,14 @@ export function VergiRaporu() {
         toplamAlisKDV += (Number(f.kdvTutari) || 0);
       });
 
+    const netSatisKDV = Math.max(0, toplamSatisKDV - toplamSatisTevkifat);
+
     return {
       toplamSatisMatrah,
-      toplamSatisKDV,
+      toplamSatisKDV: netSatisKDV,
       toplamAlisMatrah,
       toplamAlisKDV,
-      odenecekKDVYillik: Math.max(0, toplamSatisKDV - toplamAlisKDV),
+      odenecekKDVYillik: Math.max(0, netSatisKDV - toplamAlisKDV),
     };
   }, [satisFaturalari, alisFaturalari, selectedYil]);
 
@@ -109,7 +113,9 @@ export function VergiRaporu() {
       'Dönem': `${rapor.ayAdi} ${rapor.yil}`,
       'Satış Adedi': rapor.satisAdet,
       'Alış Adedi': rapor.alisAdet,
-      'Hesaplanan KDV (TL)': rapor.hesaplananKDV,
+      'Hesaplanan Brüt KDV (TL)': rapor.hesaplananKDV,
+      'Satış Tevkifatı (TL)': rapor.toplamSatisTevkifat,
+      'Hesaplanan Net KDV (TL)': rapor.netHesaplananKDV,
       'İndirilecek KDV (TL)': rapor.indirilecekKDV,
       'Ödenecek KDV (TL)': rapor.odenecekKDV,
       'Kümülatif Matrah (TL)': rapor.toplamMatrah,
@@ -120,7 +126,7 @@ export function VergiRaporu() {
     const ws = XLSX.utils.json_to_sheet(excelData);
     ws['!cols'] = [
       { wch: 15 }, { wch: 12 }, { wch: 12 }, { wch: 20 }, { wch: 20 },
-      { wch: 20 }, { wch: 25 }, { wch: 20 }, { wch: 25 }
+      { wch: 20 }, { wch: 20 }, { wch: 20 }, { wch: 25 }, { wch: 20 }, { wch: 25 }
     ];
 
     const wb = XLSX.utils.book_new();
@@ -201,12 +207,32 @@ export function VergiRaporu() {
             <CardContent className="p-4">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-slate-500 mb-1">Hesaplanan KDV</p>
+                  <p className="text-sm text-slate-500 mb-1 flex items-center gap-1">
+                    Hesaplanan KDV {rapor.toplamSatisTevkifat > 0 && <span className="text-xs text-blue-600 font-semibold">(Net)</span>}
+                    {rapor.toplamSatisTevkifat > 0 && (
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger>
+                            <Info className="w-3.5 h-3.5 text-slate-400" />
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p>Brüt KDV: {formatCurrency(rapor.hesaplananKDV)}</p>
+                            <p>Satış Tevkifatı: -{formatCurrency(rapor.toplamSatisTevkifat)}</p>
+                            <p className="font-bold border-t mt-1 pt-1">Net Beyan KDV: {formatCurrency(rapor.netHesaplananKDV)}</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    )}
+                  </p>
                   <p className="text-2xl font-bold text-slate-900">
-                    {formatCurrency(rapor.hesaplananKDV)}
+                    {formatCurrency(rapor.toplamSatisTevkifat > 0 ? rapor.netHesaplananKDV : rapor.hesaplananKDV)}
                   </p>
                   <p className="text-xs text-slate-400 mt-1">
-                    {rapor.satisAdet} adet satış faturası
+                    {rapor.toplamSatisTevkifat > 0 ? (
+                      <span>Brüt: {formatCurrency(rapor.hesaplananKDV)} (Tevkifat düşüldü)</span>
+                    ) : (
+                      <span>{rapor.satisAdet} adet satış faturası</span>
+                    )}
                   </p>
                 </div>
                 <div className="w-12 h-12 rounded-full bg-blue-100 flex items-center justify-center">
@@ -247,7 +273,7 @@ export function VergiRaporu() {
                           <Info className="w-3.5 h-3.5 text-slate-400" />
                         </TooltipTrigger>
                         <TooltipContent>
-                          <p>Hesaplanan KDV - İndirilecek KDV</p>
+                          <p>(Hesaplanan KDV - Satış Tevkifatı) - İndirilecek KDV</p>
                         </TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
