@@ -3694,13 +3694,26 @@ app.post('/api/gib/invoice-details', authMiddleware, async (req, res) => {
         }
       }
 
+      // Kalem satırları (5-11 sütunlu) dip toplam satırlarıyla karışmasın
+      // Dip toplam satırları 2-4 hücreden oluşur
+      const summaryRows = rows.filter(r => r.length <= 4);
+
       const extractAmount = (keywords, excludeKeywords = []) => {
-        for (const tds of rows) {
+        // Öncelik: Dip toplam tablosu satırları (Summary rows)
+        for (const tds of summaryRows) {
           const labelCell = tds[tds.length - 2];
           const amountCell = tds[tds.length - 1];
           const matchesKeyword = keywords.some(k => new RegExp(k, 'i').test(labelCell));
           const matchesExclude = excludeKeywords.some(k => new RegExp(k, 'i').test(labelCell));
           if (matchesKeyword && !matchesExclude) return parseAmount(amountCell);
+        }
+        // Fallback: Tüm satırlar (birden fazla vergi içeren kalem hücrelerini atla)
+        for (const tds of rows) {
+          const labelCell = tds[tds.length - 2];
+          const amountCell = tds[tds.length - 1];
+          const matchesKeyword = keywords.some(k => new RegExp(k, 'i').test(labelCell));
+          const matchesExclude = excludeKeywords.some(k => new RegExp(k, 'i').test(labelCell));
+          if (matchesKeyword && !matchesExclude && !labelCell.includes('=')) return parseAmount(amountCell);
         }
         return 0;
       };
@@ -3709,8 +3722,10 @@ app.post('/api/gib/invoice-details', authMiddleware, async (req, res) => {
       parsedData.matrah = extractAmount(['Mal Hizmet Toplam', 'Tevkifata Tabi İşlem Tutarı']);
       parsedData.kdvTutari = extractAmount(['Hesaplanan KDV'], ['Tevkifat', 'Tevkifata Tabi', 'İade']);
       parsedData.tevkifatTutari = extractAmount(['KDV Tevkifat']);
-      parsedData.stopajTutari = extractAmount(['STOPAJ']);
-      parsedData.debugHtml = htmlContent.substring(0, 500) + '...'; // only first 500 chars to avoid huge payload
+      parsedData.stopajTutari = extractAmount(['STOPAJ', 'KV. STOPAJ']);
+      parsedData.rawXml = xmlContent || null;
+      parsedData.rawHtml = htmlContent;
+      parsedData.debugHtml = htmlContent.substring(0, 500) + '...';
 
       if (parsedData.tutar === 0) {
         console.error("====== GİB PARSE HATASI ======");
@@ -3719,6 +3734,10 @@ app.post('/api/gib/invoice-details', authMiddleware, async (req, res) => {
         console.error(htmlContent);
         console.error("--- HTML İÇERİĞİ BİTİŞİ ---");
       }
+    }
+
+    if (xmlContent && !parsedData.rawXml) {
+      parsedData.rawXml = xmlContent;
     }
 
     return res.json(parsedData);
