@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import React, { createContext, useContext, useState, useCallback, useMemo, useEffect } from 'react';
 import { toast } from 'sonner';
 
 import { apiFetch } from '@/lib/api';
@@ -170,11 +170,14 @@ interface AppContextType {
   downloadPuantajTemplate: () => Promise<void>;
   uploadPuantajExcel: (file: File) => Promise<{ success: boolean; message: string }>;
 
-  // ==================== SUPER ADMIN ====================
+  // ==================== SUPER ADMIN & COMPANY ====================
   companies: Company[];
+  activeCompany: Company | null;
+  isIsletmeDefteri: boolean;
   fetchCompanies: () => Promise<void>;
   addCompany: (data: Omit<Company, 'id'>) => Promise<{ success: boolean; message?: string }>;
   updateCompany: (id: number, data: Partial<Company>) => Promise<{ success: boolean; message?: string }>;
+  updateMyCompany: (data: Partial<Company>) => Promise<{ success: boolean; message?: string }>;
   deleteCompany: (id: number) => Promise<{ success: boolean; message?: string }>;
   
   // ==================== ARAÇ YÖNETİMİ ====================
@@ -939,6 +942,31 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return result;
     } catch (error: any) { return { success: false, message: error.message }; }
   }, [fetchCompanies]);
+
+  const updateMyCompany = useCallback(async (data: Partial<Company>) => {
+    try {
+      const result = await apiFetch('/api/my-company', {
+        method: 'PUT',
+        body: JSON.stringify(data)
+      });
+      if (result.success) {
+        await fetchCompanies();
+      }
+      return result;
+    } catch (error: any) {
+      return { success: false, message: error.message };
+    }
+  }, [fetchCompanies]);
+
+  const activeCompany = useMemo(() => {
+    return companies.find(c => Number(c.id) === Number(user?.companyId)) || (companies.length > 0 ? companies[0] : null);
+  }, [companies, user?.companyId]);
+
+  const isIsletmeDefteri = useMemo(() => {
+    if (!activeCompany?.company_type) return false;
+    const type = String(activeCompany.company_type).toUpperCase();
+    return type.includes('İŞLETME') || type.includes('ISLETME');
+  }, [activeCompany?.company_type]);
 
   const deleteCompany = useCallback(async (id: number) => {
     try {
@@ -1913,9 +1941,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         downloadPuantajTemplate,
         uploadPuantajExcel,
         companies,
+        activeCompany,
+        isIsletmeDefteri,
         fetchCompanies,
         addCompany,
         updateCompany,
+        updateMyCompany,
         deleteCompany,
         addVehicle,
         deleteVehicle,

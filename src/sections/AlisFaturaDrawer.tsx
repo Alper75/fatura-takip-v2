@@ -45,7 +45,7 @@ type UploadedFile = {
 };
 
 export function AlisFaturaDrawer() {
-  const { isAlisDrawerOpen, closeAlisDrawer, addAlisFatura, cariler, alisInitialData, lucaAccounts, companies, user, apiFetch } = useApp();
+  const { isAlisDrawerOpen, closeAlisDrawer, addAlisFatura, cariler, alisInitialData, lucaAccounts, isIsletmeDefteri, companies, user, apiFetch } = useApp();
   const activeCompany = companies.find(c => c.id === (user?.companyId || 1));
   const hasCommercialVehicle = activeCompany?.vehicles?.some(v => v.type === 'commercial');
   const { data: urunler } = useUrunler();
@@ -667,7 +667,7 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
                       Satır #{index + 1}
                     </h3>
 
-                    <div className="grid grid-cols-2 gap-4 mb-4">
+                    <div className={cn("grid gap-4 mb-4", !isIsletmeDefteri ? "grid-cols-2" : "grid-cols-1")}>
                       <div>
                         <Label className="text-xs font-medium text-emerald-600 mb-1 block">Kayıtlı Tedarikçi Seç (Cari)</Label>
                         <Select
@@ -710,15 +710,17 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
                           </SelectContent>
                         </Select>
                       </div>
-                      <div>
-                        <Label className="text-xs font-medium text-amber-600 mb-1 block">Ödeme / Karşı Hesap (Fişler İçin)</Label>
-                        <LucaAccountSelect
-                          value={form.data.karsiHesapKodu || ''}
-                          onChange={(val) => updateForm(form.id, 'karsiHesapKodu', val)}
-                          placeholder="Kasa / Banka hesabı seçin..."
-                          className="h-9 bg-amber-50/30 border-amber-100"
-                        />
-                      </div>
+                      {!isIsletmeDefteri && (
+                        <div>
+                          <Label className="text-xs font-medium text-amber-600 mb-1 block">Ödeme / Karşı Hesap (Fişler İçin)</Label>
+                          <LucaAccountSelect
+                            value={form.data.karsiHesapKodu || ''}
+                            onChange={(val) => updateForm(form.id, 'karsiHesapKodu', val)}
+                            placeholder="Kasa / Banka hesabı seçin..."
+                            className="h-9 bg-amber-50/30 border-amber-100"
+                          />
+                        </div>
+                      )}
                     </div>
 
                     <div className="grid grid-cols-3 gap-4 mb-4">

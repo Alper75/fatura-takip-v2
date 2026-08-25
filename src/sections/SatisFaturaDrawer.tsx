@@ -55,7 +55,7 @@ type UploadedFile = {
 };
 
 export function SatisFaturaDrawer() {
-  const { isSatisDrawerOpen, closeSatisDrawer, addSatisFatura, updateSatisFatura, cariler, satisInitialData, lucaAccounts, apiFetch } = useApp();
+  const { isSatisDrawerOpen, closeSatisDrawer, addSatisFatura, updateSatisFatura, cariler, satisInitialData, lucaAccounts, isIsletmeDefteri, apiFetch } = useApp();
   const { data: urunler } = useUrunler();
 
   useEffect(() => {
@@ -684,15 +684,17 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
                       <Input value={form.data.aciklama} onChange={(e) => updateForm(form.id, 'aciklama', e.target.value)} placeholder="Örn: 2024 Mart ayı hakediş bedeli" className="h-9" />
                     </div>
 
-                    {/* Luca Muhasebe Kodu Seçimi */}
-                    <div className="space-y-2 mb-4">
-                      <Label className="text-xs font-semibold text-indigo-700">🔍 Luca Muhasebe Kodu</Label>
-                      <LucaAccountSelect 
-                        value={form.data.muhasebeKodu || ''} 
-                        onChange={(val) => updateForm(form.id, 'muhasebeKodu', val)}
-                        placeholder="Ana hesap kodu seçin (örn: 600.01.001)..."
-                      />
-                    </div>
+                    {/* Luca Muhasebe Kodu Seçimi (Sadece Bilanço Esası için) */}
+                    {!isIsletmeDefteri && (
+                      <div className="space-y-2 mb-4">
+                        <Label className="text-xs font-semibold text-indigo-700">🔍 Luca Muhasebe Kodu</Label>
+                        <LucaAccountSelect 
+                          value={form.data.muhasebeKodu || ''} 
+                          onChange={(val) => updateForm(form.id, 'muhasebeKodu', val)}
+                          placeholder="Ana hesap kodu seçin (örn: 600.01.001)..."
+                        />
+                      </div>
+                    )}
 
                     {/* Stoktan Ürün Seçimi - Çoklu Kalem */}
                     <div className="mb-4 p-3 bg-emerald-50/50 border border-emerald-100 rounded-lg space-y-3">

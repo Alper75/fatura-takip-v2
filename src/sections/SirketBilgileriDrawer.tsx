@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { cn } from '@/lib/utils';
 
 export function SirketBilgileriDrawer() {
-  const { isSirketBilgileriOpen, closeSirketBilgileri, user, companies, addVehicle, deleteVehicle } = useApp();
+  const { isSirketBilgileriOpen, closeSirketBilgileri, user, companies, updateMyCompany, addVehicle, deleteVehicle } = useApp();
   const [isAddingVehicle, setIsAddingVehicle] = useState(false);
   const [newVehicle, setNewVehicle] = useState({ plate: '', type: 'passenger' as 'passenger' | 'commercial', brand_model: '' });
   
@@ -202,11 +202,35 @@ export function SirketBilgileriDrawer() {
                   <Label className="text-xs font-semibold text-slate-500 uppercase flex items-center gap-2">
                     <Building2 className="w-3.5 h-3.5" /> Defter Türü
                   </Label>
-                  <Input 
-                    readOnly 
+                  <Select 
                     value={activeCompany.company_type || 'BİLANÇO'} 
-                    className="bg-slate-50 text-slate-700" 
-                  />
+                    onValueChange={async (val) => {
+                      const res = await updateMyCompany({ company_type: val });
+                      if (res.success) {
+                        toast.success(`Şirket defter türü "${val}" olarak güncellendi.`);
+                      } else {
+                        toast.error(res.message || 'Defter türü güncellenemedi.');
+                      }
+                    }}
+                  >
+                    <SelectTrigger className="h-10 font-semibold bg-white border-indigo-200 text-indigo-900">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="BİLANÇO">
+                        <div className="py-0.5">
+                          <span className="font-semibold text-slate-900">BİLANÇO ESASI</span>
+                          <span className="block text-[10px] text-slate-500">1. Sınıf • Yevmiye Mahsup Fişi (600, 153, 391, 191 vb.)</span>
+                        </div>
+                      </SelectItem>
+                      <SelectItem value="İŞLETME">
+                        <div className="py-0.5">
+                          <span className="font-semibold text-slate-900">İŞLETME DEFTERİ</span>
+                          <span className="block text-[10px] text-slate-500">2. Sınıf • Gelir & Gider Kaydı (Hesap kodsuz)</span>
+                        </div>
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
 

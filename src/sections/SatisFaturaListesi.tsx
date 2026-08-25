@@ -72,7 +72,8 @@ export function SatisFaturaListesi() {
     openSatisDrawer,
     parseInvoiceXml,
     bankaHesaplari,
-    addSatisFatura
+    addSatisFatura,
+    isIsletmeDefteri
   } = useApp();
   
   const { data: urunler } = useUrunler();
@@ -528,7 +529,7 @@ export function SatisFaturaListesi() {
                           <div className="flex flex-col min-w-0">
                             <div className="flex items-center gap-1.5 flex-wrap">
                               <span className="text-slate-700 font-medium truncate">{fatura.ad || ''} {fatura.soyad || ''}</span>
-                              {fatura.muhasebeKodu && (
+                              {fatura.muhasebeKodu && !isIsletmeDefteri && (
                                 <span className="text-[10px] font-mono bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded border border-indigo-200">
                                   {fatura.muhasebeKodu}
                                 </span>

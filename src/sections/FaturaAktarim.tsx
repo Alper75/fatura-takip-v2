@@ -6,11 +6,11 @@ import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
-import { FileSpreadsheet, RefreshCw, Send } from 'lucide-react';
+import { FileSpreadsheet, RefreshCw, Send, BookOpen, Layers } from 'lucide-react';
 import { toast } from 'sonner';
 
 export function FaturaAktarim() {
-  const { apiFetch, cariler } = useApp();
+  const { apiFetch, cariler, isIsletmeDefteri } = useApp();
   const [loading, setLoading] = useState(false);
   const [invoices, setInvoices] = useState<any[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -31,7 +31,7 @@ export function FaturaAktarim() {
       const res = await apiFetch('/api/settings/luca_kdv_ayarlari');
       if (res.success && res.value) {
         setSettings(JSON.parse(res.value));
-      } else {
+      } else if (!isIsletmeDefteri) {
         toast.error('Lütfen önce KDV hesap ayarlarını tamamlayın.');
       }
     } catch (e) {
@@ -93,20 +93,51 @@ export function FaturaAktarim() {
     return `${d}/${m}/${y}`;
   };
 
+  // İŞLETME DEFTERİ İÇİN SATIR FORMATI (HESAP KODSUZ GELİR / GİDER LİSTESİ)
+  const getIsletmeDefteriSatiri = (fatura: any, isAracGideri: boolean = false) => {
+    const isAlis = fatura._type === 'ALIS';
+    const isIade = isAlis ? (parseFloat(fatura.toplamTutar || 0) < 0 || (fatura.malHizmetAdi && String(fatura.malHizmetAdi).toLowerCase().includes('iade'))) : (parseFloat(fatura.alinanUcret || 0) < 0 || (fatura.aciklama && String(fatura.aciklama).toLowerCase().includes('iade')));
+    const kdvOrani = (fatura.kdvOrani || 20).toString();
+    const matrah = parseFloat(fatura.matrah) || 0;
+    const kdvTutar = parseFloat(fatura.kdvTutari) || 0;
+    const tevkifatTutar = parseFloat(fatura.tevkifatTutari) || 0;
+    const stopajTutar = parseFloat(fatura.stopajTutari) || 0;
+    const oivTutar = isAlis ? (parseFloat(fatura.oivTutari) || 0) : 0;
+    const toplam = isAlis ? (parseFloat(fatura.toplamTutar) || 0) : (parseFloat(fatura.alinanUcret) || 0);
+
+    const cariUnvan = fatura.ad || (cariler.find(c => c.id === fatura.cariId)?.unvan) || 'Muhtelif Cari';
+    const tcVkn = fatura.tcVkn || (cariler.find(c => c.id === fatura.cariId)?.vknTckn) || '';
+    const evrakNo = fatura.faturaNo || '';
+    const aciklama = fatura.aciklama || (isAlis ? `Alış Faturası - ${cariUnvan}` : `Satış Faturası - ${cariUnvan}`);
+
+    return {
+      'Dönem / Ay': fatura.faturaTarihi ? fatura.faturaTarihi.substring(0, 7) : '',
+      'Kayıt Türü': isAlis ? (isIade ? 'GELİR (ALIŞ İADE)' : 'GİDER') : (isIade ? 'GİDER (SATIŞ İADE)' : 'GELİR'),
+      'Evrak Tarihi': formatTarih(fatura.faturaTarihi),
+      'Evrak No': evrakNo,
+      'Cari / Firma Adı': cariUnvan,
+      'Vergi / TC No': tcVkn,
+      'Açıklama': aciklama + (isAracGideri ? ' [Binek Araç %70 Gider]' : ''),
+      'Matrah (KDV Hariç)': isAracGideri ? Math.round(matrah * 0.7 * 100) / 100 : matrah,
+      'KDV Oranı (%)': `%${kdvOrani}`,
+      'KDV Tutarı': isAracGideri ? Math.round(kdvTutar * 0.7 * 100) / 100 : kdvTutar,
+      'Tevkifat Tutarı': tevkifatTutar,
+      'Stopaj Tutarı': stopajTutar,
+      'ÖİV Tutarı': oivTutar,
+      'Toplam Tutar': toplam,
+      'Gider / Gelir Türü': isAlis ? (isAracGideri ? 'Binek Araç Gideri (%70 Kısıtlı)' : 'Genel İşletme Gideri') : 'Mal/Hizmet Satış Geliri'
+    };
+  };
+
+  // BİLANÇO ESASI İÇİN YEVMİYE MAHSUP SATIRLARI (HESAP PLANLI ÇİFT TARAFLI)
   const getMuhasebeSatirlari = (fatura: any, isAracGideri: boolean = false) => {
     const satirListesi: any[] = [];
     const isAlis = fatura._type === 'ALIS';
     const isIade = isAlis ? (parseFloat(fatura.toplamTutar || 0) < 0 || (fatura.malHizmetAdi && String(fatura.malHizmetAdi).toLowerCase().includes('iade'))) : (parseFloat(fatura.alinanUcret || 0) < 0 || (fatura.aciklama && String(fatura.aciklama).toLowerCase().includes('iade')));
     
-    const evrakNo = fatura.faturaNo || fatura.id.toString();
-    const fTarih = formatTarih(fatura.faturaTarihi);
-    const aciklama = isAlis ? `${fatura.tedarikciAdi || ''} - ${fatura.malHizmetAdi || ''}` : `${fatura.ad || ''} ${fatura.soyad || ''}`.trim();
-    
-    // Cari Kodu
+    // Cari Kod Belirleme
     let cariKod = isAlis ? '320' : '120';
-    if (fatura.karsiHesapKodu) {
-      cariKod = fatura.karsiHesapKodu;
-    } else if (fatura.cariId) {
+    if (fatura.cariId) {
       const matchedCari = cariler.find(c => c.id === fatura.cariId);
       if (matchedCari && matchedCari.muhasebeKodu) {
         cariKod = matchedCari.muhasebeKodu;
@@ -120,7 +151,7 @@ export function FaturaAktarim() {
     const stopajTutar = parseFloat(fatura.stopajTutari) || 0;
     const isTevkifatli = tevkifatTutar > 0;
 
-    // Matrah Hesabı (600 / 153 / 770)
+    // Matrah Hesabı
     let gelirGiderKod = isAlis ? (isIade ? '600' : '153') : (isIade ? '610' : '600');
     if (fatura.muhasebeKodu) {
       gelirGiderKod = fatura.muhasebeKodu;
@@ -140,7 +171,7 @@ export function FaturaAktarim() {
       }
     }
     
-    // KDV Hesabı (391 / 191)
+    // KDV Hesabı
     let kdvKodu = '';
     if (settings) {
       if (isAlis) {
@@ -154,46 +185,41 @@ export function FaturaAktarim() {
     const oivTutar = isAlis ? (parseFloat(fatura.oivTutari) || 0) : 0;
     const toplam = isAlis ? (parseFloat(fatura.toplamTutar) || 0) : (parseFloat(fatura.alinanUcret) || 0);
     
-    // KKEG / Araç Gider Kısıtlaması %70-%30
-    let giderMatrah = matrah;
-    let giderKdv = kdvTutar;
-    let kkegMatrah = 0;
-    let kkegKdv = 0;
-    
-    if (isAracGideri && isAlis && !isIade) {
-      giderMatrah = Number((matrah * 0.70).toFixed(2));
-      kkegMatrah = Number((matrah * 0.30).toFixed(2));
-      giderKdv = Number((kdvTutar * 0.70).toFixed(2));
-      kkegKdv = Number((kdvTutar * 0.30).toFixed(2));
-    }
+    const evrakNo = fatura.faturaNo || '';
+    const aciklama = fatura.aciklama || (isAlis ? `Alış Faturası - ${fatura.ad || ''}` : `Satış Faturası - ${fatura.ad || ''}`);
 
-    const createRow = (hesap: string, borc: number, alacak: number, detay: string) => ({
-        'Fiş No': '',
-        'Fiş Tarihi': fTarih,
-        'Fiş Açıklama': isAlis ? 'Alış Faturası' : 'Satış Faturası',
-        'Hesap Kodu': hesap,
-        'Evrak No': evrakNo,
-        'Evrak Tarihi': fTarih,
-        'Detay Açıklama': detay,
-        'Borç': Number(borc.toFixed(2)),
-        'Alacak': Number(alacak.toFixed(2)),
-        'Miktar': '',
-        'Belge Türü': 'FT',
-        'Para Birimi': '',
-        'Kur': '',
-        'Döviz Tutar': ''
+    const createRow = (kod: string, borc: number, alacak: number, detayAciklama: string) => ({
+      'Evrak Tarihi': formatTarih(fatura.faturaTarihi),
+      'Evrak No': evrakNo,
+      'Belge Türü': 'Fatura',
+      'Hesap Kodu': kod,
+      'Borç': Math.round(borc * 100) / 100,
+      'Alacak': Math.round(alacak * 100) / 100,
+      'Detay Açıklama': detayAciklama,
+      'KDV Oranı': kdvOrani
     });
 
     if (isAlis) {
         if (!isIade) {
-            satirListesi.push(createRow(gelirGiderKod, giderMatrah, 0, aciklama));
-            if (kkegMatrah > 0) satirListesi.push(createRow(settings?.aracGiderKkegKodu || '689.02', kkegMatrah, 0, aciklama + ' (%30 KKEG Matrah)'));
-            
-            if (giderKdv > 0) satirListesi.push(createRow(kdvKodu, giderKdv, 0, aciklama));
-            if (kkegKdv > 0) satirListesi.push(createRow(settings?.aracGiderKkegKodu || '689.02', kkegKdv, 0, aciklama + ' (%30 KKEG KDV)'));
-            
-            if (oivTutar > 0) satirListesi.push(createRow(settings?.oivKodu || '689.01', oivTutar, 0, aciklama + ' (ÖİV)'));
-            
+            if (isAracGideri) {
+                const matrahGider = matrah * 0.70;
+                const matrahKkeg = matrah * 0.30;
+                const kdvGider = kdvTutar * 0.70;
+                const kdvKkeg = kdvTutar * 0.30;
+                const kkegHesapKodu = settings?.aracGiderKkegKodu || '689.02';
+
+                satirListesi.push(createRow(gelirGiderKod, matrahGider, 0, aciklama + ' (%70 Gider)'));
+                satirListesi.push(createRow(kdvKodu, kdvGider, 0, aciklama + ' (%70 İndirilecek KDV)'));
+                satirListesi.push(createRow(kkegHesapKodu, matrahKkeg + kdvKkeg, 0, aciklama + ' (%30 KKEG ve İndirilemeyen KDV)'));
+            } else {
+                satirListesi.push(createRow(gelirGiderKod, matrah, 0, aciklama));
+                satirListesi.push(createRow(kdvKodu, kdvTutar, 0, aciklama));
+            }
+
+            if (oivTutar > 0) {
+              satirListesi.push(createRow(settings?.oivKodu || '689.01', oivTutar, 0, aciklama + ' (ÖİV Tutarı)'));
+            }
+
             if (tevkifatTutar > 0) {
               satirListesi.push(createRow(settings?.tevkifat || '360.01', 0, tevkifatTutar, aciklama + ' (KDV Tevkifatı)'));
             }
@@ -210,19 +236,15 @@ export function FaturaAktarim() {
         }
     } else {
         if (!isIade) {
-            // 1. CARİ HESAP BORÇLU (Net ödenecek / tahsil edilecek tutar)
             satirListesi.push(createRow(cariKod, toplam, 0, aciklama));
 
-            // 2. 193 NOLU HESAP BORÇLU (Peşin Ödenen Vergi / Stopaj Kesintisi)
             if (stopajTutar > 0) {
               const stopajHesabi = settings?.satisStopaj || settings?.stopaj || '193';
               satirListesi.push(createRow(stopajHesabi, stopajTutar, 0, aciklama + ' (Stopaj Kesintisi)'));
             }
 
-            // 3. 600 LÜ HESAP ALACAKLI (Matrah)
             satirListesi.push(createRow(gelirGiderKod, 0, matrah, aciklama));
 
-            // 4. 391 ALACAKLI (Net KDV = Hesaplanan KDV - Tevkifat)
             const netKdvTutar = Math.max(0, kdvTutar - tevkifatTutar);
             if (netKdvTutar > 0) {
               satirListesi.push(createRow(kdvKodu, 0, netKdvTutar, aciklama + (tevkifatTutar > 0 ? ' (Tevkifatlı KDV)' : '')));
@@ -237,57 +259,91 @@ export function FaturaAktarim() {
   };
 
   const handleExcelExport = () => {
-    if (!settings) return toast.error('KDV Ayarları bulunamadı. Lütfen ayarları yapın.');
     if (selectedIds.length === 0) return toast.error('Lütfen fatura seçin.');
-
-    let exportData: any[] = [];
     const selectedInvoices = invoices.filter(inv => selectedIds.includes(inv.id));
-    
-    selectedInvoices.forEach(inv => {
-      exportData = [...exportData, ...getMuhasebeSatirlari(inv, aracGideriIds.includes(inv.id))];
-    });
 
-    const ws = XLSX.utils.json_to_sheet(exportData);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Faturalar_Luca');
-    XLSX.writeFile(wb, `Faturalar_Luca_${new Date().toISOString().split('T')[0]}.xlsx`);
-    toast.success('Luca Excel dosyası başarıyla indirildi.');
+    if (isIsletmeDefteri) {
+      // İŞLETME DEFTERİ EXCEL ÇIKTISI
+      const exportData = selectedInvoices.map(inv => getIsletmeDefteriSatiri(inv, aracGideriIds.includes(inv.id)));
+      const ws = XLSX.utils.json_to_sheet(exportData);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Isletme_Defteri');
+      XLSX.writeFile(wb, `Isletme_Defteri_Faturalar_${new Date().toISOString().split('T')[0]}.xlsx`);
+      toast.success(`${selectedInvoices.length} adet fatura İşletme Defteri Excel tablosu olarak indirildi.`);
+    } else {
+      // BİLANÇO ESASI MAHSUP FİŞİ ÇIKTISI
+      if (!settings) return toast.error('KDV Ayarları bulunamadı. Lütfen ayarları yapın.');
+      let exportData: any[] = [];
+      selectedInvoices.forEach(inv => {
+        exportData = [...exportData, ...getMuhasebeSatirlari(inv, aracGideriIds.includes(inv.id))];
+      });
+
+      const ws = XLSX.utils.json_to_sheet(exportData);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Faturalar_Luca');
+      XLSX.writeFile(wb, `Faturalar_Luca_Mahsup_${new Date().toISOString().split('T')[0]}.xlsx`);
+      toast.success('Luca Bilanço Mahsup Excel dosyası başarıyla indirildi.');
+    }
   };
 
   const handleExtensionExport = () => {
-    if (!settings) return toast.error('KDV Ayarları bulunamadı. Lütfen ayarları yapın.');
     if (selectedIds.length === 0) return toast.error('Lütfen fatura seçin.');
-
-    let exportData: any[] = [];
     const selectedInvoices = invoices.filter(inv => selectedIds.includes(inv.id));
-    
-    selectedInvoices.forEach(inv => {
-      const excelRows = getMuhasebeSatirlari(inv, aracGideriIds.includes(inv.id));
-      // Excel satırlarını eklenti formatına çevir
-      const extRows = excelRows.map(row => ({
-        tarih: row['Evrak Tarihi'],
-        evrakNo: row['Evrak No'],
-        aciklama: row['Detay Açıklama'],
-        tutar: row['Borç'] > 0 ? row['Borç'] : row['Alacak'],
-        tur: row['Borç'] > 0 ? 'borc' : 'alacak',
-        muhasebeKodu: row['Hesap Kodu'],
-        belgeTuru: row['Belge Türü']
-      }));
-      exportData = [...exportData, ...extRows];
-    });
 
-    window.dispatchEvent(new CustomEvent('FATURA_APP_LUCA_SEND_MAHSUP', {
+    if (isIsletmeDefteri) {
+      const exportData = selectedInvoices.map(inv => getIsletmeDefteriSatiri(inv, aracGideriIds.includes(inv.id)));
+      window.dispatchEvent(new CustomEvent('FATURA_APP_LUCA_SEND_ISLETME', {
         detail: exportData
-    }));
-    toast.success(`${selectedInvoices.length} fatura Eklenti hafızasına (Mahsup Fişi olarak) gönderildi!`);
+      }));
+      toast.success(`${selectedInvoices.length} fatura İşletme Defteri formatında Luca Eklentisine gönderildi!`);
+    } else {
+      if (!settings) return toast.error('KDV Ayarları bulunamadı. Lütfen ayarları yapın.');
+      let exportData: any[] = [];
+      selectedInvoices.forEach(inv => {
+        const excelRows = getMuhasebeSatirlari(inv, aracGideriIds.includes(inv.id));
+        const extRows = excelRows.map(row => ({
+          tarih: row['Evrak Tarihi'],
+          evrakNo: row['Evrak No'],
+          aciklama: row['Detay Açıklama'],
+          tutar: row['Borç'] > 0 ? row['Borç'] : row['Alacak'],
+          tur: row['Borç'] > 0 ? 'borc' : 'alacak',
+          muhasebeKodu: row['Hesap Kodu'],
+          belgeTuru: row['Belge Türü']
+        }));
+        exportData = [...exportData, ...extRows];
+      });
+
+      window.dispatchEvent(new CustomEvent('FATURA_APP_LUCA_SEND_MAHSUP', {
+        detail: exportData
+      }));
+      toast.success(`${selectedInvoices.length} fatura Mahsup Fişi olarak Luca Eklentisine gönderildi!`);
+    }
   };
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
+      {/* Header & Mode Badge */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Bilanço Fatura Aktarım</h1>
-          <p className="text-slate-500">Faturaları Bilanço muhasebesi kurallarına göre (Mahsup Fişi) Luca'ya aktarın.</p>
+          <div className="flex items-center gap-2.5 mb-1">
+            <h1 className="text-2xl font-bold text-slate-900">
+              {isIsletmeDefteri ? 'İşletme Defteri Fatura & Excel Aktarımı' : 'Bilanço Fatura Aktarım'}
+            </h1>
+            {isIsletmeDefteri ? (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-800 border border-amber-200">
+                <BookOpen className="w-3.5 h-3.5" /> İşletme Defteri Modu (Hesap Kodsuz)
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold bg-indigo-100 text-indigo-800 border border-indigo-200">
+                <Layers className="w-3.5 h-3.5" /> Bilanço Esası (Mahsup Fişi / 600-153)
+              </span>
+            )}
+          </div>
+          <p className="text-sm text-slate-500">
+            {isIsletmeDefteri 
+              ? '2. Sınıf işletme defteri için faturalarınızı hesap kodu olmadan doğrudan Gelir / Gider ve KDV Matrah dökümü olarak aktarın.' 
+              : '1. Sınıf tüccarlar için faturaları 600 Gelir, 153/770 Gider ve 391/191 KDV hesap kodlarıyla Luca Mahsup Fişi formatında aktarın.'}
+          </p>
         </div>
       </div>
 
@@ -303,88 +359,114 @@ export function FaturaAktarim() {
               <Input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="w-36 h-9" />
             </div>
             <div className="space-y-1">
-              <label className="text-xs text-slate-500">Türü</label>
+              <label className="text-xs text-slate-500">Fatura Türü</label>
               <select 
-                className="w-32 h-9 border border-slate-200 rounded-md text-sm px-2 outline-none"
-                value={filterType}
-                onChange={e => setFilterType(e.target.value as any)}
+                value={filterType} 
+                onChange={(e: any) => setFilterType(e.target.value)}
+                className="h-9 border border-input rounded-md px-3 text-sm bg-background"
               >
-                <option value="ALL">Tümü</option>
-                <option value="ALIS">Alış</option>
-                <option value="SATIS">Satış</option>
+                <option value="ALL">Tümü (Alış + Satış)</option>
+                <option value="ALIS">Sadece Alışlar (Gider)</option>
+                <option value="SATIS">Sadece Satışlar (Gelir)</option>
               </select>
             </div>
-            <Button onClick={fetchInvoices} disabled={loading} className="gap-2 h-9">
-              {loading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-              Faturaları Getir
+            <Button onClick={fetchInvoices} disabled={loading} variant="secondary" className="h-9 gap-1.5">
+              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /> Faturaları Getir
             </Button>
-            <div className="flex-1"></div>
-            <Button onClick={handleExcelExport} variant="outline" className="gap-2 h-9 border-indigo-200 text-indigo-700 bg-indigo-50 hover:bg-indigo-100">
-              <FileSpreadsheet className="w-4 h-4" />
-              Excel (Luca) İndir
-            </Button>
-            <Button onClick={handleExtensionExport} className="gap-2 h-9 bg-emerald-600 hover:bg-emerald-700 text-white">
-              <Send className="w-4 h-4" />
-              Eklentiye Gönder
-            </Button>
+
+            <div className="ml-auto flex items-center gap-2">
+              <Button 
+                onClick={handleExcelExport} 
+                disabled={selectedIds.length === 0} 
+                variant="outline" 
+                className="h-9 gap-1.5 border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+              >
+                <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+                {isIsletmeDefteri ? "İşletme Excel'e Aktar" : "Luca Excel İndir"}
+              </Button>
+              <Button 
+                onClick={handleExtensionExport} 
+                disabled={selectedIds.length === 0} 
+                className="h-9 gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white"
+              >
+                <Send className="w-4 h-4" /> 
+                {isIsletmeDefteri ? "Luca'ya Aktar (İşletme)" : "Luca'ya Aktar (Mahsup)"}
+              </Button>
+            </div>
           </div>
         </CardHeader>
         <CardContent>
           <div className="border rounded-md">
             <Table>
-              <TableHeader className="bg-slate-50">
+              <TableHeader>
                 <TableRow>
-                  <TableHead className="w-[50px] text-center">
-                    <Checkbox checked={selectedIds.length === filteredInvoices.length && filteredInvoices.length > 0} onCheckedChange={toggleAll} />
+                  <TableHead className="w-12 text-center">
+                    <Checkbox checked={filteredInvoices.length > 0 && selectedIds.length === filteredInvoices.length} onCheckedChange={toggleAll} />
                   </TableHead>
                   <TableHead>Tarih</TableHead>
-                  <TableHead>Fatura No</TableHead>
+                  <TableHead>Evrak No</TableHead>
                   <TableHead>Tür</TableHead>
-                  <TableHead>Unvan / İsim</TableHead>
+                  <TableHead>Firma / Muhatap</TableHead>
                   <TableHead className="text-right">Matrah</TableHead>
-                  <TableHead className="text-right">KDV</TableHead>
-                  <TableHead className="text-center w-[90px]">Araç Gideri</TableHead>
-                  <TableHead className="text-right">Toplam</TableHead>
+                  <TableHead className="text-center">KDV</TableHead>
+                  <TableHead className="text-right">KDV Tutar</TableHead>
+                  <TableHead className="text-right">Net / Toplam</TableHead>
+                  <TableHead className="text-center">Araç Gideri (%70)</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filteredInvoices.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="text-center h-32 text-slate-400">Gösterilecek fatura bulunamadı. Lütfen tarih filtrelerini seçip "Faturaları Getir" butonuna basın.</TableCell>
+                    <TableCell colSpan={10} className="text-center py-8 text-slate-500">
+                      Fatura bulunamadı. Lütfen tarih seçip "Faturaları Getir" butonuna basın.
+                    </TableCell>
                   </TableRow>
                 ) : (
-                  filteredInvoices.map(inv => (
-                    <TableRow key={inv.id}>
-                      <TableCell className="text-center">
-                        <Checkbox checked={selectedIds.includes(inv.id)} onCheckedChange={() => toggleSelection(inv.id)} />
-                      </TableCell>
-                      <TableCell>{formatTarih(inv.faturaTarihi)}</TableCell>
-                      <TableCell className="font-mono text-xs">{inv.faturaNo}</TableCell>
-                      <TableCell>
-                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${inv._type === 'ALIS' ? 'bg-red-50 text-red-700' : 'bg-green-50 text-green-700'}`}>
-                          {inv._type}
-                        </span>
-                      </TableCell>
-                      <TableCell className="max-w-[200px] truncate" title={inv._type === 'ALIS' ? inv.tedarikciAdi : `${inv.ad || ''} ${inv.soyad || ''}`.trim()}>
-                        {inv._type === 'ALIS' ? inv.tedarikciAdi : `${inv.ad || ''} ${inv.soyad || ''}`.trim()}
-                      </TableCell>
-                      <TableCell className="text-right">{(parseFloat(inv.matrah) || 0).toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₺</TableCell>
-                      <TableCell className="text-right">{(parseFloat(inv.kdvTutari) || 0).toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₺</TableCell>
-                      <TableCell className="text-center">
-                        {inv._type === 'ALIS' && (
-                          <Checkbox 
-                            checked={aracGideriIds.includes(inv.id)} 
-                            onCheckedChange={(checked) => {
-                              if (checked) setAracGideriIds(prev => [...prev, inv.id]);
-                              else setAracGideriIds(prev => prev.filter(id => id !== inv.id));
-                            }} 
-                            title="Araç Gideri Kısıtlaması (%70 Gider, %30 KKEG)"
-                          />
-                        )}
-                      </TableCell>
-                      <TableCell className="text-right font-semibold">{(inv._type === 'ALIS' ? (parseFloat(inv.toplamTutar) || 0) : (parseFloat(inv.alinanUcret) || 0)).toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₺</TableCell>
-                    </TableRow>
-                  ))
+                  filteredInvoices.map((inv) => {
+                    const isAlis = inv._type === 'ALIS';
+                    const matrah = parseFloat(inv.matrah) || 0;
+                    const kdvTutar = parseFloat(inv.kdvTutari) || 0;
+                    const toplam = isAlis ? (parseFloat(inv.toplamTutar) || 0) : (parseFloat(inv.alinanUcret) || 0);
+                    const isArac = aracGideriIds.includes(inv.id);
+
+                    return (
+                      <TableRow key={inv.id} className={selectedIds.includes(inv.id) ? 'bg-indigo-50/40' : ''}>
+                        <TableCell className="text-center">
+                          <Checkbox checked={selectedIds.includes(inv.id)} onCheckedChange={() => toggleSelection(inv.id)} />
+                        </TableCell>
+                        <TableCell className="font-mono text-xs">{formatTarih(inv.faturaTarihi)}</TableCell>
+                        <TableCell className="font-medium text-xs">{inv.faturaNo || '-'}</TableCell>
+                        <TableCell>
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${isAlis ? 'bg-emerald-100 text-emerald-800' : 'bg-indigo-100 text-indigo-800'}`}>
+                            {isAlis ? 'GİDER (ALIŞ)' : 'GELİR (SATIŞ)'}
+                          </span>
+                        </TableCell>
+                        <TableCell className="max-w-[200px] truncate text-xs font-medium" title={inv.ad}>
+                          {inv.ad || 'İsimsiz'}
+                        </TableCell>
+                        <TableCell className="text-right font-mono text-xs">
+                          {matrah.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺
+                        </TableCell>
+                        <TableCell className="text-center font-mono text-xs">%{inv.kdvOrani || 20}</TableCell>
+                        <TableCell className="text-right font-mono text-xs text-indigo-600 font-medium">
+                          {kdvTutar.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺
+                        </TableCell>
+                        <TableCell className="text-right font-mono text-xs font-bold text-slate-800">
+                          {toplam.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺
+                        </TableCell>
+                        <TableCell className="text-center">
+                          {isAlis && (
+                            <Checkbox 
+                              checked={isArac} 
+                              onCheckedChange={(checked) => {
+                                setAracGideriIds(prev => checked ? [...prev, inv.id] : prev.filter(i => i !== inv.id));
+                              }} 
+                            />
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })
                 )}
               </TableBody>
             </Table>

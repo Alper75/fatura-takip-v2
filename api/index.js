@@ -1722,6 +1722,34 @@ app.get('/api/my-company', authMiddleware, async (req, res) => {
   }
 });
 
+app.put('/api/my-company', authMiddleware, async (req, res) => {
+  const { name, tax_no, address, email, company_type } = req.body;
+  const compId = req.user.companyId || 1;
+  try {
+    const existing = await client.execute({
+      sql: 'SELECT * FROM companies WHERE id = ?',
+      args: [compId]
+    });
+    if (existing.rows.length === 0) return res.status(404).json({ success: false, message: 'Şirket bulunamadı.' });
+    const current = existing.rows[0];
+
+    await client.execute({
+      sql: 'UPDATE companies SET name = ?, tax_no = ?, address = ?, email = ?, company_type = ? WHERE id = ?',
+      args: [
+        name !== undefined ? name : current.name,
+        tax_no !== undefined ? n(tax_no) : current.tax_no,
+        address !== undefined ? n(address) : current.address,
+        email !== undefined ? n(email) : current.email,
+        company_type !== undefined ? company_type : current.company_type || 'BİLANÇO',
+        compId
+      ]
+    });
+    res.json({ success: true, message: 'Şirket bilgileri güncellendi.' });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 // --- VEHICLES ---
 app.post('/api/vehicles', authMiddleware, async (req, res) => {
   const { plate, type, brand_model } = req.body;
