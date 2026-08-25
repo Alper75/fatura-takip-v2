@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
-import { FileSpreadsheet, RefreshCw, Send, BookOpen, Layers } from 'lucide-react';
+import { FileSpreadsheet, RefreshCw, Send, BookOpen, Layers, Copy, Check } from 'lucide-react';
 import { toast } from 'sonner';
 
 export function FaturaAktarim() {
@@ -15,6 +15,7 @@ export function FaturaAktarim() {
   const [invoices, setInvoices] = useState<any[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [settings, setSettings] = useState<any>(null);
+  const [copied, setCopied] = useState(false);
 
   // Filters
   const [startDate, setStartDate] = useState('');
@@ -127,6 +128,59 @@ export function FaturaAktarim() {
       'Toplam Tutar': toplam,
       'Gider / Gelir Türü': isAlis ? (isAracGideri ? 'Binek Araç Gideri (%70 Kısıtlı)' : 'Genel İşletme Gideri') : 'Mal/Hizmet Satış Geliri'
     };
+  };
+
+  // LUCA HIZLI FİŞ (hizliFisPopUp.do) FORMATI
+  const getLucaHizliFisItems = (selectedInvoices: any[]) => {
+    return selectedInvoices.map(inv => {
+      const isAlis = inv._type === 'ALIS';
+      const matrah = parseFloat(inv.matrah) || 0;
+      const kdvTutar = parseFloat(inv.kdvTutari) || 0;
+      const tevkifatTutar = parseFloat(inv.tevkifatTutari) || 0;
+      const stopajTutar = parseFloat(inv.stopajTutari) || 0;
+      const toplam = isAlis ? (parseFloat(inv.toplamTutar) || 0) : (parseFloat(inv.alinanUcret) || 0);
+      const isArac = aracGideriIds.includes(inv.id);
+      const kdvOranNum = parseFloat(inv.kdvOrani || 20);
+
+      // Tevkifat Kodu (Luca Hizli Fis option value)
+      let tevkifatVal = '0';
+      if (tevkifatTutar > 0) {
+        const oran = String(inv.tevkifatOrani || '');
+        if (oran.includes('2/10')) tevkifatVal = '10';
+        else if (oran.includes('3/10')) tevkifatVal = '12';
+        else if (oran.includes('4/10')) tevkifatVal = '13';
+        else if (oran.includes('5/10')) tevkifatVal = '11';
+        else if (oran.includes('7/10')) tevkifatVal = '9';
+        else if (oran.includes('9/10')) tevkifatVal = '4';
+        else if (oran.includes('Tam')) tevkifatVal = '5';
+        else tevkifatVal = '11';
+      }
+
+      const cariUnvan = inv.ad || (cariler.find(c => c.id === inv.cariId)?.unvan) || '';
+      const fNo = inv.faturaNo || '';
+      const seriNo = fNo.replace(/[^a-zA-Z]/g, '').substring(0, 3);
+
+      return {
+        tur: isAlis ? '1' : '0', // 0: Gelir, 1: Gider
+        islem: isAlis ? '1' : '0',
+        kategori: '1', // 1: Defter Fişleri
+        belge: '1', // 1: Satış/Alış
+        evrakTarih: formatTarih(inv.faturaTarihi),
+        kayitTarihi: formatTarih(inv.faturaTarihi),
+        seriNo: seriNo,
+        evrakNo: fNo,
+        tckn: inv.tcVkn || (cariler.find(c => c.id === inv.cariId)?.vknTckn) || '',
+        soyadi: cariUnvan,
+        adi: inv.soyad || '',
+        aciklama: inv.aciklama || (isAlis ? `Alış - ${cariUnvan}` : `Satış - ${cariUnvan}`),
+        tutar: isArac ? Math.round(matrah * 0.7 * 100) / 100 : matrah,
+        kdvOran: `${kdvOranNum.toFixed(1)}`, // "20.0", "10.0", "1.0"
+        kdvTutar: isArac ? Math.round(kdvTutar * 0.7 * 100) / 100 : kdvTutar,
+        toplamTutar: toplam,
+        tevkifat: tevkifatVal,
+        stopajTutari: stopajTutar
+      };
+    });
   };
 
   // BİLANÇO ESASI İÇİN YEVMİYE MAHSUP SATIRLARI (HESAP PLANLI ÇİFT TARAFLI)
@@ -286,11 +340,82 @@ export function FaturaAktarim() {
     }
   };
 
+  // LUCA HIZLI FİŞ (hizliFisPopUp.do) KONSOL SCRIPTİNİ KOPYALA
+  const handleCopyScript = () => {
+    if (selectedIds.length === 0) return toast.error('Lütfen fatura seçin.');
+    const selectedInvoices = invoices.filter(inv => selectedIds.includes(inv.id));
+    const items = getLucaHizliFisItems(selectedInvoices);
+
+    const scriptCode = `// Luca Hızlı Fiş (hizliFisPopUp.do) Otomatik Doldurma Kodu
+(function() {
+  const faturalar = ${JSON.stringify(items, null, 2)};
+  
+  function setVal(id, val) {
+    const el = document.getElementById(id);
+    if (el) {
+      el.value = val;
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+      el.dispatchEvent(new Event('blur', { bubbles: true }));
+    }
+  }
+
+  function ensureRows(count) {
+    let current = document.querySelectorAll('#tBody tr').length;
+    while (current < count) {
+      if (typeof window.satirEkle === 'function') {
+        window.satirEkle();
+      } else if (typeof window.addRow === 'function') {
+        window.addRow();
+      } else {
+        const lastDelete = document.querySelector('#delete' + (current - 1));
+        const addBtn = document.querySelector("input[value='+']") || (lastDelete && lastDelete.nextElementSibling);
+        if (addBtn) addBtn.click();
+        else break;
+      }
+      current = document.querySelectorAll('#tBody tr').length;
+    }
+  }
+
+  ensureRows(faturalar.length);
+
+  faturalar.forEach((item, i) => {
+    setTimeout(() => {
+      setVal('islem' + i, item.tur);
+      setVal('kategori' + i, item.kategori || '1');
+      setVal('belge' + i, item.belge || '1');
+      setVal('evrakTarih' + i, item.evrakTarih);
+      setVal('kayitTarihi' + i, item.kayitTarihi || item.evrakTarih);
+      setVal('seriNo' + i, item.seriNo || '');
+      setVal('evrakNo' + i, item.evrakNo || '');
+      setVal('tckn' + i, item.tckn || '');
+      setVal('soyadi' + i, item.soyadi || '');
+      setVal('adi' + i, item.adi || '');
+      setVal('aciklama' + i, item.aciklama || '');
+      setVal('tutar' + i, (item.tutar || '').toString().replace('.', ','));
+      setVal('kdvOran2_' + i, item.kdvOran || '20.0');
+      setVal('kdvTutar' + i, (item.kdvTutar || '').toString().replace('.', ','));
+      setVal('topNotBura' + i, (item.toplamTutar || '').toString().replace('.', ','));
+      if (item.tevkifat && item.tevkifat !== '0') setVal('tevkifat' + i, item.tevkifat);
+      if (item.stopajTutari && item.stopajTutari > 0) setVal('stopajTutari' + i, (item.stopajTutari || '').toString().replace('.', ','));
+    }, i * 40);
+  });
+
+  alert(faturalar.length + ' adet fatura Luca Hızlı Fiş tablosuna aktarıldı!');
+})();`;
+
+    navigator.clipboard.writeText(scriptCode);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 3000);
+    toast.success(`${selectedInvoices.length} faturanın Luca Hızlı Fiş scripti panoya kopyalandı!`);
+  };
+
   const handleExtensionExport = () => {
     if (selectedIds.length === 0) return toast.error('Lütfen fatura seçin.');
     const selectedInvoices = invoices.filter(inv => selectedIds.includes(inv.id));
 
     if (isIsletmeDefteri) {
+      const hizliFisItems = getLucaHizliFisItems(selectedInvoices);
       const isletmeRows = selectedInvoices.map(inv => getIsletmeDefteriSatiri(inv, aracGideriIds.includes(inv.id)));
       
       const rawInvoices = selectedInvoices.map(inv => ({
@@ -314,27 +439,28 @@ export function FaturaAktarim() {
 
       // A) LocalStorage kaydı
       try {
-        localStorage.setItem('fatura_app_luca_isletme', JSON.stringify(isletmeRows));
-        localStorage.setItem('fatura_app_luca_data', JSON.stringify({ isIsletme: true, data: isletmeRows, faturalar: rawInvoices }));
-        localStorage.setItem('luca_aktarim_faturalar', JSON.stringify(rawInvoices));
-        localStorage.setItem('luca_transfer_data', JSON.stringify(rawInvoices));
+        localStorage.setItem('fatura_app_luca_isletme', JSON.stringify(hizliFisItems));
+        localStorage.setItem('fatura_app_luca_data', JSON.stringify({ isIsletme: true, data: hizliFisItems, raw: rawInvoices }));
+        localStorage.setItem('luca_aktarim_faturalar', JSON.stringify(hizliFisItems));
+        localStorage.setItem('luca_transfer_data', JSON.stringify(hizliFisItems));
+        localStorage.setItem('hizli_fis_data', JSON.stringify(hizliFisItems));
       } catch (e) {
         console.error('LocalStorage error:', e);
       }
 
       // B) CustomEvent & PostMessage
-      const payload = { isIsletme: true, isletmeRows, faturalar: rawInvoices, count: selectedInvoices.length };
+      const payload = { isIsletme: true, hizliFisItems, isletmeRows, faturalar: rawInvoices, count: selectedInvoices.length };
       
-      window.dispatchEvent(new CustomEvent('FATURA_APP_LUCA_SEND_ISLETME', { detail: isletmeRows }));
+      window.dispatchEvent(new CustomEvent('FATURA_APP_LUCA_SEND_ISLETME', { detail: hizliFisItems }));
       window.dispatchEvent(new CustomEvent('FATURA_APP_LUCA_DATA', { detail: payload }));
-      window.dispatchEvent(new CustomEvent('LUCA_SEND_INVOICES', { detail: rawInvoices }));
-      document.dispatchEvent(new CustomEvent('FATURA_APP_LUCA_SEND_ISLETME', { detail: isletmeRows }));
+      window.dispatchEvent(new CustomEvent('LUCA_SEND_INVOICES', { detail: hizliFisItems }));
+      document.dispatchEvent(new CustomEvent('FATURA_APP_LUCA_SEND_ISLETME', { detail: hizliFisItems }));
       document.dispatchEvent(new CustomEvent('FATURA_APP_LUCA_DATA', { detail: payload }));
 
-      window.postMessage({ type: 'FATURA_APP_LUCA_SEND_ISLETME', detail: isletmeRows, data: isletmeRows, payload }, '*');
+      window.postMessage({ type: 'FATURA_APP_LUCA_SEND_ISLETME', detail: hizliFisItems, data: hizliFisItems, payload }, '*');
       window.postMessage({ type: 'FATURA_APP_LUCA_DATA', detail: payload, data: payload }, '*');
 
-      toast.success(`${selectedInvoices.length} fatura İşletme Defteri formatında Luca Eklentisine gönderildi!`);
+      toast.success(`${selectedInvoices.length} fatura Luca Hızlı Fiş (İşletme) formatında hazırlandı ve eklentiye iletildi!`);
     } else {
       if (!settings) return toast.error('KDV Ayarları bulunamadı. Lütfen ayarları yapın.');
       let exportData: any[] = [];
@@ -436,8 +562,22 @@ export function FaturaAktarim() {
                 className="h-9 gap-1.5 border-emerald-300 text-emerald-700 hover:bg-emerald-50"
               >
                 <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
-                {isIsletmeDefteri ? "İşletme Excel'e Aktar" : "Luca Excel İndir"}
+                {isIsletmeDefteri ? "İşletme Excel İndir" : "Luca Excel İndir"}
               </Button>
+
+              {isIsletmeDefteri && (
+                <Button 
+                  onClick={handleCopyScript} 
+                  disabled={selectedIds.length === 0} 
+                  variant="outline" 
+                  className="h-9 gap-1.5 border-amber-300 text-amber-800 bg-amber-50 hover:bg-amber-100"
+                  title="Luca Hızlı Fiş (hizliFisPopUp.do) sayfasına otomatik yapıştırma scripti kopyalar"
+                >
+                  {copied ? <Check className="w-4 h-4 text-green-600" /> : <Copy className="w-4 h-4 text-amber-600" />}
+                  {copied ? "Kopyalandı!" : "📋 Hızlı Fiş Kodu Kopyala"}
+                </Button>
+              )}
+
               <Button 
                 onClick={handleExtensionExport} 
                 disabled={selectedIds.length === 0} 
