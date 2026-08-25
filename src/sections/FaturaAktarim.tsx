@@ -348,14 +348,14 @@ export function FaturaAktarim() {
     }
   };
 
-  // LUCA HIZLI FİŞ (hizliFisPopUp.do) KONSOL SCRIPTİNİ KOPYALA
+  // LUCA HIZLI FİŞ (hizliFisPopUp.do) KONSOL SCRIPTİNİ KOPYALA (ALT + E TUŞ DESTEKLİ)
   const handleCopyScript = () => {
     if (selectedIds.length === 0) return toast.error('Lütfen fatura seçin.');
     const selectedInvoices = invoices.filter(inv => selectedIds.includes(inv.id));
     const items = getLucaHizliFisItems(selectedInvoices);
 
-    const scriptCode = `// Luca Hızlı Fiş (hizliFisPopUp.do) Otomatik Doldurma Kodu
-(function() {
+    const scriptCode = `// Luca Hızlı Fiş (hizliFisPopUp.do) Otomatik Doldurma ve Alt+E Satır Açma Kodu
+(async function() {
   const faturalar = ${JSON.stringify(items, null, 2)};
   
   function setVal(id, val) {
@@ -368,46 +368,62 @@ export function FaturaAktarim() {
     }
   }
 
-  function ensureRows(count) {
-    let current = document.querySelectorAll('#tBody tr').length;
-    while (current < count) {
-      if (typeof window.satirEkle === 'function') {
-        window.satirEkle();
-      } else if (typeof window.addRow === 'function') {
-        window.addRow();
-      } else {
-        const lastDelete = document.querySelector('#delete' + (current - 1));
-        const addBtn = document.querySelector("input[value='+']") || (lastDelete && lastDelete.nextElementSibling);
-        if (addBtn) addBtn.click();
-        else break;
-      }
-      current = document.querySelectorAll('#tBody tr').length;
+  function pressAltE() {
+    const altEBtn = document.querySelector("[hotkey*='Alt+E'], [hotkey*='alt+e'], [hotkey*='ALT+E'], [hotkey*='Alt+e']");
+    if (altEBtn) {
+      altEBtn.click();
+      return;
     }
+    const evtDown = new KeyboardEvent('keydown', { key: 'e', code: 'KeyE', keyCode: 69, which: 69, altKey: true, bubbles: true, cancelable: true });
+    const evtUp = new KeyboardEvent('keyup', { key: 'e', code: 'KeyE', keyCode: 69, which: 69, altKey: true, bubbles: true, cancelable: true });
+    const target = document.activeElement || document.body;
+    target.dispatchEvent(evtDown);
+    target.dispatchEvent(evtUp);
+    document.dispatchEvent(evtDown);
+    document.dispatchEvent(evtUp);
+    window.dispatchEvent(evtDown);
+    window.dispatchEvent(evtUp);
+    if (typeof window.satirEkle === 'function') window.satirEkle();
+    else if (typeof window.addRow === 'function') window.addRow();
   }
 
-  ensureRows(faturalar.length);
+  for (let i = 0; i < faturalar.length; i++) {
+    const item = faturalar[i];
+    
+    // Satır i henüz yoksa Alt+E bas ve bekle
+    if (!document.getElementById('islem' + i) && i > 0) {
+      pressAltE();
+      let attempts = 0;
+      while (!document.getElementById('islem' + i) && attempts < 25) {
+        await new Promise(r => setTimeout(r, 40));
+        attempts++;
+      }
+    }
 
-  faturalar.forEach((item, i) => {
-    setTimeout(() => {
-      setVal('islem' + i, item.tur);
-      setVal('kategori' + i, item.kategori || '1');
-      setVal('belge' + i, item.belge || '1');
-      setVal('evrakTarih' + i, item.evrakTarih);
-      setVal('kayitTarihi' + i, item.kayitTarihi || item.evrakTarih);
-      setVal('seriNo' + i, item.seriNo || '');
-      setVal('evrakNo' + i, item.evrakNo || '');
-      setVal('tckn' + i, item.tckn || '');
-      setVal('soyadi' + i, item.soyadi || '');
-      setVal('adi' + i, item.adi || '');
-      setVal('aciklama' + i, item.aciklama || '');
-      setVal('tutar' + i, (item.tutar || '').toString().replace('.', ','));
-      setVal('kdvOran2_' + i, item.kdvOran || '20.0');
-      setVal('kdvTutar' + i, (item.kdvTutar || '').toString().replace('.', ','));
-      setVal('topNotBura' + i, (item.toplamTutar || '').toString().replace('.', ','));
-      if (item.tevkifat && item.tevkifat !== '0') setVal('tevkifat' + i, item.tevkifat);
-      if (item.stopajTutari && item.stopajTutari > 0) setVal('stopajTutari' + i, (item.stopajTutari || '').toString().replace('.', ','));
-    }, i * 40);
-  });
+    setVal('islem' + i, item.tur);
+    setVal('kategori' + i, item.kategori || '1');
+    setVal('belge' + i, item.belge || '1');
+    setVal('evrakTarih' + i, item.evrakTarih);
+    setVal('kayitTarihi' + i, item.kayitTarihi || item.evrakTarih);
+    setVal('seriNo' + i, item.seriNo || '');
+    setVal('evrakNo' + i, item.evrakNo || '');
+    setVal('tckn' + i, item.tckn || '');
+    setVal('soyadi' + i, item.soyadi || '');
+    setVal('adi' + i, item.adi || '');
+    setVal('aciklama' + i, item.aciklama || '');
+    setVal('tutar' + i, (item.tutar !== undefined ? item.tutar : item.matrah).toString().replace('.', ','));
+    setVal('kdvOran2_' + i, item.kdvOran || '20.0');
+    setVal('kdvTutar' + i, (item.kdvTutar !== undefined ? item.kdvTutar : item.kdvTutari).toString().replace('.', ','));
+    setVal('topNotBura' + i, (item.toplamTutar !== undefined ? item.toplamTutar : item.toplam).toString().replace('.', ','));
+    if (item.tevkifat && item.tevkifat !== '0') setVal('tevkifat' + i, item.tevkifat);
+    if (item.stopajTutari && item.stopajTutari > 0) setVal('stopajTutari' + i, (item.stopajTutari || '').toString().replace('.', ','));
+
+    // Sonraki satır için Alt + E tuşuna bas
+    if (i < faturalar.length - 1) {
+      pressAltE();
+      await new Promise(r => setTimeout(r, 60));
+    }
+  }
 
   alert(faturalar.length + ' adet fatura Luca Hızlı Fiş tablosuna aktarıldı!');
 })();`;
