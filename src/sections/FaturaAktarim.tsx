@@ -134,6 +134,8 @@ export function FaturaAktarim() {
     // Meblağlar
     const matrah = parseFloat(fatura.matrah) || 0;
     const kdvTutar = parseFloat(fatura.kdvTutari) || 0;
+    const tevkifatTutar = parseFloat(fatura.tevkifatTutari) || 0;
+    const stopajTutar = parseFloat(fatura.stopajTutari) || 0;
     const oivTutar = isAlis ? (parseFloat(fatura.oivTutari) || 0) : 0;
     const toplam = isAlis ? (parseFloat(fatura.toplamTutar) || 0) : (parseFloat(fatura.alinanUcret) || 0);
     
@@ -177,6 +179,13 @@ export function FaturaAktarim() {
             
             if (oivTutar > 0) satirListesi.push(createRow(settings?.oivKodu || '689.01', oivTutar, 0, aciklama + ' (ÖİV)'));
             
+            if (tevkifatTutar > 0) {
+              satirListesi.push(createRow(settings?.tevkifat || '360.01', 0, tevkifatTutar, aciklama + ' (KDV Tevkifatı)'));
+            }
+            if (stopajTutar > 0) {
+              satirListesi.push(createRow(settings?.stopaj || '360.02', 0, stopajTutar, aciklama + ' (Stopaj Kesintisi)'));
+            }
+
             satirListesi.push(createRow(cariKod, 0, toplam, aciklama));
         } else {
             satirListesi.push(createRow(cariKod, toplam, 0, aciklama));
@@ -186,9 +195,23 @@ export function FaturaAktarim() {
         }
     } else {
         if (!isIade) {
+            // 1. CARİ HESAP BORÇLU (Net ödenecek / tahsil edilecek tutar)
             satirListesi.push(createRow(cariKod, toplam, 0, aciklama));
+
+            // 2. 193 NOLU HESAP BORÇLU (Peşin Ödenen Vergi / Stopaj Kesintisi)
+            if (stopajTutar > 0) {
+              const stopajHesabi = settings?.satisStopaj || settings?.stopaj || '193';
+              satirListesi.push(createRow(stopajHesabi, stopajTutar, 0, aciklama + ' (Stopaj Kesintisi)'));
+            }
+
+            // 3. 600 LÜ HESAP ALACAKLI (Matrah)
             satirListesi.push(createRow(gelirGiderKod, 0, matrah, aciklama));
-            satirListesi.push(createRow(kdvKodu, 0, kdvTutar, aciklama));
+
+            // 4. 391 ALACAKLI (Net KDV = Hesaplanan KDV - Tevkifat)
+            const netKdvTutar = Math.max(0, kdvTutar - tevkifatTutar);
+            if (netKdvTutar > 0) {
+              satirListesi.push(createRow(kdvKodu, 0, netKdvTutar, aciklama + (tevkifatTutar > 0 ? ' (Tevkifatlı KDV)' : '')));
+            }
         } else {
             satirListesi.push(createRow(gelirGiderKod, matrah, 0, aciklama));
             satirListesi.push(createRow(kdvKodu, kdvTutar, 0, aciklama));

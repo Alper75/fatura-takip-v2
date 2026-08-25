@@ -352,7 +352,10 @@ export function AlisFaturaListesi() {
                       data-luca-toplam={fatura.toplamTutar}
                       data-luca-tevkifat-kodu={fatura.tevkifatKodu || ''}
                       data-luca-tevkifat-oran={fatura.tevkifatOrani || ''}
+                      data-luca-tevkifat-tutar={fatura.tevkifatTutari || 0}
                       data-luca-stopaj-kodu={fatura.stopajKodu || ''}
+                      data-luca-stopaj-oran={fatura.stopajOrani || ''}
+                      data-luca-stopaj-tutar={fatura.stopajTutari || 0}
                     >
                       <TableCell className="font-medium text-slate-900">
                         {fatura.faturaNo}

@@ -205,16 +205,23 @@ export function LucaKdvAyarlari() {
         <Card className="md:col-span-2">
           <CardHeader className="pb-3 border-b border-slate-100 mb-4">
             <CardTitle className="text-md text-amber-700">Tevkifat ve Stopaj Hesapları</CardTitle>
-            <CardDescription>Uygulanacak kesintilerin muhasebe alt hesapları (Örn: 360)</CardDescription>
+            <CardDescription>Uygulanacak kesintilerin muhasebe alt hesapları (Örn: 193 Satış Stopajı, 360 Alış Stopajı ve Tevkifat)</CardDescription>
           </CardHeader>
-          <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <CardContent className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="space-y-1">
-              <label className="text-xs font-medium text-slate-700">Tevkifat Hesabı</label>
-              <LucaAccountSelect value={settings.tevkifat} onChange={(val) => updateRootSetting('tevkifat', val)} />
+              <label className="text-xs font-medium text-slate-700">Satış Stopajı Hesabı (Borç)</label>
+              <LucaAccountSelect value={settings.satisStopaj} onChange={(val) => updateRootSetting('satisStopaj', val)} placeholder="Örn: 193 veya 193.01" />
+              <p className="text-[10px] text-slate-500 mt-1">Bizim kestiğimiz stopajlı satış faturalarında borçlu yazılır.</p>
             </div>
             <div className="space-y-1">
-              <label className="text-xs font-medium text-slate-700">Stopaj Hesabı</label>
-              <LucaAccountSelect value={settings.stopaj} onChange={(val) => updateRootSetting('stopaj', val)} />
+              <label className="text-xs font-medium text-slate-700">Alış Stopajı Hesabı (Alacak)</label>
+              <LucaAccountSelect value={settings.alisStopaj || settings.stopaj} onChange={(val) => updateRootSetting('alisStopaj', val)} placeholder="Örn: 360 veya 360.02" />
+              <p className="text-[10px] text-slate-500 mt-1">Bize kesilen stopajlı alış faturalarında alacaklı yazılır.</p>
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-slate-700">KDV Tevkifat Hesabı</label>
+              <LucaAccountSelect value={settings.tevkifat} onChange={(val) => updateRootSetting('tevkifat', val)} placeholder="Örn: 360 veya 360.01" />
+              <p className="text-[10px] text-slate-500 mt-1">Alış tevkifatında alacaklı yazılır.</p>
             </div>
           </CardContent>
         </Card>

@@ -496,7 +496,10 @@ export function SatisFaturaListesi() {
                       data-luca-toplam={fatura.alinanUcret}
                       data-luca-tevkifat-kodu={fatura.tevkifatKodu || ''}
                       data-luca-tevkifat-oran={fatura.tevkifatOrani || ''}
+                      data-luca-tevkifat-tutar={fatura.tevkifatTutari || 0}
                       data-luca-stopaj-kodu={fatura.stopajKodu || ''}
+                      data-luca-stopaj-oran={fatura.stopajOrani || ''}
+                      data-luca-stopaj-tutar={fatura.stopajTutari || 0}
                     >
                       <TableCell className="text-slate-600">
                         <div className="flex flex-col gap-1">
