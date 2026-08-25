@@ -291,10 +291,49 @@ export function FaturaAktarim() {
     const selectedInvoices = invoices.filter(inv => selectedIds.includes(inv.id));
 
     if (isIsletmeDefteri) {
-      const exportData = selectedInvoices.map(inv => getIsletmeDefteriSatiri(inv, aracGideriIds.includes(inv.id)));
-      window.dispatchEvent(new CustomEvent('FATURA_APP_LUCA_SEND_ISLETME', {
-        detail: exportData
+      const isletmeRows = selectedInvoices.map(inv => getIsletmeDefteriSatiri(inv, aracGideriIds.includes(inv.id)));
+      
+      const rawInvoices = selectedInvoices.map(inv => ({
+        id: inv.id,
+        faturaNo: inv.faturaNo || '',
+        faturaTarihi: inv.faturaTarihi,
+        unvan: inv.ad || (cariler.find(c => c.id === inv.cariId)?.unvan) || '',
+        ad: inv.ad || '',
+        tcVkn: inv.tcVkn || (cariler.find(c => c.id === inv.cariId)?.vknTckn) || '',
+        matrah: parseFloat(inv.matrah) || 0,
+        kdvOrani: inv.kdvOrani || '20',
+        kdvTutari: parseFloat(inv.kdvTutari) || 0,
+        tevkifatTutari: parseFloat(inv.tevkifatTutari) || 0,
+        stopajTutari: parseFloat(inv.stopajTutari) || 0,
+        toplamTutar: inv._type === 'ALIS' ? (parseFloat(inv.toplamTutar) || 0) : (parseFloat(inv.alinanUcret) || 0),
+        tur: inv._type === 'ALIS' ? 'gider' : 'gelir',
+        tip: inv._type === 'ALIS' ? 'ALIS' : 'SATIS',
+        defterTuru: 'ISLETME',
+        isAracGideri: aracGideriIds.includes(inv.id)
       }));
+
+      // A) LocalStorage kaydı
+      try {
+        localStorage.setItem('fatura_app_luca_isletme', JSON.stringify(isletmeRows));
+        localStorage.setItem('fatura_app_luca_data', JSON.stringify({ isIsletme: true, data: isletmeRows, faturalar: rawInvoices }));
+        localStorage.setItem('luca_aktarim_faturalar', JSON.stringify(rawInvoices));
+        localStorage.setItem('luca_transfer_data', JSON.stringify(rawInvoices));
+      } catch (e) {
+        console.error('LocalStorage error:', e);
+      }
+
+      // B) CustomEvent & PostMessage
+      const payload = { isIsletme: true, isletmeRows, faturalar: rawInvoices, count: selectedInvoices.length };
+      
+      window.dispatchEvent(new CustomEvent('FATURA_APP_LUCA_SEND_ISLETME', { detail: isletmeRows }));
+      window.dispatchEvent(new CustomEvent('FATURA_APP_LUCA_DATA', { detail: payload }));
+      window.dispatchEvent(new CustomEvent('LUCA_SEND_INVOICES', { detail: rawInvoices }));
+      document.dispatchEvent(new CustomEvent('FATURA_APP_LUCA_SEND_ISLETME', { detail: isletmeRows }));
+      document.dispatchEvent(new CustomEvent('FATURA_APP_LUCA_DATA', { detail: payload }));
+
+      window.postMessage({ type: 'FATURA_APP_LUCA_SEND_ISLETME', detail: isletmeRows, data: isletmeRows, payload }, '*');
+      window.postMessage({ type: 'FATURA_APP_LUCA_DATA', detail: payload, data: payload }, '*');
+
       toast.success(`${selectedInvoices.length} fatura İşletme Defteri formatında Luca Eklentisine gönderildi!`);
     } else {
       if (!settings) return toast.error('KDV Ayarları bulunamadı. Lütfen ayarları yapın.');
@@ -313,9 +352,24 @@ export function FaturaAktarim() {
         exportData = [...exportData, ...extRows];
       });
 
-      window.dispatchEvent(new CustomEvent('FATURA_APP_LUCA_SEND_MAHSUP', {
-        detail: exportData
-      }));
+      try {
+        localStorage.setItem('fatura_app_luca_mahsup', JSON.stringify(exportData));
+        localStorage.setItem('fatura_app_luca_data', JSON.stringify({ isIsletme: false, data: exportData }));
+        localStorage.setItem('luca_aktarim_faturalar', JSON.stringify(exportData));
+      } catch (e) {
+        console.error('LocalStorage error:', e);
+      }
+
+      const payload = { isIsletme: false, mahsupRows: exportData, count: selectedInvoices.length };
+
+      window.dispatchEvent(new CustomEvent('FATURA_APP_LUCA_SEND_MAHSUP', { detail: exportData }));
+      window.dispatchEvent(new CustomEvent('FATURA_APP_LUCA_DATA', { detail: payload }));
+      document.dispatchEvent(new CustomEvent('FATURA_APP_LUCA_SEND_MAHSUP', { detail: exportData }));
+      document.dispatchEvent(new CustomEvent('FATURA_APP_LUCA_DATA', { detail: payload }));
+
+      window.postMessage({ type: 'FATURA_APP_LUCA_SEND_MAHSUP', detail: exportData, data: exportData }, '*');
+      window.postMessage({ type: 'FATURA_APP_LUCA_DATA', detail: payload, data: payload }, '*');
+
       toast.success(`${selectedInvoices.length} fatura Mahsup Fişi olarak Luca Eklentisine gönderildi!`);
     }
   };
@@ -430,7 +484,28 @@ export function FaturaAktarim() {
                     const isArac = aracGideriIds.includes(inv.id);
 
                     return (
-                      <TableRow key={inv.id} className={selectedIds.includes(inv.id) ? 'bg-indigo-50/40' : ''}>
+                      <TableRow 
+                        key={inv.id} 
+                        className={selectedIds.includes(inv.id) ? 'bg-indigo-50/40' : ''}
+                        data-luca-no={inv.faturaNo || ''}
+                        data-luca-tarih={inv.faturaTarihi}
+                        data-luca-unvan={inv.ad || ''}
+                        data-luca-vkn={inv.tcVkn || ''}
+                        data-luca-matrah={matrah}
+                        data-luca-kdv={kdvTutar}
+                        data-luca-kdv-oran={inv.kdvOrani || '20'}
+                        data-luca-toplam={toplam}
+                        data-luca-tur={isAlis ? 'alis' : 'satis'}
+                        data-luca-tip={isAlis ? 'gider' : 'gelir'}
+                        data-luca-defter-turu={isIsletmeDefteri ? 'isletme' : 'bilanco'}
+                        data-luca-tevkifat-kodu={inv.tevkifatKodu || ''}
+                        data-luca-tevkifat-oran={inv.tevkifatOrani || ''}
+                        data-luca-tevkifat-tutar={inv.tevkifatTutari || 0}
+                        data-luca-stopaj-kodu={inv.stopajKodu || ''}
+                        data-luca-stopaj-oran={inv.stopajOrani || ''}
+                        data-luca-stopaj-tutar={inv.stopajTutari || 0}
+                        data-luca-muhasebe-kodu={inv.muhasebeKodu || ''}
+                      >
                         <TableCell className="text-center">
                           <Checkbox checked={selectedIds.includes(inv.id)} onCheckedChange={() => toggleSelection(inv.id)} />
                         </TableCell>
