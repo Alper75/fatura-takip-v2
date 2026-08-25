@@ -114,6 +114,11 @@ export function FaturaAktarim() {
     }
     
     const kdvOrani = (fatura.kdvOrani || 20).toString();
+    const matrah = parseFloat(fatura.matrah) || 0;
+    const kdvTutar = parseFloat(fatura.kdvTutari) || 0;
+    const tevkifatTutar = parseFloat(fatura.tevkifatTutari) || 0;
+    const stopajTutar = parseFloat(fatura.stopajTutari) || 0;
+    const isTevkifatli = tevkifatTutar > 0;
 
     // Matrah Hesabı (600 / 153 / 770)
     let gelirGiderKod = isAlis ? (isIade ? '600' : '153') : (isIade ? '610' : '600');
@@ -121,9 +126,13 @@ export function FaturaAktarim() {
       gelirGiderKod = fatura.muhasebeKodu;
     } else if (settings) {
       if (!isAlis) {
-        gelirGiderKod = isIade 
-          ? (settings.satis_iade_matrah?.[kdvOrani] || '610') 
-          : (settings.satis_matrah?.[kdvOrani] || settings.varsayilanSatisKodu || '600');
+        if (isIade) {
+          gelirGiderKod = settings.satis_iade_matrah?.[kdvOrani] || '610';
+        } else if (isTevkifatli) {
+          gelirGiderKod = settings.satis_tevkifat_matrah?.[kdvOrani] || settings.satis_tevkifat_matrah?.['varsayilan'] || settings.satis_matrah?.[kdvOrani] || settings.varsayilanSatisKodu || '600';
+        } else {
+          gelirGiderKod = settings.satis_matrah?.[kdvOrani] || settings.varsayilanSatisKodu || '600';
+        }
       } else {
         gelirGiderKod = isIade 
           ? (settings.alis_iade_matrah?.[kdvOrani] || '600') 
@@ -142,11 +151,6 @@ export function FaturaAktarim() {
     }
     if (!kdvKodu) kdvKodu = isAlis ? (isIade ? '391' : '191') : (isIade ? '191' : '391');
 
-    // Meblağlar
-    const matrah = parseFloat(fatura.matrah) || 0;
-    const kdvTutar = parseFloat(fatura.kdvTutari) || 0;
-    const tevkifatTutar = parseFloat(fatura.tevkifatTutari) || 0;
-    const stopajTutar = parseFloat(fatura.stopajTutari) || 0;
     const oivTutar = isAlis ? (parseFloat(fatura.oivTutari) || 0) : 0;
     const toplam = isAlis ? (parseFloat(fatura.toplamTutar) || 0) : (parseFloat(fatura.alinanUcret) || 0);
     

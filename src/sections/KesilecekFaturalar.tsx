@@ -949,6 +949,22 @@ export function KesilecekFaturalar() {
       const matchingCari = cariler.find(c => c.vknTckn === finalVkn);
       const cariId = matchingCari ? matchingCari.id : undefined;
 
+      // Akıllı Cari Hafızası: Cari için daha önce tevkifatlı / normal faturada kullanılan 600 kodunu bul
+      let learnedMuhasebeKodu = '';
+      const isTevkifatli = Number(gibInv.tevkifatTutari || 0) > 0;
+      const previousInvoicesForCari = satisFaturalari.filter(sf => 
+        (cariId && sf.cariId === cariId) || (finalVkn && sf.tcVkn === finalVkn)
+      );
+      const matchSameType = previousInvoicesForCari.find(sf => 
+        isTevkifatli ? (Number(sf.tevkifatTutari || 0) > 0 && sf.muhasebeKodu) : (!(Number(sf.tevkifatTutari || 0) > 0) && sf.muhasebeKodu)
+      );
+      if (matchSameType && matchSameType.muhasebeKodu) {
+        learnedMuhasebeKodu = matchSameType.muhasebeKodu;
+      } else {
+        const anyMatch = previousInvoicesForCari.find(sf => sf.muhasebeKodu);
+        if (anyMatch && anyMatch.muhasebeKodu) learnedMuhasebeKodu = anyMatch.muhasebeKodu;
+      }
+
       await addSatisFatura({
         id: gibInv.ettn,
         gibUuid: gibInv.ettn,
@@ -969,6 +985,7 @@ export function KesilecekFaturalar() {
         stopajOrani: (gibInv.stopajTutari && gibInv.matrah) ? Math.round((gibInv.stopajTutari / gibInv.matrah) * 100).toString() : '0',
         stopajTutari: gibInv.stopajTutari || 0,
         stopajKodu: '',
+        muhasebeKodu: learnedMuhasebeKodu || undefined,
         faturaNo: gibInv.belgeNumarasi || '',
         aciklama: gibInv.aciklama || 'GİB e-Arşiv Portalından aktarıldı. Alıcı: ' + finalAliciUnvan,
         cariId: cariId,
@@ -1014,6 +1031,10 @@ export function KesilecekFaturalar() {
               finalAmount = detailsResult.tutar || 0;
               if (detailsResult.aliciUnvan) finalAliciUnvan = detailsResult.aliciUnvan;
               if (detailsResult.aliciVknTckn) finalVkn = detailsResult.aliciVknTckn;
+              if (detailsResult.tevkifatTutari) gibInv.tevkifatTutari = detailsResult.tevkifatTutari;
+              if (detailsResult.stopajTutari) gibInv.stopajTutari = detailsResult.stopajTutari;
+              if (detailsResult.matrah) gibInv.matrah = detailsResult.matrah;
+              if (detailsResult.kdvTutari) gibInv.kdvTutari = detailsResult.kdvTutari;
               if (finalAmount === 0) {
                 console.error("GİB Parse Hatası Debug Bilgisi:", detailsResult);
                 toast.error(`Tutar bulunamadı! Detay: ${JSON.stringify(detailsResult.debugRegexMatches || {})}`);
@@ -1040,6 +1061,22 @@ export function KesilecekFaturalar() {
         const matchingCariAll = cariler.find(c => c.vknTckn === finalVkn);
         const cariIdAll = matchingCariAll ? matchingCariAll.id : undefined;
 
+        // Akıllı Cari Hafızası (Toplu aktarım için)
+        let learnedMuhasebeKoduAll = '';
+        const isTevkifatliAll = Number(gibInv.tevkifatTutari || 0) > 0;
+        const previousInvoicesForCariAll = satisFaturalari.filter(sf => 
+          (cariIdAll && sf.cariId === cariIdAll) || (finalVkn && sf.tcVkn === finalVkn)
+        );
+        const matchSameTypeAll = previousInvoicesForCariAll.find(sf => 
+          isTevkifatliAll ? (Number(sf.tevkifatTutari || 0) > 0 && sf.muhasebeKodu) : (!(Number(sf.tevkifatTutari || 0) > 0) && sf.muhasebeKodu)
+        );
+        if (matchSameTypeAll && matchSameTypeAll.muhasebeKodu) {
+          learnedMuhasebeKoduAll = matchSameTypeAll.muhasebeKodu;
+        } else {
+          const anyMatchAll = previousInvoicesForCariAll.find(sf => sf.muhasebeKodu);
+          if (anyMatchAll && anyMatchAll.muhasebeKodu) learnedMuhasebeKoduAll = anyMatchAll.muhasebeKodu;
+        }
+
         await addSatisFatura({
           id: gibInv.ettn,
           gibUuid: gibInv.ettn,
@@ -1050,16 +1087,17 @@ export function KesilecekFaturalar() {
           adres: 'GİB e-Arşiv Portaldan Aktarıldı',
           hizmetAdi: 'Muhtelif İşlemler (GİB Aktarım)',
           alinanUcret: finalAmount.toString(),
-        matrah: gibInv.matrah || finalAmount,
-        kdvTutari: gibInv.kdvTutari || 0,
-        faturaTarihi: formattedDate,
-        kdvOrani: (gibInv.kdvTutari && gibInv.matrah) ? Math.round((gibInv.kdvTutari / gibInv.matrah) * 100).toString() : '20',
-        tevkifatOrani: (gibInv.tevkifatTutari && gibInv.kdvTutari) ? `${Math.round((gibInv.tevkifatTutari / gibInv.kdvTutari) * 10)}/10` : '0',
-        tevkifatTutari: gibInv.tevkifatTutari || 0,
-        tevkifatKodu: '',
-        stopajOrani: (gibInv.stopajTutari && gibInv.matrah) ? Math.round((gibInv.stopajTutari / gibInv.matrah) * 100).toString() : '0',
-        stopajTutari: gibInv.stopajTutari || 0,
-        stopajKodu: '',
+          matrah: gibInv.matrah || finalAmount,
+          kdvTutari: gibInv.kdvTutari || 0,
+          faturaTarihi: formattedDate,
+          kdvOrani: (gibInv.kdvTutari && gibInv.matrah) ? Math.round((gibInv.kdvTutari / gibInv.matrah) * 100).toString() : '20',
+          tevkifatOrani: (gibInv.tevkifatTutari && gibInv.kdvTutari) ? `${Math.round((gibInv.tevkifatTutari / gibInv.kdvTutari) * 10)}/10` : '0',
+          tevkifatTutari: gibInv.tevkifatTutari || 0,
+          tevkifatKodu: '',
+          stopajOrani: (gibInv.stopajTutari && gibInv.matrah) ? Math.round((gibInv.stopajTutari / gibInv.matrah) * 100).toString() : '0',
+          stopajTutari: gibInv.stopajTutari || 0,
+          stopajKodu: '',
+          muhasebeKodu: learnedMuhasebeKoduAll || undefined,
           faturaNo: gibInv.belgeNumarasi || '',
           aciklama: gibInv.aciklama || 'GİB e-Arşiv Portalından aktarıldı. Alıcı: ' + finalAliciUnvan,
           cariId: cariIdAll,
