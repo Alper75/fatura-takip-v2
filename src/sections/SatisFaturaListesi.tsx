@@ -326,6 +326,7 @@ export function SatisFaturaListesi() {
       tevkifatKodu: fatura.tevkifatKodu || '',
       stopajOrani: fatura.stopajOrani || '0',
       stopajKodu: fatura.stopajKodu || '',
+      muhasebeKodu: fatura.muhasebeKodu || '',
       aciklama: fatura.aciklama || '',
       cariId: fatura.cariId,
       stokKalemleri: fatura.stokKalemleri
@@ -500,6 +501,7 @@ export function SatisFaturaListesi() {
                       data-luca-stopaj-kodu={fatura.stopajKodu || ''}
                       data-luca-stopaj-oran={fatura.stopajOrani || ''}
                       data-luca-stopaj-tutar={fatura.stopajTutari || 0}
+                      data-luca-muhasebe-kodu={fatura.muhasebeKodu || ''}
                     >
                       <TableCell className="text-slate-600">
                         <div className="flex flex-col gap-1">
@@ -524,7 +526,14 @@ export function SatisFaturaListesi() {
                             </span>
                           </div>
                           <div className="flex flex-col min-w-0">
-                            <span className="text-slate-700 font-medium truncate">{fatura.ad || ''} {fatura.soyad || ''}</span>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="text-slate-700 font-medium truncate">{fatura.ad || ''} {fatura.soyad || ''}</span>
+                              {fatura.muhasebeKodu && (
+                                <span className="text-[10px] font-mono bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded border border-indigo-200">
+                                  {fatura.muhasebeKodu}
+                                </span>
+                              )}
+                            </div>
                             {fatura.aciklama && (
                               <span className="text-[10px] text-slate-400 italic truncate" title={fatura.aciklama}>
                                 {fatura.aciklama}
