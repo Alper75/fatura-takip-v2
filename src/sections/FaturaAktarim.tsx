@@ -113,14 +113,25 @@ export function FaturaAktarim() {
       }
     }
     
-    // Matrah Hesabı
+    const kdvOrani = (fatura.kdvOrani || 20).toString();
+
+    // Matrah Hesabı (600 / 153 / 770)
     let gelirGiderKod = isAlis ? (isIade ? '600' : '153') : (isIade ? '610' : '600');
     if (fatura.muhasebeKodu) {
       gelirGiderKod = fatura.muhasebeKodu;
+    } else if (settings) {
+      if (!isAlis) {
+        gelirGiderKod = isIade 
+          ? (settings.satis_iade_matrah?.[kdvOrani] || '610') 
+          : (settings.satis_matrah?.[kdvOrani] || settings.varsayilanSatisKodu || '600');
+      } else {
+        gelirGiderKod = isIade 
+          ? (settings.alis_iade_matrah?.[kdvOrani] || '600') 
+          : (settings.alis_matrah?.[kdvOrani] || settings.varsayilanAlisKodu || '153');
+      }
     }
     
-    // KDV Hesabı
-    const kdvOrani = (fatura.kdvOrani || 20).toString();
+    // KDV Hesabı (391 / 191)
     let kdvKodu = '';
     if (settings) {
       if (isAlis) {
