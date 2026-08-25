@@ -167,16 +167,24 @@ export function FaturaAktarim() {
         belge: '1', // 1: Satış/Alış
         evrakTarih: formatTarih(inv.faturaTarihi),
         kayitTarihi: formatTarih(inv.faturaTarihi),
+        tarih: formatTarih(inv.faturaTarihi),
         seriNo: seriNo,
         evrakNo: fNo,
+        no: fNo,
         tckn: inv.tcVkn || (cariler.find(c => c.id === inv.cariId)?.vknTckn) || '',
+        vkn: inv.tcVkn || (cariler.find(c => c.id === inv.cariId)?.vknTckn) || '',
         soyadi: cariUnvan,
         adi: inv.soyad || '',
+        unvan: cariUnvan,
         aciklama: inv.aciklama || (isAlis ? `Alış - ${cariUnvan}` : `Satış - ${cariUnvan}`),
         tutar: isArac ? Math.round(matrah * 0.7 * 100) / 100 : matrah,
+        matrah: isArac ? Math.round(matrah * 0.7 * 100) / 100 : matrah,
         kdvOran: `${kdvOranNum.toFixed(1)}`, // "20.0", "10.0", "1.0"
+        kdvOrani: `${kdvOranNum}`,
         kdvTutar: isArac ? Math.round(kdvTutar * 0.7 * 100) / 100 : kdvTutar,
+        kdvTutari: isArac ? Math.round(kdvTutar * 0.7 * 100) / 100 : kdvTutar,
         toplamTutar: toplam,
+        toplam: toplam,
         tevkifat: tevkifatVal,
         stopajTutari: stopajTutar
       };
