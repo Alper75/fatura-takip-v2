@@ -6,7 +6,7 @@ const popupPath = path.join(extDir, 'popup.js');
 
 let popupJs = fs.readFileSync(popupPath, 'utf8');
 
-// Replace pasteBtn function in popup.js with robust Alt+E row creation, empty seriNo, TABLO_TURU, kodNo
+// Replace pasteBtn function in popup.js with robust Alt+E row creation, empty seriNo, TABLO_TURU, kodNo unlock
 const targetStart = "    pasteBtn.addEventListener('click', async () => {";
 const targetEnd = "    if (bankPasteBtn) {";
 
@@ -33,6 +33,10 @@ if (startIndex !== -1 && endIndex !== -1) {
                 func: async (invList) => {
                     const setVal = (el, val) => {
                         if (!el) return;
+                        if (el.hasAttribute('readonly')) {
+                            el.removeAttribute('readonly');
+                            el.readOnly = false;
+                        }
                         el.value = val;
                         el.dispatchEvent(new Event('input', { bubbles: true }));
                         el.dispatchEvent(new Event('change', { bubbles: true }));
@@ -108,12 +112,23 @@ if (startIndex !== -1 && endIndex !== -1) {
                                 if (document.getElementById('adi' + i)) setVal(document.getElementById('adi' + i), inv.adi || '');
                                 if (document.getElementById('aciklama' + i)) setVal(document.getElementById('aciklama' + i), inv.aciklama || inv.unvan);
                                 
-                                // Tevkifat / İstisna Kodları
+                                // Tevkifat / İstisna Kodları (Tablo 2 Kısmi Tevkifat + KodNo)
+                                const isTevkifatli = inv.tevkifat && inv.tevkifat !== '0';
                                 if (document.getElementById('TABLO_TURU' + i)) {
-                                    setVal(document.getElementById('TABLO_TURU' + i), inv.tablo || (inv.tevkifat && inv.tevkifat !== '0' ? '6' : '0'));
+                                    setVal(document.getElementById('TABLO_TURU' + i), isTevkifatli ? (inv.tablo || '6') : '0');
                                 }
-                                if (document.getElementById('kodNo' + i)) {
-                                    setVal(document.getElementById('kodNo' + i), inv.kodNo || '');
+                                if (isTevkifatli) {
+                                    const kodEl = document.getElementById('kodNo' + i) || document.querySelector(\`[name="detaylar[\${i}].kodNo"]\`);
+                                    if (kodEl) {
+                                        setVal(kodEl, inv.kodNo || '616');
+                                    }
+                                    const td8 = document.getElementById('td8_' + i);
+                                    if (td8) {
+                                        const inps = td8.querySelectorAll('input');
+                                        inps.forEach(inp => {
+                                            setVal(inp, inv.kodNo || '616');
+                                        });
+                                    }
                                 }
                                 
                                 const tutarVal = inv.tutar !== undefined ? inv.tutar : inv.matrah;
@@ -133,7 +148,7 @@ if (startIndex !== -1 && endIndex !== -1) {
                                 const topVal = inv.toplamTutar !== undefined ? inv.toplamTutar : inv.toplam;
                                 if (topEl && topVal !== undefined) setVal(topEl, topVal.toString().replace('.', ','));
                                 
-                                if (inv.tevkifat && inv.tevkifat !== '0' && document.getElementById('tevkifat' + i)) {
+                                if (isTevkifatli && document.getElementById('tevkifat' + i)) {
                                     setVal(document.getElementById('tevkifat' + i), inv.tevkifat);
                                 }
                                 if (inv.stopajTutari && document.getElementById('stopajTutari' + i)) {

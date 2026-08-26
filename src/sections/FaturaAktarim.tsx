@@ -396,8 +396,12 @@ export function FaturaAktarim() {
   const faturalar = ${JSON.stringify(items, null, 2)};
   
   function setVal(id, val) {
-    const el = document.getElementById(id);
+    const el = typeof id === 'string' ? document.getElementById(id) : id;
     if (el) {
+      if (el.hasAttribute('readonly')) {
+        el.removeAttribute('readonly');
+        el.readOnly = false;
+      }
       el.value = val;
       el.dispatchEvent(new Event('input', { bubbles: true }));
       el.dispatchEvent(new Event('change', { bubbles: true }));
@@ -448,13 +452,23 @@ export function FaturaAktarim() {
     setVal('soyadi' + i, item.soyadi || '');
     setVal('adi' + i, item.adi || '');
     setVal('aciklama' + i, item.aciklama || '');
-    setVal('TABLO_TURU' + i, item.tablo || (item.tevkifat && item.tevkifat !== '0' ? '6' : '0'));
-    setVal('kodNo' + i, item.kodNo || '');
+    
+    const isTevkifatli = item.tevkifat && item.tevkifat !== '0';
+    setVal('TABLO_TURU' + i, isTevkifatli ? (item.tablo || '6') : '0');
+    if (isTevkifatli) {
+      const kodEl = document.getElementById('kodNo' + i) || document.querySelector('[name="detaylar[' + i + '].kodNo"]');
+      if (kodEl) setVal(kodEl, item.kodNo || '616');
+      const td8 = document.getElementById('td8_' + i);
+      if (td8) {
+        td8.querySelectorAll('input').forEach(inp => setVal(inp, item.kodNo || '616'));
+      }
+    }
+
     setVal('tutar' + i, (item.tutar !== undefined ? item.tutar : item.matrah).toString().replace('.', ','));
     setVal('kdvOran2_' + i, item.kdvOran || '20.0');
     setVal('kdvTutar' + i, (item.kdvTutar !== undefined ? item.kdvTutar : item.kdvTutari).toString().replace('.', ','));
     setVal('topNotBura' + i, (item.toplamTutar !== undefined ? item.toplamTutar : item.toplam).toString().replace('.', ','));
-    if (item.tevkifat && item.tevkifat !== '0') setVal('tevkifat' + i, item.tevkifat);
+    if (isTevkifatli) setVal('tevkifat' + i, item.tevkifat);
     if (item.stopajTutari && item.stopajTutari > 0) setVal('stopajTutari' + i, (item.stopajTutari || '').toString().replace('.', ','));
 
     // Sonraki satır için Alt + E tuşuna bas
