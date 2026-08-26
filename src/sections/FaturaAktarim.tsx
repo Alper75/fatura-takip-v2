@@ -130,9 +130,20 @@ export function FaturaAktarim() {
     };
   };
 
+  // FATURALARI TARİHE GÖRE (ESKİDEN YENİYE / KRONOLOJİK) SIRALAMA
+  const sortInvoicesChronologically = (list: any[]) => {
+    return [...list].sort((a, b) => {
+      const timeA = new Date(a.faturaTarihi).getTime() || 0;
+      const timeB = new Date(b.faturaTarihi).getTime() || 0;
+      if (timeA !== timeB) return timeA - timeB;
+      return String(a.faturaNo || '').localeCompare(String(b.faturaNo || ''), undefined, { numeric: true });
+    });
+  };
+
   // LUCA HIZLI FİŞ (hizliFisPopUp.do) FORMATI
   const getLucaHizliFisItems = (selectedInvoices: any[]) => {
-    return selectedInvoices.map(inv => {
+    const sorted = sortInvoicesChronologically(selectedInvoices);
+    return sorted.map(inv => {
       const isAlis = inv._type === 'ALIS';
       const matrah = parseFloat(inv.matrah) || 0;
       const kdvTutar = parseFloat(inv.kdvTutari) || 0;
@@ -372,7 +383,7 @@ export function FaturaAktarim() {
 
   const handleExcelExport = () => {
     if (selectedIds.length === 0) return toast.error('Lütfen fatura seçin.');
-    const selectedInvoices = invoices.filter(inv => selectedIds.includes(inv.id));
+    const selectedInvoices = sortInvoicesChronologically(invoices.filter(inv => selectedIds.includes(inv.id)));
 
     if (isIsletmeDefteri) {
       // İŞLETME DEFTERİ EXCEL ÇIKTISI
@@ -401,7 +412,7 @@ export function FaturaAktarim() {
   // LUCA HIZLI FİŞ (hizliFisPopUp.do) KONSOL SCRIPTİNİ KOPYALA (ALT + E TUŞ DESTEKLİ)
   const handleCopyScript = () => {
     if (selectedIds.length === 0) return toast.error('Lütfen fatura seçin.');
-    const selectedInvoices = invoices.filter(inv => selectedIds.includes(inv.id));
+    const selectedInvoices = sortInvoicesChronologically(invoices.filter(inv => selectedIds.includes(inv.id)));
     const items = getLucaHizliFisItems(selectedInvoices);
 
     const scriptCode = `// Luca Hızlı Fiş (hizliFisPopUp.do) Otomatik Doldurma ve Alt+E Satır Açma Kodu
@@ -512,7 +523,7 @@ export function FaturaAktarim() {
 
   const handleExtensionExport = () => {
     if (selectedIds.length === 0) return toast.error('Lütfen fatura seçin.');
-    const selectedInvoices = invoices.filter(inv => selectedIds.includes(inv.id));
+    const selectedInvoices = sortInvoicesChronologically(invoices.filter(inv => selectedIds.includes(inv.id)));
 
     if (isIsletmeDefteri) {
       const hizliFisItems = getLucaHizliFisItems(selectedInvoices);
