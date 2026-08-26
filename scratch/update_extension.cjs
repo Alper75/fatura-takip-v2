@@ -6,7 +6,7 @@ const popupPath = path.join(extDir, 'popup.js');
 
 let popupJs = fs.readFileSync(popupPath, 'utf8');
 
-// Replace pasteBtn function in popup.js with robust Alt+E row creation support
+// Replace pasteBtn function in popup.js with robust Alt+E row creation, empty seriNo, TABLO_TURU, kodNo
 const targetStart = "    pasteBtn.addEventListener('click', async () => {";
 const targetEnd = "    if (bankPasteBtn) {";
 
@@ -101,12 +101,20 @@ if (startIndex !== -1 && endIndex !== -1) {
                                 if (document.getElementById('belge' + i)) setVal(document.getElementById('belge' + i), inv.belge || '1');
                                 if (document.getElementById('evrakTarih' + i)) setVal(document.getElementById('evrakTarih' + i), inv.evrakTarih || inv.tarih);
                                 if (document.getElementById('kayitTarihi' + i)) setVal(document.getElementById('kayitTarihi' + i), inv.kayitTarihi || inv.evrakTarih || inv.tarih);
-                                if (document.getElementById('seriNo' + i)) setVal(document.getElementById('seriNo' + i), inv.seriNo || '');
+                                if (document.getElementById('seriNo' + i)) setVal(document.getElementById('seriNo' + i), '');
                                 if (document.getElementById('evrakNo' + i)) setVal(document.getElementById('evrakNo' + i), inv.evrakNo || inv.no);
                                 if (document.getElementById('tckn' + i)) setVal(document.getElementById('tckn' + i), inv.tckn || inv.vkn);
                                 if (document.getElementById('soyadi' + i)) setVal(document.getElementById('soyadi' + i), inv.soyadi || inv.unvan);
                                 if (document.getElementById('adi' + i)) setVal(document.getElementById('adi' + i), inv.adi || '');
                                 if (document.getElementById('aciklama' + i)) setVal(document.getElementById('aciklama' + i), inv.aciklama || inv.unvan);
+                                
+                                // Tevkifat / İstisna Kodları
+                                if (document.getElementById('TABLO_TURU' + i)) {
+                                    setVal(document.getElementById('TABLO_TURU' + i), inv.tablo || (inv.tevkifat && inv.tevkifat !== '0' ? '6' : '0'));
+                                }
+                                if (document.getElementById('kodNo' + i)) {
+                                    setVal(document.getElementById('kodNo' + i), inv.kodNo || '');
+                                }
                                 
                                 const tutarVal = inv.tutar !== undefined ? inv.tutar : inv.matrah;
                                 if (document.getElementById('tutar' + i) && tutarVal !== undefined) {
@@ -187,7 +195,7 @@ if (startIndex !== -1 && endIndex !== -1) {
 
     popupJs = popupJs.substring(0, startIndex) + newPasteBtnSection + popupJs.substring(endIndex);
     fs.writeFileSync(popupPath, popupJs, 'utf8');
-    console.log('popup.js updated with Alt+E row creation support!');
+    console.log('popup.js updated successfully!');
 } else {
     console.error('Could not find slice target indices in popup.js');
 }

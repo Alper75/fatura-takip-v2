@@ -142,23 +142,58 @@ export function FaturaAktarim() {
       const isArac = aracGideriIds.includes(inv.id);
       const kdvOranNum = parseFloat(inv.kdvOrani || 20);
 
-      // Tevkifat Kodu (Luca Hizli Fis option value)
+      // Tevkifat Kodu (Luca Hizli Fis option value & İstisna Kodu)
       let tevkifatVal = '0';
+      let istisnaTablo = '0';
+      let istisnaKodNo = '';
+
       if (tevkifatTutar > 0) {
+        istisnaTablo = '6'; // Tablo 2 (KISMİ TEVKİFAT UYGULANAN İŞLEMLER)
         const oran = String(inv.tevkifatOrani || '');
-        if (oran.includes('2/10')) tevkifatVal = '10';
-        else if (oran.includes('3/10')) tevkifatVal = '12';
-        else if (oran.includes('4/10')) tevkifatVal = '13';
-        else if (oran.includes('5/10')) tevkifatVal = '11';
-        else if (oran.includes('7/10')) tevkifatVal = '9';
-        else if (oran.includes('9/10')) tevkifatVal = '4';
-        else if (oran.includes('Tam')) tevkifatVal = '5';
-        else tevkifatVal = '11';
+        const dbKod = String(inv.tevkifatKodu || '').trim();
+
+        if (oran.includes('2/10')) {
+          tevkifatVal = '10';
+          istisnaKodNo = dbKod && dbKod.length === 3 ? dbKod : '624'; // 624: Yük Taşımacılığı
+        } else if (oran.includes('3/10')) {
+          tevkifatVal = '12';
+          istisnaKodNo = dbKod && dbKod.length === 3 ? dbKod : '625'; // 625: Ticari Reklam
+        } else if (oran.includes('4/10')) {
+          tevkifatVal = '13';
+          istisnaKodNo = dbKod && dbKod.length === 3 ? dbKod : '601'; // 601: Yapım İşleri
+        } else if (oran.includes('5/10')) {
+          tevkifatVal = '11';
+          istisnaKodNo = dbKod && dbKod.length === 3 ? dbKod : '616'; // 616: Diğer Hizmetler
+        } else if (oran.includes('7/10')) {
+          tevkifatVal = '9';
+          istisnaKodNo = dbKod && dbKod.length === 3 ? dbKod : '612'; // 612: Temizlik Hizmeti
+        } else if (oran.includes('9/10')) {
+          tevkifatVal = '4';
+          istisnaKodNo = dbKod && dbKod.length === 3 ? dbKod : '606'; // 606: İşgücü / 602: Danışmanlık
+        } else if (oran.includes('Tam')) {
+          tevkifatVal = '5';
+          istisnaKodNo = dbKod && dbKod.length === 3 ? dbKod : '601';
+        } else {
+          tevkifatVal = '11';
+          istisnaKodNo = dbKod && dbKod.length === 3 ? dbKod : '616';
+        }
       }
 
       const cariUnvan = inv.ad || (cariler.find(c => c.id === inv.cariId)?.unvan) || '';
       const fNo = inv.faturaNo || '';
-      const seriNo = fNo.replace(/[^a-zA-Z]/g, '').substring(0, 3);
+
+      // Açıklamayı temizle: "GİB e-Arşiv Portalından aktarıldı. Alıcı: ..." gibi kalıpları kaldır
+      let temizAciklama = (inv.aciklama || '').trim();
+      if (temizAciklama) {
+        temizAciklama = temizAciklama
+          .replace(/GİB\s*e-Arşiv\s*Portalından\s*aktarıldı\.?\s*(Alıcı:|Satıcı:)?\s*/gi, '')
+          .replace(/^Alıcı:\s*/gi, '')
+          .replace(/^Satıcı:\s*/gi, '')
+          .trim();
+      }
+      if (!temizAciklama) {
+        temizAciklama = cariUnvan || (isAlis ? 'Mal/Hizmet Alımı' : 'Mal/Hizmet Satışı');
+      }
 
       return {
         tur: isAlis ? '1' : '0', // 0: Gelir, 1: Gider
@@ -168,7 +203,7 @@ export function FaturaAktarim() {
         evrakTarih: formatTarih(inv.faturaTarihi),
         kayitTarihi: formatTarih(inv.faturaTarihi),
         tarih: formatTarih(inv.faturaTarihi),
-        seriNo: seriNo,
+        seriNo: '', // Seri no boş bırakılır (GİB yazılmasın)
         evrakNo: fNo,
         no: fNo,
         tckn: inv.tcVkn || (cariler.find(c => c.id === inv.cariId)?.vknTckn) || '',
@@ -176,7 +211,7 @@ export function FaturaAktarim() {
         soyadi: cariUnvan,
         adi: inv.soyad || '',
         unvan: cariUnvan,
-        aciklama: inv.aciklama || (isAlis ? `Alış - ${cariUnvan}` : `Satış - ${cariUnvan}`),
+        aciklama: temizAciklama,
         tutar: isArac ? Math.round(matrah * 0.7 * 100) / 100 : matrah,
         matrah: isArac ? Math.round(matrah * 0.7 * 100) / 100 : matrah,
         kdvOran: `${kdvOranNum.toFixed(1)}`, // "20.0", "10.0", "1.0"
@@ -186,6 +221,8 @@ export function FaturaAktarim() {
         toplamTutar: toplam,
         toplam: toplam,
         tevkifat: tevkifatVal,
+        tablo: istisnaTablo,
+        kodNo: istisnaKodNo,
         stopajTutari: stopajTutar
       };
     });
@@ -405,12 +442,14 @@ export function FaturaAktarim() {
     setVal('belge' + i, item.belge || '1');
     setVal('evrakTarih' + i, item.evrakTarih);
     setVal('kayitTarihi' + i, item.kayitTarihi || item.evrakTarih);
-    setVal('seriNo' + i, item.seriNo || '');
+    setVal('seriNo' + i, '');
     setVal('evrakNo' + i, item.evrakNo || '');
     setVal('tckn' + i, item.tckn || '');
     setVal('soyadi' + i, item.soyadi || '');
     setVal('adi' + i, item.adi || '');
     setVal('aciklama' + i, item.aciklama || '');
+    setVal('TABLO_TURU' + i, item.tablo || (item.tevkifat && item.tevkifat !== '0' ? '6' : '0'));
+    setVal('kodNo' + i, item.kodNo || '');
     setVal('tutar' + i, (item.tutar !== undefined ? item.tutar : item.matrah).toString().replace('.', ','));
     setVal('kdvOran2_' + i, item.kdvOran || '20.0');
     setVal('kdvTutar' + i, (item.kdvTutar !== undefined ? item.kdvTutar : item.kdvTutari).toString().replace('.', ','));
