@@ -267,19 +267,19 @@ export function Sidebar({ onItemClick }: SidebarProps) {
     <aside className="w-full bg-white flex flex-col h-full border-r border-slate-100">
       {/* Logo */}
       <div className="p-5 border-b border-slate-100 bg-slate-50/50">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-primary flex items-center justify-center shadow-md shadow-primary/20">
-            <FileText className="w-5 h-5 text-primary-foreground" />
+        <div className="flex items-center gap-3.5">
+          <div className="w-11 h-11 rounded-xl bg-primary flex items-center justify-center shadow-md shadow-primary/20 shrink-0">
+            <FileText className="w-6 h-6 text-primary-foreground" />
           </div>
           <div>
-            <h1 className="font-bold text-slate-900 text-sm tracking-tight">Fatura Takip v2</h1>
-            <p className="text-[11px] text-slate-500 font-medium">Muhasebe & Vergi Portalı</p>
+            <h1 className="font-bold text-slate-900 text-base tracking-tight leading-tight">Fatura Takip v2</h1>
+            <p className="text-xs text-slate-500 font-medium">Muhasebe & Vergi Portalı</p>
           </div>
         </div>
       </div>
 
       {/* Menü Grupları */}
-      <nav className="flex-1 p-3 overflow-y-auto space-y-4">
+      <nav className="flex-1 p-3.5 overflow-y-auto space-y-5">
         {menuGroups.map((group, groupIdx) => {
           const filteredItems = group.items.filter(item => {
             if (item.superAdminOnly) return isSuperAdmin;
@@ -290,11 +290,11 @@ export function Sidebar({ onItemClick }: SidebarProps) {
           if (filteredItems.length === 0) return null;
 
           return (
-            <div key={groupIdx} className="space-y-1">
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider px-3 mb-1.5">
+            <div key={groupIdx} className="space-y-1.5">
+              <p className="text-xs font-bold text-slate-400 uppercase tracking-wider px-3 mb-2">
                 {group.title}
               </p>
-              <ul className="space-y-0.5">
+              <ul className="space-y-1">
                 {filteredItems.map((item) => {
                   const Icon = item.icon;
                   const isActive = item.view === currentView;
@@ -308,13 +308,13 @@ export function Sidebar({ onItemClick }: SidebarProps) {
                           onItemClick?.();
                         }}
                         className={cn(
-                          "w-full justify-start gap-2.5 h-9 px-3 font-medium text-xs rounded-lg transition-all",
+                          "w-full justify-start gap-3 h-10 px-3 font-medium text-sm rounded-lg transition-all",
                           isActive 
                             ? "bg-primary/10 text-primary font-semibold hover:bg-primary/15 shadow-sm" 
                             : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
                         )}
                       >
-                        <Icon className={cn("w-4 h-4 shrink-0 transition-colors", isActive ? "text-primary" : "text-slate-400 group-hover/item:text-slate-700")} />
+                        <Icon className={cn("w-4.5 h-4.5 shrink-0 transition-colors", isActive ? "text-primary" : "text-slate-400 group-hover/item:text-slate-700")} />
                         <span className="flex-1 text-left truncate">{item.label}</span>
                         
                         {item.actionIcon && (
@@ -325,9 +325,9 @@ export function Sidebar({ onItemClick }: SidebarProps) {
                               onItemClick?.();
                             }}
                             title={item.actionTitle}
-                            className="p-1 rounded hover:bg-primary/20 text-primary hover:text-primary transition-all opacity-70 hover:opacity-100"
+                            className="p-1.5 rounded-md hover:bg-primary/20 text-primary hover:text-primary transition-all opacity-70 hover:opacity-100"
                           >
-                            <item.actionIcon className="w-3.5 h-3.5" />
+                            <item.actionIcon className="w-4 h-4" />
                           </span>
                         )}
                       </Button>
@@ -341,24 +341,24 @@ export function Sidebar({ onItemClick }: SidebarProps) {
 
         {/* Fatura Entegrasyonları (Açılır Menü) */}
         {(isAdmin || isSuperAdmin) && (
-          <div className="space-y-1 pt-1">
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider px-3 mb-1.5">
+          <div className="space-y-1.5 pt-1">
+            <p className="text-xs font-bold text-slate-400 uppercase tracking-wider px-3 mb-2">
               Entegratör Servisleri
             </p>
             <Button
               variant="ghost"
               onClick={() => setIsEntegrasyonOpen(!isEntegrasyonOpen)}
               className={cn(
-                "w-full justify-start gap-2.5 h-9 px-3 font-medium text-xs rounded-lg transition-all",
+                "w-full justify-start gap-3 h-10 px-3 font-medium text-sm rounded-lg transition-all",
                 isEntegrasyonOpen ? "text-slate-900 bg-slate-100/70" : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
               )}
             >
-              <Download className="w-4 h-4 shrink-0 text-slate-400" />
+              <Download className="w-4.5 h-4.5 shrink-0 text-slate-400" />
               <span className="flex-1 text-left truncate">e-Fatura Entegrasyonları</span>
-              {isEntegrasyonOpen ? <ChevronUp className="w-3.5 h-3.5 text-slate-400" /> : <ChevronDown className="w-3.5 h-3.5 text-slate-400" />}
+              {isEntegrasyonOpen ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
             </Button>
             {isEntegrasyonOpen && (
-              <ul className="mt-1 ml-6 pl-2 border-l border-slate-200 space-y-0.5">
+              <ul className="mt-1 ml-6 pl-2.5 border-l-2 border-slate-200 space-y-1">
                 {[
                   { id: 'gelen-efaturalar', label: 'eLogo Gelen Faturalar' },
                   { id: 'gelen-uyumsoft-faturalar', label: 'Uyumsoft Gelen Faturalar' },
@@ -374,7 +374,7 @@ export function Sidebar({ onItemClick }: SidebarProps) {
                         onItemClick?.();
                       }}
                       className={cn(
-                        "w-full text-left py-1.5 px-2.5 text-xs rounded-md transition-all",
+                        "w-full text-left py-2 px-3 text-sm rounded-md transition-all font-medium",
                         currentView === item.id 
                           ? "bg-primary/10 text-primary font-semibold" 
                           : "text-slate-500 hover:bg-slate-100 hover:text-slate-900"
@@ -391,24 +391,24 @@ export function Sidebar({ onItemClick }: SidebarProps) {
 
         {/* Personel Modülü (Açılır Menü) */}
         {!isSuperAdmin && (
-          <div className="space-y-1 pt-1">
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider px-3 mb-1.5">
+          <div className="space-y-1.5 pt-1">
+            <p className="text-xs font-bold text-slate-400 uppercase tracking-wider px-3 mb-2">
               İnsan Kaynakları
             </p>
             <Button
               variant="ghost"
               onClick={() => setIsPersonnelOpen(!isPersonnelOpen)}
               className={cn(
-                "w-full justify-start gap-2.5 h-9 px-3 font-medium text-xs rounded-lg transition-all",
+                "w-full justify-start gap-3 h-10 px-3 font-medium text-sm rounded-lg transition-all",
                 isPersonnelOpen ? "text-slate-900 bg-slate-100/70" : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
               )}
             >
-              <Briefcase className="w-4 h-4 shrink-0 text-slate-400" />
+              <Briefcase className="w-4.5 h-4.5 shrink-0 text-slate-400" />
               <span className="flex-1 text-left truncate">Personel Modülü</span>
-              {isPersonnelOpen ? <ChevronUp className="w-3.5 h-3.5 text-slate-400" /> : <ChevronDown className="w-3.5 h-3.5 text-slate-400" />}
+              {isPersonnelOpen ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
             </Button>
             {isPersonnelOpen && (
-              <ul className="mt-1 ml-6 pl-2 border-l border-slate-200 space-y-0.5">
+              <ul className="mt-1 ml-6 pl-2.5 border-l-2 border-slate-200 space-y-1">
                 {personnelSubItems.map((sub) => (
                   <li key={sub.id}>
                     <button
@@ -417,7 +417,7 @@ export function Sidebar({ onItemClick }: SidebarProps) {
                         onItemClick?.();
                       }}
                       className={cn(
-                        "w-full text-left py-1.5 px-2.5 text-xs rounded-md transition-all",
+                        "w-full text-left py-2 px-3 text-sm rounded-md transition-all font-medium",
                         currentView === sub.view 
                           ? "bg-primary/10 text-primary font-semibold" 
                           : "text-slate-500 hover:bg-slate-100 hover:text-slate-900"
@@ -434,18 +434,18 @@ export function Sidebar({ onItemClick }: SidebarProps) {
       </nav>
 
       {/* Alt Bilgi */}
-      <div className="p-4 border-t border-slate-100">
-        <div className="flex items-center gap-3 mb-4 px-3">
-          <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
-            <span className="text-xs font-medium text-primary uppercase">
+      <div className="p-4 border-t border-slate-100 bg-slate-50/30">
+        <div className="flex items-center gap-3 mb-4 px-2">
+          <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+            <span className="text-xs font-bold text-primary uppercase">
               {isSuperAdmin ? 'SA' : (user?.role === 'admin' ? 'A' : (currentPersonnel?.first_name?.[0] || 'P'))}
             </span>
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-slate-900 truncate">
+            <p className="text-sm font-semibold text-slate-900 truncate">
               {isSuperAdmin ? 'Süper Admin' : (user?.role === 'admin' ? 'Admin Kullanıcı' : `${currentPersonnel?.first_name} ${currentPersonnel?.last_name}`)}
             </p>
-            <p className="text-[10px] text-slate-400 truncate uppercase tracking-tight">
+            <p className="text-xs text-slate-400 truncate tracking-tight">
               {isSuperAdmin ? 'Platform Sahibi' : (user?.role === 'admin' ? 'Şirket Yöneticisi' : currentPersonnel?.position || 'Personel')}
             </p>
           </div>
@@ -454,31 +454,31 @@ export function Sidebar({ onItemClick }: SidebarProps) {
         {/* Company Badge */}
         {!isSuperAdmin && (
           <div 
-            className="mx-3 mb-4 p-2 bg-slate-50 border border-slate-100 rounded-lg flex items-center gap-2 cursor-pointer hover:bg-slate-100 hover:border-slate-200 transition-all group"
+            className="mx-1 mb-3.5 p-2.5 bg-white border border-slate-200 rounded-lg flex items-center gap-2.5 cursor-pointer hover:border-primary/50 hover:shadow-sm transition-all group"
             onClick={() => {
               openSirketBilgileri();
               onItemClick?.();
             }}
           >
-            <Building2 className="w-4 h-4 text-slate-400 group-hover:text-primary transition-colors" />
+            <Building2 className="w-4.5 h-4.5 text-slate-400 group-hover:text-primary transition-colors shrink-0" />
             <div className="flex-1 min-w-0">
-              <span className="block text-[11px] font-bold text-slate-700 truncate group-hover:text-primary transition-colors">
+              <span className="block text-xs font-bold text-slate-800 truncate group-hover:text-primary transition-colors">
                 {companies.find(c => Number(c.id) === Number(user?.companyId))?.name || (companies.length > 0 ? companies[0].name : 'Aktif Şirket')}
               </span>
-              <span className="block text-[9px] text-slate-400">Şirket bilgilerini gör</span>
+              <span className="block text-[11px] text-slate-400">Şirket bilgilerini gör</span>
             </div>
           </div>
         )}
 
         <Button
           variant="outline"
-          className="w-full justify-start gap-2 text-slate-600 hover:text-red-600 hover:border-red-200 hover:bg-red-50"
+          className="w-full justify-start gap-2.5 h-10 text-sm font-medium text-slate-600 hover:text-red-600 hover:border-red-200 hover:bg-red-50 transition-colors"
           onClick={() => {
             logout();
             onItemClick?.();
           }}
         >
-          <LogOut className="w-4 h-4" />
+          <LogOut className="w-4.5 h-4.5" />
           Çıkış Yap
         </Button>
       </div>
