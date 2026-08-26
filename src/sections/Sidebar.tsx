@@ -8,7 +8,6 @@ import {
   Calculator,
   LogOut, 
   FileText,
-  ChevronRight,
   Users,
   CreditCard,
   Landmark,
@@ -57,172 +56,200 @@ export function Sidebar({ onItemClick }: SidebarProps) {
   const isAdmin = user?.role === 'admin';
   const isSuperAdmin = user?.role === 'super_admin';
 
-  const menuItems = [
+  interface MenuItem {
+    id: string;
+    label: string;
+    icon: any;
+    onClick: () => void;
+    view: ViewType | null;
+    actionIcon?: any;
+    onActionClick?: () => void;
+    actionTitle?: string;
+    adminOnly?: boolean;
+    superAdminOnly?: boolean;
+  }
+
+  interface MenuGroup {
+    title: string;
+    items: MenuItem[];
+  }
+
+  const menuGroups: MenuGroup[] = [
     {
-      id: 'dashboard',
-      label: 'Dashboard',
-      icon: LayoutDashboard,
-      onClick: () => setCurrentView(isSuperAdmin ? 'super-admin' : (isAdmin ? 'dashboard' : 'personel-dashboard')),
-      view: isSuperAdmin ? 'super-admin' : (isAdmin ? 'dashboard' : 'personel-dashboard')
+      title: 'Genel',
+      items: [
+        {
+          id: 'dashboard',
+          label: 'Dashboard',
+          icon: LayoutDashboard,
+          onClick: () => setCurrentView(isSuperAdmin ? 'super-admin' : (isAdmin ? 'dashboard' : 'personel-dashboard')),
+          view: isSuperAdmin ? 'super-admin' : (isAdmin ? 'dashboard' : 'personel-dashboard')
+        },
+        {
+          id: 'super-admin',
+          label: 'Süper Admin Paneli',
+          icon: ShieldCheck,
+          onClick: () => setCurrentView('super-admin'),
+          view: 'super-admin',
+          superAdminOnly: true
+        }
+      ]
     },
     {
-      id: 'super-admin',
-      label: 'Süper Admin',
-      icon: ShieldCheck,
-      onClick: () => setCurrentView('super-admin'),
-      view: 'super-admin',
-      superAdminOnly: true
-    },
-    // Accounting Items (Admin Only)
-    {
-      id: 'satis-giris',
-      label: 'Satış Faturası Giriş',
-      icon: FilePlus,
-      onClick: () => openSatisDrawer(),
-      view: null,
-      adminOnly: true
-    },
-    {
-      id: 'satis-liste',
-      label: 'Satış Fatura Listesi',
-      icon: Receipt,
-      onClick: () => setCurrentView('satis-liste'),
-      view: 'satis-liste',
-      adminOnly: true
-    },
-    {
-      id: 'alis-giris',
-      label: 'Alış Faturası Giriş',
-      icon: ShoppingCart,
-      onClick: () => openAlisDrawer(),
-      view: null,
-      adminOnly: true
-    },
-    {
-      id: 'alis-liste',
-      label: 'Alış Fatura Listesi',
-      icon: Receipt,
-      onClick: () => setCurrentView('alis-liste'),
-      view: 'alis-liste',
-      adminOnly: true
-    },
-    {
-      id: 'vergi-raporu',
-      label: 'Vergi Raporu',
-      icon: Calculator,
-      onClick: () => setCurrentView('vergi-raporu'),
-      view: 'vergi-raporu',
-      adminOnly: true
-    },
-    {
-      id: 'cari-liste',
-      label: 'Cari Kartlar',
-      icon: Users,
-      onClick: () => setCurrentView('cari-liste'),
-      view: 'cari-liste',
-      adminOnly: true
+      title: 'Fatura & Ticaret',
+      items: [
+        {
+          id: 'kesilecek-fatura-liste',
+          label: 'Kesilecek Faturalar (GİB)',
+          icon: FileText,
+          onClick: () => setCurrentView('kesilecek-fatura-liste'),
+          view: 'kesilecek-fatura-liste',
+          adminOnly: true
+        },
+        {
+          id: 'satis-liste',
+          label: 'Satış Faturaları',
+          icon: Receipt,
+          onClick: () => setCurrentView('satis-liste'),
+          view: 'satis-liste',
+          actionIcon: FilePlus,
+          onActionClick: () => openSatisDrawer(),
+          actionTitle: 'Yeni Satış Faturası Ekle',
+          adminOnly: true
+        },
+        {
+          id: 'alis-liste',
+          label: 'Alış Faturaları',
+          icon: ShoppingCart,
+          onClick: () => setCurrentView('alis-liste'),
+          view: 'alis-liste',
+          actionIcon: FilePlus,
+          onActionClick: () => openAlisDrawer(),
+          actionTitle: 'Yeni Alış Faturası Ekle',
+          adminOnly: true
+        },
+        {
+          id: 'teklif-liste',
+          label: 'Teklif Yönetimi',
+          icon: FileSignature,
+          onClick: () => setCurrentView('teklif-liste'),
+          view: 'teklif-liste',
+          adminOnly: true
+        },
+        {
+          id: 'siparis-liste',
+          label: 'Sipariş Yönetimi',
+          icon: ClipboardList,
+          onClick: () => setCurrentView('siparis-liste'),
+          view: 'siparis-liste',
+          adminOnly: true
+        }
+      ]
     },
     {
-      id: 'mutabakat-yonetimi',
-      label: 'Mutabakat Yönetimi',
-      icon: FileSignature,
-      onClick: () => setCurrentView('mutabakat-yonetimi'),
-      view: 'mutabakat-yonetimi',
-      adminOnly: true
+      title: 'Finans & Muhasebe',
+      items: [
+        {
+          id: 'cari-liste',
+          label: 'Cari Kartlar',
+          icon: Users,
+          onClick: () => setCurrentView('cari-liste'),
+          view: 'cari-liste',
+          adminOnly: true
+        },
+        {
+          id: 'banka-liste',
+          label: 'Banka Hesapları',
+          icon: Landmark,
+          onClick: () => setCurrentView('banka-liste'),
+          view: 'banka-liste',
+          adminOnly: true
+        },
+        {
+          id: 'banka-ekstre-liste',
+          label: 'Banka ve Masraflar',
+          icon: CreditCard,
+          onClick: () => setCurrentView('banka-ekstre-liste'),
+          view: 'banka-ekstre-liste',
+          adminOnly: true
+        },
+        {
+          id: 'cek-senet-liste',
+          label: 'Çek / Senet',
+          icon: CreditCard,
+          onClick: () => setCurrentView('cek-senet-liste'),
+          view: 'cek-senet-liste',
+          adminOnly: true
+        },
+        {
+          id: 'mutabakat-yonetimi',
+          label: 'Mutabakat Yönetimi',
+          icon: FileSignature,
+          onClick: () => setCurrentView('mutabakat-yonetimi'),
+          view: 'mutabakat-yonetimi',
+          adminOnly: true
+        },
+        {
+          id: 'vergi-raporu',
+          label: 'Vergi & KDV Raporu',
+          icon: Calculator,
+          onClick: () => setCurrentView('vergi-raporu'),
+          view: 'vergi-raporu',
+          adminOnly: true
+        }
+      ]
     },
     {
-      id: 'cek-senet-liste',
-      label: 'Çek / Senet',
-      icon: CreditCard,
-      onClick: () => setCurrentView('cek-senet-liste'),
-      view: 'cek-senet-liste',
-      adminOnly: true
+      title: 'Luca & Entegrasyon',
+      items: [
+        {
+          id: 'fatura-aktarim',
+          label: 'Luca Fatura Aktarım',
+          icon: Receipt,
+          onClick: () => setCurrentView('fatura-aktarim'),
+          view: 'fatura-aktarim',
+          adminOnly: true
+        },
+        {
+          id: 'luca-ayarlari',
+          label: 'Luca KDV Ayarları',
+          icon: Calculator,
+          onClick: () => setCurrentView('luca-ayarlari'),
+          view: 'luca-ayarlari',
+          adminOnly: true
+        },
+        {
+          id: 'akilli-ogrenme',
+          label: 'Akıllı Öğrenme (AI)',
+          icon: BrainCircuit,
+          onClick: () => setCurrentView('akilli-ogrenme' as any),
+          view: 'akilli-ogrenme',
+          adminOnly: true
+        }
+      ]
     },
     {
-      id: 'banka-liste',
-      label: 'Banka Hesapları',
-      icon: Landmark,
-      onClick: () => setCurrentView('banka-liste'),
-      view: 'banka-liste',
-      adminOnly: true
-    },
-    {
-      id: 'banka-ekstre-liste',
-      label: 'Banka ve Masraflar',
-      icon: FileText,
-      onClick: () => setCurrentView('banka-ekstre-liste'),
-      view: 'banka-ekstre-liste',
-      adminOnly: true
-    },
-    {
-      id: 'fatura-aktarim',
-      label: 'Luca Fatura Aktarım',
-      icon: Receipt,
-      onClick: () => setCurrentView('fatura-aktarim'),
-      view: 'fatura-aktarim',
-      adminOnly: true
-    },
-    {
-      id: 'sirket-dosyalari',
-      label: 'Şirket Dosyaları',
-      icon: Briefcase,
-      onClick: () => setCurrentView('sirket-dosyalari'),
-      view: 'sirket-dosyalari',
-      adminOnly: true
-    },
-    {
-      id: 'kesilecek-fatura-liste',
-      label: 'Kesilecek Faturalar',
-      icon: FilePlus,
-      onClick: () => setCurrentView('kesilecek-fatura-liste'),
-      view: 'kesilecek-fatura-liste',
-      adminOnly: true
-    },
-    {
-      id: 'stok-yonetimi',
-      label: 'Stok Yönetimi',
-      icon: Package,
-      onClick: () => setCurrentView('stok-yonetimi'),
-      view: 'stok-yonetimi',
-      adminOnly: true
-    },
-    {
-      id: 'akilli-ogrenme',
-      label: 'Akıllı Öğrenme (AI)',
-      icon: BrainCircuit,
-      onClick: () => setCurrentView('akilli-ogrenme' as any),
-      view: 'akilli-ogrenme',
-      adminOnly: true
-    },
-    {
-      id: 'luca-ayarlari',
-      label: 'Luca Entegrasyonu',
-      icon: Calculator,
-      onClick: () => setCurrentView('luca-ayarlari'),
-      view: 'luca-ayarlari',
-      adminOnly: true
-    },
-    {
-      id: 'teklif-liste',
-      label: 'Teklif Yönetimi',
-      icon: FileSignature,
-      onClick: () => setCurrentView('teklif-liste'),
-      view: 'teklif-liste',
-      adminOnly: true
-    },
-    {
-      id: 'siparis-liste',
-      label: 'Sipariş Yönetimi',
-      icon: ClipboardList,
-      onClick: () => setCurrentView('siparis-liste'),
-      view: 'siparis-liste',
-      adminOnly: true
+      title: 'Operasyon & Dosyalar',
+      items: [
+        {
+          id: 'stok-yonetimi',
+          label: 'Stok Yönetimi',
+          icon: Package,
+          onClick: () => setCurrentView('stok-yonetimi'),
+          view: 'stok-yonetimi',
+          adminOnly: true
+        },
+        {
+          id: 'sirket-dosyalari',
+          label: 'Şirket Dosyaları',
+          icon: Briefcase,
+          onClick: () => setCurrentView('sirket-dosyalari'),
+          view: 'sirket-dosyalari',
+          adminOnly: true
+        }
+      ]
     }
-  ].filter(item => {
-    if (item.superAdminOnly) return isSuperAdmin;
-    if (item.adminOnly) return isAdmin || isSuperAdmin;
-    return true;
-  });
+  ];
 
   const personnelSubItems: { id: string; label: string; view: ViewType }[] = (isAdmin || isSuperAdmin) ? [
     { id: 'personel-liste', label: 'Personel Listesi', view: 'personel-liste' },
@@ -237,213 +264,173 @@ export function Sidebar({ onItemClick }: SidebarProps) {
   ];
 
   return (
-    <aside className="w-full bg-white flex flex-col h-full">
+    <aside className="w-full bg-white flex flex-col h-full border-r border-slate-100">
       {/* Logo */}
-      <div className="p-6 border-b border-slate-100">
+      <div className="p-5 border-b border-slate-100 bg-slate-50/50">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-primary flex items-center justify-center shadow-sm">
+          <div className="w-10 h-10 rounded-xl bg-primary flex items-center justify-center shadow-md shadow-primary/20">
             <FileText className="w-5 h-5 text-primary-foreground" />
           </div>
           <div>
-            <h1 className="font-bold text-slate-900 text-sm">Fatura Sistemi</h1>
-            <p className="text-xs text-slate-500">Vergi Yönetimi</p>
+            <h1 className="font-bold text-slate-900 text-sm tracking-tight">Fatura Takip v2</h1>
+            <p className="text-[11px] text-slate-500 font-medium">Muhasebe & Vergi Portalı</p>
           </div>
         </div>
       </div>
 
-      {/* Menü */}
-      <nav className="flex-1 p-4 overflow-y-auto scrollbar-hide">
-        <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3 px-3">
-          Ana Menü
-        </p>
-        <ul className="space-y-1">
-          {menuItems.map((item) => {
-            const Icon = item.icon;
-            const isActive = item.view === currentView;
-            
-            return (
-              <li key={item.id}>
-                <Button
-                  variant="ghost"
-                  onClick={() => {
-                    item.onClick();
-                    onItemClick?.();
-                  }}
-                  className={cn(
-                    "w-full justify-start gap-3 h-11 font-medium transition-all",
-                    isActive 
-                      ? "bg-primary/10 text-primary hover:bg-primary/15" 
-                      : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
-                  )}
-                >
-                  <Icon className={cn("w-4 h-4", isActive ? "text-primary" : "text-slate-500")} />
-                  <span className="flex-1 text-left">{item.label}</span>
-                  {item.view === null && (
-                    <ChevronRight className="w-4 h-4 text-slate-400" />
-                  )}
-                </Button>
-              </li>
-            );
-          })}
+      {/* Menü Grupları */}
+      <nav className="flex-1 p-3 overflow-y-auto space-y-4">
+        {menuGroups.map((group, groupIdx) => {
+          const filteredItems = group.items.filter(item => {
+            if (item.superAdminOnly) return isSuperAdmin;
+            if (item.adminOnly) return isAdmin || isSuperAdmin;
+            return true;
+          });
 
-          {/* Personnel Collapsible Section */}
-          {!isSuperAdmin && (
-            <li>
-              <Button
-                variant="ghost"
-                onClick={() => setIsPersonnelOpen(!isPersonnelOpen)}
-                className={cn(
-                  "w-full justify-start gap-3 h-11 font-medium transition-all",
-                  isPersonnelOpen ? "text-slate-900" : "text-slate-600"
-                )}
-              >
-                <Briefcase className="w-4 h-4 text-slate-500" />
-                <span className="flex-1 text-left">Personel Modülü</span>
-                {isPersonnelOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-              </Button>
-              {isPersonnelOpen && (
-                <ul className="mt-1 ml-9 space-y-1">
-                  {personnelSubItems.map((sub) => (
-                    <li key={sub.id}>
-                      <button
+          if (filteredItems.length === 0) return null;
+
+          return (
+            <div key={groupIdx} className="space-y-1">
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider px-3 mb-1.5">
+                {group.title}
+              </p>
+              <ul className="space-y-0.5">
+                {filteredItems.map((item) => {
+                  const Icon = item.icon;
+                  const isActive = item.view === currentView;
+                  
+                  return (
+                    <li key={item.id} className="relative group/item">
+                      <Button
+                        variant="ghost"
                         onClick={() => {
-                          setCurrentView(sub.view);
+                          item.onClick();
                           onItemClick?.();
                         }}
                         className={cn(
-                          "w-full text-left py-2 px-3 text-sm rounded-md transition-all",
-                          currentView === sub.view 
-                            ? "bg-slate-100 text-primary font-semibold" 
-                            : "text-slate-500 hover:bg-slate-50 hover:text-slate-900"
+                          "w-full justify-start gap-2.5 h-9 px-3 font-medium text-xs rounded-lg transition-all",
+                          isActive 
+                            ? "bg-primary/10 text-primary font-semibold hover:bg-primary/15 shadow-sm" 
+                            : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
                         )}
                       >
-                        {sub.label}
-                      </button>
+                        <Icon className={cn("w-4 h-4 shrink-0 transition-colors", isActive ? "text-primary" : "text-slate-400 group-hover/item:text-slate-700")} />
+                        <span className="flex-1 text-left truncate">{item.label}</span>
+                        
+                        {item.actionIcon && (
+                          <span
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              item.onActionClick?.();
+                              onItemClick?.();
+                            }}
+                            title={item.actionTitle}
+                            className="p-1 rounded hover:bg-primary/20 text-primary hover:text-primary transition-all opacity-70 hover:opacity-100"
+                          >
+                            <item.actionIcon className="w-3.5 h-3.5" />
+                          </span>
+                        )}
+                      </Button>
                     </li>
-                  ))}
-                </ul>
-              )}
-            </li>
-          )}
+                  );
+                })}
+              </ul>
+            </div>
+          );
+        })}
 
-          {/* Fatura Entegrasyonları Collapsible Section */}
-          {(isAdmin || isSuperAdmin) && (
-            <li>
-              <Button
-                variant="ghost"
-                onClick={() => setIsEntegrasyonOpen(!isEntegrasyonOpen)}
-                className={cn(
-                  "w-full justify-start gap-3 h-11 font-medium transition-all",
-                  isEntegrasyonOpen ? "text-slate-900" : "text-slate-600"
-                )}
-              >
-                <Download className="w-4 h-4 text-slate-500" />
-                <span className="flex-1 text-left">Fatura Entegrasyonları</span>
-                {isEntegrasyonOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-              </Button>
-              {isEntegrasyonOpen && (
-                <ul className="mt-1 ml-9 space-y-1">
-                  <li>
-                    <button
-                      onClick={() => {
-                        setCurrentView('gelen-efaturalar');
-                        onItemClick?.();
-                      }}
-                      className={cn(
-                        "w-full text-left py-2 px-3 text-sm rounded-md transition-all",
-                        currentView === 'gelen-efaturalar'
-                          ? "bg-slate-100 text-primary font-semibold" 
-                          : "text-slate-500 hover:bg-slate-50 hover:text-slate-900"
-                      )}
-                    >
-                      eLogo Gelen Faturalar
-                    </button>
-                  </li>
-                  <li>
-                    <button
-                      onClick={() => {
-                        setCurrentView('gelen-uyumsoft-faturalar');
-                        onItemClick?.();
-                      }}
-                      className={cn(
-                        "w-full text-left py-2 px-3 text-sm rounded-md transition-all",
-                        currentView === 'gelen-uyumsoft-faturalar'
-                          ? "bg-slate-100 text-primary font-semibold" 
-                          : "text-slate-500 hover:bg-slate-50 hover:text-slate-900"
-                      )}
-                    >
-                      Uyumsoft Gelen Faturalar
-                    </button>
-                  </li>
-                  <li>
-                    <button
-                      onClick={() => {
-                        setCurrentView('giden-elogo-faturalar');
-                        onItemClick?.();
-                      }}
-                      className={cn(
-                        "w-full text-left py-2 px-3 text-sm rounded-md transition-all",
-                        currentView === 'giden-elogo-faturalar'
-                          ? "bg-slate-100 text-primary font-semibold" 
-                          : "text-slate-500 hover:bg-slate-50 hover:text-slate-900"
-                      )}
-                    >
-                      eLogo Giden Faturalar
-                    </button>
-                  </li>
-                  <li>
-                    <button
-                      onClick={() => {
-                        setCurrentView('giden-uyumsoft-faturalar');
-                        onItemClick?.();
-                      }}
-                      className={cn(
-                        "w-full text-left py-2 px-3 text-sm rounded-md transition-all",
-                        currentView === 'giden-uyumsoft-faturalar'
-                          ? "bg-slate-100 text-primary font-semibold" 
-                          : "text-slate-500 hover:bg-slate-50 hover:text-slate-900"
-                      )}
-                    >
-                      Uyumsoft Giden Faturalar
-                    </button>
-                  </li>
-                  <li>
-                    <button
-                      onClick={() => {
-                        setCurrentView('giden-uyumsoft-esmm');
-                        onItemClick?.();
-                      }}
-                      className={cn(
-                        "w-full text-left py-2 px-3 text-sm rounded-md transition-all",
-                        currentView === 'giden-uyumsoft-esmm'
-                          ? "bg-slate-100 text-primary font-semibold" 
-                          : "text-slate-500 hover:bg-slate-50 hover:text-slate-900"
-                      )}
-                    >
-                      Uyumsoft Giden e-SMM
-                    </button>
-                  </li>
-                  <li>
-                    <button
-                      onClick={() => {
-                        setCurrentView('entegrasyon-ayarlari');
-                        onItemClick?.();
-                      }}
-                      className={cn(
-                        "w-full text-left py-2 px-3 text-sm rounded-md transition-all",
-                        currentView === 'entegrasyon-ayarlari'
-                          ? "bg-slate-100 text-primary font-semibold" 
-                          : "text-slate-500 hover:bg-slate-50 hover:text-slate-900"
-                      )}
-                    >
-                      Ayarlar
-                    </button>
-                  </li>
-                </ul>
+        {/* Fatura Entegrasyonları (Açılır Menü) */}
+        {(isAdmin || isSuperAdmin) && (
+          <div className="space-y-1 pt-1">
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider px-3 mb-1.5">
+              Entegratör Servisleri
+            </p>
+            <Button
+              variant="ghost"
+              onClick={() => setIsEntegrasyonOpen(!isEntegrasyonOpen)}
+              className={cn(
+                "w-full justify-start gap-2.5 h-9 px-3 font-medium text-xs rounded-lg transition-all",
+                isEntegrasyonOpen ? "text-slate-900 bg-slate-100/70" : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
               )}
-            </li>
-          )}
-        </ul>
+            >
+              <Download className="w-4 h-4 shrink-0 text-slate-400" />
+              <span className="flex-1 text-left truncate">e-Fatura Entegrasyonları</span>
+              {isEntegrasyonOpen ? <ChevronUp className="w-3.5 h-3.5 text-slate-400" /> : <ChevronDown className="w-3.5 h-3.5 text-slate-400" />}
+            </Button>
+            {isEntegrasyonOpen && (
+              <ul className="mt-1 ml-6 pl-2 border-l border-slate-200 space-y-0.5">
+                {[
+                  { id: 'gelen-efaturalar', label: 'eLogo Gelen Faturalar' },
+                  { id: 'gelen-uyumsoft-faturalar', label: 'Uyumsoft Gelen Faturalar' },
+                  { id: 'giden-elogo-faturalar', label: 'eLogo Giden Faturalar' },
+                  { id: 'giden-uyumsoft-faturalar', label: 'Uyumsoft Giden Faturalar' },
+                  { id: 'giden-uyumsoft-esmm', label: 'Uyumsoft Giden e-SMM' },
+                  { id: 'entegrasyon-ayarlari', label: 'Entegrasyon Ayarları' }
+                ].map((item) => (
+                  <li key={item.id}>
+                    <button
+                      onClick={() => {
+                        setCurrentView(item.id as any);
+                        onItemClick?.();
+                      }}
+                      className={cn(
+                        "w-full text-left py-1.5 px-2.5 text-xs rounded-md transition-all",
+                        currentView === item.id 
+                          ? "bg-primary/10 text-primary font-semibold" 
+                          : "text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+                      )}
+                    >
+                      {item.label}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+
+        {/* Personel Modülü (Açılır Menü) */}
+        {!isSuperAdmin && (
+          <div className="space-y-1 pt-1">
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider px-3 mb-1.5">
+              İnsan Kaynakları
+            </p>
+            <Button
+              variant="ghost"
+              onClick={() => setIsPersonnelOpen(!isPersonnelOpen)}
+              className={cn(
+                "w-full justify-start gap-2.5 h-9 px-3 font-medium text-xs rounded-lg transition-all",
+                isPersonnelOpen ? "text-slate-900 bg-slate-100/70" : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+              )}
+            >
+              <Briefcase className="w-4 h-4 shrink-0 text-slate-400" />
+              <span className="flex-1 text-left truncate">Personel Modülü</span>
+              {isPersonnelOpen ? <ChevronUp className="w-3.5 h-3.5 text-slate-400" /> : <ChevronDown className="w-3.5 h-3.5 text-slate-400" />}
+            </Button>
+            {isPersonnelOpen && (
+              <ul className="mt-1 ml-6 pl-2 border-l border-slate-200 space-y-0.5">
+                {personnelSubItems.map((sub) => (
+                  <li key={sub.id}>
+                    <button
+                      onClick={() => {
+                        setCurrentView(sub.view);
+                        onItemClick?.();
+                      }}
+                      className={cn(
+                        "w-full text-left py-1.5 px-2.5 text-xs rounded-md transition-all",
+                        currentView === sub.view 
+                          ? "bg-primary/10 text-primary font-semibold" 
+                          : "text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+                      )}
+                    >
+                      {sub.label}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
       </nav>
 
       {/* Alt Bilgi */}
