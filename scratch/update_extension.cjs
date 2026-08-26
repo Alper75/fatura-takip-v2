@@ -6,7 +6,7 @@ const popupPath = path.join(extDir, 'popup.js');
 
 let popupJs = fs.readFileSync(popupPath, 'utf8');
 
-// Replace pasteBtn function in popup.js with robust Alt+E row creation, empty seriNo, TABLO_TURU, kodNo unlock
+// Replace pasteBtn function in popup.js with full "625 | 3/10" format and window.setIstisna call
 const targetStart = "    pasteBtn.addEventListener('click', async () => {";
 const targetEnd = "    if (bankPasteBtn) {";
 
@@ -112,22 +112,32 @@ if (startIndex !== -1 && endIndex !== -1) {
                                 if (document.getElementById('adi' + i)) setVal(document.getElementById('adi' + i), inv.adi || '');
                                 if (document.getElementById('aciklama' + i)) setVal(document.getElementById('aciklama' + i), inv.aciklama || inv.unvan);
                                 
-                                // Tevkifat / İstisna Kodları (Tablo 2 Kısmi Tevkifat + KodNo)
+                                // Tevkifat / İstisna Kodları (Tablo 2 Kısmi Tevkifat + KodNo: "625 | 3/10")
                                 const isTevkifatli = inv.tevkifat && inv.tevkifat !== '0';
                                 if (document.getElementById('TABLO_TURU' + i)) {
                                     setVal(document.getElementById('TABLO_TURU' + i), isTevkifatli ? (inv.tablo || '6') : '0');
                                 }
                                 if (isTevkifatli) {
+                                    const kodFullVal = inv.kodFull || (inv.kodNo ? (inv.kodNo + ' | ' + (inv.oranStr || '')) : '');
                                     const kodEl = document.getElementById('kodNo' + i) || document.querySelector(\`[name="detaylar[\${i}].kodNo"]\`);
                                     if (kodEl) {
-                                        setVal(kodEl, inv.kodNo || '616');
+                                        setVal(kodEl, kodFullVal);
                                     }
                                     const td8 = document.getElementById('td8_' + i);
                                     if (td8) {
                                         const inps = td8.querySelectorAll('input');
                                         inps.forEach(inp => {
-                                            setVal(inp, inv.kodNo || '616');
+                                            setVal(inp, kodFullVal);
                                         });
+                                    }
+                                    if (typeof window.setIstisna === 'function') {
+                                        try { window.setIstisna('kodNo' + i, kodFullVal, inv.oranStr || ''); } catch(e) {}
+                                    }
+                                    if (typeof window.kodDegisti === 'function') {
+                                        try { window.kodDegisti(kodFullVal); } catch(e) {}
+                                    }
+                                    if (typeof window.detayKodDegisti === 'function') {
+                                        try { window.detayKodDegisti(kodFullVal); } catch(e) {}
                                     }
                                 }
                                 
@@ -210,7 +220,7 @@ if (startIndex !== -1 && endIndex !== -1) {
 
     popupJs = popupJs.substring(0, startIndex) + newPasteBtnSection + popupJs.substring(endIndex);
     fs.writeFileSync(popupPath, popupJs, 'utf8');
-    console.log('popup.js updated successfully!');
+    console.log('popup.js updated successfully with kodFull pipe format!');
 } else {
     console.error('Could not find slice target indices in popup.js');
 }

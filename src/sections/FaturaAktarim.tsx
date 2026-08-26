@@ -146,6 +146,7 @@ export function FaturaAktarim() {
       let tevkifatVal = '0';
       let istisnaTablo = '0';
       let istisnaKodNo = '';
+      let istisnaOranStr = '';
 
       if (tevkifatTutar > 0) {
         istisnaTablo = '6'; // Tablo 2 (KISMİ TEVKİFAT UYGULANAN İŞLEMLER)
@@ -154,27 +155,35 @@ export function FaturaAktarim() {
 
         if (oran.includes('2/10')) {
           tevkifatVal = '10';
+          istisnaOranStr = '2/10';
           istisnaKodNo = dbKod && dbKod.length === 3 ? dbKod : '624'; // 624: Yük Taşımacılığı
         } else if (oran.includes('3/10')) {
           tevkifatVal = '12';
+          istisnaOranStr = '3/10';
           istisnaKodNo = dbKod && dbKod.length === 3 ? dbKod : '625'; // 625: Ticari Reklam
         } else if (oran.includes('4/10')) {
           tevkifatVal = '13';
+          istisnaOranStr = '4/10';
           istisnaKodNo = dbKod && dbKod.length === 3 ? dbKod : '601'; // 601: Yapım İşleri
         } else if (oran.includes('5/10')) {
           tevkifatVal = '11';
+          istisnaOranStr = '5/10';
           istisnaKodNo = dbKod && dbKod.length === 3 ? dbKod : '616'; // 616: Diğer Hizmetler
         } else if (oran.includes('7/10')) {
           tevkifatVal = '9';
+          istisnaOranStr = '7/10';
           istisnaKodNo = dbKod && dbKod.length === 3 ? dbKod : '612'; // 612: Temizlik Hizmeti
         } else if (oran.includes('9/10')) {
           tevkifatVal = '4';
+          istisnaOranStr = '9/10';
           istisnaKodNo = dbKod && dbKod.length === 3 ? dbKod : '606'; // 606: İşgücü / 602: Danışmanlık
         } else if (oran.includes('Tam')) {
           tevkifatVal = '5';
+          istisnaOranStr = 'Tam';
           istisnaKodNo = dbKod && dbKod.length === 3 ? dbKod : '601';
         } else {
           tevkifatVal = '11';
+          istisnaOranStr = '5/10';
           istisnaKodNo = dbKod && dbKod.length === 3 ? dbKod : '616';
         }
       }
@@ -194,6 +203,8 @@ export function FaturaAktarim() {
       if (!temizAciklama) {
         temizAciklama = cariUnvan || (isAlis ? 'Mal/Hizmet Alımı' : 'Mal/Hizmet Satışı');
       }
+
+      const kodFullStr = istisnaKodNo ? `${istisnaKodNo} | ${istisnaOranStr}` : '';
 
       return {
         tur: isAlis ? '1' : '0', // 0: Gelir, 1: Gider
@@ -223,6 +234,8 @@ export function FaturaAktarim() {
         tevkifat: tevkifatVal,
         tablo: istisnaTablo,
         kodNo: istisnaKodNo,
+        oranStr: istisnaOranStr,
+        kodFull: kodFullStr,
         stopajTutari: stopajTutar
       };
     });
@@ -456,11 +469,21 @@ export function FaturaAktarim() {
     const isTevkifatli = item.tevkifat && item.tevkifat !== '0';
     setVal('TABLO_TURU' + i, isTevkifatli ? (item.tablo || '6') : '0');
     if (isTevkifatli) {
+      const kodFullVal = item.kodFull || (item.kodNo ? (item.kodNo + ' | ' + (item.oranStr || '')) : '');
       const kodEl = document.getElementById('kodNo' + i) || document.querySelector('[name="detaylar[' + i + '].kodNo"]');
-      if (kodEl) setVal(kodEl, item.kodNo || '616');
+      if (kodEl) setVal(kodEl, kodFullVal);
       const td8 = document.getElementById('td8_' + i);
       if (td8) {
-        td8.querySelectorAll('input').forEach(inp => setVal(inp, item.kodNo || '616'));
+        td8.querySelectorAll('input').forEach(inp => setVal(inp, kodFullVal));
+      }
+      if (typeof window.setIstisna === 'function') {
+        try { window.setIstisna('kodNo' + i, kodFullVal, item.oranStr || ''); } catch(e) {}
+      }
+      if (typeof window.kodDegisti === 'function') {
+        try { window.kodDegisti(kodFullVal); } catch(e) {}
+      }
+      if (typeof window.detayKodDegisti === 'function') {
+        try { window.detayKodDegisti(kodFullVal); } catch(e) {}
       }
     }
 
