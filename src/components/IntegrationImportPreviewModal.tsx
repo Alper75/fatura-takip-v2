@@ -278,75 +278,87 @@ export function IntegrationImportPreviewModal({ isOpen, onClose, invoices, impor
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-[95vw] lg:max-w-7xl">
+      <DialogContent className="max-w-[98vw] xl:max-w-[1550px] w-full max-h-[92vh] flex flex-col p-6">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <FileCheck className="w-5 h-5 text-indigo-600" />
+          <DialogTitle className="flex items-center gap-2 text-xl font-bold text-slate-900">
+            <FileCheck className="w-6 h-6 text-indigo-600" />
             Toplu İçe Aktarma ve Yapay Zeka Önizlemesi
           </DialogTitle>
-          <DialogDescription>
-            Seçtiğiniz {items.length} faturayı aktarmadan önce muhasebe kodlarını inceleyebilir ve düzenleyebilirsiniz.
-            <span className="flex items-center gap-1 mt-2 text-indigo-600 font-medium">
-              <BrainCircuit className="w-4 h-4" /> Yapay zeka kurallarınız ({kurallar.length} kural) tespit edilip otomatik uygulandı.
+          <DialogDescription className="text-sm text-slate-600">
+            Seçtiğiniz {items.length} faturayı içeri aktarmadan önce cari ve muhasebe kodlarını kontrol edebilir, düzenleyebilirsiniz.
+            <span className="flex items-center gap-1.5 mt-2 text-indigo-600 font-semibold bg-indigo-50/80 px-3 py-1.5 rounded-lg border border-indigo-100 w-fit">
+              <BrainCircuit className="w-4 h-4 text-indigo-600" /> Yapay zeka kurallarınız ({kurallar.length} kural) tespit edilip otomatik uygulandı.
             </span>
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex-1 overflow-auto py-4 max-h-[60vh]">
+        <div className="flex-1 overflow-auto py-3 max-h-[62vh] border rounded-lg mt-2 bg-slate-50/50">
           <Table>
-            <TableHeader>
+            <TableHeader className="bg-slate-100 sticky top-0 z-10">
               <TableRow>
-                <TableHead>Numara</TableHead>
-                <TableHead>Tarih</TableHead>
-                <TableHead>Ünvan</TableHead>
-                <TableHead className="text-right">Tutar</TableHead>
-                <TableHead className="min-w-[200px]">Cari Seçimi</TableHead>
-                <TableHead className="min-w-[250px]">Muhasebe Kodu</TableHead>
+                <TableHead className="w-[140px] font-semibold text-slate-700">Fatura No</TableHead>
+                <TableHead className="w-[100px] font-semibold text-slate-700">Tarih</TableHead>
+                <TableHead className="min-w-[180px] max-w-[240px] font-semibold text-slate-700">Firma / Ünvan</TableHead>
+                <TableHead className="min-w-[160px] max-w-[220px] font-semibold text-slate-700">Fatura Açıklaması</TableHead>
+                <TableHead className="text-right w-[120px] font-semibold text-slate-700">Tutar</TableHead>
+                <TableHead className="min-w-[220px] font-semibold text-slate-700">Cari Seçimi</TableHead>
+                <TableHead className="min-w-[260px] font-semibold text-slate-700">Muhasebe Kodu</TableHead>
               </TableRow>
             </TableHeader>
-            <TableBody>
-              {items.map((item, idx) => (
-                <TableRow key={idx}>
-                  <TableCell className="font-mono text-xs">{item.faturaNo || item.belgeNumarasi}</TableCell>
-                  <TableCell>{item.issueDate?.split('T')[0] || item.tarih}</TableCell>
-                  <TableCell className="max-w-[150px] truncate" title={item.senderName || item.aliciUnvan}>
-                    {item.senderName || item.aliciUnvan}
-                  </TableCell>
-                  <TableCell className="text-right font-medium text-emerald-600">
-                    {formatCurrency(item.payableAmount || item.toplamTutar)}
-                  </TableCell>
-                  <TableCell className="align-top">
-                    <select 
-                      className="w-full text-sm p-2 border rounded-md border-slate-200 bg-white"
-                      value={item.cariId || ''}
-                      onChange={(e) => handleUpdateCari(idx, e.target.value)}
-                    >
-                      <option value="">Seçiniz...</option>
-                      {cariler.map(c => (
-                        <option key={c.id} value={c.id}>{c.unvan}</option>
-                      ))}
-                    </select>
-                  </TableCell>
-                  <TableCell className="align-top">
-                    <CellDropdown 
-                      value={item.muhasebeKodu || ''}
-                      placeholder="Hesap Seçin veya Kod Yazın..."
-                      options={(lucaAccounts || []).map((a: any) => ({ value: a.kod, label: `${a.kod} - ${a.ad}` }))}
-                      onChange={(val) => handleUpdateCode(idx, val)}
-                    />
-                  </TableCell>
-                </TableRow>
-              ))}
+            <TableBody className="bg-white divide-y">
+              {items.map((item, idx) => {
+                const aciklamaText = item.faturaAciklama || item.aciklama || item.malHizmetAdi || item.note || '-';
+                return (
+                  <TableRow key={idx} className="hover:bg-slate-50/80 transition-colors">
+                    <TableCell className="font-mono text-xs font-semibold text-slate-800">{item.faturaNo || item.belgeNumarasi}</TableCell>
+                    <TableCell className="text-xs text-slate-600 whitespace-nowrap">{item.issueDate?.split('T')[0] || item.tarih}</TableCell>
+                    <TableCell className="max-w-[240px] text-xs font-medium text-slate-900 truncate" title={item.senderName || item.aliciUnvan}>
+                      {item.senderName || item.aliciUnvan}
+                    </TableCell>
+                    <TableCell className="max-w-[220px] text-xs text-slate-600 truncate" title={aciklamaText}>
+                      {aciklamaText}
+                    </TableCell>
+                    <TableCell className="text-right font-bold text-emerald-600 text-sm whitespace-nowrap">
+                      {formatCurrency(item.payableAmount || item.toplamTutar)}
+                    </TableCell>
+                    <TableCell className="align-middle">
+                      <select 
+                        className="w-full text-xs p-2 border rounded-md border-slate-200 bg-white hover:border-slate-300 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                        value={item.cariId || ''}
+                        onChange={(e) => handleUpdateCari(idx, e.target.value)}
+                      >
+                        <option value="">Cari Seçiniz...</option>
+                        {cariler.map(c => (
+                          <option key={c.id} value={c.id}>{c.unvan}</option>
+                        ))}
+                      </select>
+                    </TableCell>
+                    <TableCell className="align-middle">
+                      <CellDropdown 
+                        value={item.muhasebeKodu || ''}
+                        placeholder="Hesap Seçin veya Kod Yazın..."
+                        options={(lucaAccounts || []).map((a: any) => ({ value: a.kod, label: `${a.kod} - ${a.ad}` }))}
+                        onChange={(val) => handleUpdateCode(idx, val)}
+                      />
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
             </TableBody>
           </Table>
         </div>
 
-        <div className="flex justify-end gap-3 mt-4">
-          <Button variant="outline" onClick={onClose} disabled={saving}>İptal</Button>
-          <Button onClick={handleSaveAll} disabled={saving} className="bg-indigo-600 hover:bg-indigo-700">
-            <Save className="w-4 h-4 mr-2" />
-            {saving ? 'Aktarılıyor...' : 'Tümünü Onayla ve Aktar'}
-          </Button>
+        <div className="flex justify-between items-center gap-3 mt-4 pt-3 border-t">
+          <div className="text-xs text-slate-500 font-medium">
+            Toplam <span className="font-bold text-slate-800">{items.length}</span> fatura listeleniyor.
+          </div>
+          <div className="flex gap-3">
+            <Button variant="outline" onClick={onClose} disabled={saving}>İptal</Button>
+            <Button onClick={handleSaveAll} disabled={saving} className="bg-indigo-600 hover:bg-indigo-700 text-white font-medium shadow-sm">
+              <Save className="w-4 h-4 mr-2" />
+              {saving ? 'Aktarılıyor...' : 'Tümünü Onayla ve İçe Aktar'}
+            </Button>
+          </div>
         </div>
       </DialogContent>
     </Dialog>
