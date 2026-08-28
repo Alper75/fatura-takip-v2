@@ -75,19 +75,30 @@ export class UyumsoftClient {
     }
   }
 
-  async getDocumentList(documentType = 'EINVOICE', beginDate, endDate, opType = 2 /* 2: INCOMING */) {
+  async getDocumentList(documentType = 'EINVOICE', beginDate, endDate, opType = 2 /* 2: INCOMING */, dateBy = 1 /* 1: Fatura Tarihi, 0: Oluşturma Tarihi */) {
     await this.init();
 
     // Uyumsoft method is usually GetInboxInvoiceList for incoming
     try {
-      const args = {
-        query: {
-          CreateStartDate: beginDate.split('T')[0] + 'T00:00:00',
-          CreateEndDate: endDate.split('T')[0] + 'T23:59:59',
-          PageIndex: 0,
-          PageSize: 100
-        }
+      const bDate = beginDate.split('T')[0] + 'T00:00:00';
+      const eDate = endDate.split('T')[0] + 'T23:59:59';
+      
+      const queryObj = {
+        PageIndex: 0,
+        PageSize: 100
       };
+
+      if (dateBy === 1) {
+        queryObj.ExecutionStartDate = bDate;
+        queryObj.ExecutionEndDate = eDate;
+        queryObj.SortColumn = 'ExecutionDate';
+      } else {
+        queryObj.CreateStartDate = bDate;
+        queryObj.CreateEndDate = eDate;
+        queryObj.SortColumn = 'CreateDate';
+      }
+
+      const args = { query: queryObj };
 
       let result;
       if (opType === 2) {
@@ -126,15 +137,32 @@ export class UyumsoftClient {
     }
   }
 
-  async getVoucherList(beginDate, endDate, opType = 1 /* 1: OUTBOX, 2: INBOX */) {
+  async getVoucherList(beginDate, endDate, opType = 1 /* 1: OUTBOX, 2: INBOX */, dateBy = 1 /* 1: Belge/Makbuz Tarihi, 0: Oluşturma Tarihi */) {
     await this.init();
     try {
-      const args = {
-        context: {
-          CreationSartDate: beginDate.split('T')[0] + 'T00:00:00',
-          CreationEndDate: endDate.split('T')[0] + 'T23:59:59'
-        }
-      };
+      const bDate = beginDate.split('T')[0] + 'T00:00:00';
+      const eDate = endDate.split('T')[0] + 'T23:59:59';
+
+      let args;
+      if (opType === 2) {
+        args = {
+          context: {
+            PageIndex: 0,
+            PageSize: 100,
+            ...(dateBy === 1 ? { DocumentDate: { Begin: bDate, End: eDate } } : { CreationDate: { Begin: bDate, End: eDate } })
+          }
+        };
+      } else {
+        args = {
+          context: {
+            PageIndex: 0,
+            PageSize: 100,
+            ...(dateBy === 1 
+              ? { DocumentStartDate: bDate, DocumentEndDate: eDate, SortColumn: 'DocumentDate' }
+              : { CreationSartDate: bDate, CreationEndDate: eDate, SortColumn: 'CreateDate' })
+          }
+        };
+      }
 
       let result;
       if (opType === 2) {
