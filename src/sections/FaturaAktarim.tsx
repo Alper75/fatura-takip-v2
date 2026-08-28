@@ -257,7 +257,13 @@ export function FaturaAktarim() {
         kodNo: istisnaKodNo,
         oranStr: istisnaOranStr,
         kodFull: kodFullStr,
-        stopajTutari: stopajTutar
+        stopajTutari: stopajTutar,
+        beyanBelgeTuru: fNo.startsWith('SMM') || fNo.startsWith('GİB') || fNo.startsWith('EAR') || fNo.startsWith('EAF') ? '8' : (isAlis ? '1' : '7'),
+        alisSatisTuru: isAlis ? '1' : '1',
+        kayitAltTuru: '1',
+        item_type: isAlis ? 'standard' : 'standard',
+        e_document_type: fNo.startsWith('SMM') || fNo.startsWith('E') ? 'EInvoice' : 'Invoice',
+        purchase_sales_type: '1'
       };
     });
   };
@@ -514,6 +520,26 @@ export function FaturaAktarim() {
     setVal('topNotBura' + i, (item.toplamTutar !== undefined ? item.toplamTutar : item.toplam).toString().replace('.', ','));
     if (isTevkifatli) setVal('tevkifat' + i, item.tevkifat);
     if (item.stopajTutari && item.stopajTutari > 0) setVal('stopajTutari' + i, (item.stopajTutari || '').toString().replace('.', ','));
+
+    // Multiselect alanları (td24, td25, td26: Beyan Belge Türü, Alış Satış Türü, Kayıt Alt Türü)
+    function setMultiSelect(selId, val) {
+      const el = document.getElementById(selId);
+      if (el) {
+        el.value = val;
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+        const m = el.closest('.multiselect');
+        if (m) {
+          const box = m.querySelector('.selectBox') || m.querySelector('.overSelect');
+          if (box) box.click();
+          const chk = m.querySelector('.checkboxes input[value="' + val + '"]') || m.querySelector('.checkboxes input');
+          if (chk && !chk.checked) chk.click();
+        }
+      }
+    }
+
+    setMultiSelect('beyanBelgeTuru' + i, item.beyanBelgeTuru || '8');
+    setMultiSelect('alisSatisTuru' + i, item.alisSatisTuru || '1');
+    setMultiSelect('kayitAltTuru' + i, item.kayitAltTuru || '1');
 
     // Sonraki satır için Alt + E tuşuna bas
     if (i < faturalar.length - 1) {
