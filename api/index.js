@@ -1599,11 +1599,11 @@ app.post('/api/invoices/parse-xml', authMiddleware, upload.single('file'), async
         const val = a?.['tuzelKisi']?.['vkn'] || a?.['gercekKisi']?.['tckn'] || '';
         return val ? String(val).replace('.0', '') : '';
       };
-      const getAd = (a) => a?.['tuzelKisi']?.['unvan'] || (a?.['gercekKisi']?.['ad'] ? `${a['gercekKisi']['ad']} ${a['gercekKisi']['soyad']}` : '');
+      const getAd = (a) => a?.['tuzelKisi']?.['unvan'] || a?.['gercekKisi']?.['adiSoyadi'] || (a?.['gercekKisi']?.['ad'] ? `${a['gercekKisi']['ad']} ${a['gercekKisi']['soyad'] || ''}`.trim() : '') || 'Bilinmiyor';
       const getAddress = (a) => {
         const addr = a?.['adres'];
         if (!addr) return '';
-        return `${addr['caddeSokak'] || ''} ${addr['semt'] || ''} ${addr['sehir'] || ''}`;
+        return `${addr['caddeSokak'] || ''} ${addr['binaNo'] || ''} ${addr['kapiNo'] || ''} ${addr['semt'] || ''} ${addr['sehir'] || ''}`.trim();
       };
 
       const vergiBilgisi = smm['vergiBilgisi']?.['vergi'];
