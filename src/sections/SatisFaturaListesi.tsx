@@ -59,6 +59,7 @@ import { ODEME_DURUMU_LABELS, ODEME_DURUMU_COLORS } from '@/types';
 import { FilterBar } from '@/components/FilterBar';
 import type { FilterValues } from '@/components/FilterBar';
 import { useUrunler } from '../modules/stok/hooks/useStokQuery';
+import { SatisExcelAktarDrawer } from './SatisExcelAktarDrawer';
 
 export function SatisFaturaListesi() {
   const { 
@@ -73,7 +74,9 @@ export function SatisFaturaListesi() {
     parseInvoiceXml,
     bankaHesaplari,
     addSatisFatura,
-    isIsletmeDefteri
+    isIsletmeDefteri,
+    fetchSatisFaturalari,
+    fetchCariHareketler
   } = useApp();
   
   const { data: urunler } = useUrunler();
@@ -84,6 +87,7 @@ export function SatisFaturaListesi() {
   const [odemeTarihi, setOdemeTarihi] = useState('');
   const [odemeDurumu, setOdemeDurumu] = useState<'odenmedi' | 'odendi' | 'bekliyor'>('odendi');
   const [bankaId, setBankaId] = useState<string>('');
+  const [isExcelAktarOpen, setIsExcelAktarOpen] = useState(false);
   const [filterValues, setFilterValues] = useState<FilterValues>({
     search: '',
     startDate: '',
@@ -421,6 +425,15 @@ export function SatisFaturaListesi() {
                     {pdfOlmayanSayisi}
                   </Badge>
                 )}
+              </Button>
+
+              <Button 
+                variant="outline" 
+                onClick={() => setIsExcelAktarOpen(true)}
+                className="gap-2 text-emerald-700 border-emerald-200 hover:bg-emerald-50 hover:text-emerald-800"
+              >
+                <FileSpreadsheet className="w-4 h-4" />
+                <span className="hidden sm:inline">Excel'den Aktar</span>
               </Button>
 
               <input 
@@ -907,6 +920,15 @@ export function SatisFaturaListesi() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <SatisExcelAktarDrawer
+        isOpen={isExcelAktarOpen}
+        onClose={() => setIsExcelAktarOpen(false)}
+        onSuccess={() => {
+          fetchSatisFaturalari();
+          fetchCariHareketler();
+        }}
+      />
     </div>
   );
 }
