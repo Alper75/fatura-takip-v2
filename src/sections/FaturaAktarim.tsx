@@ -561,16 +561,17 @@ export function FaturaAktarim() {
       // A) LocalStorage kaydı
       try {
         localStorage.setItem('fatura_app_luca_isletme', JSON.stringify(hizliFisItems));
-        localStorage.setItem('fatura_app_luca_data', JSON.stringify({ targetCompany, isIsletme: true, data: hizliFisItems, raw: rawInvoices }));
+        localStorage.setItem('fatura_app_luca_data', JSON.stringify({ targetCompany, isIsletme: true, invoices: hizliFisItems, data: hizliFisItems, raw: rawInvoices }));
         localStorage.setItem('luca_aktarim_faturalar', JSON.stringify(hizliFisItems));
         localStorage.setItem('luca_transfer_data', JSON.stringify(hizliFisItems));
         localStorage.setItem('hizli_fis_data', JSON.stringify(hizliFisItems));
+        localStorage.setItem('transferData', JSON.stringify({ isIsletme: true, invoices: hizliFisItems }));
       } catch (e) {
         console.error('LocalStorage error:', e);
       }
 
       // B) CustomEvent & PostMessage
-      const payload = { targetCompany, isIsletme: true, hizliFisItems, isletmeRows, faturalar: rawInvoices, count: selectedInvoices.length };
+      const payload = { targetCompany, isIsletme: true, invoices: hizliFisItems, hizliFisItems, isletmeRows, faturalar: rawInvoices, count: selectedInvoices.length };
       
       window.dispatchEvent(new CustomEvent('FATURA_APP_LUCA_SEND_ISLETME', { detail: hizliFisItems }));
       window.dispatchEvent(new CustomEvent('FATURA_APP_LUCA_DATA', { detail: payload }));
