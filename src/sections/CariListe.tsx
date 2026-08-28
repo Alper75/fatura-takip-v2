@@ -22,7 +22,7 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 import { useApp } from '@/context/AppContext';
-import { Plus, Trash2, Edit, Users, MapPin, Phone, Mail, FileText, Zap } from 'lucide-react';
+import { Plus, Trash2, Edit, Users, MapPin, Phone, Mail, FileText } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { CariExcelAktarDrawer } from './CariExcelAktarDrawer';
@@ -30,7 +30,7 @@ import { FilterBar } from '@/components/FilterBar';
 import type { FilterValues } from '@/components/FilterBar';
 
 export function CariListe() {
-  const { cariler, deleteCari, openCariDrawer, openCariEkstreDrawer, hesaplaCariBakiye, fetchCariler, companies, user } = useApp();
+  const { cariler, deleteCari, openCariDrawer, openCariEkstreDrawer, hesaplaCariBakiye, fetchCariler } = useApp();
   const [cariToDelete, setCariToDelete] = useState<string | null>(null);
   const [isExcelDrawerOpen, setIsExcelDrawerOpen] = useState(false);
   const [filterValues, setFilterValues] = useState<FilterValues>({
@@ -42,46 +42,6 @@ export function CariListe() {
     status: 'all',
   });
 
-  const handleDirectCreateInLuca = (cari: any) => {
-    if (!cari.muhasebeKodu) {
-      toast.error('Bu carinin henüz bir Luca Muhasebe Kodu tanımlı değil. Düzenle butonundan kod belirleyin.');
-      return;
-    }
-
-    const activeCompany = companies.find(c => c.id === (user?.companyId || 1));
-    const payload = {
-      targetCompany: {
-        id: activeCompany?.id || 1,
-        vkn: activeCompany?.tax_no || (activeCompany as any)?.vknTckn || '',
-        unvan: activeCompany?.name || (activeCompany as any)?.unvan || ''
-      },
-      cari: {
-        id: cari.id,
-        hesapKodu: cari.muhasebeKodu,
-        unvan: cari.unvan,
-        vknTckn: cari.vknTckn,
-        vergiDairesi: cari.vergiDairesi || '',
-        adres: cari.adres || '',
-        telefon: cari.telefon || '',
-        eposta: cari.eposta || '',
-        tip: cari.tip
-      },
-      timestamp: Date.now()
-    };
-
-    try {
-      localStorage.setItem('fatura_app_luca_create_cari', JSON.stringify(payload));
-    } catch(e) {
-      console.error(e);
-    }
-
-    window.dispatchEvent(new CustomEvent('FATURA_APP_LUCA_CREATE_CARI', { detail: payload }));
-    document.dispatchEvent(new CustomEvent('FATURA_APP_LUCA_CREATE_CARI', { detail: payload }));
-    window.postMessage({ type: 'FATURA_APP_LUCA_CREATE_CARI', detail: payload, payload }, '*');
-
-    toast.success(`⚡ ${cari.muhasebeKodu} kodlu cari Luca'ya otomatik olarak iletildi ve açıldı!`);
-  };
-
   const filteredCariler = cariler.filter((cari) => {
     const searchLower = filterValues.search.toLowerCase();
     const matchesSearch = 
@@ -91,7 +51,6 @@ export function CariListe() {
 
     const matchesType = filterValues.status === 'all' || cari.tip === filterValues.status;
 
-    // Optional: Date filter for creation date if needed
     const matchesDate = (!filterValues.startDate || (cari.olusturmaTarihi && cari.olusturmaTarihi >= filterValues.startDate)) &&
                         (!filterValues.endDate || (cari.olusturmaTarihi && cari.olusturmaTarihi <= filterValues.endDate));
 
@@ -118,84 +77,95 @@ export function CariListe() {
 
   return (
     <div className="space-y-4">
-      <Card className="border-0 shadow-sm">
-        <CardHeader className="pb-4">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-            <div>
-              <CardTitle className="text-xl font-semibold flex items-center gap-2">
-                <Users className="w-5 h-5 text-primary" />
-                Cari Kartlar
-              </CardTitle>
-              <p className="text-sm text-slate-500 mt-1">
-                Sistemde kayıtlı toplam {cariler.length} cari kart bulunuyor
-              </p>
-            </div>
-            <div className="flex items-center gap-3">
-              <Button onClick={() => setIsExcelDrawerOpen(true)} variant="outline" className="gap-2 border-indigo-200 text-indigo-700 bg-indigo-50/50 hover:bg-indigo-100">
-                <FileText className="w-4 h-4" />
-                <span className="hidden sm:inline">Excel'den Aktar</span>
-              </Button>
-              <Button onClick={() => openCariDrawer()} className="gap-2">
-                <Plus className="w-4 h-4" />
-                <span className="hidden sm:inline">Yeni Cari Ekle</span>
-              </Button>
-            </div>
+      {/* Üst Kart / Başlık */}
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between pb-2">
+          <div className="space-y-1">
+            <CardTitle className="text-xl font-bold flex items-center gap-2">
+              <Users className="w-5 h-5 text-primary" />
+              Cari Hesap Yönetimi
+            </CardTitle>
+            <p className="text-sm text-slate-500">
+              Müşteri ve tedarikçilerinizi tek bir yerden yönetin, bakiye ve fatura geçmişlerini takip edin.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button 
+              variant="outline" 
+              onClick={() => setIsExcelDrawerOpen(true)}
+              className="border-emerald-600/30 text-emerald-700 hover:bg-emerald-50"
+            >
+              Excel'den İçe Aktar
+            </Button>
+            <Button onClick={() => openCariDrawer()} className="bg-primary hover:bg-primary/90">
+              <Plus className="w-4 h-4 mr-2" />
+              Yeni Cari Ekle
+            </Button>
           </div>
         </CardHeader>
+        <CardContent>
+          <FilterBar
+            onFilterChange={setFilterValues}
+            showStatus={true}
+            statusOptions={[
+              { value: 'all', label: 'Tüm Tipler' },
+              { value: 'musteri', label: 'Sadece Müşteriler' },
+              { value: 'tedarikci', label: 'Sadece Tedarikçiler' },
+              { value: 'ikisi', label: 'Müşteri & Tedarikçi' },
+            ]}
+            searchPlaceholder="Ünvan, Vergi No veya Adres ile ara..."
+          />
+        </CardContent>
       </Card>
 
-      <FilterBar 
-        onFilterChange={setFilterValues} 
-        searchPlaceholder="Ünvan, T.C./VKN veya adres ara..."
-        statusOptions={[
-          { label: 'Tüm Tipler', value: 'all' },
-          { label: 'Müşteriler', value: 'musteri' },
-          { label: 'Tedarikçiler', value: 'tedarikci' },
-        ]}
-      />
-
-      <Card className="border-0 shadow-sm">
+      {/* Cari Tablosu */}
+      <Card>
         <CardContent className="p-0">
           <div className="overflow-x-auto">
             <Table>
               <TableHeader>
-                <TableRow className="bg-slate-50/50 hover:bg-slate-50/50">
-                  <TableHead className="font-semibold text-slate-700">Ünvan / Ad Soyad</TableHead>
-                  <TableHead className="font-semibold text-slate-700">T.C. / VKN</TableHead>
-                  <TableHead className="font-semibold text-slate-700">Tip</TableHead>
-                  <TableHead className="font-semibold text-slate-700">İletişim</TableHead>
-                  <TableHead className="font-semibold text-slate-700">Bakiye</TableHead>
-                  <TableHead className="font-semibold text-slate-700 text-right">İşlemler</TableHead>
+                <TableRow className="bg-slate-50/50">
+                  <TableHead className="font-semibold">Ünvan / Ad Soyad</TableHead>
+                  <TableHead className="font-semibold">VKN / TCKN</TableHead>
+                  <TableHead className="font-semibold">Tip</TableHead>
+                  <TableHead className="font-semibold">İletişim</TableHead>
+                  <TableHead className="font-semibold">Bakiye</TableHead>
+                  <TableHead className="text-right font-semibold">İşlemler</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filteredCariler.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="h-48 text-center">
-                      <div className="flex flex-col items-center justify-center text-slate-400">
-                        <Users className="w-12 h-12 mb-3 opacity-20" />
-                        <p className="text-base font-medium">Cari kaydı bulunamadı</p>
-                        <p className="text-sm mt-1">Yeni cari ekleyerek başlayabilirsiniz.</p>
-                      </div>
+                    <TableCell colSpan={6} className="text-center py-8 text-slate-500">
+                      {filterValues.search || filterValues.status !== 'all'
+                        ? 'Arama kriterlerine uygun cari kart bulunamadı.'
+                        : 'Henüz kayıtlı cari kart bulunmuyor. Yeni Cari Ekle butonunu kullanarak başlayabilirsiniz.'}
                     </TableCell>
                   </TableRow>
                 ) : (
                   filteredCariler.map((cari) => (
-                    <TableRow key={cari.id} className="group hover:bg-slate-50/50">
-                      <TableCell>
-                        <div className="font-medium text-slate-900">{cari.unvan}</div>
-                        {cari.adres && (
-                          <div className="flex items-center gap-1 text-xs text-slate-500 mt-1 max-w-[250px] truncate">
-                            <MapPin className="w-3 h-3 flex-shrink-0" />
-                            <span className="truncate">{cari.adres}</span>
+                    <TableRow key={cari.id} className="hover:bg-slate-50/50 transition-colors">
+                      <TableCell className="font-medium text-slate-900">
+                        <div className="flex flex-col">
+                          <span className="font-semibold">{cari.unvan}</span>
+                          {cari.adres && (
+                            <span className="text-xs text-slate-400 flex items-center gap-1 mt-0.5 max-w-xs truncate">
+                              <MapPin className="w-3 h-3" />
+                              {cari.adres}
+                            </span>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-slate-600 font-mono text-sm">
+                        {cari.vknTckn}
+                        {cari.vergiDairesi && (
+                          <div className="text-[11px] text-slate-400 font-sans">
+                            {cari.vergiDairesi} V.D.
                           </div>
                         )}
                       </TableCell>
-                      <TableCell className="text-slate-600 font-medium">
-                        {cari.vknTckn}
-                      </TableCell>
                       <TableCell>
-                        <Badge className={`${getTipBadgeColor(cari.tip)} uppercase text-[10px] tracking-wider font-semibold border-0`}>
+                        <Badge variant="secondary" className={cn("font-medium", getTipBadgeColor(cari.tip))}>
                           {getTipLabel(cari.tip)}
                         </Badge>
                       </TableCell>
@@ -236,26 +206,14 @@ export function CariListe() {
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-1">
-                          {cari.muhasebeKodu && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleDirectCreateInLuca(cari)}
-                              className="bg-emerald-50 text-emerald-700 hover:text-emerald-800 hover:bg-emerald-100 font-semibold text-xs gap-1"
-                              title="Bu cariyi güvenlik doğrulaması ile Luca'da aç"
-                            >
-                              <Zap className="w-3.5 h-3.5" />
-                              Luca'da Aç
-                            </Button>
-                          )}
                           <Button
                             variant="ghost"
                             size="sm"
                             onClick={() => openCariEkstreDrawer(cari.id)}
-                            className="bg-indigo-50/50 text-indigo-700 hover:text-indigo-800 hover:bg-indigo-100 font-semibold mr-1"
+                            className="bg-indigo-50/50 text-indigo-700 hover:text-indigo-800 hover:bg-indigo-100 font-semibold mr-2"
                             title="Hesap Ekstresi"
                           >
-                            <FileText className="w-4 h-4 mr-1.5" />
+                            <FileText className="w-4 h-4 mr-2" />
                             Ekstre
                           </Button>
                           <Button
