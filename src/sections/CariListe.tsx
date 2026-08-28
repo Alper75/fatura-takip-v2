@@ -79,7 +79,7 @@ export function CariListe() {
     document.dispatchEvent(new CustomEvent('FATURA_APP_LUCA_CREATE_CARI', { detail: payload }));
     window.postMessage({ type: 'FATURA_APP_LUCA_CREATE_CARI', detail: payload, payload }, '*');
 
-    toast.success(`🚀 Luca için cari açma paketi hazırlandı (${cari.muhasebeKodu} - ${cari.unvan})! Luca sekmesine geçip onaylayabilirsiniz.`);
+    toast.success(`⚡ ${cari.muhasebeKodu} kodlu cari Luca'ya otomatik olarak iletildi ve açıldı!`);
   };
 
   const filteredCariler = cariler.filter((cari) => {

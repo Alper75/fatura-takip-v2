@@ -153,7 +153,7 @@ export function CariDrawer() {
       addCari(formData);
     }
 
-    toast.success(`🚀 Luca için cari açma paketi hazırlandı (${formData.muhasebeKodu} - ${formData.unvan})! Luca sekmesine geçip onaylayabilirsiniz.`);
+    toast.success(`⚡ ${formData.muhasebeKodu} kodlu cari Luca'ya otomatik olarak iletildi ve açıldı!`);
   };
 
   const handleSubmit = (e: React.FormEvent) => {
