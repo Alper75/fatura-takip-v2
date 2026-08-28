@@ -88,10 +88,17 @@ export function FaturaAktarim() {
     }
   };
 
-  const formatTarih = (tarih: string) => {
+    const formatTarih = (tarih: string) => {
     if (!tarih) return '';
-    const [y, m, d] = tarih.split('-');
-    return `${d}/${m}/${y}`;
+    const str = String(tarih).trim();
+    if (str.includes('/')) return str;
+    if (str.includes('.') && str.split('.').length === 3) return str.replace(/\./g, '/');
+    const parts = str.split('-');
+    if (parts.length === 3) {
+      if (parts[0].length === 4) return `${parts[2]}/${parts[1]}/${parts[0]}`;
+      return `${parts[0]}/${parts[1]}/${parts[2]}`;
+    }
+    return str;
   };
 
   // İŞLETME DEFTERİ İÇİN SATIR FORMATI (HESAP KODSUZ GELİR / GİDER LİSTESİ)
