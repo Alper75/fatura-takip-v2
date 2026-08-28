@@ -269,23 +269,20 @@ app.get('/api/elogo/gelen-faturalar', authMiddleware, async (req, res) => {
       beginDate = beginDateObj.toISOString();
     }
 
-    const response = await elogo.getDocumentList('EINVOICE', beginDate, endDate, 2);
-    console.log('eLogo GetDocumentList response:', JSON.stringify(response, null, 2));
+    // opType = 2 for INCOMING, dateBy = 1 (Fatura Düzenleme Tarihi)
+    const response = await elogo.getDocumentList('EINVOICE', beginDate, endDate, 2, 1);
+    console.log('eLogo Gelen GetDocumentList response:', JSON.stringify(response, null, 2));
 
     if (!response.success) {
       return res.status(500).json({ success: false, message: response.message });
     }
     
-    // response.data contains the list of documents
     const docListRaw = response.data?.docList?.Document || response.data?.docList?.document || response.data?.GetDocumentListResult?.document || [];
     const documents = Array.isArray(docListRaw) ? docListRaw : (docListRaw ? [docListRaw] : []);
     
-    // Sadece başarılı olanları (veya parse edilebilenleri) dönelim
-    
     const ublParser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_', removeNSPrefix: true, parseTagValue: false });
     
-    // Concurrency limit for requests to avoid Logo rate limiting
-    // 1. Veritabanında zaten kayıtlı olan faturaları anında eşle (Gereksiz SOAP XML indirmelerini atla)
+    // 1. Veritabanında zaten kayıtlı olan faturaları anında eşle
     const existingInvoicesRs = await client.execute({
       sql: 'SELECT id, fatura_no, fatura_tarihi, tedarikci_adi, tedarikci_vkn, toplam_tutar, matrah, kdv_orani, kdv_tutari, oiv_tutari, mal_hizmet_adi, aciklama, gib_uuid FROM alis_faturalari WHERE company_id = ?',
       args: [companyId]
@@ -323,8 +320,7 @@ app.get('/api/elogo/gelen-faturalar', authMiddleware, async (req, res) => {
             isAlreadySaved: true
           };
         }
-      try {
-        const uuid = doc.documentUuid || doc.uuid;
+
         if (!uuid) return { ...doc, senderName: 'Geçersiz UUID', faturaNo: doc.documentId || '-' };
         
         const docDataRes = await elogo.getDocumentData(uuid);
@@ -404,11 +400,10 @@ app.get('/api/elogo/gelen-faturalar', authMiddleware, async (req, res) => {
             const percent = parseFloat(getText(sub['Percent'])) || parseFloat(getText(taxCat?.['Percent'])) || 0;
             const amount = parseFloat(getText(sub['TaxAmount'])) || 0;
             
-            if (taxCode === '0015' || taxCode === '15' || taxCode === 15 || !taxCode) { // 0015 KDV Kodudur
+            if (taxCode === '0015' || taxCode === '15' || taxCode === 15 || !taxCode) {
               kdvTutari += amount;
               kdvOrani = percent; 
             } else {
-              // ÖİV (4080), ÖTV (0071), TK (8001, 8002) vb. tüm diğer vergiler
               oivTutari += amount;
             }
           }
@@ -472,8 +467,7 @@ app.get('/api/elogo/gelen-faturalar', authMiddleware, async (req, res) => {
       }
     };
 
-    // Tüm fatura detaylarını paralel olarak çek
-    // Faturaları 15'erli paralel paketler halinde çek (Sunucuyu ve API'yi tıkamadan hızlı yükle)
+    // Faturaları 15'erli paralel paketler halinde çek
     const pLimit = 15;
     const formattedDocs = [];
     for (let i = 0; i < documents.length; i += pLimit) {
