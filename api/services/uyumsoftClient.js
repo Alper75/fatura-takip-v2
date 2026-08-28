@@ -76,10 +76,7 @@ export class UyumsoftClient {
 
       for (let pageIndex = 0; pageIndex < 10; pageIndex++) {
         const queryObj = {
-          attributes: { PageIndex: pageIndex, PageSize: pageSize },
-          $attributes: { PageIndex: pageIndex, PageSize: pageSize },
-          PageIndex: pageIndex,
-          PageSize: pageSize
+          attributes: { PageIndex: pageIndex, PageSize: pageSize }
         };
 
         if (dateBy === 1) {
@@ -152,9 +149,6 @@ export class UyumsoftClient {
           args = {
             context: {
               attributes: { PageIndex: pageIndex, PageSize: pageSize },
-              $attributes: { PageIndex: pageIndex, PageSize: pageSize },
-              PageIndex: pageIndex,
-              PageSize: pageSize,
               DocumentDate: { Begin: bDate, End: eDate }
             }
           };
@@ -162,9 +156,6 @@ export class UyumsoftClient {
           args = {
             context: {
               attributes: { PageIndex: pageIndex, PageSize: pageSize },
-              $attributes: { PageIndex: pageIndex, PageSize: pageSize },
-              PageIndex: pageIndex,
-              PageSize: pageSize,
               DocumentStartDate: bDate,
               DocumentEndDate: eDate,
               SortColumn: 'DocumentDate'
@@ -200,9 +191,6 @@ export class UyumsoftClient {
           args = {
             context: {
               attributes: { PageIndex: pageIndex, PageSize: pageSize },
-              $attributes: { PageIndex: pageIndex, PageSize: pageSize },
-              PageIndex: pageIndex,
-              PageSize: pageSize,
               CreationDate: { Begin: bDate, End: eDate }
             }
           };
@@ -210,9 +198,6 @@ export class UyumsoftClient {
           args = {
             context: {
               attributes: { PageIndex: pageIndex, PageSize: pageSize },
-              $attributes: { PageIndex: pageIndex, PageSize: pageSize },
-              PageIndex: pageIndex,
-              PageSize: pageSize,
               CreationSartDate: bDate,
               CreationEndDate: eDate,
               SortColumn: 'CreateDate'
