@@ -26,6 +26,8 @@ export default function GidenElogoFaturalar() {
 
   useEffect(() => {
     fetchFaturalar();
+    fetchSatisFaturalari();
+    fetchCariHareketler();
   }, []);
 
   const fetchFaturalar = async () => {
@@ -102,8 +104,21 @@ export default function GidenElogoFaturalar() {
     }
   };
 
-  const checkIsSaved = (f: any) => {
-    return savedInvoices.includes(f.uuid) || (satisFaturalari || []).some((s: any) => s.faturaNo && (s.faturaNo === f.faturaNo || s.faturaNo === f.invoiceNumber));
+    const checkIsSaved = (f: any) => {
+    if (!f) return false;
+    if (f.isAlreadySaved) return true;
+    const fNo = String(f.invoiceNumber || f.faturaNo || f.documentId || '').trim().toLowerCase();
+    const fUuid = String(f.uuid || f.documentUuid || '').trim().toLowerCase();
+    
+    if (fUuid && savedInvoices.map(s => s.toLowerCase()).includes(fUuid)) return true;
+    
+    return (satisFaturalari || []).some((s: any) => {
+      const sNo = String(s.faturaNo || s.fatura_no || '').trim().toLowerCase();
+      const sUuid = String(s.gibUuid || s.gib_uuid || s.uuid || '').trim().toLowerCase();
+      if (fNo && sNo && sNo === fNo) return true;
+      if (fUuid && sUuid && sUuid === fUuid) return true;
+      return false;
+    });
   };
 
   const savedCount = useMemo(() => faturalar.filter(f => checkIsSaved(f)).length, [faturalar, savedInvoices, satisFaturalari]);
