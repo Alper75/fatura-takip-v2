@@ -126,7 +126,7 @@ export class ElogoClient {
     }
   }
 
-  async getDocumentList(documentType = 'EINVOICE', beginDate, endDate, opType = 2 /* 2: INCOMING, 1: OUTGOING */) {
+  async getDocumentList(documentType = 'EINVOICE', beginDate, endDate, opType = 2 /* 2: INCOMING, 1: OUTGOING */, dateBy = 1 /* 1: Fatura/Düzenleme Tarihi, 0: Sisteme Geliş/Zarf Tarihi */) {
     await this.init();
     if (!this.sessionId) await this.login();
 
@@ -138,7 +138,7 @@ export class ElogoClient {
           `BEGINDATE=${beginDate}`,
           `ENDDATE=${endDate}`,
           `OPTYPE=${opType}`,
-          `DATEBY=0`
+          `DATEBY=${dateBy}`
         ]
       }
     };
