@@ -283,14 +283,18 @@ app.get('/api/elogo/gelen-faturalar', authMiddleware, async (req, res) => {
     const ublParser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_', removeNSPrefix: true, parseTagValue: false });
     
     // 1. Veritabanında zaten kayıtlı olan faturaları anında eşle
-    const existingInvoicesRs = await client.execute({
-      sql: 'SELECT id, fatura_no, fatura_tarihi, tedarikci_adi, tedarikci_vkn, toplam_tutar, matrah, kdv_orani, kdv_tutari, oiv_tutari, mal_hizmet_adi, aciklama, gib_uuid FROM alis_faturalari WHERE company_id = ?',
-      args: [companyId]
-    });
     const existingMap = new Map();
-    for (const row of existingInvoicesRs.rows) {
-      if (row.gib_uuid) existingMap.set(String(row.gib_uuid).toLowerCase().trim(), row);
-      if (row.fatura_no) existingMap.set(String(row.fatura_no).toLowerCase().trim(), row);
+    try {
+      const existingInvoicesRs = await client.execute({
+        sql: 'SELECT id, fatura_no, fatura_tarihi, tedarikci_adi, tedarikci_vkn, toplam_tutar, matrah, kdv_orani, kdv_tutari, oiv_tutari, mal_hizmet_adi, aciklama, gib_uuid FROM alis_faturalari WHERE company_id = ?',
+        args: [companyId]
+      });
+      for (const row of existingInvoicesRs.rows) {
+        if (row.gib_uuid) existingMap.set(String(row.gib_uuid).toLowerCase().trim(), row);
+        if (row.fatura_no) existingMap.set(String(row.fatura_no).toLowerCase().trim(), row);
+      }
+    } catch (dbErr) {
+      console.warn('Existing invoices check warning:', dbErr.message);
     }
 
     const fetchInvoiceDetails = async (doc) => {

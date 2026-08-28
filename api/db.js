@@ -380,6 +380,11 @@ export async function initDb() {
               await client.execute(`ALTER TABLE satis_faturalari ADD COLUMN gib_uuid TEXT`);
             }
           }
+          if (table === 'alis_faturalari') {
+            if (!info.rows.some(col => col.name === 'gib_uuid')) {
+              await client.execute(`ALTER TABLE alis_faturalari ADD COLUMN gib_uuid TEXT`);
+            }
+          }
         } catch (e) {}
     }
 
