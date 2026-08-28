@@ -9,7 +9,6 @@ import { IntegrationImportPreviewModal } from '../components/IntegrationImportPr
 
 export default function GelenEFaturalar() {
   const [loading, setLoading] = useState(false);
-  const [importing, setImporting] = useState<string | null>(null);
   const [faturalar, setFaturalar] = useState<any[]>([]);
   const [savedInvoices, setSavedInvoices] = useState<string[]>([]);
   const [selectedInvoices, setSelectedInvoices] = useState<string[]>([]);
@@ -85,33 +84,9 @@ export default function GelenEFaturalar() {
     }
   };
 
-  const handleImportInvoice = async (fatura: any) => {
-    setImporting(fatura.uuid);
-    try {
-      const token = localStorage.getItem('token');
-      const res = await fetch('/api/invoices/import-from-logo', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify(fatura)
-      });
-      const data = await res.json();
-      
-      if (data.success) {
-        toast.success(data.message);
-        setSavedInvoices(prev => [...prev, fatura.uuid]);
-        fetchAlisFaturalari(); fetchCariHareketler(); // Listeyi güncelle
-      } else {
-        toast.error(data.message);
-      }
-    } catch (error) {
-      console.error('İçe aktarma hatası:', error);
-      toast.error('Fatura kaydedilirken bir hata oluştu');
-    } finally {
-      setImporting(null);
-    }
+  const handleImportInvoice = (fatura: any) => {
+    setSelectedInvoices([fatura.uuid]);
+    setShowPreviewModal(true);
   };
 
   const handleBulkImport = () => {
@@ -276,15 +251,11 @@ export default function GelenEFaturalar() {
                             <Button 
                               variant="default" 
                               size="sm"
-                              disabled={importing === f.uuid || isSaved}
+                              disabled={isSaved}
                               className={`h-8 gap-1.5 shadow-sm ${isSaved ? 'bg-green-600 hover:bg-green-700 text-white' : 'bg-slate-800 hover:bg-slate-700'}`}
                               onClick={() => handleImportInvoice(f)}
                             >
-                              {importing === f.uuid ? (
-                                <RefreshCcw className="w-3.5 h-3.5 animate-spin" />
-                              ) : (
-                                <Save className="w-3.5 h-3.5" />
-                              )}
+                              <Save className="w-3.5 h-3.5" />
                               {isSaved ? "Kaydedildi" : "Kaydet"}
                             </Button>
                           </div>

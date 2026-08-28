@@ -196,6 +196,28 @@ export function AlisFaturaListesi() {
     toast.success('Fatura silindi');
   };
 
+  const handleEdit = (fatura: typeof alisFaturalari[0] & { stokKalemleri?: any[] }) => {
+    const initialData = {
+      id: fatura.id,
+      faturaNo: fatura.faturaNo,
+      tedarikciVkn: fatura.tedarikciVkn,
+      tedarikciAdi: fatura.tedarikciAdi,
+      malHizmetAdi: fatura.malHizmetAdi || '',
+      toplamTutar: fatura.toplamTutar.toString(),
+      faturaTarihi: fatura.faturaTarihi,
+      kdvOrani: fatura.kdvOrani.toString(),
+      tevkifatOrani: fatura.tevkifatOrani || '0',
+      stopajOrani: fatura.stopajOrani || '0',
+      muhasebeKodu: (fatura as any).muhasebeKodu || '',
+      aciklama: (fatura as any).aciklama || '',
+      cariId: fatura.cariId,
+      vadeTarihi: fatura.vadeTarihi || '',
+      vehiclePlate: (fatura as any).vehiclePlate || '',
+      stokKalemleri: (fatura as any).stokKalemleri
+    };
+    openAlisDrawer(initialData as any);
+  };
+
   const openOdemeDialog = (fatura: typeof alisFaturalari[0]) => {
     setSelectedFatura(fatura.id);
     setOdemeTarihi(fatura.odemeTarihi || new Date().toISOString().split('T')[0]);
@@ -512,8 +534,19 @@ export function AlisFaturaListesi() {
                             variant="ghost"
                             size="sm"
                             onClick={() => openOdemeDialog(fatura)}
-                            className="text-slate-400 hover:text-blue-600 hover:bg-blue-50"
+                            className="text-slate-400 hover:text-emerald-600 hover:bg-emerald-50"
                             title="Ödeme Düzenle"
+                          >
+                            <CreditCard className="w-4 h-4" />
+                          </Button>
+
+                          {/* Düzenle Butonu */}
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleEdit(fatura)}
+                            className="text-slate-400 hover:text-indigo-600 hover:bg-indigo-50"
+                            title="Faturayı Düzenle"
                           >
                             <Edit className="w-4 h-4" />
                           </Button>

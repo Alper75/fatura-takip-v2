@@ -67,9 +67,10 @@ interface AppContextType {
   downloadSatisDekont: (faturaId: string) => void;
   deleteSatisFatura: (id: string) => void;
 
-  // ==================== ALIÅ FATURALARI ====================
+  // ==================== ALIÅž FATURALARI ====================
   alisFaturalari: AlisFatura[];
   addAlisFatura: (fatura: AlisFaturaFormData) => void;
+  updateAlisFatura: (id: string, data: AlisFaturaFormData) => void;
   updateAlisFaturaOdeme: (id: string, odemeTarihi: string, durum: OdemeDurumu, bankaId?: string) => void;
   uploadAlisPdf: (faturaId: string, file: File) => void;
   uploadAlisDekont: (faturaId: string, file: File) => void;
@@ -1414,6 +1415,69 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return yeniFatura.id;
   }, []);
 
+  const updateAlisFatura = useCallback(async (id: string, formData: AlisFaturaFormData) => {
+    const pre = formData as any;
+    const hesaplanan = (pre.matrah !== undefined && pre.matrah !== null && pre.matrah > 0)
+      ? { matrah: pre.matrah, kdvTutari: pre.kdvTutari, tevkifatTutari: pre.tevkifatTutari, stopajTutari: pre.stopajTutari }
+      : calculateAlisFatura(formData);
+
+    const toplamTutarFinal = pre.toplamTutarNet > 0 ? pre.toplamTutarNet : (parseFloat(formData.toplamTutar) || 0);
+
+    setAlisFaturalari(prev => prev.map(f => f.id === id ? {
+      ...f,
+      faturaNo: formData.faturaNo,
+      faturaTarihi: formData.faturaTarihi,
+      tedarikciAdi: formData.tedarikciAdi,
+      tedarikciVkn: formData.tedarikciVkn,
+      malHizmetAdi: formData.malHizmetAdi,
+      toplamTutar: Math.round(toplamTutarFinal * 100) / 100,
+      kdvOrani: parseFloat(formData.kdvOrani) || 0,
+      kdvTutari: hesaplanan.kdvTutari || 0,
+      matrah: hesaplanan.matrah || 0,
+      tevkifatOrani: formData.tevkifatOrani || '0',
+      tevkifatTutari: hesaplanan.tevkifatTutari || 0,
+      stopajOrani: formData.stopajOrani || '0',
+      stopajTutari: hesaplanan.stopajTutari || 0,
+      muhasebeKodu: pre.muhasebeKodu || (f as any).muhasebeKodu || '',
+      aciklama: pre.aciklama || (f as any).aciklama || '',
+      cariId: formData.cariId,
+      vadeTarihi: formData.vadeTarihi || null,
+      vehiclePlate: pre.vehiclePlate || (f as any).vehiclePlate || null,
+      stokKalemleri: (formData as any).stokKalemleri || (f as any).stokKalemleri
+    } : f));
+
+    try {
+      await apiFetch(`/api/alis-faturalari/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          faturaNo: formData.faturaNo,
+          faturaTarihi: formData.faturaTarihi,
+          tedarikciAdi: formData.tedarikciAdi,
+          tedarikciVkn: formData.tedarikciVkn,
+          malHizmetAdi: formData.malHizmetAdi,
+          toplamTutar: Math.round(toplamTutarFinal * 100) / 100,
+          kdvOrani: parseFloat(formData.kdvOrani),
+          kdvTutari: hesaplanan.kdvTutari,
+          matrah: hesaplanan.matrah,
+          tevkifatOrani: formData.tevkifatOrani,
+          tevkifatTutari: hesaplanan.tevkifatTutari,
+          stopajOrani: formData.stopajOrani,
+          stopajTutari: hesaplanan.stopajTutari,
+          muhasebeKodu: pre.muhasebeKodu,
+          aciklama: pre.aciklama,
+          vadeTarihi: formData.vadeTarihi,
+          vehiclePlate: pre.vehiclePlate,
+          cariId: formData.cariId,
+          urunId: formData.urunId,
+          depoId: formData.depoId,
+          stokKalemleri: (formData as any).stokKalemleri || []
+        })
+      });
+    } catch (e) {
+      console.error('Alış fatura güncellenemedi:', e);
+    }
+  }, []);
+
   const updateAlisFaturaOdeme = useCallback(async (id: string, odemeTarihi: string, odemeDurumu: 'odenmedi' | 'odendi' | 'bekliyor') => {
     setAlisFaturalari(prev => prev.map(f => f.id === id ? { ...f, odemeTarihi, odemeDurumu } : f));
     try { await apiFetch(`/api/alis-faturalari/${id}`, { method: 'PUT', body: JSON.stringify({ odemeTarihi, odemeDurumu }) }); }
@@ -1860,6 +1924,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         deleteSatisFatura,
         alisFaturalari,
         addAlisFatura,
+        updateAlisFatura,
         updateAlisFaturaOdeme,
         uploadAlisPdf,
         uploadAlisDekont,

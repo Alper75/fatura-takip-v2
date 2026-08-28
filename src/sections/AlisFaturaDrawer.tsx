@@ -45,7 +45,7 @@ type UploadedFile = {
 };
 
 export function AlisFaturaDrawer() {
-  const { isAlisDrawerOpen, closeAlisDrawer, addAlisFatura, cariler, alisInitialData, lucaAccounts, isIsletmeDefteri, companies, user, apiFetch } = useApp();
+  const { isAlisDrawerOpen, closeAlisDrawer, addAlisFatura, updateAlisFatura, cariler, alisInitialData, lucaAccounts, isIsletmeDefteri, companies, user, apiFetch } = useApp();
   const activeCompany = companies.find(c => c.id === (user?.companyId || 1));
   const hasCommercialVehicle = activeCompany?.vehicles?.some(v => v.type === 'commercial');
   const { data: urunler } = useUrunler();
@@ -247,7 +247,8 @@ export function AlisFaturaDrawer() {
             toast.info(`${f.data.faturaNo} nolu faturaya %70/%30 gider kısıtı uygulandı.`);
           }
 
-          const invoiceId = await addAlisFatura({
+          const isEditMode = !!(f.data as any).id;
+          const invoicePayload = {
             ...finalData,
             toplamTutar: f.data.toplamTutar,
             toplamTutarNet: hes.toplamNet,
@@ -259,24 +260,30 @@ export function AlisFaturaDrawer() {
             muhasebeKodu: f.data.muhasebeKodu,
             dosyaBase64: f.data.dosyaBase64 || '',
             dosyaAdi: f.data.dosyaAdi || ''
-          } as any);
+          } as any;
 
-          if (f.data.urunId) {
-            await stokApi.addHareket({
-              urunId: f.data.urunId,
-              depoId: f.data.depoId || varsayilanDepoId,
-              tip: 'GIRIS',
-              miktar: 1, 
-              birimFiyat: hes.matrah,
-              tutar: hes.matrah,
-              tarih: f.data.faturaTarihi,
-              referansNo: `Alış Faturası: ${f.data.faturaNo}`,
-              aciklama: `${f.data.tedarikciAdi} firmasından alım.`,
-              bagliFaturaId: invoiceId
-            });
+          if (isEditMode) {
+            await updateAlisFatura((f.data as any).id, invoicePayload);
+          } else {
+            const invoiceId = await addAlisFatura(invoicePayload);
+
+            if (f.data.urunId) {
+              await stokApi.addHareket({
+                urunId: f.data.urunId,
+                depoId: f.data.depoId || varsayilanDepoId,
+                tip: 'GIRIS',
+                miktar: 1, 
+                birimFiyat: hes.matrah,
+                tutar: hes.matrah,
+                tarih: f.data.faturaTarihi,
+                referansNo: `Alış Faturası: ${f.data.faturaNo}`,
+                aciklama: `${f.data.tedarikciAdi} firmasından alım.`,
+                bagliFaturaId: invoiceId
+              });
+            }
           }
         }
-        toast.success(`${forms.length} adet alış faturası kaydedildi.`);
+        toast.success(forms.some(f => (f.data as any).id) ? 'Alış faturası başarıyla güncellendi.' : `${forms.length} adet alış faturası kaydedildi.`);
         handleClose();
       } catch (error: any) {
         toast.error('Kayıt sırasında bir hata oluştu: ' + error.message);

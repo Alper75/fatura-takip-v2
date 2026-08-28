@@ -1346,6 +1346,29 @@ app.post('/api/invoices/import-from-logo', authMiddleware, async (req, res) => {
     if (existing.rows && existing.rows.length > 0) {
       return res.status(400).json({ success: false, message: 'Bu fatura zaten sisteme kaydedilmiş.' });
     }
+
+    let finalMuhasebeKodu = muhasebeKodu || null;
+    let finalCariId = cariId || null;
+
+    if (!finalCariId && senderVkn) {
+      const matchedCari = await client.execute({
+        sql: 'SELECT id FROM cariler WHERE company_id = ? AND vkn_tckn = ? LIMIT 1',
+        args: [req.user.companyId, senderVkn]
+      });
+      if (matchedCari.rows && matchedCari.rows.length > 0) {
+        finalCariId = matchedCari.rows[0].id;
+      }
+    }
+
+    if (!finalMuhasebeKodu && senderVkn) {
+      const pastAlis = await client.execute({
+        sql: 'SELECT muhasebe_kodu FROM alis_faturalari WHERE company_id = ? AND tedarikci_vkn = ? AND muhasebe_kodu IS NOT NULL AND muhasebe_kodu != "" ORDER BY id DESC LIMIT 1',
+        args: [req.user.companyId, senderVkn]
+      });
+      if (pastAlis.rows && pastAlis.rows.length > 0) {
+        finalMuhasebeKodu = pastAlis.rows[0].muhasebe_kodu;
+      }
+    }
     
     // Otomatik olarak PDF'i de eLogo'dan çekip kaydedelim
     let pdfDosyaBase64 = null;
@@ -1382,6 +1405,7 @@ app.post('/api/invoices/import-from-logo', authMiddleware, async (req, res) => {
     
     // Insert into DB
     const id = uuidv4();
+    const cleanAciklama = senderName || 'Alış Faturası';
     await client.execute({
       sql: `INSERT INTO alis_faturalari 
         (id, fatura_no, fatura_tarihi, tedarikci_adi, tedarikci_vkn, mal_hizmet_adi, 
@@ -1391,22 +1415,22 @@ app.post('/api/invoices/import-from-logo', authMiddleware, async (req, res) => {
          aciklama, olusturma_tarihi, company_id, kdv1, kdv10, kdv20, oiv_tutari) 
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       args: [
-        id, faturaNo, islemTarihi, senderName, senderVkn, faturaAciklama || 'eLogo Gelen Fatura',
+        id, faturaNo, islemTarihi, senderName, senderVkn, faturaAciklama || cleanAciklama,
         payableAmount, kdvOrani || 0, kdvTutari || 0, matrah || 0, '0', 0,
-        '0', 0, muhasebeKodu || null, null, pdfDosyaBase64, pdfDosyaAdi,
-        null, 'odenmedi', null, null, cariId || null, null,
-        'eLogo Üzerinden içe aktarıldı (UUID: ' + uuid + ')', new Date().toISOString().split('T')[0], req.user.companyId,
+        '0', 0, finalMuhasebeKodu, null, pdfDosyaBase64, pdfDosyaAdi,
+        null, 'odenmedi', null, null, finalCariId, null,
+        cleanAciklama, new Date().toISOString().split('T')[0], req.user.companyId,
         (kdvOrani === 1 ? kdvTutari : 0), (kdvOrani === 10 ? kdvTutari : 0), (kdvOrani === 20 ? kdvTutari : 0), oivTutari || 0
       ]
     });
 
-    if (cariId) {
+    if (finalCariId) {
       const cariHareketId = 'ch' + Date.now().toString() + Math.random().toString(36).substr(2, 5);
       await client.execute({
         sql: 'INSERT INTO cari_hareketler (id,cari_id,tarih,islem_turu,tutar,aciklama,bagli_fatura_id,olusturma_tarihi,company_id) VALUES (?,?,?,?,?,?,?,?,?)',
         args: [
-          cariHareketId, cariId, islemTarihi, 'alis_faturasi', payableAmount || 0,
-          (faturaAciklama || 'eLogo Gelen Fatura').substring(0, 255), id, new Date().toISOString().split('T')[0], req.user.companyId
+          cariHareketId, finalCariId, islemTarihi, 'alis_faturasi', payableAmount || 0,
+          cleanAciklama.substring(0, 255), id, new Date().toISOString().split('T')[0], req.user.companyId
         ]
       });
     }
@@ -5368,7 +5392,7 @@ app.get('/api/cron/sync-elogo', async (req, res) => {
               payableAmount, kdvOrani || 0, kdvTutari || 0, matrah || 0, '0', 0,
               '0', 0, null, null, pdfDosyaBase64, pdfDosyaAdi,
               null, 'odenmedi', null, null, null, null,
-              'eLogo üzerinden otomatik içe aktarıldı (UUID: ' + uuid + ')', new Date().toISOString().split('T')[0], companyId,
+              f.senderName || 'Alış Faturası', new Date().toISOString().split('T')[0], companyId,
               (kdvOrani === 1 ? kdvTutari : 0), (kdvOrani === 10 ? kdvTutari : 0), (kdvOrani === 20 ? kdvTutari : 0), oivTutari || 0
             ]
           });

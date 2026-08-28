@@ -202,16 +202,19 @@ export function FaturaAktarim() {
       const cariUnvan = inv.ad || (cariler.find(c => c.id === inv.cariId)?.unvan) || '';
       const fNo = inv.faturaNo || '';
 
-      // Açıklamayı temizle: "GİB e-Arşiv Portalından aktarıldı. Alıcı: ..." gibi kalıpları kaldır
+      // Açıklamayı temizle: "GİB / e-Logo / Uyumsoft aktarıldı..." gibi kalıpları kaldır
       let temizAciklama = (inv.aciklama || '').trim();
       if (temizAciklama) {
         temizAciklama = temizAciklama
           .replace(/GİB\s*e-Arşiv\s*Portalından\s*aktarıldı\.?\s*(Alıcı:|Satıcı:)?\s*/gi, '')
+          .replace(/e-?Logo\s*üzerinden\s*(otomatik\s*)?içe\s*aktarıldı\.?\s*(\(UUID:[^\)]*\))?\s*/gi, '')
+          .replace(/Uyumsoft\s*üzerinden\s*(otomatik\s*)?içe\s*aktarıldı\.?\s*(\(UUID:[^\)]*\))?\s*/gi, '')
+          .replace(/Logodan\s*aktarılan\.?\s*/gi, '')
           .replace(/^Alıcı:\s*/gi, '')
           .replace(/^Satıcı:\s*/gi, '')
           .trim();
       }
-      if (!temizAciklama) {
+      if (!temizAciklama || temizAciklama.startsWith('(')) {
         temizAciklama = cariUnvan || (isAlis ? 'Mal/Hizmet Alımı' : 'Mal/Hizmet Satışı');
       }
 
@@ -314,7 +317,7 @@ export function FaturaAktarim() {
     const createRow = (kod: string, borc: number, alacak: number, detayAciklama: string) => ({
       'Evrak Tarihi': formatTarih(fatura.faturaTarihi),
       'Evrak No': evrakNo,
-      'Belge Türü': 'Fatura',
+      'Belge Türü': 'FT',
       'Hesap Kodu': kod,
       'Borç': Math.round(borc * 100) / 100,
       'Alacak': Math.round(alacak * 100) / 100,
