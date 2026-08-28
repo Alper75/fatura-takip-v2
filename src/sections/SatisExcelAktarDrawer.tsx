@@ -57,19 +57,32 @@ export function SatisExcelAktarDrawer({ isOpen, onClose, onSuccess }: SatisExcel
 
   const parseTurkishDate = (val: any): string => {
     if (!val) return new Date().toISOString().split('T')[0];
-    if (val instanceof Date) return val.toISOString().split('T')[0];
-    let str = String(val).trim().split(' ')[0]; // Drop time part if present
-    // E.g. "31.07.2026" or "31/07/2026"
-    if (str.includes('.') || str.includes('/')) {
-      const sep = str.includes('.') ? '.' : '/';
-      const parts = str.split(sep);
-      if (parts.length === 3) {
-        if (parts[2].length === 4) {
-          // DD.MM.YYYY -> YYYY-MM-DD
-          return `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
-        }
-      }
+    
+    if (typeof val === 'number') {
+      const parsedExcelDate = new Date(Math.round((val - 25569) * 86400 * 1000));
+      return parsedExcelDate.toISOString().split('T')[0];
     }
+    
+    let str = String(val).trim().split(' ')[0];
+    
+    // DD.MM.YYYY or DD/MM/YYYY or DD-MM-YYYY
+    const match = str.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{4})$/);
+    if (match) {
+      const day = match[1].padStart(2, '0');
+      const month = match[2].padStart(2, '0');
+      const year = match[3];
+      return `${year}-${month}-${day}`;
+    }
+    
+    // YYYY-MM-DD
+    const matchIso = str.match(/^(\d{4})[./-](\d{1,2})[./-](\d{1,2})$/);
+    if (matchIso) {
+      const year = matchIso[1];
+      const month = matchIso[2].padStart(2, '0');
+      const day = matchIso[3].padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    }
+    
     return str;
   };
 
@@ -77,9 +90,9 @@ export function SatisExcelAktarDrawer({ isOpen, onClose, onSuccess }: SatisExcel
     setIsProcessing(true);
     try {
       const data = await file.arrayBuffer();
-      const workbook = XLSX.read(data, { cellDates: true });
+      const workbook = XLSX.read(data, { raw: false, cellDates: false });
       const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-      const rows: any[] = XLSX.utils.sheet_to_json(firstSheet, { defval: '' });
+      const rows: any[] = XLSX.utils.sheet_to_json(firstSheet, { raw: false, defval: '' });
 
       if (rows.length === 0) {
         toast.error('Excel dosyası boş.');
@@ -290,7 +303,7 @@ export function SatisExcelAktarDrawer({ isOpen, onClose, onSuccess }: SatisExcel
                           <div className="text-[11px] text-slate-500 font-mono">VKN: {r.senderVkn || '-'}</div>
                         </TableCell>
                         <TableCell className="text-slate-600 whitespace-nowrap">
-                          {r.issueDate}
+                          {r.issueDate ? new Date(r.issueDate).toLocaleDateString('tr-TR') : '-'}
                         </TableCell>
                         <TableCell className="text-right font-medium text-slate-700">
                           {new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(r.matrah)}
