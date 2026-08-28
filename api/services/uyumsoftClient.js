@@ -62,73 +62,70 @@ export class UyumsoftClient {
   }
 
   /**
-   * Send E-Invoice or E-Archive Document
+   * Get Invoices (Inbox/Outbox) with automatic pagination
    */
-  async sendDocument(documentType, zipDataBase64, zipFileName, alias = null) {
+  async getDocumentList(documentType = 'EINVOICE', beginDate, endDate, opType = 2 /* 2: INCOMING, 1: OUTGOING */, dateBy = 1 /* 1: Fatura Tarihi, 0: Oluşturma Tarihi */) {
     await this.init();
 
-    try {
-      return { success: false, message: 'Uyumsoft giden fatura henüz desteklenmiyor.' };
-    } catch (error) {
-      console.error('Uyumsoft SendDocument Error:', error);
-      return { success: false, message: this._extractFaultMessage(error) };
-    }
-  }
-
-  async getDocumentList(documentType = 'EINVOICE', beginDate, endDate, opType = 2 /* 2: INCOMING */, dateBy = 1 /* 1: Fatura Tarihi, 0: Oluşturma Tarihi */) {
-    await this.init();
-
-    // Uyumsoft method is usually GetInboxInvoiceList for incoming
     try {
       const bDate = beginDate.split('T')[0] + 'T00:00:00';
       const eDate = endDate.split('T')[0] + 'T23:59:59';
       
-      const queryObj = {
-        PageIndex: 0,
-        PageSize: 100
-      };
+      const allItems = [];
+      let pageIndex = 0;
+      const pageSize = 100;
+      let totalPages = 1;
 
-      if (dateBy === 1) {
-        queryObj.ExecutionStartDate = bDate;
-        queryObj.ExecutionEndDate = eDate;
-        queryObj.SortColumn = 'ExecutionDate';
-      } else {
-        queryObj.CreateStartDate = bDate;
-        queryObj.CreateEndDate = eDate;
-        queryObj.SortColumn = 'CreateDate';
-      }
+      while (pageIndex < totalPages && pageIndex < 20) {
+        const queryObj = {
+          PageIndex: pageIndex,
+          PageSize: pageSize
+        };
 
-      const args = { query: queryObj };
-
-      let result;
-      if (opType === 2) {
-        [result] = await this.client.GetInboxInvoiceListAsync(args);
-      } else {
-        [result] = await this.client.GetOutboxInvoiceListAsync(args);
-      }
-      
-      let itemsRaw = result?.GetInboxInvoiceListResult?.Value?.Items || result?.GetOutboxInvoiceListResult?.Value?.Items;
-      
-      // WCF and node-soap often wrap arrays in another property (e.g., { InboxInvoiceInfo: [ ... ] })
-      if (itemsRaw && typeof itemsRaw === 'object' && !Array.isArray(itemsRaw)) {
-        const keys = Object.keys(itemsRaw);
-        if (keys.length === 1 && Array.isArray(itemsRaw[keys[0]])) {
-           itemsRaw = itemsRaw[keys[0]];
-        } else if (keys.length === 1) {
-           itemsRaw = [itemsRaw[keys[0]]];
+        if (dateBy === 1) {
+          queryObj.ExecutionStartDate = bDate;
+          queryObj.ExecutionEndDate = eDate;
+          queryObj.SortColumn = 'ExecutionDate';
+        } else {
+          queryObj.CreateStartDate = bDate;
+          queryObj.CreateEndDate = eDate;
+          queryObj.SortColumn = 'CreateDate';
         }
+
+        const args = { query: queryObj };
+        let result;
+        if (opType === 2) {
+          [result] = await this.client.GetInboxInvoiceListAsync(args);
+        } else {
+          [result] = await this.client.GetOutboxInvoiceListAsync(args);
+        }
+
+        const resVal = result?.GetInboxInvoiceListResult?.Value || result?.GetOutboxInvoiceListResult?.Value;
+        if (resVal?.attributes?.TotalPages) {
+          totalPages = parseInt(resVal.attributes.TotalPages, 10) || 1;
+        }
+
+        let itemsRaw = resVal?.Items;
+        if (itemsRaw && typeof itemsRaw === 'object' && !Array.isArray(itemsRaw)) {
+          const keys = Object.keys(itemsRaw);
+          if (keys.length === 1 && Array.isArray(itemsRaw[keys[0]])) {
+            itemsRaw = itemsRaw[keys[0]];
+          } else if (keys.length === 1) {
+            itemsRaw = [itemsRaw[keys[0]]];
+          }
+        }
+
+        const itemsArr = Array.isArray(itemsRaw) ? itemsRaw : (itemsRaw ? [itemsRaw] : []);
+        if (itemsArr.length === 0) break;
+        
+        allItems.push(...itemsArr);
+        pageIndex++;
       }
 
-      const itemsArr = Array.isArray(itemsRaw) ? itemsRaw : (itemsRaw ? [itemsRaw] : []);
-      
-      const mappedDocs = itemsArr.map(item => ({
-         documentUuid: item.InvoiceId || item.Id || item.uuid || item.invoiceId || item.id,
-         documentId: item.DocumentId || item.FaturaNo || item.documentId
-      })).filter(doc => doc.documentUuid); // Remove any completely invalid mapping
-
-      if (mappedDocs.length === 0) {
-        return { success: true, data: { docList: { Document: [] } } };
-      }
+      const mappedDocs = allItems.map(item => ({
+        documentUuid: item.InvoiceId || item.Id || item.uuid || item.invoiceId || item.id,
+        documentId: item.DocumentId || item.FaturaNo || item.documentId
+      })).filter(doc => doc.documentUuid);
 
       return { success: true, data: { docList: { Document: mappedDocs } } };
     } catch (error) {
@@ -137,75 +134,119 @@ export class UyumsoftClient {
     }
   }
 
+  /**
+   * Get E-SMM (Vouchers) with automatic multi-page pagination & dual-date fallback
+   */
   async getVoucherList(beginDate, endDate, opType = 1 /* 1: OUTBOX, 2: INBOX */, dateBy = 1 /* 1: Belge/Makbuz Tarihi, 0: Oluşturma Tarihi */) {
     await this.init();
     try {
       const bDate = beginDate.split('T')[0] + 'T00:00:00';
       const eDate = endDate.split('T')[0] + 'T23:59:59';
 
-      let args;
-      if (opType === 2) {
-        args = {
-          context: {
-            PageIndex: 0,
-            PageSize: 100,
-            ...(dateBy === 1 ? { DocumentDate: { Begin: bDate, End: eDate } } : { CreationDate: { Begin: bDate, End: eDate } })
+      const allItems = [];
+      let pageIndex = 0;
+      const pageSize = 100;
+      let totalPages = 1;
+
+      while (pageIndex < totalPages && pageIndex < 20) {
+        let args;
+        if (opType === 2) {
+          args = {
+            context: {
+              PageIndex: pageIndex,
+              PageSize: pageSize,
+              ...(dateBy === 1 ? { DocumentDate: { Begin: bDate, End: eDate } } : { CreationDate: { Begin: bDate, End: eDate } })
+            }
+          };
+        } else {
+          args = {
+            context: {
+              PageIndex: pageIndex,
+              PageSize: pageSize,
+              ...(dateBy === 1 
+                ? { DocumentStartDate: bDate, DocumentEndDate: eDate, SortColumn: 'DocumentDate' }
+                : { CreationSartDate: bDate, CreationEndDate: eDate, SortColumn: 'CreateDate' })
+            }
+          };
+        }
+
+        let result;
+        if (opType === 2) {
+          [result] = await this.voucherClient.QueryInboxVoucherListAsync(args);
+        } else {
+          [result] = await this.voucherClient.QueryVoucherListAsync(args);
+        }
+
+        const resVal = result?.QueryInboxVoucherListResult?.Value || result?.QueryVoucherListResult?.Value;
+        if (resVal?.attributes?.TotalPages) {
+          totalPages = parseInt(resVal.attributes.TotalPages, 10) || 1;
+        }
+
+        let itemsRaw = resVal?.Items;
+        if (itemsRaw && typeof itemsRaw === 'object' && !Array.isArray(itemsRaw)) {
+          const keys = Object.keys(itemsRaw);
+          if (keys.length === 1 && Array.isArray(itemsRaw[keys[0]])) {
+            itemsRaw = itemsRaw[keys[0]];
+          } else if (keys.length === 1) {
+            itemsRaw = [itemsRaw[keys[0]]];
           }
-        };
-      } else {
-        args = {
-          context: {
-            PageIndex: 0,
-            PageSize: 100,
-            ...(dateBy === 1 
-              ? { DocumentStartDate: bDate, DocumentEndDate: eDate, SortColumn: 'DocumentDate' }
-              : { CreationSartDate: bDate, CreationEndDate: eDate, SortColumn: 'CreateDate' })
-          }
-        };
+        }
+
+        const itemsArr = Array.isArray(itemsRaw) ? itemsRaw : (itemsRaw ? [itemsRaw] : []);
+        if (itemsArr.length === 0) break;
+
+        allItems.push(...itemsArr);
+        pageIndex++;
       }
 
-      let result;
-      if (opType === 2) {
-        [result] = await this.voucherClient.QueryInboxVoucherListAsync(args);
-      } else {
-        [result] = await this.voucherClient.QueryVoucherListAsync(args);
-      }
-      
-      let itemsRaw = result?.QueryInboxVoucherListResult?.Value?.Items || result?.QueryVoucherListResult?.Value?.Items;
-      
-      if (itemsRaw && typeof itemsRaw === 'object' && !Array.isArray(itemsRaw)) {
-        const keys = Object.keys(itemsRaw);
-        if (keys.length === 1 && Array.isArray(itemsRaw[keys[0]])) {
-           itemsRaw = itemsRaw[keys[0]];
-        } else if (keys.length === 1) {
-           itemsRaw = [itemsRaw[keys[0]]];
+      // If dateBy === 1 returned 0 items, try fallback to CreationSartDate just in case
+      if (allItems.length === 0 && dateBy === 1 && opType === 1) {
+        const fallbackArgs = {
+          context: {
+            PageIndex: 0,
+            PageSize: 100,
+            CreationSartDate: bDate,
+            CreationEndDate: eDate
+          }
+        };
+        const [fbResult] = await this.voucherClient.QueryVoucherListAsync(fallbackArgs);
+        let fbItems = fbResult?.QueryVoucherListResult?.Value?.Items;
+        if (fbItems && typeof fbItems === 'object' && !Array.isArray(fbItems)) {
+          const keys = Object.keys(fbItems);
+          if (keys.length === 1 && Array.isArray(fbItems[keys[0]])) fbItems = fbItems[keys[0]];
+          else if (keys.length === 1) fbItems = [fbItems[keys[0]]];
+        }
+        if (Array.isArray(fbItems) && fbItems.length > 0) {
+          allItems.push(...fbItems);
         }
       }
 
-      const itemsArr = Array.isArray(itemsRaw) ? itemsRaw : (itemsRaw ? [itemsRaw] : []);
-      
-      const mappedDocs = itemsArr.map(item => ({
-         documentUuid: item.Identifier || item.Id || item.uuid,
-         documentId: item.VoucherNumber || item.FaturaNo,
-         isPrePopulated: true, // Tell api/index.js to skip fetching XML
-         senderName: item.TargetTitle || 'Bilinmiyor',
-         senderVkn: item.TargetVknTckn || '-',
-         issueDate: item.DocumentDate ? new Date(item.DocumentDate).toISOString().split('T')[0] : '-',
-         payableAmount: item.PayableAmount || 0,
-         taxTotal: item.TotalTaxAmount || item.VatAmount || 0,
-         taxExclusiveAmount: item.GrossTotal || item.VatTaxableAmount || 0,
-         currencyCode: item.CurrencyCode || 'TRY',
-         faturaNo: item.VoucherNumber || item.FaturaNo,
-         stopajTutari: item.WithholdingTaxAmount || item.WithholdingAmount || item.StoppageAmount || item.TotalWithholdingTaxAmount || 0,
-         stopajOrani: item.WithholdingTaxRate || item.WithholdingRate || item.StoppageRate || 0,
-         tevkifatTutari: item.WithholdingAmount || 0, // Fallback, could overlap with stopaj depending on Uyumsoft response
-         tevkifatOrani: item.WithholdingRate || 0
-      })).filter(doc => doc.documentUuid);
+      // Map distinct vouchers
+      const seenIds = new Set();
+      const mappedDocs = [];
 
-      if (mappedDocs.length === 0) {
-        let debugStr = '';
-        try { debugStr = JSON.stringify(result).substring(0, 1000); } catch(e){}
-        return { success: false, message: 'Makbuz bulunamadı. Gelen veri: ' + debugStr };
+      for (const item of allItems) {
+        const uuid = item.Identifier || item.Id || item.uuid || item.InvoiceId;
+        if (!uuid || seenIds.has(uuid)) continue;
+        seenIds.add(uuid);
+
+        mappedDocs.push({
+          documentUuid: uuid,
+          documentId: item.VoucherNumber || item.FaturaNo || item.DocumentId || uuid,
+          isPrePopulated: true,
+          senderName: item.TargetTitle || 'Bilinmiyor',
+          senderVkn: item.TargetVknTckn || '-',
+          issueDate: item.DocumentDate ? new Date(item.DocumentDate).toISOString().split('T')[0] : (item.CreationDate ? new Date(item.CreationDate).toISOString().split('T')[0] : '-'),
+          payableAmount: parseFloat(item.PayableAmount) || 0,
+          taxTotal: parseFloat(item.TotalTaxAmount || item.VatAmount) || 0,
+          taxExclusiveAmount: parseFloat(item.GrossTotal || item.VatTaxableAmount) || 0,
+          currencyCode: item.CurrencyCode || 'TRY',
+          faturaNo: item.VoucherNumber || item.FaturaNo || item.DocumentId || '-',
+          stopajTutari: parseFloat(item.WithholdingTaxAmount || item.WithholdingAmount || item.StoppageAmount || item.TotalWithholdingTaxAmount) || 0,
+          stopajOrani: parseFloat(item.WithholdingTaxRate || item.WithholdingRate || item.StoppageRate) || 0,
+          tevkifatTutari: parseFloat(item.WithholdingAmount) || 0,
+          tevkifatOrani: parseFloat(item.WithholdingRate) || 0
+        });
       }
 
       return { success: true, data: { docList: { Document: mappedDocs } } };
@@ -223,19 +264,48 @@ export class UyumsoftClient {
       
       let xmlData = '';
       if (result?.GetVoucherSourceResult?.Value?.AdditionalData?.Value) {
-          xmlData = result.GetVoucherSourceResult.Value.AdditionalData.Value;
+        xmlData = result.GetVoucherSourceResult.Value.AdditionalData.Value;
       } else {
-          xmlData = '<DummyVoucherXml></DummyVoucherXml>'; // Fallback
+        xmlData = '<DummyVoucherXml></DummyVoucherXml>';
       }
       
-      const base64Data = Buffer.from(xmlData).toString('base64');
-      return { 
-        success: true, 
-        data: { document: { binaryData: { Value: base64Data } } } 
+      return {
+        success: true,
+        data: {
+          document: {
+            binaryData: {
+              Value: Buffer.from(xmlData).toString('base64')
+            }
+          }
+        }
       };
     } catch (error) {
       console.error('Uyumsoft GetVoucherData Error:', error);
-      return { success: false, message: error.message };
+      return { success: false, message: this._extractFaultMessage(error) };
+    }
+  }
+
+  async getDocumentPdf(uuid) {
+    await this.init();
+    try {
+      const args = { invoiceId: uuid };
+      const [result] = await this.client.GetInvoicePdfAsync(args);
+      
+      if (result?.GetInvoicePdfResult?.Value) {
+        return {
+          success: true,
+          data: {
+            document: {
+              binaryData: {
+                Value: result.GetInvoicePdfResult.Value
+              }
+            }
+          }
+        };
+      }
+      return { success: false, message: 'PDF alınamadı' };
+    } catch (error) {
+      return { success: false, message: this._extractFaultMessage(error) };
     }
   }
 
@@ -243,48 +313,23 @@ export class UyumsoftClient {
     await this.init();
     try {
       const args = { documentId: uuid };
-      const [result] = await this.voucherClient.GetPdfAsync(args);
+      const [result] = await this.voucherClient.GetVoucherPdfAsync(args);
       
-      const base64Data = result?.GetPdfResult?.Value?.Data || '';
-      return { 
-        success: true, 
-        data: { document: { binaryData: { Value: base64Data } } } 
-      };
+      if (result?.GetVoucherPdfResult?.Value) {
+        return {
+          success: true,
+          data: {
+            document: {
+              binaryData: {
+                Value: result.GetVoucherPdfResult.Value
+              }
+            }
+          }
+        };
+      }
+      return { success: false, message: 'Makbuz PDF alınamadı' };
     } catch (error) {
-      console.error('Uyumsoft GetVoucherPdf Error:', error);
-      return { success: false, message: error.message };
-    }
-  }
-
-  async getDocumentData(uuid) {
-    await this.init();
-
-    try {
-      const args = { invoiceId: uuid, format: 'UBL' };
-      const [result] = await this.client.GetInboxInvoiceAsync(args);
-      
-      const base64Data = result?.GetInboxInvoiceResult?.Value?.Data;
-      return { 
-        success: true, 
-        data: { document: { binaryData: { Value: base64Data } } } 
-      };
-    } catch (error) {
-      console.error('Uyumsoft GetDocumentData Error:', error);
-      return { success: false, message: error.message };
-    }
-  }
-
-  async getDocumentPdf(uuid) {
-    await this.init();
-
-    try {
-      const args = { invoiceId: uuid, format: 'PDF' };
-      const [result] = await this.client.GetInboxInvoiceAsync(args);
-      
-      return { success: true, data: result };
-    } catch (error) {
-      console.error('Uyumsoft GetDocumentPdf Error:', error);
-      return { success: false, message: error.message };
+      return { success: false, message: this._extractFaultMessage(error) };
     }
   }
 }
