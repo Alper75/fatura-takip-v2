@@ -62,7 +62,7 @@ export class UyumsoftClient {
   }
 
   /**
-   * Get Invoices (Inbox/Outbox) with automatic pagination
+   * Get Invoices (Inbox/Outbox) with automatic multi-page collection
    */
   async getDocumentList(documentType = 'EINVOICE', beginDate, endDate, opType = 2 /* 2: INCOMING, 1: OUTGOING */, dateBy = 1 /* 1: Fatura Tarihi, 0: Oluşturma Tarihi */) {
     await this.init();
@@ -72,12 +72,12 @@ export class UyumsoftClient {
       const eDate = endDate.split('T')[0] + 'T23:59:59';
       
       const allItems = [];
-      let pageIndex = 0;
-      const pageSize = 100;
-      let totalPages = 1;
+      const pageSize = 500;
 
-      while (pageIndex < totalPages && pageIndex < 20) {
+      for (let pageIndex = 0; pageIndex < 10; pageIndex++) {
         const queryObj = {
+          attributes: { PageIndex: pageIndex, PageSize: pageSize },
+          $attributes: { PageIndex: pageIndex, PageSize: pageSize },
           PageIndex: pageIndex,
           PageSize: pageSize
         };
@@ -101,10 +101,6 @@ export class UyumsoftClient {
         }
 
         const resVal = result?.GetInboxInvoiceListResult?.Value || result?.GetOutboxInvoiceListResult?.Value;
-        if (resVal?.attributes?.TotalPages) {
-          totalPages = parseInt(resVal.attributes.TotalPages, 10) || 1;
-        }
-
         let itemsRaw = resVal?.Items;
         if (itemsRaw && typeof itemsRaw === 'object' && !Array.isArray(itemsRaw)) {
           const keys = Object.keys(itemsRaw);
@@ -119,12 +115,15 @@ export class UyumsoftClient {
         if (itemsArr.length === 0) break;
         
         allItems.push(...itemsArr);
-        pageIndex++;
+        if (itemsArr.length < pageSize) break; // Last page reached
       }
 
       const mappedDocs = allItems.map(item => ({
         documentUuid: item.InvoiceId || item.Id || item.uuid || item.invoiceId || item.id,
-        documentId: item.DocumentId || item.FaturaNo || item.documentId
+        uuid: item.InvoiceId || item.Id || item.uuid || item.invoiceId || item.id,
+        documentId: item.DocumentId || item.FaturaNo || item.documentId,
+        invoiceNumber: item.DocumentId || item.FaturaNo || item.documentId,
+        faturaNo: item.DocumentId || item.FaturaNo || item.documentId
       })).filter(doc => doc.documentUuid);
 
       return { success: true, data: { docList: { Document: mappedDocs } } };
@@ -135,7 +134,7 @@ export class UyumsoftClient {
   }
 
   /**
-   * Get E-SMM (Vouchers) with automatic multi-page pagination & dual-date fallback
+   * Get E-SMM (Vouchers) with automatic multi-page collection & dual-date merge
    */
   async getVoucherList(beginDate, endDate, opType = 1 /* 1: OUTBOX, 2: INBOX */, dateBy = 1 /* 1: Belge/Makbuz Tarihi, 0: Oluşturma Tarihi */) {
     await this.init();
@@ -144,28 +143,31 @@ export class UyumsoftClient {
       const eDate = endDate.split('T')[0] + 'T23:59:59';
 
       const allItems = [];
-      let pageIndex = 0;
-      const pageSize = 100;
-      let totalPages = 1;
+      const pageSize = 500;
 
-      while (pageIndex < totalPages && pageIndex < 20) {
+      // 1. Query by Document Date
+      for (let pageIndex = 0; pageIndex < 10; pageIndex++) {
         let args;
         if (opType === 2) {
           args = {
             context: {
+              attributes: { PageIndex: pageIndex, PageSize: pageSize },
+              $attributes: { PageIndex: pageIndex, PageSize: pageSize },
               PageIndex: pageIndex,
               PageSize: pageSize,
-              ...(dateBy === 1 ? { DocumentDate: { Begin: bDate, End: eDate } } : { CreationDate: { Begin: bDate, End: eDate } })
+              DocumentDate: { Begin: bDate, End: eDate }
             }
           };
         } else {
           args = {
             context: {
+              attributes: { PageIndex: pageIndex, PageSize: pageSize },
+              $attributes: { PageIndex: pageIndex, PageSize: pageSize },
               PageIndex: pageIndex,
               PageSize: pageSize,
-              ...(dateBy === 1 
-                ? { DocumentStartDate: bDate, DocumentEndDate: eDate, SortColumn: 'DocumentDate' }
-                : { CreationSartDate: bDate, CreationEndDate: eDate, SortColumn: 'CreateDate' })
+              DocumentStartDate: bDate,
+              DocumentEndDate: eDate,
+              SortColumn: 'DocumentDate'
             }
           };
         }
@@ -178,47 +180,65 @@ export class UyumsoftClient {
         }
 
         const resVal = result?.QueryInboxVoucherListResult?.Value || result?.QueryVoucherListResult?.Value;
-        if (resVal?.attributes?.TotalPages) {
-          totalPages = parseInt(resVal.attributes.TotalPages, 10) || 1;
-        }
-
         let itemsRaw = resVal?.Items;
         if (itemsRaw && typeof itemsRaw === 'object' && !Array.isArray(itemsRaw)) {
           const keys = Object.keys(itemsRaw);
-          if (keys.length === 1 && Array.isArray(itemsRaw[keys[0]])) {
-            itemsRaw = itemsRaw[keys[0]];
-          } else if (keys.length === 1) {
-            itemsRaw = [itemsRaw[keys[0]]];
-          }
+          if (keys.length === 1 && Array.isArray(itemsRaw[keys[0]])) itemsRaw = itemsRaw[keys[0]];
+          else if (keys.length === 1) itemsRaw = [itemsRaw[keys[0]]];
         }
 
         const itemsArr = Array.isArray(itemsRaw) ? itemsRaw : (itemsRaw ? [itemsRaw] : []);
         if (itemsArr.length === 0) break;
-
         allItems.push(...itemsArr);
-        pageIndex++;
+        if (itemsArr.length < pageSize) break;
       }
 
-      // If dateBy === 1 returned 0 items, try fallback to CreationSartDate just in case
-      if (allItems.length === 0 && dateBy === 1 && opType === 1) {
-        const fallbackArgs = {
-          context: {
-            PageIndex: 0,
-            PageSize: 100,
-            CreationSartDate: bDate,
-            CreationEndDate: eDate
-          }
-        };
-        const [fbResult] = await this.voucherClient.QueryVoucherListAsync(fallbackArgs);
-        let fbItems = fbResult?.QueryVoucherListResult?.Value?.Items;
-        if (fbItems && typeof fbItems === 'object' && !Array.isArray(fbItems)) {
-          const keys = Object.keys(fbItems);
-          if (keys.length === 1 && Array.isArray(fbItems[keys[0]])) fbItems = fbItems[keys[0]];
-          else if (keys.length === 1) fbItems = [fbItems[keys[0]]];
+      // 2. Also Query by Creation Date to catch any vouchers with dates created in this range
+      for (let pageIndex = 0; pageIndex < 10; pageIndex++) {
+        let args;
+        if (opType === 2) {
+          args = {
+            context: {
+              attributes: { PageIndex: pageIndex, PageSize: pageSize },
+              $attributes: { PageIndex: pageIndex, PageSize: pageSize },
+              PageIndex: pageIndex,
+              PageSize: pageSize,
+              CreationDate: { Begin: bDate, End: eDate }
+            }
+          };
+        } else {
+          args = {
+            context: {
+              attributes: { PageIndex: pageIndex, PageSize: pageSize },
+              $attributes: { PageIndex: pageIndex, PageSize: pageSize },
+              PageIndex: pageIndex,
+              PageSize: pageSize,
+              CreationSartDate: bDate,
+              CreationEndDate: eDate,
+              SortColumn: 'CreateDate'
+            }
+          };
         }
-        if (Array.isArray(fbItems) && fbItems.length > 0) {
-          allItems.push(...fbItems);
+
+        let result;
+        if (opType === 2) {
+          [result] = await this.voucherClient.QueryInboxVoucherListAsync(args);
+        } else {
+          [result] = await this.voucherClient.QueryVoucherListAsync(args);
         }
+
+        const resVal = result?.QueryInboxVoucherListResult?.Value || result?.QueryVoucherListResult?.Value;
+        let itemsRaw = resVal?.Items;
+        if (itemsRaw && typeof itemsRaw === 'object' && !Array.isArray(itemsRaw)) {
+          const keys = Object.keys(itemsRaw);
+          if (keys.length === 1 && Array.isArray(itemsRaw[keys[0]])) itemsRaw = itemsRaw[keys[0]];
+          else if (keys.length === 1) itemsRaw = [itemsRaw[keys[0]]];
+        }
+
+        const itemsArr = Array.isArray(itemsRaw) ? itemsRaw : (itemsRaw ? [itemsRaw] : []);
+        if (itemsArr.length === 0) break;
+        allItems.push(...itemsArr);
+        if (itemsArr.length < pageSize) break;
       }
 
       // Map distinct vouchers
@@ -230,22 +250,41 @@ export class UyumsoftClient {
         if (!uuid || seenIds.has(uuid)) continue;
         seenIds.add(uuid);
 
+        let docDate = '-';
+        if (item.DocumentDate) {
+          try { docDate = new Date(item.DocumentDate).toISOString().split('T')[0]; } catch(e){}
+        } else if (item.CreateDateUtc || item.CreationDate) {
+          try { docDate = new Date(item.CreateDateUtc || item.CreationDate).toISOString().split('T')[0]; } catch(e){}
+        }
+
+        const payableAmount = parseFloat(item.PayableAmount) || 0;
+        const grossTotal = parseFloat(item.GrossTotal || item.VatTaxableAmount) || 0;
+        const totalTax = parseFloat(item.TotalTaxAmount || item.VatAmount) || 0;
+        const stoppageAmount = parseFloat(item.StoppageAmount || item.WithholdingTaxAmount || item.WithholdingAmount || item.TotalWithholdingTaxAmount) || 0;
+        const stoppageRate = parseFloat(item.WithholdingTaxRate || item.WithholdingRate || item.StoppageRate) || 0;
+        const witholdingAmount = parseFloat(item.WitholdingAmount || item.WithholdingAmount) || 0;
+
         mappedDocs.push({
           documentUuid: uuid,
-          documentId: item.VoucherNumber || item.FaturaNo || item.DocumentId || uuid,
+          uuid: uuid,
+          documentId: item.VoucherNumber || item.FaturaNo || item.LocalDocumentId || uuid,
+          invoiceNumber: item.VoucherNumber || item.FaturaNo || item.LocalDocumentId || uuid,
+          faturaNo: item.VoucherNumber || item.FaturaNo || item.LocalDocumentId || uuid,
           isPrePopulated: true,
           senderName: item.TargetTitle || 'Bilinmiyor',
           senderVkn: item.TargetVknTckn || '-',
-          issueDate: item.DocumentDate ? new Date(item.DocumentDate).toISOString().split('T')[0] : (item.CreationDate ? new Date(item.CreationDate).toISOString().split('T')[0] : '-'),
-          payableAmount: parseFloat(item.PayableAmount) || 0,
-          taxTotal: parseFloat(item.TotalTaxAmount || item.VatAmount) || 0,
-          taxExclusiveAmount: parseFloat(item.GrossTotal || item.VatTaxableAmount) || 0,
+          issueDate: docDate,
+          payableAmount: payableAmount,
+          matrah: grossTotal > 0 ? grossTotal : (payableAmount - totalTax + stoppageAmount),
+          taxTotal: totalTax,
+          kdvTutari: totalTax,
+          kdvOrani: grossTotal > 0 && totalTax > 0 ? Math.round((totalTax / grossTotal) * 100) : 20,
           currencyCode: item.CurrencyCode || 'TRY',
-          faturaNo: item.VoucherNumber || item.FaturaNo || item.DocumentId || '-',
-          stopajTutari: parseFloat(item.WithholdingTaxAmount || item.WithholdingAmount || item.StoppageAmount || item.TotalWithholdingTaxAmount) || 0,
-          stopajOrani: parseFloat(item.WithholdingTaxRate || item.WithholdingRate || item.StoppageRate) || 0,
-          tevkifatTutari: parseFloat(item.WithholdingAmount) || 0,
-          tevkifatOrani: parseFloat(item.WithholdingRate) || 0
+          stopajTutari: stoppageAmount,
+          stopajOrani: stoppageRate,
+          tevkifatTutari: witholdingAmount,
+          tevkifatOrani: 0,
+          faturaAciklama: 'e-SMM Makbuzu'
         });
       }
 
