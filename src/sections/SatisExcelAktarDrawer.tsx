@@ -25,7 +25,7 @@ export function SatisExcelAktarDrawer({ isOpen, onClose, onSuccess }: SatisExcel
       {
         'Makbuz / Fatura No': 'SMM2026000000001',
         'Doküman No (UUID)': 'be65e676-6ab8-460d-a20c-140d8108864a',
-        'Belge Tarihi': '2026-07-31',
+        'Belge Tarihi': '01.07.2026',
         'Alıcı VKN/TCKN': '7620269371',
         'Alıcı Ünvanı': 'SEREN ASFALT NAKLİYE İNŞAAT SANAYİ VE DIŞ TİCARET LİMİTED ŞİRKETİ',
         'Matrah (TL)': 2335.37,
@@ -46,7 +46,6 @@ export function SatisExcelAktarDrawer({ isOpen, onClose, onSuccess }: SatisExcel
     if (val === undefined || val === null || val === '') return 0;
     if (typeof val === 'number') return val;
     let str = String(val).trim();
-    // E.g. "2.802,44" -> "2802.44" or "2802,44" -> "2802.44"
     if (str.includes(',') && str.includes('.')) {
       str = str.replace(/\./g, '').replace(',', '.');
     } else if (str.includes(',')) {
@@ -58,19 +57,38 @@ export function SatisExcelAktarDrawer({ isOpen, onClose, onSuccess }: SatisExcel
   const parseTurkishDate = (val: any): string => {
     if (!val) return new Date().toISOString().split('T')[0];
     
+    // Excel serial number
     if (typeof val === 'number') {
       const parsedExcelDate = new Date(Math.round((val - 25569) * 86400 * 1000));
       return parsedExcelDate.toISOString().split('T')[0];
     }
     
-    let str = String(val).trim().split(' ')[0];
+    let str = String(val).trim().split(' ')[0]; // Remove time part
     
-    // DD.MM.YYYY or DD/MM/YYYY or DD-MM-YYYY
-    const match = str.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{4})$/);
-    if (match) {
-      const day = match[1].padStart(2, '0');
-      const month = match[2].padStart(2, '0');
-      const year = match[3];
+    // DD.MM.YYYY or DD.MM.YY (Turkish standard with dots)
+    const matchDot = str.match(/^(\d{1,2})\.(\d{1,2})\.(\d{2,4})$/);
+    if (matchDot) {
+      const day = matchDot[1].padStart(2, '0');
+      const month = matchDot[2].padStart(2, '0');
+      let year = matchDot[3];
+      if (year.length === 2) year = '20' + year;
+      return `${year}-${month}-${day}`;
+    }
+
+    // DD/MM/YYYY or DD/MM/YY (Turkish standard with slashes)
+    const matchSlash = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+    if (matchSlash) {
+      const p1 = parseInt(matchSlash[1], 10);
+      const p2 = parseInt(matchSlash[2], 10);
+      let year = matchSlash[3];
+      if (year.length === 2) year = '20' + year;
+
+      let day = String(p1).padStart(2, '0');
+      let month = String(p2).padStart(2, '0');
+      if (p2 > 12 && p1 <= 12) {
+        day = String(p2).padStart(2, '0');
+        month = String(p1).padStart(2, '0');
+      }
       return `${year}-${month}-${day}`;
     }
     
@@ -86,21 +104,67 @@ export function SatisExcelAktarDrawer({ isOpen, onClose, onSuccess }: SatisExcel
     return str;
   };
 
+  const parseCsvTextDirectly = (text: string): any[] => {
+    const lines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
+    if (lines.length === 0) return [];
+    
+    const headerLine = lines[0];
+    let delimiter = ';';
+    if (headerLine.includes(';') && (headerLine.split(';').length >= headerLine.split(',').length)) {
+      delimiter = ';';
+    } else if (headerLine.includes(',')) {
+      delimiter = ',';
+    } else if (headerLine.includes('\t')) {
+      delimiter = '\t';
+    }
+
+    const cleanCell = (str: string) => {
+      if (!str) return '';
+      return str.trim().replace(/^['"]+|['"]+$/g, '').trim();
+    };
+
+    const headers = headerLine.split(delimiter).map(cleanCell);
+    const rows: any[] = [];
+
+    for (let i = 1; i < lines.length; i++) {
+      const rawCells = lines[i].split(delimiter);
+      if (rawCells.length === 0 || rawCells.every(c => !c.trim())) continue;
+      const rowObj: any = {};
+      headers.forEach((header, idx) => {
+        if (header) {
+          rowObj[header] = cleanCell(rawCells[idx] || '');
+        }
+      });
+      rows.push(rowObj);
+    }
+
+    return rows;
+  };
+
   const processFile = async (file: File) => {
     setIsProcessing(true);
     try {
-      const data = await file.arrayBuffer();
-      const workbook = XLSX.read(data, { raw: false, cellDates: false });
-      const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-      const rows: any[] = XLSX.utils.sheet_to_json(firstSheet, { raw: false, defval: '' });
+      let rows: any[] = [];
+      const fileName = file.name.toLowerCase();
+
+      if (fileName.endsWith('.csv') || fileName.endsWith('.txt')) {
+        // Direct text parsing to preserve pure raw dates (e.g. 01.07.2026) without SheetJS distortion
+        const text = await file.text();
+        rows = parseCsvTextDirectly(text);
+      } else {
+        // XLSX or XLS
+        const data = await file.arrayBuffer();
+        const workbook = XLSX.read(data, { raw: true, cellDates: false });
+        const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+        rows = XLSX.utils.sheet_to_json(firstSheet, { raw: true, defval: '' });
+      }
 
       if (rows.length === 0) {
-        toast.error('Excel dosyası boş.');
+        toast.error('Dosya boş veya okunamadı.');
         return;
       }
 
       const formatted = rows.map((row: any) => {
-        // Match column headers with flexible fallbacks
         const faturaNo = String(
           row['Makbuz No'] || row['Fatura No'] || row['Belge No'] || row['Makbuz / Fatura No'] || row['faturaNo'] || ''
         ).trim();
@@ -302,7 +366,7 @@ export function SatisExcelAktarDrawer({ isOpen, onClose, onSuccess }: SatisExcel
                           <div className="font-medium text-slate-900">{r.senderName}</div>
                           <div className="text-[11px] text-slate-500 font-mono">VKN: {r.senderVkn || '-'}</div>
                         </TableCell>
-                        <TableCell className="text-slate-600 whitespace-nowrap">
+                        <TableCell className="text-slate-600 whitespace-nowrap font-medium">
                           {r.issueDate ? new Date(r.issueDate).toLocaleDateString('tr-TR') : '-'}
                         </TableCell>
                         <TableCell className="text-right font-medium text-slate-700">
