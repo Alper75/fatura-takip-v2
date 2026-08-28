@@ -22,7 +22,7 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 import { useApp } from '@/context/AppContext';
-import { Plus, Trash2, Edit, Users, MapPin, Phone, Mail, FileText } from 'lucide-react';
+import { Plus, Trash2, Edit, Users, MapPin, Phone, Mail, FileText, Zap } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { CariExcelAktarDrawer } from './CariExcelAktarDrawer';
@@ -30,7 +30,7 @@ import { FilterBar } from '@/components/FilterBar';
 import type { FilterValues } from '@/components/FilterBar';
 
 export function CariListe() {
-  const { cariler, deleteCari, openCariDrawer, openCariEkstreDrawer, hesaplaCariBakiye, fetchCariler } = useApp();
+  const { cariler, deleteCari, openCariDrawer, openCariEkstreDrawer, hesaplaCariBakiye, fetchCariler, companies, user } = useApp();
   const [cariToDelete, setCariToDelete] = useState<string | null>(null);
   const [isExcelDrawerOpen, setIsExcelDrawerOpen] = useState(false);
   const [filterValues, setFilterValues] = useState<FilterValues>({
@@ -41,6 +41,46 @@ export function CariListe() {
     maxAmount: '',
     status: 'all',
   });
+
+  const handleDirectCreateInLuca = (cari: any) => {
+    if (!cari.muhasebeKodu) {
+      toast.error('Bu carinin henüz bir Luca Muhasebe Kodu tanımlı değil. Düzenle butonundan kod belirleyin.');
+      return;
+    }
+
+    const activeCompany = companies.find(c => c.id === (user?.companyId || 1));
+    const payload = {
+      targetCompany: {
+        id: activeCompany?.id || 1,
+        vkn: activeCompany?.tax_no || (activeCompany as any)?.vknTckn || '',
+        unvan: activeCompany?.name || (activeCompany as any)?.unvan || ''
+      },
+      cari: {
+        id: cari.id,
+        hesapKodu: cari.muhasebeKodu,
+        unvan: cari.unvan,
+        vknTckn: cari.vknTckn,
+        vergiDairesi: cari.vergiDairesi || '',
+        adres: cari.adres || '',
+        telefon: cari.telefon || '',
+        eposta: cari.eposta || '',
+        tip: cari.tip
+      },
+      timestamp: Date.now()
+    };
+
+    try {
+      localStorage.setItem('fatura_app_luca_create_cari', JSON.stringify(payload));
+    } catch(e) {
+      console.error(e);
+    }
+
+    window.dispatchEvent(new CustomEvent('FATURA_APP_LUCA_CREATE_CARI', { detail: payload }));
+    document.dispatchEvent(new CustomEvent('FATURA_APP_LUCA_CREATE_CARI', { detail: payload }));
+    window.postMessage({ type: 'FATURA_APP_LUCA_CREATE_CARI', detail: payload, payload }, '*');
+
+    toast.success(`🚀 Luca için cari açma paketi hazırlandı (${cari.muhasebeKodu} - ${cari.unvan})! Luca sekmesine geçip onaylayabilirsiniz.`);
+  };
 
   const filteredCariler = cariler.filter((cari) => {
     const searchLower = filterValues.search.toLowerCase();
@@ -196,14 +236,26 @@ export function CariListe() {
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-1">
+                          {cari.muhasebeKodu && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleDirectCreateInLuca(cari)}
+                              className="bg-emerald-50 text-emerald-700 hover:text-emerald-800 hover:bg-emerald-100 font-semibold text-xs gap-1"
+                              title="Bu cariyi güvenlik doğrulaması ile Luca'da aç"
+                            >
+                              <Zap className="w-3.5 h-3.5" />
+                              Luca'da Aç
+                            </Button>
+                          )}
                           <Button
                             variant="ghost"
                             size="sm"
                             onClick={() => openCariEkstreDrawer(cari.id)}
-                            className="bg-indigo-50/50 text-indigo-700 hover:text-indigo-800 hover:bg-indigo-100 font-semibold mr-2"
+                            className="bg-indigo-50/50 text-indigo-700 hover:text-indigo-800 hover:bg-indigo-100 font-semibold mr-1"
                             title="Hesap Ekstresi"
                           >
-                            <FileText className="w-4 h-4 mr-2" />
+                            <FileText className="w-4 h-4 mr-1.5" />
                             Ekstre
                           </Button>
                           <Button

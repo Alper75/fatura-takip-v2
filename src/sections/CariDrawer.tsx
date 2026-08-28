@@ -6,7 +6,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useApp } from '@/context/AppContext';
-import { Save, Users } from 'lucide-react';
+import { Save, Users, Sparkles, Zap } from 'lucide-react';
 import { toast } from 'sonner';
 import { LucaAccountSelect } from '@/components/LucaAccountSelect';
 import type { CariFormData, CariTip } from '@/types';
@@ -23,7 +23,7 @@ const INITIAL_FORM: CariFormData = {
 };
 
 export function CariDrawer() {
-  const { isCariDrawerOpen, closeCariDrawer, selectedCariId, cariler, addCari, updateCari } = useApp();
+  const { isCariDrawerOpen, closeCariDrawer, selectedCariId, cariler, addCari, updateCari, lucaAccounts, companies, user } = useApp();
   const [formData, setFormData] = useState<CariFormData>(INITIAL_FORM);
   const [errors, setErrors] = useState<Partial<Record<keyof CariFormData, string>>>({});
 
@@ -69,6 +69,91 @@ export function CariDrawer() {
     if (!String(formData.vknTckn || '').trim()) errs.vknTckn = 'Zorunlu alan';
     setErrors(errs);
     return Object.keys(errs).length === 0;
+  };
+
+  const suggestNextCode = () => {
+    const unvan = (formData.unvan || '').trim().toLocaleUpperCase('tr-TR');
+    let prefixLetter = 'A';
+    if (unvan.length > 0) {
+      const firstChar = unvan[0];
+      if (/^[A-ZÇĞİÖŞÜ]/i.test(firstChar)) {
+        prefixLetter = firstChar.toLocaleUpperCase('tr-TR');
+      }
+    }
+    const anaHesap = formData.tip === 'tedarikci' ? '320.01' : '120.01';
+    const targetPrefix = `${anaHesap}.${prefixLetter}`;
+    
+    // Mevcut cariler ve lucaAccounts içindeki kodları tara
+    const existingCodes = [
+      ...cariler.map(c => c.muhasebeKodu || ''),
+      ...lucaAccounts.map(a => a.kod || '')
+    ].filter(k => k.startsWith(targetPrefix));
+
+    let maxNum = 0;
+    existingCodes.forEach(code => {
+      const numPart = code.substring(targetPrefix.length);
+      const parsed = parseInt(numPart, 10);
+      if (!isNaN(parsed) && parsed > maxNum) {
+        maxNum = parsed;
+      }
+    });
+
+    const nextNum = maxNum + 1;
+    const padded = nextNum.toString().padStart(3, '0');
+    const generated = `${targetPrefix}${padded}`;
+    updateField('muhasebeKodu', generated);
+    toast.success(`Önerilen kod: ${generated}`);
+  };
+
+  const handleCreateInLuca = async () => {
+    if (!validate()) {
+      toast.error('Lütfen önce cari ünvanı ve VKN alanlarını doldurun.');
+      return;
+    }
+    if (!formData.muhasebeKodu) {
+      toast.error('Lütfen bir Luca Muhasebe Kodu girin veya öner butonuna tıklayın.');
+      return;
+    }
+
+    const activeCompany = companies.find(c => c.id === (user?.companyId || 1));
+    const payload = {
+      targetCompany: {
+        id: activeCompany?.id || 1,
+        vkn: activeCompany?.tax_no || (activeCompany as any)?.vknTckn || '',
+        unvan: activeCompany?.name || (activeCompany as any)?.unvan || ''
+      },
+      cari: {
+        id: selectedCariId || '',
+        hesapKodu: formData.muhasebeKodu,
+        unvan: formData.unvan,
+        vknTckn: formData.vknTckn,
+        vergiDairesi: formData.vergiDairesi || '',
+        adres: formData.adres || '',
+        telefon: formData.telefon || '',
+        eposta: formData.eposta || '',
+        tip: formData.tip
+      },
+      timestamp: Date.now()
+    };
+
+    try {
+      localStorage.setItem('fatura_app_luca_create_cari', JSON.stringify(payload));
+    } catch(e) {
+      console.error(e);
+    }
+
+    window.dispatchEvent(new CustomEvent('FATURA_APP_LUCA_CREATE_CARI', { detail: payload }));
+    document.dispatchEvent(new CustomEvent('FATURA_APP_LUCA_CREATE_CARI', { detail: payload }));
+    window.postMessage({ type: 'FATURA_APP_LUCA_CREATE_CARI', detail: payload, payload }, '*');
+
+    // Sistemimizde de kaydet
+    if (isEditing && selectedCariId) {
+      updateCari(selectedCariId, formData);
+    } else {
+      addCari(formData);
+    }
+
+    toast.success(`🚀 Luca için cari açma paketi hazırlandı (${formData.muhasebeKodu} - ${formData.unvan})! Luca sekmesine geçip onaylayabilirsiniz.`);
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -166,13 +251,52 @@ export function CariDrawer() {
             </div>
           </div>
 
-          <div className="space-y-2">
-            <Label>Luca Muhasebe Kodu</Label>
-            <LucaAccountSelect 
-              value={formData.muhasebeKodu || ''}
-              onChange={(code) => updateField('muhasebeKodu', code)}
-              placeholder="Luca kodu seçin (Opsiyonel)"
-            />
+          <div className="space-y-2 p-3 bg-indigo-50/50 rounded-lg border border-indigo-100">
+            <div className="flex items-center justify-between">
+              <Label className="text-indigo-950 font-semibold text-xs flex items-center gap-1.5">
+                <span>Luca Muhasebe Kodu</span>
+                <span className="text-[10px] text-indigo-500 font-normal">(Örn: 120.01.A001)</span>
+              </Label>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={suggestNextCode}
+                className="h-6 px-2 text-[11px] text-indigo-600 hover:text-indigo-800 hover:bg-indigo-100/60 font-medium"
+                title="Firmanın baş harfine göre sıradaki kodu öner"
+              >
+                <Sparkles className="w-3 h-3 mr-1" />
+                Sıradaki Kodu Öner
+              </Button>
+            </div>
+
+            <div className="flex gap-2">
+              <Input
+                value={formData.muhasebeKodu || ''}
+                onChange={e => updateField('muhasebeKodu', e.target.value.toUpperCase())}
+                placeholder="Örn: 120.01.A001"
+                className="font-mono text-sm uppercase bg-white flex-1 font-semibold"
+              />
+              <Button
+                type="button"
+                onClick={handleCreateInLuca}
+                disabled={!formData.muhasebeKodu}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-xs gap-1.5 shrink-0 shadow-sm"
+                title="Bu cariyi güvenlik doğrulaması ile Luca'da oluştur"
+              >
+                <Zap className="w-3.5 h-3.5" />
+                Luca'da Aç
+              </Button>
+            </div>
+
+            <div className="pt-1">
+              <LucaAccountSelect 
+                value={formData.muhasebeKodu || ''}
+                onChange={(code) => updateField('muhasebeKodu', code)}
+                placeholder="Veya mevcut Luca hesap planından seçin..."
+                className="bg-white text-xs"
+              />
+            </div>
           </div>
 
           <div className="space-y-2">

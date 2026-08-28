@@ -10,7 +10,7 @@ import { FileSpreadsheet, RefreshCw, Send, BookOpen, Layers, Copy, Check } from 
 import { toast } from 'sonner';
 
 export function FaturaAktarim() {
-  const { apiFetch, cariler, isIsletmeDefteri } = useApp();
+  const { apiFetch, cariler, isIsletmeDefteri, companies, user } = useApp();
   const [loading, setLoading] = useState(false);
   const [invoices, setInvoices] = useState<any[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -551,10 +551,17 @@ export function FaturaAktarim() {
         isAracGideri: aracGideriIds.includes(inv.id)
       }));
 
+      const activeComp = companies.find(c => c.id === (user?.companyId || 1));
+      const targetCompany = {
+        id: activeComp?.id || 1,
+        vkn: activeComp?.tax_no || (activeComp as any)?.vknTckn || '',
+        unvan: activeComp?.name || (activeComp as any)?.unvan || ''
+      };
+
       // A) LocalStorage kaydı
       try {
         localStorage.setItem('fatura_app_luca_isletme', JSON.stringify(hizliFisItems));
-        localStorage.setItem('fatura_app_luca_data', JSON.stringify({ isIsletme: true, data: hizliFisItems, raw: rawInvoices }));
+        localStorage.setItem('fatura_app_luca_data', JSON.stringify({ targetCompany, isIsletme: true, data: hizliFisItems, raw: rawInvoices }));
         localStorage.setItem('luca_aktarim_faturalar', JSON.stringify(hizliFisItems));
         localStorage.setItem('luca_transfer_data', JSON.stringify(hizliFisItems));
         localStorage.setItem('hizli_fis_data', JSON.stringify(hizliFisItems));
@@ -563,7 +570,7 @@ export function FaturaAktarim() {
       }
 
       // B) CustomEvent & PostMessage
-      const payload = { isIsletme: true, hizliFisItems, isletmeRows, faturalar: rawInvoices, count: selectedInvoices.length };
+      const payload = { targetCompany, isIsletme: true, hizliFisItems, isletmeRows, faturalar: rawInvoices, count: selectedInvoices.length };
       
       window.dispatchEvent(new CustomEvent('FATURA_APP_LUCA_SEND_ISLETME', { detail: hizliFisItems }));
       window.dispatchEvent(new CustomEvent('FATURA_APP_LUCA_DATA', { detail: payload }));
@@ -592,15 +599,22 @@ export function FaturaAktarim() {
         exportData = [...exportData, ...extRows];
       });
 
+      const activeComp = companies.find(c => c.id === (user?.companyId || 1));
+      const targetCompany = {
+        id: activeComp?.id || 1,
+        vkn: activeComp?.tax_no || (activeComp as any)?.vknTckn || '',
+        unvan: activeComp?.name || (activeComp as any)?.unvan || ''
+      };
+
       try {
         localStorage.setItem('fatura_app_luca_mahsup', JSON.stringify(exportData));
-        localStorage.setItem('fatura_app_luca_data', JSON.stringify({ isIsletme: false, data: exportData }));
+        localStorage.setItem('fatura_app_luca_data', JSON.stringify({ targetCompany, isIsletme: false, data: exportData }));
         localStorage.setItem('luca_aktarim_faturalar', JSON.stringify(exportData));
       } catch (e) {
         console.error('LocalStorage error:', e);
       }
 
-      const payload = { isIsletme: false, mahsupRows: exportData, count: selectedInvoices.length };
+      const payload = { targetCompany, isIsletme: false, mahsupRows: exportData, count: selectedInvoices.length };
 
       window.dispatchEvent(new CustomEvent('FATURA_APP_LUCA_SEND_MAHSUP', { detail: exportData }));
       window.dispatchEvent(new CustomEvent('FATURA_APP_LUCA_DATA', { detail: payload }));
