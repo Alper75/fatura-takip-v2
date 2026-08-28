@@ -72,11 +72,11 @@ export class UyumsoftClient {
       const eDate = endDate.split('T')[0] + 'T23:59:59';
       
       const allItems = [];
-      const pageSize = 500;
 
-      for (let pageIndex = 0; pageIndex < 10; pageIndex++) {
+      // Loop through all pages until an empty page is returned
+      for (let pageIndex = 0; pageIndex < 30; pageIndex++) {
         const queryObj = {
-          attributes: { PageIndex: pageIndex, PageSize: pageSize }
+          attributes: { PageIndex: pageIndex, PageSize: 100 }
         };
 
         if (dateBy === 1) {
@@ -112,7 +112,6 @@ export class UyumsoftClient {
         if (itemsArr.length === 0) break;
         
         allItems.push(...itemsArr);
-        if (itemsArr.length < pageSize) break; // Last page reached
       }
 
       const mappedDocs = allItems.map(item => ({
@@ -140,22 +139,21 @@ export class UyumsoftClient {
       const eDate = endDate.split('T')[0] + 'T23:59:59';
 
       const allItems = [];
-      const pageSize = 500;
 
-      // 1. Query by Document Date
-      for (let pageIndex = 0; pageIndex < 10; pageIndex++) {
+      // 1. Query by Document Date across all pages
+      for (let pageIndex = 0; pageIndex < 30; pageIndex++) {
         let args;
         if (opType === 2) {
           args = {
             context: {
-              attributes: { PageIndex: pageIndex, PageSize: pageSize },
+              attributes: { PageIndex: pageIndex, PageSize: 100 },
               DocumentDate: { Begin: bDate, End: eDate }
             }
           };
         } else {
           args = {
             context: {
-              attributes: { PageIndex: pageIndex, PageSize: pageSize },
+              attributes: { PageIndex: pageIndex, PageSize: 100 },
               DocumentStartDate: bDate,
               DocumentEndDate: eDate,
               SortColumn: 'DocumentDate'
@@ -181,23 +179,22 @@ export class UyumsoftClient {
         const itemsArr = Array.isArray(itemsRaw) ? itemsRaw : (itemsRaw ? [itemsRaw] : []);
         if (itemsArr.length === 0) break;
         allItems.push(...itemsArr);
-        if (itemsArr.length < pageSize) break;
       }
 
-      // 2. Also Query by Creation Date to catch any vouchers with dates created in this range
-      for (let pageIndex = 0; pageIndex < 10; pageIndex++) {
+      // 2. Also Query by Creation Date across all pages (catches makbuzlar created in this range with different document dates)
+      for (let pageIndex = 0; pageIndex < 30; pageIndex++) {
         let args;
         if (opType === 2) {
           args = {
             context: {
-              attributes: { PageIndex: pageIndex, PageSize: pageSize },
+              attributes: { PageIndex: pageIndex, PageSize: 100 },
               CreationDate: { Begin: bDate, End: eDate }
             }
           };
         } else {
           args = {
             context: {
-              attributes: { PageIndex: pageIndex, PageSize: pageSize },
+              attributes: { PageIndex: pageIndex, PageSize: 100 },
               CreationSartDate: bDate,
               CreationEndDate: eDate,
               SortColumn: 'CreateDate'
@@ -223,7 +220,6 @@ export class UyumsoftClient {
         const itemsArr = Array.isArray(itemsRaw) ? itemsRaw : (itemsRaw ? [itemsRaw] : []);
         if (itemsArr.length === 0) break;
         allItems.push(...itemsArr);
-        if (itemsArr.length < pageSize) break;
       }
 
       // Map distinct vouchers
