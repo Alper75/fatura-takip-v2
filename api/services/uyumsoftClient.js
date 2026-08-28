@@ -116,10 +116,7 @@ export class UyumsoftClient {
       })).filter(doc => doc.documentUuid); // Remove any completely invalid mapping
 
       if (mappedDocs.length === 0) {
-        // Return raw result as a message to debug what Uyumsoft actually sent!
-        let debugStr = '';
-        try { debugStr = JSON.stringify(result).substring(0, 1000); } catch(e){}
-        return { success: false, message: 'Fatura bulunamadı veya parse edilemedi. Gelen veri: ' + debugStr };
+        return { success: true, data: { docList: { Document: [] } } };
       }
 
       return { success: true, data: { docList: { Document: mappedDocs } } };
