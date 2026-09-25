@@ -443,9 +443,9 @@ export function AlisFaturaDrawer() {
       return;
     }
 
-    let safeModelName = aiModel ? aiModel.trim() : 'gemini-1.5-flash';
-    if (safeModelName === 'gemini-3.6-flash' || safeModelName.includes('3.6') || safeModelName.includes('8b')) {
-      safeModelName = 'gemini-1.5-flash';
+    let safeModelName = aiModel ? aiModel.trim() : 'gemini-3.8-flash';
+    if (safeModelName === 'gemini-3.6-flash' || safeModelName === 'gemini-2.0-flash' || safeModelName.includes('2.0') || safeModelName.includes('3.6') || safeModelName.includes('8b')) {
+      safeModelName = 'gemini-3.8-flash';
     }
     
     const [settingsRes, bankaRes] = await Promise.all([
@@ -507,11 +507,11 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
       try {
         const rawBase64 = file.base64.split(',')[1];
         
-        // Yalnızca Google API v1beta'da kesinlikle desteklenen resmi ve kararlı modeller
+        // Google'ın önerdiği ve v1beta'da desteklenen resmi modeller
         const candidateModels = Array.from(new Set([
           safeModelName,
+          'gemini-3.8-flash',
           'gemini-1.5-flash',
-          'gemini-2.0-flash',
           'gemini-1.5-pro'
         ].filter(Boolean)));
 
@@ -541,9 +541,9 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
               if (data.error) {
                 const errMsg = data.error.message || '';
                 
-                // Model v1beta'da bulunamadıysa hemen sıradaki resmi modele geç
-                if (/not found|is not supported/i.test(errMsg)) {
-                  console.warn(`[${model}] Bu API versiyonunda yok, alternatif modele geçiliyor...`);
+                // Model bulunamadıysa veya kullanımdan kalktıysa hemen sıradaki resmi modele geç
+                if (/not found|is not supported|no longer available/i.test(errMsg)) {
+                  console.warn(`[${model}] Bu model aktif değil, alternatif modele geçiliyor...`);
                   break;
                 }
 
@@ -582,7 +582,7 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
             } catch (err: any) {
               lastAiError = err;
               const errMsg = err.message || '';
-              if (/not found|is not supported/i.test(errMsg)) {
+              if (/not found|is not supported|no longer available/i.test(errMsg)) {
                 break;
               }
               const isQuota = /quota exceeded|free_tier_requests|limit: 20|429|resource exhausted/i.test(errMsg);
