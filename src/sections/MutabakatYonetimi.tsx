@@ -31,10 +31,26 @@ export function MutabakatYonetimi() {
   const [aiProvider, setAiProvider] = useState<'gemini' | 'nvidia'>('gemini');
   const [geminiKey, setGeminiKey] = useState('');
   const [geminiModel, setGeminiModel] = useState('gemini-3.8-flash');
+  const [isCustomGemini, setIsCustomGemini] = useState(false);
   const [nvidiaKey, setNvidiaKey] = useState('');
   const [nvidiaModel, setNvidiaModel] = useState('meta/llama-3.2-11b-vision-instruct');
+  const [isCustomNvidia, setIsCustomNvidia] = useState(false);
   const [isSavingKey, setIsSavingKey] = useState(false);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
+
+  const PRESET_GEMINI_MODELS = [
+    { value: 'gemini-3.8-flash', label: 'Gemini 3.8 Flash (Önerilen - En Güncel & Hızlı)' },
+    { value: 'gemini-1.5-flash', label: 'Gemini 1.5 Flash (Klasik & Kararlı)' },
+    { value: 'gemini-1.5-pro', label: 'Gemini 1.5 Pro (Çok Detaylı & Zeki)' },
+  ];
+
+  const PRESET_NVIDIA_MODELS = [
+    { value: 'meta/llama-3.2-11b-vision-instruct', label: 'Meta Llama 3.2 11B Vision (Çok Hızlı - Önerilen)' },
+    { value: 'meta/llama-3.2-90b-vision-instruct', label: 'Meta Llama 3.2 90B Vision (En Yüksek Hassasiyet)' },
+    { value: 'mistralai/pixtral-12b', label: 'Mistral Pixtral 12B (Alternatif Görsel Model)' },
+    { value: 'microsoft/phi-3.5-vision-instruct', label: 'Microsoft Phi-3.5 Vision (Hafif & Hızlı)' },
+    { value: 'qwen/qwen2.5-vl-72b-instruct', label: 'Qwen 2.5 VL 72B (Gelişmiş Çok Dilli Görsel Model)' },
+  ];
   
   // Selection state
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -93,9 +109,19 @@ export function MutabakatYonetimi() {
 
       if (resProvider?.success && resProvider.value) setAiProvider(resProvider.value as any);
       if (resKey?.success) setGeminiKey(resKey.value || '');
-      if (resModel?.success && resModel.value) setGeminiModel(resModel.value);
+      if (resModel?.success && resModel.value) {
+        setGeminiModel(resModel.value);
+        if (!PRESET_GEMINI_MODELS.some(m => m.value === resModel.value)) {
+          setIsCustomGemini(true);
+        }
+      }
       if (resNvidiaKey?.success) setNvidiaKey(resNvidiaKey.value || '');
-      if (resNvidiaModel?.success && resNvidiaModel.value) setNvidiaModel(resNvidiaModel.value);
+      if (resNvidiaModel?.success && resNvidiaModel.value) {
+        setNvidiaModel(resNvidiaModel.value);
+        if (!PRESET_NVIDIA_MODELS.some(m => m.value === resNvidiaModel.value)) {
+          setIsCustomNvidia(true);
+        }
+      }
     } catch (e) {}
   };
 
@@ -621,16 +647,43 @@ export function MutabakatYonetimi() {
 
                     <div className="space-y-2">
                       <Label className="text-xs font-semibold">Gemini Modeli</Label>
-                      <Select value={geminiModel} onValueChange={setGeminiModel}>
+                      <Select 
+                        value={isCustomGemini ? 'custom' : geminiModel} 
+                        onValueChange={(val) => {
+                          if (val === 'custom') {
+                            setIsCustomGemini(true);
+                          } else {
+                            setIsCustomGemini(false);
+                            setGeminiModel(val);
+                          }
+                        }}
+                      >
                         <SelectTrigger className="w-full text-xs">
                           <SelectValue placeholder="Model seçin" />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="gemini-3.8-flash">Gemini 3.8 Flash (Önerilen - En Güncel & Hızlı)</SelectItem>
-                          <SelectItem value="gemini-1.5-flash">Gemini 1.5 Flash (Klasik & Kararlı)</SelectItem>
-                          <SelectItem value="gemini-1.5-pro">Gemini 1.5 Pro (Çok Detaylı & Zeki)</SelectItem>
+                          {PRESET_GEMINI_MODELS.map(m => (
+                            <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
+                          ))}
+                          <SelectItem value="custom" className="font-semibold text-indigo-600">✍️ Özel Model Adı Yaz...</SelectItem>
                         </SelectContent>
                       </Select>
+
+                      {isCustomGemini && (
+                        <div className="space-y-1.5 pt-1.5 p-3 bg-indigo-50/50 rounded-xl border border-indigo-100 animate-in fade-in">
+                          <Label className="text-[11px] font-semibold text-indigo-900">Özel Gemini Model Kodu / Adı</Label>
+                          <Input 
+                            type="text" 
+                            placeholder="Örn: gemini-3.8-flash veya gemini-1.5-flash-latest" 
+                            value={geminiModel}
+                            onChange={(e) => setGeminiModel(e.target.value.trim())}
+                            className="font-mono text-xs bg-white"
+                          />
+                          <p className="text-[10px] text-slate-500">
+                            Google AI Studio'da erişiminiz olan herhangi bir modelin adını yazabilirsiniz.
+                          </p>
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}
@@ -654,16 +707,43 @@ export function MutabakatYonetimi() {
 
                     <div className="space-y-2">
                       <Label className="text-xs font-semibold">NVIDIA Vision Modeli</Label>
-                      <Select value={nvidiaModel} onValueChange={setNvidiaModel}>
+                      <Select 
+                        value={isCustomNvidia ? 'custom' : nvidiaModel} 
+                        onValueChange={(val) => {
+                          if (val === 'custom') {
+                            setIsCustomNvidia(true);
+                          } else {
+                            setIsCustomNvidia(false);
+                            setNvidiaModel(val);
+                          }
+                        }}
+                      >
                         <SelectTrigger className="w-full text-xs">
                           <SelectValue placeholder="NVIDIA Modeli seçin" />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="meta/llama-3.2-11b-vision-instruct">Meta Llama 3.2 11B Vision (Çok Hızlı - Önerilen)</SelectItem>
-                          <SelectItem value="meta/llama-3.2-90b-vision-instruct">Meta Llama 3.2 90B Vision (En Yüksek Hassasiyet)</SelectItem>
-                          <SelectItem value="mistralai/pixtral-12b">Mistral Pixtral 12B (Alternatif Görsel Model)</SelectItem>
+                          {PRESET_NVIDIA_MODELS.map(m => (
+                            <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
+                          ))}
+                          <SelectItem value="custom" className="font-semibold text-emerald-600">✍️ Özel Model Adı Yaz (build.nvidia.com)...</SelectItem>
                         </SelectContent>
                       </Select>
+
+                      {isCustomNvidia && (
+                        <div className="space-y-1.5 pt-1.5 p-3 bg-emerald-50/50 rounded-xl border border-emerald-100 animate-in fade-in">
+                          <Label className="text-[11px] font-semibold text-emerald-900">Özel NVIDIA NIM Model Kodu (Adres / Path)</Label>
+                          <Input 
+                            type="text" 
+                            placeholder="Örn: meta/llama-3.2-11b-vision-instruct veya qwen/qwen2.5-vl-72b-instruct" 
+                            value={nvidiaModel}
+                            onChange={(e) => setNvidiaModel(e.target.value.trim())}
+                            className="font-mono text-xs bg-white"
+                          />
+                          <p className="text-[10px] text-slate-500">
+                            <a href="https://build.nvidia.com/explore/discover" target="_blank" rel="noreferrer" className="text-emerald-600 underline font-medium">build.nvidia.com/explore/discover</a> sayfasındaki herhangi bir görsel (vision) modelin tam kimliğini buraya yapıştırabilirsiniz.
+                          </p>
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}

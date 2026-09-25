@@ -509,7 +509,7 @@ export function AlisFaturaDrawer() {
     }
 
     let safeModelName = aiModel ? aiModel.trim() : 'gemini-3.8-flash';
-    if (safeModelName === 'gemini-3.6-flash' || safeModelName === 'gemini-2.0-flash' || safeModelName.includes('2.0') || safeModelName.includes('3.6') || safeModelName.includes('8b')) {
+    if (safeModelName === 'gemini-3.6-flash' || safeModelName === 'gemini-2.0-flash' || safeModelName === 'gemini-1.5-flash-8b') {
       safeModelName = 'gemini-3.8-flash';
     }
     
