@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label';
 import { 
   FileSignature, FileUp, Download, CheckCircle2, XCircle, 
   Clock, FileText, UploadCloud, Loader2, Sparkles, AlertTriangle,
-  Trash2, Eye
+  Trash2, Eye, Save
 } from 'lucide-react';
 import { 
   Dialog, DialogContent, DialogHeader, DialogTitle, 
