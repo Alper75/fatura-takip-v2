@@ -28,8 +28,11 @@ export function MutabakatYonetimi() {
   const [isAnalyzing, setIsAnalyzing] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState('liste');
   const [selectedAnalysis, setSelectedAnalysis] = useState<any>(null);
+  const [aiProvider, setAiProvider] = useState<'gemini' | 'nvidia'>('gemini');
   const [geminiKey, setGeminiKey] = useState('');
-  const [geminiModel, setGeminiModel] = useState('gemini-3.6-flash');
+  const [geminiModel, setGeminiModel] = useState('gemini-3.8-flash');
+  const [nvidiaKey, setNvidiaKey] = useState('');
+  const [nvidiaModel, setNvidiaModel] = useState('meta/llama-3.2-11b-vision-instruct');
   const [isSavingKey, setIsSavingKey] = useState(false);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   
@@ -80,34 +83,33 @@ export function MutabakatYonetimi() {
 
   const fetchSettings = async () => {
     try {
-      const resKey = await apiFetch('/api/settings/gemini_api_key');
-      const resModel = await apiFetch('/api/settings/gemini_model');
-      if (resKey.success) {
-        setGeminiKey(resKey.value || '');
-      }
-      if (resModel.success && resModel.value) {
-        setGeminiModel(resModel.value);
-      }
+      const [resProvider, resKey, resModel, resNvidiaKey, resNvidiaModel] = await Promise.all([
+        apiFetch('/api/settings/ai_provider').catch(() => null),
+        apiFetch('/api/settings/gemini_api_key').catch(() => null),
+        apiFetch('/api/settings/gemini_model').catch(() => null),
+        apiFetch('/api/settings/nvidia_api_key').catch(() => null),
+        apiFetch('/api/settings/nvidia_model').catch(() => null),
+      ]);
+
+      if (resProvider?.success && resProvider.value) setAiProvider(resProvider.value as any);
+      if (resKey?.success) setGeminiKey(resKey.value || '');
+      if (resModel?.success && resModel.value) setGeminiModel(resModel.value);
+      if (resNvidiaKey?.success) setNvidiaKey(resNvidiaKey.value || '');
+      if (resNvidiaModel?.success && resNvidiaModel.value) setNvidiaModel(resNvidiaModel.value);
     } catch (e) {}
   };
 
-  const handleSaveGeminiKey = async () => {
+  const handleSaveAiSettings = async () => {
     setIsSavingKey(true);
     try {
-      const res = await apiFetch('/api/settings/gemini_api_key', {
-        method: 'POST',
-        body: JSON.stringify({ value: geminiKey })
-      });
-      const resModel = await apiFetch('/api/settings/gemini_model', {
-        method: 'POST',
-        body: JSON.stringify({ value: geminiModel })
-      });
-      
-      if (res.success && resModel.success) {
-        toast.success('Yapay zeka anahtarı kaydedildi.');
-      } else {
-        toast.error(res.message);
-      }
+      await Promise.all([
+        apiFetch('/api/settings/ai_provider', { method: 'POST', body: JSON.stringify({ value: aiProvider }) }),
+        apiFetch('/api/settings/gemini_api_key', { method: 'POST', body: JSON.stringify({ value: geminiKey }) }),
+        apiFetch('/api/settings/gemini_model', { method: 'POST', body: JSON.stringify({ value: geminiModel }) }),
+        apiFetch('/api/settings/nvidia_api_key', { method: 'POST', body: JSON.stringify({ value: nvidiaKey }) }),
+        apiFetch('/api/settings/nvidia_model', { method: 'POST', body: JSON.stringify({ value: nvidiaModel }) }),
+      ]);
+      toast.success('Yapay zeka ayarları başarıyla kaydedildi.');
     } catch (e: any) {
       toast.error('Hata: ' + e.message);
     } finally {
@@ -551,50 +553,130 @@ export function MutabakatYonetimi() {
              <CardHeader className="border-b">
                <CardTitle className="flex items-center gap-2">
                  <Sparkles className="w-5 h-5 text-indigo-600" />
-                 Yapay Zeka Ayarları
+                 Yapay Zeka (AI) Sağlayıcı Ayarları
                </CardTitle>
                <CardDescription>
-                 Muavin karşılaştırma ve uyuşmazlık analizi için Google Gemini API anahtarınızı tanımlayın.
+                 Fiş/fatura tarama, muavin karşılaştırma ve analizler için yapay zeka servisinizi seçin.
                </CardDescription>
              </CardHeader>
              <CardContent className="p-6 space-y-6">
+                
+                {/* Sağlayıcı Seçimi */}
                 <div className="space-y-3">
-                  <Label className="text-sm font-semibold">Gemini API Key</Label>
-                  <div className="flex gap-2">
-                    <Input 
-                      type="password" 
-                      placeholder="AIzaSy..." 
-                      value={geminiKey}
-                      onChange={(e) => setGeminiKey(e.target.value)}
-                      className="font-mono"
-                    />
-                    <Button 
-                      onClick={handleSaveGeminiKey} 
-                      disabled={isSavingKey}
+                  <Label className="text-sm font-bold text-slate-900">Aktif Yapay Zeka Motoru</Label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setAiProvider('gemini')}
+                      className={`p-3.5 rounded-xl border-2 text-left transition-all flex flex-col justify-between gap-2 ${
+                        aiProvider === 'gemini' 
+                          ? 'border-indigo-600 bg-indigo-50/60 shadow-sm ring-2 ring-indigo-600/20' 
+                          : 'border-slate-200 hover:border-slate-300 bg-white'
+                      }`}
                     >
-                      {isSavingKey ? <Loader2 className="w-4 h-4 animate-spin"/> : 'Kaydet'}
-                    </Button>
+                      <div className="flex items-center justify-between w-full">
+                        <span className="font-bold text-sm text-slate-900">Google Gemini</span>
+                        {aiProvider === 'gemini' && <span className="w-2.5 h-2.5 rounded-full bg-indigo-600" />}
+                      </div>
+                      <p className="text-[11px] text-slate-500">Gemini 3.8 & 1.5 Flash modelleri. Ücretsiz katmanda 20 fiş/dakika sınırı vardır.</p>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setAiProvider('nvidia')}
+                      className={`p-3.5 rounded-xl border-2 text-left transition-all flex flex-col justify-between gap-2 ${
+                        aiProvider === 'nvidia' 
+                          ? 'border-emerald-600 bg-emerald-50/60 shadow-sm ring-2 ring-emerald-600/20' 
+                          : 'border-slate-200 hover:border-slate-300 bg-white'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between w-full">
+                        <span className="font-bold text-sm text-slate-900 flex items-center gap-1.5">
+                          NVIDIA Build (NIM)
+                          <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-1.5 py-0.5 rounded">1.000 Kredi</span>
+                        </span>
+                        {aiProvider === 'nvidia' && <span className="w-2.5 h-2.5 rounded-full bg-emerald-600" />}
+                      </div>
+                      <p className="text-[11px] text-slate-500">Llama 3.2 Vision modelleri. Hızlı, dakikalık kota beklemesi yoktur.</p>
+                    </button>
                   </div>
-                  <p className="text-[11px] text-slate-500 leading-relaxed">
-                    API anahtarınızı <a href="https://aistudio.google.com/app/apikey" target="_blank" className="text-indigo-600 hover:underline font-medium">Google AI Studio</a> üzerinden ücretsiz olarak alabilirsiniz.
-                  </p>
                 </div>
 
-                <div className="space-y-3">
-                  <Label className="text-sm font-semibold">Gemini Modeli</Label>
-                  <Select value={geminiModel} onValueChange={setGeminiModel}>
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder="Model seçin" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="gemini-3.6-flash">Gemini 1.5 Flash (Klasik - Hızlı & Ekonomik)</SelectItem>
-                      <SelectItem value="gemini-1.5-pro">Gemini 1.5 Pro (Daha Zeki, Ancak Yavaş)</SelectItem>
-                      <SelectItem value="gemini-3.6-flash-8b">Gemini 1.5 Flash-8B (En Hızlı)</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <p className="text-[11px] text-slate-500 leading-relaxed">
-                    Faturalarda kullandığımız "Gemini 2.5 Flash" modelini varsayılan olarak kullanmanızı öneririz.
-                  </p>
+                {/* GOOGLE GEMINI AYARLARI */}
+                {aiProvider === 'gemini' && (
+                  <div className="space-y-4 pt-3 border-t border-slate-100 animate-in fade-in">
+                    <div className="space-y-2">
+                      <Label className="text-xs font-semibold">Gemini API Key</Label>
+                      <Input 
+                        type="password" 
+                        placeholder="AIzaSy..." 
+                        value={geminiKey}
+                        onChange={(e) => setGeminiKey(e.target.value)}
+                        className="font-mono text-xs"
+                      />
+                      <p className="text-[11px] text-slate-500">
+                        Anahtarınızı <a href="https://aistudio.google.com/app/apikey" target="_blank" className="text-indigo-600 hover:underline font-medium">Google AI Studio</a> üzerinden alabilirsiniz.
+                      </p>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label className="text-xs font-semibold">Gemini Modeli</Label>
+                      <Select value={geminiModel} onValueChange={setGeminiModel}>
+                        <SelectTrigger className="w-full text-xs">
+                          <SelectValue placeholder="Model seçin" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="gemini-3.8-flash">Gemini 3.8 Flash (Önerilen - En Güncel & Hızlı)</SelectItem>
+                          <SelectItem value="gemini-1.5-flash">Gemini 1.5 Flash (Klasik & Kararlı)</SelectItem>
+                          <SelectItem value="gemini-1.5-pro">Gemini 1.5 Pro (Çok Detaylı & Zeki)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                )}
+
+                {/* NVIDIA BUILD AYARLARI */}
+                {aiProvider === 'nvidia' && (
+                  <div className="space-y-4 pt-3 border-t border-slate-100 animate-in fade-in">
+                    <div className="space-y-2">
+                      <Label className="text-xs font-semibold">NVIDIA API Key</Label>
+                      <Input 
+                        type="password" 
+                        placeholder="nvapi-..." 
+                        value={nvidiaKey}
+                        onChange={(e) => setNvidiaKey(e.target.value)}
+                        className="font-mono text-xs"
+                      />
+                      <p className="text-[11px] text-slate-500">
+                        API anahtarınızı <a href="https://build.nvidia.com/" target="_blank" className="text-emerald-600 hover:underline font-medium">build.nvidia.com</a> adresinden ücretsiz 1.000 kredi ile alabilirsiniz.
+                      </p>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label className="text-xs font-semibold">NVIDIA Vision Modeli</Label>
+                      <Select value={nvidiaModel} onValueChange={setNvidiaModel}>
+                        <SelectTrigger className="w-full text-xs">
+                          <SelectValue placeholder="NVIDIA Modeli seçin" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="meta/llama-3.2-11b-vision-instruct">Meta Llama 3.2 11B Vision (Çok Hızlı - Önerilen)</SelectItem>
+                          <SelectItem value="meta/llama-3.2-90b-vision-instruct">Meta Llama 3.2 90B Vision (En Yüksek Hassasiyet)</SelectItem>
+                          <SelectItem value="mistralai/pixtral-12b">Mistral Pixtral 12B (Alternatif Görsel Model)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex justify-end pt-2">
+                  <Button 
+                    onClick={handleSaveAiSettings} 
+                    disabled={isSavingKey}
+                    className="bg-indigo-600 hover:bg-indigo-700 text-white font-medium"
+                  >
+                    {isSavingKey ? <Loader2 className="w-4 h-4 animate-spin mr-2"/> : <Save className="w-4 h-4 mr-2" />}
+                    Ayarları Kaydet
+                  </Button>
                 </div>
 
                 <div className="bg-amber-50 border border-amber-100 p-4 rounded-xl flex gap-3">

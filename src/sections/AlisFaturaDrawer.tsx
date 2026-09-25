@@ -421,26 +421,42 @@ export function AlisFaturaDrawer() {
     setIsScanning(true);
     let totalAdded = 0;
     
+    let activeProvider = 'gemini';
     let apiKey = import.meta.env.VITE_GEMINI_API_KEY || '';
-    let aiModel = 'gemini-3.6-flash';
+    let aiModel = 'gemini-3.8-flash';
+    let nvidiaApiKey = '';
+    let nvidiaModelName = 'meta/llama-3.2-11b-vision-instruct';
     
     try {
-      const keyRes = await apiFetch('/api/settings/gemini_api_key');
-      if (keyRes && keyRes.value) {
-        apiKey = keyRes.value;
-      }
-      const modelRes = await apiFetch('/api/settings/gemini_model');
-      if (modelRes && modelRes.value) {
-        aiModel = modelRes.value;
-      }
+      const [provRes, keyRes, modelRes, nKeyRes, nModelRes] = await Promise.all([
+        apiFetch('/api/settings/ai_provider').catch(() => null),
+        apiFetch('/api/settings/gemini_api_key').catch(() => null),
+        apiFetch('/api/settings/gemini_model').catch(() => null),
+        apiFetch('/api/settings/nvidia_api_key').catch(() => null),
+        apiFetch('/api/settings/nvidia_model').catch(() => null),
+      ]);
+
+      if (provRes?.success && provRes.value) activeProvider = provRes.value;
+      if (keyRes?.success && keyRes.value) apiKey = keyRes.value;
+      if (modelRes?.success && modelRes.value) aiModel = modelRes.value;
+      if (nKeyRes?.success && nKeyRes.value) nvidiaApiKey = nKeyRes.value;
+      if (nModelRes?.success && nModelRes.value) nvidiaModelName = nModelRes.value;
     } catch (keyErr) {
-      console.warn('Ayarlardan Gemini API anahtarı alınamadı, yerel değişken kullanılacak:', keyErr);
+      console.warn('Ayarlar alınamadı:', keyErr);
     }
 
-    if (!apiKey) {
-      toast.error('Yapay zeka anahtarı (Gemini API Key) bulunamadı. Lütfen ayarlardan tanımlayın.');
-      setIsScanning(false);
-      return;
+    if (activeProvider === 'nvidia') {
+      if (!nvidiaApiKey) {
+        toast.error('NVIDIA API Key bulunamadı. Lütfen Mutabakat Yönetimi -> Yapay Zeka Ayarları bölümünden tanımlayın.');
+        setIsScanning(false);
+        return;
+      }
+    } else {
+      if (!apiKey) {
+        toast.error('Yapay zeka anahtarı (Gemini API Key) bulunamadı. Lütfen ayarlardan tanımlayın.');
+        setIsScanning(false);
+        return;
+      }
     }
 
     let safeModelName = aiModel ? aiModel.trim() : 'gemini-3.8-flash';
@@ -507,107 +523,158 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
       try {
         const rawBase64 = file.base64.split(',')[1];
         
-        // Google'ın önerdiği ve v1beta'da desteklenen resmi modeller
-        const candidateModels = Array.from(new Set([
-          safeModelName,
-          'gemini-3.8-flash',
-          'gemini-1.5-flash',
-          'gemini-1.5-pro'
-        ].filter(Boolean)));
-
         let responseText = '';
         let lastAiError: any = null;
 
-        // Model fallback ve kota geri sayım mekanizması
-        for (const model of candidateModels) {
-          let modelSucceeded = false;
+        if (activeProvider === 'nvidia') {
+          // ==================== NVIDIA BUILD (NIM) ÇAĞRISI ====================
+          const imageUrl = file.base64.startsWith('data:') 
+            ? file.base64 
+            : `data:${file.mimeType || 'image/jpeg'};base64,${file.base64}`;
+
           for (let attempt = 1; attempt <= 2; attempt++) {
             try {
-              const aiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  contents: [{
-                    parts: [
-                      { text: prompt },
-                      { inline_data: { mime_type: file.mimeType, data: rawBase64 } }
+              const nvidiaPayload = {
+                model: nvidiaModelName || 'meta/llama-3.2-11b-vision-instruct',
+                messages: [
+                  {
+                    role: "user",
+                    content: [
+                      {
+                        type: "text",
+                        text: prompt + "\nÖNEMLİ: Cevabını SADECE geçerli bir JSON objesi olarak ver. Başka hiçbir açıklama metni ekleme."
+                      },
+                      {
+                        type: "image_url",
+                        image_url: {
+                          url: imageUrl
+                        }
+                      }
                     ]
-                  }],
-                  generationConfig: { responseMimeType: "application/json" }
-                })
+                  }
+                ],
+                max_tokens: 2048,
+                temperature: 0.1
+              };
+
+              const nvRes = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${nvidiaApiKey}`
+                },
+                body: JSON.stringify(nvidiaPayload)
               });
 
-              const data = await aiResponse.json();
-              if (data.error) {
-                const errMsg = data.error.message || '';
-                
-                // Model bulunamadıysa veya kullanımdan kalktıysa hemen sıradaki resmi modele geç
-                if (/not found|is not supported|no longer available/i.test(errMsg)) {
-                  console.warn(`[${model}] Bu model aktif değil, alternatif modele geçiliyor...`);
-                  break;
+              const nvData = await nvRes.json();
+              if (nvData.error) {
+                throw new Error(nvData.error.message || 'NVIDIA API Hatası');
+              }
+
+              responseText = nvData.choices?.[0]?.message?.content || '';
+              if (responseText) break;
+            } catch (err: any) {
+              lastAiError = err;
+              console.warn(`[NVIDIA] Deneme ${attempt} hatası:`, err);
+              if (attempt < 2) await new Promise(r => setTimeout(r, 1500));
+            }
+          }
+        } else {
+          // ==================== GOOGLE GEMINI ÇAĞRISI ====================
+          const candidateModels = Array.from(new Set([
+            safeModelName,
+            'gemini-3.8-flash',
+            'gemini-1.5-flash',
+            'gemini-1.5-pro'
+          ].filter(Boolean)));
+
+          for (const model of candidateModels) {
+            let modelSucceeded = false;
+            for (let attempt = 1; attempt <= 2; attempt++) {
+              try {
+                const aiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    contents: [{
+                      parts: [
+                        { text: prompt },
+                        { inline_data: { mime_type: file.mimeType, data: rawBase64 } }
+                      ]
+                    }],
+                    generationConfig: { responseMimeType: "application/json" }
+                  })
+                });
+
+                const data = await aiResponse.json();
+                if (data.error) {
+                  const errMsg = data.error.message || '';
+                  if (/not found|is not supported|no longer available/i.test(errMsg)) {
+                    console.warn(`[${model}] Bu model aktif değil, alternatif modele geçiliyor...`);
+                    break;
+                  }
+
+                  const isQuota = /quota exceeded|free_tier_requests|limit: 20|429|resource exhausted/i.test(errMsg);
+                  const isOverloaded = /high demand|spikes in demand|overloaded|503/i.test(errMsg);
+
+                  if (isQuota) {
+                    const retryMatch = errMsg.match(/retry in ([\d\.]+)s/i);
+                    const waitSec = retryMatch ? Math.ceil(parseFloat(retryMatch[1])) + 2 : 36;
+                    console.warn(`[Kota Sınırı] Dakikada 20 fiş sınırı. ${waitSec} saniye bekleniyor...`);
+                    
+                    for (let s = waitSec; s > 0; s--) {
+                      setScanProgress(prev => prev ? { ...prev, isWaitingQuota: true, quotaWaitSeconds: s } : null);
+                      await new Promise(r => setTimeout(r, 1000));
+                    }
+                    setScanProgress(prev => prev ? { ...prev, isWaitingQuota: false, quotaWaitSeconds: 0 } : null);
+                    lastAiError = new Error(errMsg);
+                    continue;
+                  }
+
+                  if (isOverloaded) {
+                    console.warn(`[${model}] Model yoğunlukta (Deneme ${attempt}), 3 saniye bekleniyor...`);
+                    await new Promise(r => setTimeout(r, 3000));
+                    lastAiError = new Error(errMsg);
+                    continue;
+                  }
+                  throw new Error(errMsg || 'API Hatası');
                 }
 
+                responseText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+                if (responseText) {
+                  modelSucceeded = true;
+                  break;
+                }
+              } catch (err: any) {
+                lastAiError = err;
+                const errMsg = err.message || '';
+                if (/not found|is not supported|no longer available/i.test(errMsg)) {
+                  break;
+                }
                 const isQuota = /quota exceeded|free_tier_requests|limit: 20|429|resource exhausted/i.test(errMsg);
                 const isOverloaded = /high demand|spikes in demand|overloaded|503/i.test(errMsg);
 
                 if (isQuota) {
-                  // Google Free Tier dakikalık 20 fiş kotası: Süreyi yakala ve geri say
                   const retryMatch = errMsg.match(/retry in ([\d\.]+)s/i);
                   const waitSec = retryMatch ? Math.ceil(parseFloat(retryMatch[1])) + 2 : 36;
-                  console.warn(`[Kota Sınırı] Dakikada 20 fiş sınırı. ${waitSec} saniye bekleniyor...`);
-                  
                   for (let s = waitSec; s > 0; s--) {
                     setScanProgress(prev => prev ? { ...prev, isWaitingQuota: true, quotaWaitSeconds: s } : null);
                     await new Promise(r => setTimeout(r, 1000));
                   }
                   setScanProgress(prev => prev ? { ...prev, isWaitingQuota: false, quotaWaitSeconds: 0 } : null);
-                  lastAiError = new Error(errMsg);
-                  continue; // Bekleme bitti, aynı dosyayı tekrar gönder
+                  continue;
                 }
 
                 if (isOverloaded) {
-                  console.warn(`[${model}] Model yoğunlukta (Deneme ${attempt}), 3 saniye bekleniyor...`);
-                  await new Promise(r => setTimeout(r, 3000));
-                  lastAiError = new Error(errMsg);
-                  continue;
+                  console.warn(`[${model}] Yoğunluk nedeniyle sıradaki yedek modele geçiliyor...`);
+                  await new Promise(r => setTimeout(r, 1500));
+                  break;
                 }
-                throw new Error(errMsg || 'API Hatası');
+                if (attempt < 2) await new Promise(r => setTimeout(r, 2000));
               }
-
-              responseText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-              if (responseText) {
-                modelSucceeded = true;
-                break;
-              }
-            } catch (err: any) {
-              lastAiError = err;
-              const errMsg = err.message || '';
-              if (/not found|is not supported|no longer available/i.test(errMsg)) {
-                break;
-              }
-              const isQuota = /quota exceeded|free_tier_requests|limit: 20|429|resource exhausted/i.test(errMsg);
-              const isOverloaded = /high demand|spikes in demand|overloaded|503/i.test(errMsg);
-
-              if (isQuota) {
-                const retryMatch = errMsg.match(/retry in ([\d\.]+)s/i);
-                const waitSec = retryMatch ? Math.ceil(parseFloat(retryMatch[1])) + 2 : 36;
-                for (let s = waitSec; s > 0; s--) {
-                  setScanProgress(prev => prev ? { ...prev, isWaitingQuota: true, quotaWaitSeconds: s } : null);
-                  await new Promise(r => setTimeout(r, 1000));
-                }
-                setScanProgress(prev => prev ? { ...prev, isWaitingQuota: false, quotaWaitSeconds: 0 } : null);
-                continue;
-              }
-
-              if (isOverloaded) {
-                console.warn(`[${model}] Yoğunluk nedeniyle sıradaki yedek modele geçiliyor...`);
-                await new Promise(r => setTimeout(r, 1500));
-                break;
-              }
-              if (attempt < 2) await new Promise(r => setTimeout(r, 2000));
             }
+            if (modelSucceeded) break;
           }
-          if (modelSucceeded) break;
         }
 
         if (!responseText) {
@@ -784,7 +851,7 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
             <div className="flex items-center justify-between text-xs font-semibold text-indigo-900">
               <span className="flex items-center gap-1.5">
                 <Loader2 className="w-4 h-4 animate-spin text-indigo-600" />
-                Dosyalar AI ile Taranıyor ({scanProgress.current} / {scanProgress.total})
+                Dosyalar Taranıyor ({scanProgress.current} / {scanProgress.total})
               </span>
               <span className="bg-indigo-200/80 px-2 py-0.5 rounded text-indigo-900 font-bold">
                 %{scanProgress.percent}
