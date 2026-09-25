@@ -443,9 +443,9 @@ export function AlisFaturaDrawer() {
       return;
     }
 
-    let safeModelName = aiModel ? aiModel.trim() : 'gemini-2.5-flash';
-    if (safeModelName === 'gemini-3.6-flash' || safeModelName.includes('3.6')) {
-      safeModelName = 'gemini-2.5-flash';
+    let safeModelName = aiModel ? aiModel.trim() : 'gemini-1.5-flash';
+    if (safeModelName === 'gemini-3.6-flash' || safeModelName.includes('3.6') || safeModelName.includes('8b')) {
+      safeModelName = 'gemini-1.5-flash';
     }
     
     const [settingsRes, bankaRes] = await Promise.all([
@@ -507,13 +507,12 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
       try {
         const rawBase64 = file.base64.split(',')[1];
         
-        // Çoklu model listesi: İlk tercih kullanıcının modeli, ardından alternatif modeller
+        // Yalnızca Google API v1beta'da kesinlikle desteklenen resmi ve kararlı modeller
         const candidateModels = Array.from(new Set([
           safeModelName,
-          'gemini-2.5-flash',
           'gemini-1.5-flash',
           'gemini-2.0-flash',
-          'gemini-1.5-flash-8b'
+          'gemini-1.5-pro'
         ].filter(Boolean)));
 
         let responseText = '';
@@ -541,6 +540,13 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
               const data = await aiResponse.json();
               if (data.error) {
                 const errMsg = data.error.message || '';
+                
+                // Model v1beta'da bulunamadıysa hemen sıradaki resmi modele geç
+                if (/not found|is not supported/i.test(errMsg)) {
+                  console.warn(`[${model}] Bu API versiyonunda yok, alternatif modele geçiliyor...`);
+                  break;
+                }
+
                 const isQuota = /quota exceeded|free_tier_requests|limit: 20|429|resource exhausted/i.test(errMsg);
                 const isOverloaded = /high demand|spikes in demand|overloaded|503/i.test(errMsg);
 
@@ -576,6 +582,9 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
             } catch (err: any) {
               lastAiError = err;
               const errMsg = err.message || '';
+              if (/not found|is not supported/i.test(errMsg)) {
+                break;
+              }
               const isQuota = /quota exceeded|free_tier_requests|limit: 20|429|resource exhausted/i.test(errMsg);
               const isOverloaded = /high demand|spikes in demand|overloaded|503/i.test(errMsg);
 
