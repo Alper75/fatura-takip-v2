@@ -8,6 +8,8 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { FileSpreadsheet, RefreshCw, Send, BookOpen, Layers, Copy, Check } from 'lucide-react';
 import { toast } from 'sonner';
+import { StopajKoduModal } from '@/components/StopajKoduModal';
+import { deduceStopajKodu } from '@/constants/lucaStopajKodlari';
 
 export function FaturaAktarim() {
   const { apiFetch, cariler, isIsletmeDefteri, companies, user } = useApp();
@@ -16,6 +18,12 @@ export function FaturaAktarim() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [settings, setSettings] = useState<any>(null);
   const [copied, setCopied] = useState(false);
+
+  // Stopaj Kodu Modal State
+  const [isStopajModalOpen, setIsStopajModalOpen] = useState(false);
+  const [stopajModalAction, setStopajModalAction] = useState<'export' | 'copy_script'>('export');
+  const [stopajInvoices, setStopajInvoices] = useState<any[]>([]);
+  const [stopajKodMap, setStopajKodMap] = useState<Record<string, string>>({});
 
   // Filters
   const [startDate, setStartDate] = useState('');
@@ -148,7 +156,7 @@ export function FaturaAktarim() {
   };
 
   // LUCA HIZLI FİŞ (hizliFisPopUp.do) FORMATI
-  const getLucaHizliFisItems = (selectedInvoices: any[]) => {
+  const getLucaHizliFisItems = (selectedInvoices: any[], customStopajMap?: Record<string, string>) => {
     const sorted = sortInvoicesChronologically(selectedInvoices);
     return sorted.map(inv => {
       const isAlis = inv._type === 'ALIS';
@@ -156,9 +164,22 @@ export function FaturaAktarim() {
       const kdvTutar = parseFloat(inv.kdvTutari) || 0;
       const tevkifatTutar = parseFloat(inv.tevkifatTutari) || 0;
       const stopajTutar = parseFloat(inv.stopajTutari) || 0;
+      const stopajOran = parseFloat(inv.stopajOrani) || 0;
       const toplam = isAlis ? (parseFloat(inv.toplamTutar) || 0) : (parseFloat(inv.alinanUcret) || 0);
       const isArac = aracGideriIds.includes(inv.id);
       const kdvOranNum = parseFloat(inv.kdvOrani || 20);
+
+      // Stopaj Kodu (İşletme defterinde stopaj tutarı yerine stopaj kodu gönderilir)
+      let stopajKoduVal = '';
+      if (customStopajMap && customStopajMap[inv.id]) {
+        stopajKoduVal = customStopajMap[inv.id];
+      } else if (stopajKodMap[inv.id]) {
+        stopajKoduVal = stopajKodMap[inv.id];
+      } else if (inv.stopajKodu) {
+        stopajKoduVal = inv.stopajKodu;
+      } else if (stopajTutar > 0 || stopajOran > 0) {
+        stopajKoduVal = deduceStopajKodu(inv);
+      }
 
       // Tevkifat Kodu (Luca Hizli Fis option value & İstisna Kodu)
       let tevkifatVal = '0';
@@ -257,7 +278,8 @@ export function FaturaAktarim() {
         kodNo: istisnaKodNo,
         oranStr: istisnaOranStr,
         kodFull: kodFullStr,
-        stopajTutari: stopajTutar,
+        stopajTutari: 0, // Stopaj tutarı işletme defterinde yazılmaz, stopaj kodu seçilir
+        stopajKodu: stopajKoduVal,
         beyanBelgeTuru: fNo.startsWith('SMM') || fNo.startsWith('GİB') || fNo.startsWith('EAR') || fNo.startsWith('EAF') ? '8' : (isAlis ? '1' : '7'),
         alisSatisTuru: isAlis ? '1' : '1',
         kayitAltTuru: '1',
@@ -425,11 +447,9 @@ export function FaturaAktarim() {
     }
   };
 
-  // LUCA HIZLI FİŞ (hizliFisPopUp.do) KONSOL SCRIPTİNİ KOPYALA (ALT + E TUŞ DESTEKLİ)
-  const handleCopyScript = () => {
-    if (selectedIds.length === 0) return toast.error('Lütfen fatura seçin.');
-    const selectedInvoices = sortInvoicesChronologically(invoices.filter(inv => selectedIds.includes(inv.id)));
-    const items = getLucaHizliFisItems(selectedInvoices);
+  // LUCA HIZLI FİŞ (hizliFisPopUp.do) KONSOL SCRIPTİNİ ÇALIŞTIR & KOPYALA
+  const executeCopyScript = (selectedInvoices: any[], customStopajMap?: Record<string, string>) => {
+    const items = getLucaHizliFisItems(selectedInvoices, customStopajMap);
 
     const scriptCode = `// Luca Hızlı Fiş (hizliFisPopUp.do) Otomatik Doldurma ve Alt+E Satır Açma Kodu
 (async function() {
@@ -519,9 +539,8 @@ export function FaturaAktarim() {
     setVal('kdvTutar' + i, (item.kdvTutar !== undefined ? item.kdvTutar : item.kdvTutari).toString().replace('.', ','));
     setVal('topNotBura' + i, (item.toplamTutar !== undefined ? item.toplamTutar : item.toplam).toString().replace('.', ','));
     if (isTevkifatli) setVal('tevkifat' + i, item.tevkifat);
-    if (item.stopajTutari && item.stopajTutari > 0) setVal('stopajTutari' + i, (item.stopajTutari || '').toString().replace('.', ','));
 
-    // Multiselect alanları (td24, td25, td26: Beyan Belge Türü, Alış Satış Türü, Kayıt Alt Türü)
+    // Multiselect alanları (td24, td25, td26, td27: Beyan Belge Türü, Alış Satış Türü, Kayıt Alt Türü, Stopaj Kodu)
     function setMultiSelect(selId, val) {
       const el = document.getElementById(selId);
       if (el) {
@@ -531,8 +550,12 @@ export function FaturaAktarim() {
         if (m) {
           const box = m.querySelector('.selectBox') || m.querySelector('.overSelect');
           if (box) box.click();
-          const chk = m.querySelector('.checkboxes input[value="' + val + '"]') || m.querySelector('.checkboxes input');
-          if (chk && !chk.checked) chk.click();
+          const chk = m.querySelector('.checkboxes input[value="' + val + '"]') || m.querySelector('.checkboxes input[value^="' + val + '-"]') || m.querySelector('.checkboxes input[value^="' + val + '"]') || m.querySelector('.checkboxes input');
+          if (chk && !chk.checked) {
+            chk.click();
+            chk.checked = true;
+            chk.dispatchEvent(new Event('change', { bubbles: true }));
+          }
         }
       }
     }
@@ -540,6 +563,33 @@ export function FaturaAktarim() {
     setMultiSelect('beyanBelgeTuru' + i, item.beyanBelgeTuru || '8');
     setMultiSelect('alisSatisTuru' + i, item.alisSatisTuru || '1');
     setMultiSelect('kayitAltTuru' + i, item.kayitAltTuru || '1');
+
+    // Stopaj Kodu (td27: #stopajKodu - Stopaj tutarı yerine stopaj kodu seçilir)
+    if (item.stopajKodu) {
+      setMultiSelect('stopajKodu' + i, item.stopajKodu);
+      const sSelect = document.getElementById('stopajKodu' + i);
+      if (sSelect) {
+        sSelect.value = item.stopajKodu;
+        sSelect.dispatchEvent(new Event('change', { bubbles: true }));
+        if (typeof window.stopaj_kodu_degisti === 'function') {
+          try { window.stopaj_kodu_degisti(sSelect); } catch(e) {}
+        }
+      }
+      const td27 = document.getElementById('td27_' + i) || document.querySelector('.stopajKoduTd#td27_' + i) || (sSelect ? sSelect.closest('td') : null);
+      if (td27) {
+        const m = td27.querySelector('.multiselect');
+        if (m) {
+          const box = m.querySelector('.selectBox') || m.querySelector('.overSelect');
+          if (box) box.click();
+          const targetRadio = td27.querySelector('input[value="' + item.stopajKodu + '"]') || td27.querySelector('input[value^="' + item.stopajKodu + '-"]') || td27.querySelector('input[value^="' + item.stopajKodu + '"]');
+          if (targetRadio && !targetRadio.checked) {
+            targetRadio.click();
+            targetRadio.checked = true;
+            targetRadio.dispatchEvent(new Event('change', { bubbles: true }));
+          }
+        }
+      }
+    }
 
     // Sonraki satır için Alt + E tuşuna bas
     if (i < faturalar.length - 1) {
@@ -557,113 +607,186 @@ export function FaturaAktarim() {
     toast.success(`${selectedInvoices.length} faturanın Luca Hızlı Fiş scripti panoya kopyalandı!`);
   };
 
-  const handleExtensionExport = () => {
+  // İŞLETME DEFTERİ LUCA EKLENTİSİNE GÖNDERME
+  const executeExtensionExportIsletme = (selectedInvoices: any[], customStopajMap?: Record<string, string>) => {
+    const hizliFisItems = getLucaHizliFisItems(selectedInvoices, customStopajMap);
+    const isletmeRows = selectedInvoices.map(inv => getIsletmeDefteriSatiri(inv, aracGideriIds.includes(inv.id)));
+    
+    const rawInvoices = selectedInvoices.map(inv => ({
+      id: inv.id,
+      faturaNo: inv.faturaNo || '',
+      faturaTarihi: inv.faturaTarihi,
+      unvan: inv.ad || (cariler.find(c => c.id === inv.cariId)?.unvan) || '',
+      ad: inv.ad || '',
+      tcVkn: inv.tcVkn || (cariler.find(c => c.id === inv.cariId)?.vknTckn) || '',
+      matrah: parseFloat(inv.matrah) || 0,
+      kdvOrani: inv.kdvOrani || '20',
+      kdvTutari: parseFloat(inv.kdvTutari) || 0,
+      tevkifatTutari: parseFloat(inv.tevkifatTutari) || 0,
+      stopajTutari: 0, // Stopaj tutarı yazılmaz
+      stopajKodu: customStopajMap?.[inv.id] || stopajKodMap[inv.id] || inv.stopajKodu || (parseFloat(inv.stopajTutari) > 0 ? deduceStopajKodu(inv) : ''),
+      toplamTutar: inv._type === 'ALIS' ? (parseFloat(inv.toplamTutar) || 0) : (parseFloat(inv.alinanUcret) || 0),
+      tur: inv._type === 'ALIS' ? 'gider' : 'gelir',
+      tip: inv._type === 'ALIS' ? 'ALIS' : 'SATIS',
+      defterTuru: 'ISLETME',
+      isAracGideri: aracGideriIds.includes(inv.id)
+    }));
+
+    const activeComp = companies.find(c => c.id === (user?.companyId || 1));
+    const targetCompany = {
+      id: activeComp?.id || 1,
+      vkn: activeComp?.tax_no || (activeComp as any)?.vknTckn || '',
+      unvan: activeComp?.name || (activeComp as any)?.unvan || ''
+    };
+
+    // A) LocalStorage kaydı
+    try {
+      localStorage.setItem('fatura_app_luca_isletme', JSON.stringify(hizliFisItems));
+      localStorage.setItem('fatura_app_luca_data', JSON.stringify({ targetCompany, isIsletme: true, invoices: hizliFisItems, data: hizliFisItems, raw: rawInvoices }));
+      localStorage.setItem('luca_aktarim_faturalar', JSON.stringify(hizliFisItems));
+      localStorage.setItem('luca_transfer_data', JSON.stringify(hizliFisItems));
+      localStorage.setItem('hizli_fis_data', JSON.stringify(hizliFisItems));
+      localStorage.setItem('transferData', JSON.stringify({ isIsletme: true, invoices: hizliFisItems }));
+    } catch (e) {
+      console.error('LocalStorage error:', e);
+    }
+
+    // B) CustomEvent & PostMessage
+    const payload = { targetCompany, isIsletme: true, invoices: hizliFisItems, hizliFisItems, isletmeRows, faturalar: rawInvoices, count: selectedInvoices.length };
+    
+    window.dispatchEvent(new CustomEvent('FATURA_APP_LUCA_SEND_ISLETME', { detail: hizliFisItems }));
+    window.dispatchEvent(new CustomEvent('FATURA_APP_LUCA_DATA', { detail: payload }));
+    window.dispatchEvent(new CustomEvent('LUCA_SEND_INVOICES', { detail: hizliFisItems }));
+    document.dispatchEvent(new CustomEvent('FATURA_APP_LUCA_SEND_ISLETME', { detail: hizliFisItems }));
+    document.dispatchEvent(new CustomEvent('FATURA_APP_LUCA_DATA', { detail: payload }));
+
+    window.postMessage({ type: 'FATURA_APP_LUCA_SEND_ISLETME', detail: hizliFisItems, data: hizliFisItems, payload }, '*');
+    window.postMessage({ type: 'FATURA_APP_LUCA_DATA', detail: payload, data: payload }, '*');
+
+    toast.success(`${selectedInvoices.length} fatura Luca Hızlı Fiş (İşletme) formatında hazırlandı ve eklentiye iletildi!`);
+  };
+
+  // BİLANÇO ESASI LUCA EKLENTİSİNE GÖNDERME
+  const executeExtensionExportBilanco = (selectedInvoices: any[]) => {
+    if (!settings) return toast.error('KDV Ayarları bulunamadı. Lütfen ayarları yapın.');
+    let exportData: any[] = [];
+    selectedInvoices.forEach(inv => {
+      const excelRows = getMuhasebeSatirlari(inv, aracGideriIds.includes(inv.id));
+      const extRows = excelRows.map(row => ({
+        tarih: row['Evrak Tarihi'],
+        evrakNo: row['Evrak No'],
+        aciklama: row['Detay Açıklama'],
+        tutar: row['Borç'] > 0 ? row['Borç'] : row['Alacak'],
+        tur: row['Borç'] > 0 ? 'borc' : 'alacak',
+        muhasebeKodu: row['Hesap Kodu'],
+        belgeTuru: row['Belge Türü']
+      }));
+      exportData = [...exportData, ...extRows];
+    });
+
+    const activeComp = companies.find(c => c.id === (user?.companyId || 1));
+    const targetCompany = {
+      id: activeComp?.id || 1,
+      vkn: activeComp?.tax_no || (activeComp as any)?.vknTckn || '',
+      unvan: activeComp?.name || (activeComp as any)?.unvan || ''
+    };
+
+    try {
+      localStorage.setItem('fatura_app_luca_mahsup', JSON.stringify(exportData));
+      localStorage.setItem('fatura_app_luca_data', JSON.stringify({ targetCompany, isIsletme: false, data: exportData }));
+      localStorage.setItem('luca_aktarim_faturalar', JSON.stringify(exportData));
+    } catch (e) {
+      console.error('LocalStorage error:', e);
+    }
+
+    const payload = { targetCompany, isIsletme: false, mahsupRows: exportData, count: selectedInvoices.length };
+
+    window.dispatchEvent(new CustomEvent('FATURA_APP_LUCA_SEND_MAHSUP', { detail: exportData }));
+    window.dispatchEvent(new CustomEvent('FATURA_APP_LUCA_DATA', { detail: payload }));
+    document.dispatchEvent(new CustomEvent('FATURA_APP_LUCA_SEND_MAHSUP', { detail: exportData }));
+    document.dispatchEvent(new CustomEvent('FATURA_APP_LUCA_DATA', { detail: payload }));
+
+    window.postMessage({ type: 'FATURA_APP_LUCA_SEND_MAHSUP', detail: exportData, data: exportData }, '*');
+    window.postMessage({ type: 'FATURA_APP_LUCA_DATA', detail: payload, data: payload }, '*');
+
+    toast.success(`${selectedInvoices.length} fatura Mahsup Fişi olarak Luca Eklentisine gönderildi!`);
+  };
+
+  // Buton Tetikleyicileri (Stopaj Kontrollü)
+  const handleCopyScriptClick = () => {
+    if (selectedIds.length === 0) return toast.error('Lütfen fatura seçin.');
+    const selectedInvoices = sortInvoicesChronologically(invoices.filter(inv => selectedIds.includes(inv.id)));
+    
+    // Stopajlı faturaları tespit et
+    const stopajList = selectedInvoices.filter(inv => 
+      (parseFloat(inv.stopajTutari) > 0) || (parseFloat(inv.stopajOrani) > 0) || Boolean(inv.stopajKodu)
+    );
+
+    if (stopajList.length > 0) {
+      const initialMap: Record<string, string> = {};
+      stopajList.forEach(inv => {
+        initialMap[inv.id] = stopajKodMap[inv.id] || inv.stopajKodu || deduceStopajKodu(inv);
+      });
+      setStopajKodMap(prev => ({ ...prev, ...initialMap }));
+      setStopajInvoices(stopajList);
+      setStopajModalAction('copy_script');
+      setIsStopajModalOpen(true);
+      return;
+    }
+
+    executeCopyScript(selectedInvoices);
+  };
+
+  const handleExtensionExportClick = () => {
     if (selectedIds.length === 0) return toast.error('Lütfen fatura seçin.');
     const selectedInvoices = sortInvoicesChronologically(invoices.filter(inv => selectedIds.includes(inv.id)));
 
     if (isIsletmeDefteri) {
-      const hizliFisItems = getLucaHizliFisItems(selectedInvoices);
-      const isletmeRows = selectedInvoices.map(inv => getIsletmeDefteriSatiri(inv, aracGideriIds.includes(inv.id)));
-      
-      const rawInvoices = selectedInvoices.map(inv => ({
-        id: inv.id,
-        faturaNo: inv.faturaNo || '',
-        faturaTarihi: inv.faturaTarihi,
-        unvan: inv.ad || (cariler.find(c => c.id === inv.cariId)?.unvan) || '',
-        ad: inv.ad || '',
-        tcVkn: inv.tcVkn || (cariler.find(c => c.id === inv.cariId)?.vknTckn) || '',
-        matrah: parseFloat(inv.matrah) || 0,
-        kdvOrani: inv.kdvOrani || '20',
-        kdvTutari: parseFloat(inv.kdvTutari) || 0,
-        tevkifatTutari: parseFloat(inv.tevkifatTutari) || 0,
-        stopajTutari: parseFloat(inv.stopajTutari) || 0,
-        toplamTutar: inv._type === 'ALIS' ? (parseFloat(inv.toplamTutar) || 0) : (parseFloat(inv.alinanUcret) || 0),
-        tur: inv._type === 'ALIS' ? 'gider' : 'gelir',
-        tip: inv._type === 'ALIS' ? 'ALIS' : 'SATIS',
-        defterTuru: 'ISLETME',
-        isAracGideri: aracGideriIds.includes(inv.id)
-      }));
+      const stopajList = selectedInvoices.filter(inv => 
+        (parseFloat(inv.stopajTutari) > 0) || (parseFloat(inv.stopajOrani) > 0) || Boolean(inv.stopajKodu)
+      );
 
-      const activeComp = companies.find(c => c.id === (user?.companyId || 1));
-      const targetCompany = {
-        id: activeComp?.id || 1,
-        vkn: activeComp?.tax_no || (activeComp as any)?.vknTckn || '',
-        unvan: activeComp?.name || (activeComp as any)?.unvan || ''
-      };
-
-      // A) LocalStorage kaydı
-      try {
-        localStorage.setItem('fatura_app_luca_isletme', JSON.stringify(hizliFisItems));
-        localStorage.setItem('fatura_app_luca_data', JSON.stringify({ targetCompany, isIsletme: true, invoices: hizliFisItems, data: hizliFisItems, raw: rawInvoices }));
-        localStorage.setItem('luca_aktarim_faturalar', JSON.stringify(hizliFisItems));
-        localStorage.setItem('luca_transfer_data', JSON.stringify(hizliFisItems));
-        localStorage.setItem('hizli_fis_data', JSON.stringify(hizliFisItems));
-        localStorage.setItem('transferData', JSON.stringify({ isIsletme: true, invoices: hizliFisItems }));
-      } catch (e) {
-        console.error('LocalStorage error:', e);
+      if (stopajList.length > 0) {
+        const initialMap: Record<string, string> = {};
+        stopajList.forEach(inv => {
+          initialMap[inv.id] = stopajKodMap[inv.id] || inv.stopajKodu || deduceStopajKodu(inv);
+        });
+        setStopajKodMap(prev => ({ ...prev, ...initialMap }));
+        setStopajInvoices(stopajList);
+        setStopajModalAction('export');
+        setIsStopajModalOpen(true);
+        return;
       }
 
-      // B) CustomEvent & PostMessage
-      const payload = { targetCompany, isIsletme: true, invoices: hizliFisItems, hizliFisItems, isletmeRows, faturalar: rawInvoices, count: selectedInvoices.length };
-      
-      window.dispatchEvent(new CustomEvent('FATURA_APP_LUCA_SEND_ISLETME', { detail: hizliFisItems }));
-      window.dispatchEvent(new CustomEvent('FATURA_APP_LUCA_DATA', { detail: payload }));
-      window.dispatchEvent(new CustomEvent('LUCA_SEND_INVOICES', { detail: hizliFisItems }));
-      document.dispatchEvent(new CustomEvent('FATURA_APP_LUCA_SEND_ISLETME', { detail: hizliFisItems }));
-      document.dispatchEvent(new CustomEvent('FATURA_APP_LUCA_DATA', { detail: payload }));
-
-      window.postMessage({ type: 'FATURA_APP_LUCA_SEND_ISLETME', detail: hizliFisItems, data: hizliFisItems, payload }, '*');
-      window.postMessage({ type: 'FATURA_APP_LUCA_DATA', detail: payload, data: payload }, '*');
-
-      toast.success(`${selectedInvoices.length} fatura Luca Hızlı Fiş (İşletme) formatında hazırlandı ve eklentiye iletildi!`);
+      executeExtensionExportIsletme(selectedInvoices);
     } else {
-      if (!settings) return toast.error('KDV Ayarları bulunamadı. Lütfen ayarları yapın.');
-      let exportData: any[] = [];
-      selectedInvoices.forEach(inv => {
-        const excelRows = getMuhasebeSatirlari(inv, aracGideriIds.includes(inv.id));
-        const extRows = excelRows.map(row => ({
-          tarih: row['Evrak Tarihi'],
-          evrakNo: row['Evrak No'],
-          aciklama: row['Detay Açıklama'],
-          tutar: row['Borç'] > 0 ? row['Borç'] : row['Alacak'],
-          tur: row['Borç'] > 0 ? 'borc' : 'alacak',
-          muhasebeKodu: row['Hesap Kodu'],
-          belgeTuru: row['Belge Türü']
-        }));
-        exportData = [...exportData, ...extRows];
-      });
+      executeExtensionExportBilanco(selectedInvoices);
+    }
+  };
 
-      const activeComp = companies.find(c => c.id === (user?.companyId || 1));
-      const targetCompany = {
-        id: activeComp?.id || 1,
-        vkn: activeComp?.tax_no || (activeComp as any)?.vknTckn || '',
-        unvan: activeComp?.name || (activeComp as any)?.unvan || ''
-      };
-
-      try {
-        localStorage.setItem('fatura_app_luca_mahsup', JSON.stringify(exportData));
-        localStorage.setItem('fatura_app_luca_data', JSON.stringify({ targetCompany, isIsletme: false, data: exportData }));
-        localStorage.setItem('luca_aktarim_faturalar', JSON.stringify(exportData));
-      } catch (e) {
-        console.error('LocalStorage error:', e);
-      }
-
-      const payload = { targetCompany, isIsletme: false, mahsupRows: exportData, count: selectedInvoices.length };
-
-      window.dispatchEvent(new CustomEvent('FATURA_APP_LUCA_SEND_MAHSUP', { detail: exportData }));
-      window.dispatchEvent(new CustomEvent('FATURA_APP_LUCA_DATA', { detail: payload }));
-      document.dispatchEvent(new CustomEvent('FATURA_APP_LUCA_SEND_MAHSUP', { detail: exportData }));
-      document.dispatchEvent(new CustomEvent('FATURA_APP_LUCA_DATA', { detail: payload }));
-
-      window.postMessage({ type: 'FATURA_APP_LUCA_SEND_MAHSUP', detail: exportData, data: exportData }, '*');
-      window.postMessage({ type: 'FATURA_APP_LUCA_DATA', detail: payload, data: payload }, '*');
-
-      toast.success(`${selectedInvoices.length} fatura Mahsup Fişi olarak Luca Eklentisine gönderildi!`);
+  const handleStopajModalConfirm = (updatedKodMap: Record<string, string>) => {
+    setStopajKodMap(prev => ({ ...prev, ...updatedKodMap }));
+    const selectedInvoices = sortInvoicesChronologically(invoices.filter(inv => selectedIds.includes(inv.id)));
+    
+    if (stopajModalAction === 'copy_script') {
+      executeCopyScript(selectedInvoices, updatedKodMap);
+    } else {
+      executeExtensionExportIsletme(selectedInvoices, updatedKodMap);
     }
   };
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
+      {/* Stopaj Kodu Seçim Modalı */}
+      <StopajKoduModal
+        isOpen={isStopajModalOpen}
+        onClose={() => setIsStopajModalOpen(false)}
+        invoices={stopajInvoices}
+        initialMap={stopajKodMap}
+        actionType={stopajModalAction}
+        onConfirm={handleStopajModalConfirm}
+      />
+
       {/* Header & Mode Badge */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
@@ -729,7 +852,7 @@ export function FaturaAktarim() {
 
               {isIsletmeDefteri && (
                 <Button 
-                  onClick={handleCopyScript} 
+                  onClick={handleCopyScriptClick} 
                   disabled={selectedIds.length === 0} 
                   variant="outline" 
                   className="h-9 gap-1.5 border-amber-300 text-amber-800 bg-amber-50 hover:bg-amber-100"
@@ -741,7 +864,7 @@ export function FaturaAktarim() {
               )}
 
               <Button 
-                onClick={handleExtensionExport} 
+                onClick={handleExtensionExportClick} 
                 disabled={selectedIds.length === 0} 
                 className="h-9 gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white"
               >
@@ -782,8 +905,10 @@ export function FaturaAktarim() {
                     const isAlis = inv._type === 'ALIS';
                     const matrah = parseFloat(inv.matrah) || 0;
                     const kdvTutar = parseFloat(inv.kdvTutari) || 0;
+                    const stopajTutar = parseFloat(inv.stopajTutari) || 0;
                     const toplam = isAlis ? (parseFloat(inv.toplamTutar) || 0) : (parseFloat(inv.alinanUcret) || 0);
                     const isArac = aracGideriIds.includes(inv.id);
+                    const deducedKod = stopajKodMap[inv.id] || inv.stopajKodu || (stopajTutar > 0 ? deduceStopajKodu(inv) : '');
 
                     return (
                       <TableRow 
@@ -803,9 +928,9 @@ export function FaturaAktarim() {
                         data-luca-tevkifat-kodu={inv.tevkifatKodu || ''}
                         data-luca-tevkifat-oran={inv.tevkifatOrani || ''}
                         data-luca-tevkifat-tutar={inv.tevkifatTutari || 0}
-                        data-luca-stopaj-kodu={inv.stopajKodu || ''}
+                        data-luca-stopaj-kodu={deducedKod}
                         data-luca-stopaj-oran={inv.stopajOrani || ''}
-                        data-luca-stopaj-tutar={inv.stopajTutari || 0}
+                        data-luca-stopaj-tutar={0}
                         data-luca-muhasebe-kodu={inv.muhasebeKodu || ''}
                       >
                         <TableCell className="text-center">

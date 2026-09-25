@@ -70,7 +70,7 @@ const CLASSIFICATION_KEYWORDS: Record<string, IslemTuru> = {
 };
 
 export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploadProps) {
-  const { cariler, bankaHesaplari, addCariHareket, masrafKurallari, lucaAccounts, giderKategorileri } = useApp();
+  const { apiFetch, cariler, bankaHesaplari, addCariHareket, masrafKurallari, lucaAccounts, giderKategorileri } = useApp();
   const [satirlar, setSatirlar] = useState<EkstreSatiri[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isAiAnalyzing, setIsAiAnalyzing] = useState(false);
@@ -470,12 +470,34 @@ export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploa
     toast.success(`${calculatedCount} hareketin döviz kurları çekildi ve TL tutarları hesaplandı.`);
   };
 
+  const getAiConfig = async () => {
+    let apiKey = import.meta.env.VITE_GEMINI_API_KEY || '';
+    let aiModel = 'gemini-2.5-flash';
+    try {
+      const [keyRes, modelRes] = await Promise.all([
+        apiFetch('/api/settings/gemini_api_key').catch(() => null),
+        apiFetch('/api/settings/gemini_model').catch(() => null)
+      ]);
+      if (keyRes?.value) apiKey = keyRes.value;
+      if (modelRes?.value) aiModel = modelRes.value;
+    } catch (err) {
+      console.warn('AI ayarları alınamadı, yerel değişkenler kullanılacak:', err);
+    }
+    return { apiKey: apiKey.trim(), aiModel: (aiModel || 'gemini-2.5-flash').trim() };
+  };
+
   const analyzeBatchWithAI = async () => {
     if (satirlar.length === 0) return;
     setIsAiAnalyzing(true);
 
     try {
-      const apiKey = import.meta.env.VITE_GEMINI_API_KEY || '';
+      const { apiKey, aiModel } = await getAiConfig();
+      if (!apiKey) {
+        toast.error('Gemini API anahtarı bulunamadı. Lütfen Ayarlar sayfasından API anahtarınızı tanımlayın.');
+        setIsAiAnalyzing(false);
+        return;
+      }
+
       const sampleAccounts = lucaAccounts.map(a => `${a.kod}: ${a.ad}`).join('\n');
       const sampleCariler = cariler.map(c => `${c.unvan} (${c.vknTckn || 'VKN YOK'})`).join('\n');
 
@@ -521,7 +543,7 @@ SADECE JSON döndür. Beklenen format:
 İşlem Türleri şunlardan biri olmalı: tahsilat, odeme, vergi_kdv, maas_odemesi, banka_masrafi, kredi_karti_odemesi, genel_gider. 
 Girişler (alacak) genellikle tahsilat, çıkışlar (borç) genellikle odeme veya giderdir.`;
 
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`, {
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${aiModel}:generateContent?key=${apiKey}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -531,6 +553,10 @@ Girişler (alacak) genellikle tahsilat, çıkışlar (borç) genellikle odeme ve
       });
 
       const data = await response.json();
+      if (data.error) {
+        throw new Error(data.error.message || `API Hatası: ${data.error.code || 'Bilinmiyor'}`);
+      }
+
       const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
       const clean = text.replace(/```json|```/g, '').trim();
       const parsed = JSON.parse(clean);
@@ -560,9 +586,9 @@ Girişler (alacak) genellikle tahsilat, çıkışlar (borç) genellikle odeme ve
         });
         toast.success('Toplu AI analizi tamamlandı.');
       }
-    } catch (err) {
-      console.error(err);
-      toast.error('AI analizi sırasında hata oluştu.');
+    } catch (err: any) {
+      console.error('Banka ekstre AI analiz hatası:', err);
+      toast.error(`AI analizi hatası: ${err.message || 'Bilinmeyen hata'}`);
     } finally {
       setIsAiAnalyzing(false);
     }
@@ -573,11 +599,16 @@ Girişler (alacak) genellikle tahsilat, çıkışlar (borç) genellikle odeme ve
     if (!satir) return;
 
     // Satır bazlı analiz için de aynı mantığı tek satır için çalıştırabiliriz.
-    // Ancak kullanıcı arayüzünde hızlıca bir spinner göstermek için durum güncelleyelim.
     updateSatir(index, { durum: 'pending' });
 
     try {
-      const apiKey = import.meta.env.VITE_GEMINI_API_KEY || '';
+      const { apiKey, aiModel } = await getAiConfig();
+      if (!apiKey) {
+        toast.error('Gemini API anahtarı bulunamadı.');
+        updateSatir(index, { durum: 'warning' });
+        return;
+      }
+
       const sampleAccounts = lucaAccounts.map(a => `${a.kod}: ${a.ad}`).join('\n');
       
       const prompt = `Bu banka hareketini analiz et: "${satir.aciklama}" (Tutar: ${satir.tutar}, Tip: ${satir.tip}).
@@ -593,7 +624,7 @@ SADECE JSON döndür:
 }
 İşlem Türleri: tahsilat, odeme, vergi_kdv, maas_odemesi, banka_masrafi, kredi_karti_odemesi, genel_gider.`;
 
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`, {
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${aiModel}:generateContent?key=${apiKey}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -603,6 +634,10 @@ SADECE JSON döndür:
       });
 
       const data = await response.json();
+      if (data.error) {
+        throw new Error(data.error.message || `API Hatası: ${data.error.code || 'Bilinmiyor'}`);
+      }
+
       const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
       const clean = text.replace(/```json|```/g, '').trim();
       const res = JSON.parse(clean);
@@ -620,8 +655,9 @@ SADECE JSON döndür:
         durum: 'success'
       });
       toast.success('Satır analizi tamamlandı.');
-    } catch (err) {
-      console.error(err);
+    } catch (err: any) {
+      console.error('Satır AI analiz hatası:', err);
+      toast.error(`Satır analiz hatası: ${err.message || 'Bilinmeyen hata'}`);
       updateSatir(index, { durum: 'warning' });
     }
   };

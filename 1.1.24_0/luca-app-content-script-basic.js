@@ -79,5 +79,24 @@ function(e){var t,n,r,i,o,a,s,u,l,c,f,d,p,h,g,y,v,m,b,x="sizzle"+1*new Date,w=e.
       if (chk3 && !chk3.checked) chk3.click();
     }
   }
+
+  // 4. Stopaj Kodu (td27)
+  var sVal = row.stopajKodu || row.stopaj_kodu || "";
+  var sSelect = document.querySelector("#stopajKodu" + idx);
+  if (sSelect && sVal) {
+    sSelect.value = sVal;
+    sSelect.dispatchEvent(new Event("change", { bubbles: true }));
+    var m4 = sSelect.closest(".multiselect");
+    if (m4) {
+      var box4 = m4.querySelector(".selectBox") || m4.querySelector(".overSelect");
+      if (box4) box4.click();
+      var chk4 = m4.querySelector(".checkboxes input[value='" + sVal + "']") || m4.querySelector(".checkboxes input[value^='" + sVal + "-']") || m4.querySelector(".checkboxes input[value^='" + sVal + "']");
+      if (chk4 && !chk4.checked) {
+        chk4.click();
+        chk4.checked = true;
+        chk4.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+    }
+  }
 }(e, t)}(r.ledger_rows[p],p+a,o),++p==i)return h=d.afterProcess,void document.body.dispatchEvent(l.e);setTimeout((function(){document.body.dispatchEvent(l.e)}),0)}}catch(e){y(),chrome.runtime.sendMessage({actionKey:"GET_USER_INFO"},(function(t){Object(f.a)("Mutation Observer Error",{Error:e.toString()}),bugsnagClient.notify(e,{onError:function(e){e.addMetadata("user",{userId:t.userId,parasutCompanyId:t.parasutCompanyId})}})}))}}))}));try{g.observe(document.getElementById("tBody"),{subtree:!0,attributes:!0})}catch(e){y(),chrome.runtime.sendMessage({actionKey:"GET_USER_INFO"},(function(t){Object(f.a)("Faturaların eklendiği tablonun observe edilmesi sırasında hata",{Error:e.toString()}),bugsnagClient.notify(e,{onError:function(e){e.addMetadata("user",{userId:t.userId,parasutCompanyId:t.parasutCompanyId})}})}))}function y(){chrome.runtime.sendMessage({actionKey:"CLEAN_TEMPORARY_STORAGE"})}u()(document).ready((function(){chrome.runtime.sendMessage({actionKey:"GET_LUCA_BUCKET"},(function(e){try{if(!e)return void g.disconnect();chrome.storage.local.set({LAST_ACCOUNTING_TIMESTAMP:Date.now()}),a=u()("#tBody").find("tr").length,function(){var e=document.querySelector("#islemlerTR button.red-btn");if(!e.textContent||!e.textContent.toLowerCase().includes("temizle"))throw new Error("cleanScreenButton is not found!");e.click()}(),function(e){document.getElementById("ay").value=e.month_number,document.querySelector("#ay").dispatchEvent(l.g),function(e){o=e.ledger_type_basic_value,r=e,i=e.ledger_rows.length}(e),document.body.dispatchEvent(l.e)}(e)}catch(e){chrome.runtime.sendMessage({actionKey:"GET_USER_INFO"},(function(t){Object(f.a)("Get Luca Bucket Error",{Error:e.toString()}),bugsnagClient.notify(e,{onError:function(e){e.addMetadata("user",{userId:t.userId,parasutCompanyId:t.parasutCompanyId})}})}))}finally{y()}}))})),Object(c.a)((function(){return document}),f.a)}]);
 //# sourceMappingURL=luca-app-content-script-basic.js.map

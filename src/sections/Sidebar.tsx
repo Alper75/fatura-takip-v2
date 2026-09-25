@@ -20,7 +20,8 @@ import {
   FileSignature,
   ClipboardList,
   Download,
-  BrainCircuit
+  BrainCircuit,
+  Scale
 } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
 import { cn } from '@/lib/utils';
@@ -126,6 +127,14 @@ export function Sidebar({ onItemClick }: SidebarProps) {
           actionIcon: FilePlus,
           onActionClick: () => openAlisDrawer(),
           actionTitle: 'Yeni Alış Faturası Ekle',
+          adminOnly: true
+        },
+        {
+          id: 'muhasebe-fis-inceleme',
+          label: 'Fiş & Mahsup İnceleme',
+          icon: Scale,
+          onClick: () => setCurrentView('muhasebe-fis-inceleme'),
+          view: 'muhasebe-fis-inceleme',
           adminOnly: true
         },
         {

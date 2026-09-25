@@ -233,7 +233,7 @@ export function BankaEkstreListesi() {
       const isGiris = (h.islemTuru === 'tahsilat' || h.islemTuru === 'satis_faturasi' || h.islemTuru === 'diger_gelir' || (h.islemTuru === 'transfer' && (h.aciklama || '').toUpperCase().includes('GELEN')));
       
       const formattedDate = formatDateForLuca(h.tarih);
-      const evrakNo = Math.floor(10000000000 + Math.random() * 90000000000).toString();
+      const evrakNo = '';
 
       // Satır 1 (Banka Bacağı)
       exportData.push({
@@ -312,14 +312,21 @@ export function BankaEkstreListesi() {
         (h.islemTuru === 'transfer' && (h.aciklama || '').toUpperCase().includes('GELEN')));
       
       const formattedTarih = formatDateForLuca(h.tarih);
-      const evrakNo = Math.floor(1000 + Math.random() * 9000).toString();
+      const evrakNo = '';
       
+      // Luca Detay Açıklama alanı max 50-60 karakterdir ve özel karakterler hata verdirebilir
+      const cleanAciklama = (h.aciklama || '')
+        .replace(/[\r\n\t]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .substring(0, 50);
+
       return [
         {
           // 1. Cari / Karşı Hesap Satırı
           tarih: formattedTarih,
           evrakNo: evrakNo,
-          aciklama: h.aciklama,
+          aciklama: cleanAciklama,
           tutar: h.tutar,
           tur: isGiris ? 'alacak' : 'borc',
           islemTuru: h.islemTuru,
@@ -334,7 +341,7 @@ export function BankaEkstreListesi() {
           // 2. Banka Satırı (Ters Kayıt)
           tarih: formattedTarih,
           evrakNo: evrakNo,
-          aciklama: h.aciklama,
+          aciklama: cleanAciklama,
           tutar: h.tutar,
           tur: isGiris ? 'borc' : 'alacak',
           islemTuru: h.islemTuru,
@@ -347,11 +354,33 @@ export function BankaEkstreListesi() {
         }
       ];
     });
+    // A) LocalStorage kaydı (Eklenti ve diğer sekmeler için yedekli)
+    try {
+      localStorage.setItem('fatura_app_luca_banka', JSON.stringify(payload));
+      localStorage.setItem('fatura_app_luca_mahsup', JSON.stringify(payload));
+      localStorage.setItem('transferData', JSON.stringify({ isIsletme: false, bankTransactions: payload, mahsupRows: payload }));
+    } catch (e) {
+      console.error('LocalStorage banka transfer kaydı hatası:', e);
+    }
+
+    // B) Event ve PostMessage ile Eklentiye Gönderme
     window.dispatchEvent(new CustomEvent('FATURA_APP_LUCA_SEND_BANKA_HAREKETLERI', {
       detail: { hareketler: payload }
     }));
+    document.dispatchEvent(new CustomEvent('FATURA_APP_LUCA_SEND_BANKA_HAREKETLERI', {
+      detail: { hareketler: payload }
+    }));
+    window.dispatchEvent(new CustomEvent('FATURA_APP_LUCA_SEND_MAHSUP', {
+      detail: payload
+    }));
+    window.postMessage({
+      type: 'FATURA_APP_LUCA_SEND_BANKA_HAREKETLERI',
+      detail: { hareketler: payload },
+      data: payload
+    }, '*');
+
     toast.success(`${selected.length} hareket (${payload.length} satır) Luca'ya gönderildi.`, {
-      description: 'Luca eklentisi yüklü ve aktifse işlem tamamlanacaktır.'
+      description: 'Luca eklentisi açık ise Banka / Mahsup kuyruğundan aktarabilirsiniz.'
     });
   };
 

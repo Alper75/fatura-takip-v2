@@ -36,6 +36,7 @@ import UyumsoftGidenFaturalar from './sections/UyumsoftGidenFaturalar';
 import UyumsoftGidenESMM from './sections/UyumsoftGidenESMM';
 import { SirketDosyalari } from './sections/SirketDosyalari';
 import AkilliOgrenme from './sections/AkilliOgrenme';
+import { MuhasebeFisInceleme } from './sections/MuhasebeFisInceleme';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 const queryClient = new QueryClient({
@@ -135,6 +136,8 @@ function AppContent() {
             return <SirketDosyalari />;
           case 'akilli-ogrenme':
             return <AkilliOgrenme />;
+          case 'muhasebe-fis-inceleme':
+            return <MuhasebeFisInceleme />;
           default:
             return <Dashboard />; // Default to Dashboard if currentView is not recognized
         }

@@ -50,6 +50,7 @@ import {
   Calendar,
   CreditCard,
   ShoppingCart,
+  Scale,
   Building2,
   Edit
 } from 'lucide-react';
@@ -63,7 +64,8 @@ import { AlisTopluXMLUpload } from './AlisTopluXMLUpload';
 
 export function AlisFaturaListesi() {
   const { 
-    alisFaturalari, 
+    alisFaturalari,
+    setCurrentView, 
     deleteAlisFatura, 
     uploadAlisPdf, 
     uploadAlisDekont,
@@ -313,6 +315,15 @@ export function AlisFaturaListesi() {
               >
                 <FilePlus className="w-4 h-4" />
                 <span className="hidden sm:inline">Toplu XML</span>
+              </Button>
+
+              <Button 
+                variant="outline" 
+                onClick={() => setCurrentView('muhasebe-fis-inceleme')} 
+                className="gap-2 text-indigo-700 bg-indigo-50/50 border-indigo-200 hover:bg-indigo-100 hover:text-indigo-800 shadow-sm font-medium"
+              >
+                <Scale className="w-4 h-4" />
+                <span className="hidden sm:inline">Fiş & Mahsup İncele</span>
               </Button>
 
               <Button onClick={() => openAlisDrawer()} className="gap-2">

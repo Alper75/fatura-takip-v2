@@ -410,7 +410,7 @@ app.post('/api/gib/create-draft', async (req, res) => {
       sehir: '', // Opsiyonel
       ilce: '', // Opsiyonel
       vergiDairesi: '',
-      tarih: invoice.tarih || new Date().toLocaleDateString('tr-TR'),
+      tarih: invoice.faturaTarihi || invoice.tarih || new Date().toLocaleDateString('tr-TR'),
       saat: new Date().toLocaleTimeString('tr-TR'),
       paraBirimi: 'TRY',
       dovizKuru: 1,

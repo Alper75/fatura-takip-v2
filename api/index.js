@@ -2601,6 +2601,33 @@ app.get('/api/cariler', authMiddleware, async (req, res) => {
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }
 });
 
+app.get('/api/alis-faturalari/:id', authMiddleware, async (req, res) => {
+  try {
+    const rs = await client.execute({
+      sql: 'SELECT * FROM alis_faturalari WHERE id = ? AND company_id = ?',
+      args: [req.params.id, req.user.companyId]
+    });
+    if (rs.rows.length === 0) return res.status(404).json({ success: false, message: 'Fatura bulunamadı' });
+    const r = rs.rows[0];
+    res.json({
+      success: true,
+      data: {
+        id: r.id, faturaNo: r.fatura_no, faturaTarihi: r.fatura_tarihi, tedarikciAdi: r.tedarikci_adi,
+        tedarikciVkn: r.tedarikci_vkn, malHizmetAdi: r.mal_hizmet_adi, toplamTutar: r.toplam_tutar,
+        kdvOrani: r.kdv_orani, kdvTutari: r.kdv_tutari, matrah: r.matrah, tevkifatOrani: r.tevkifat_orani,
+        tevkifatTutari: r.tevkifat_tutari, stopajOrani: r.stopaj_orani, stopajTutari: r.stopaj_tutari,
+        kdv1: r.kdv1, kdv10: r.kdv10, kdv20: r.kdv20, oivTutari: r.oiv_tutari,
+        muhasebeKodu: r.muhasebe_kodu, karsiHesapKodu: r.karsi_hesap_kodu,
+        pdfDosya: r.pdf_dosya, pdfDosyaAdi: r.pdf_dosya_adi,
+        odemeTarihi: r.odeme_tarihi, odemeDurumu: r.odeme_durumu, odemeDekontu: r.odeme_dekontu,
+        odemeDekontuAdi: r.odeme_dekontu_adi, cariId: r.cari_id, vadeTarihi: r.vade_tarihi,
+        aciklama: r.aciklama, olusturmaTarihi: r.olusturma_tarihi, urunId: r.urun_id, depoId: r.depo_id,
+        vehiclePlate: r.vehicle_plate
+      }
+    });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+});
+
 app.post('/api/cariler', authMiddleware, async (req, res) => {
   const f = req.body;
   try {
@@ -3528,6 +3555,12 @@ app.post('/api/gib/create-draft', authMiddleware, async (req, res) => {
       tevkifatAmount += itemTevkifat;
       stopajAmount += itemStopaj;
 
+      // Tevkifat kodu boşsa ama tevkifat oranı varsa varsayılan 616 (Diğer Hizmetler) ata
+      let itemTevkifatKodu = k.tevkifatKodu || '';
+      if (tevkifatCarpani > 0 && !itemTevkifatKodu) {
+        itemTevkifatKodu = invoice.tevkifatKodu || '616';
+      }
+
       return {
         name: k.ad || 'Hizmet',
         quantity: qty,
@@ -3535,11 +3568,12 @@ app.post('/api/gib/create-draft', authMiddleware, async (req, res) => {
         price: price,
         VATRate: vatRate,
         VATAmount: itemKdv,
-        tevkifatKodu: k.tevkifatKodu || '',
+        tevkifatKodu: itemTevkifatKodu,
         tevkifatOrani: tevkifatOrani > 0 && tevkifatOrani < 10 ? tevkifatOrani : (tevkifatOrani >= 10 ? tevkifatOrani / 10 : 0),
         tevkifatAmount: itemTevkifat,
         stopajRate: stopajRate,
         stopajAmount: itemStopaj,
+        stopajTipi: invoice.stopajTipi || '',
         unitType: k.birim || 'C62'
       };
     });
@@ -3547,8 +3581,24 @@ app.post('/api/gib/create-draft', authMiddleware, async (req, res) => {
     const matrah = invoice.kdvDahil ? invoice.tutar / (1 + (invoice.kdvOrani || 20) / 100) : invoice.tutar;
     const itemKdv = matrah * ((invoice.kdvOrani || 20) / 100);
     
+    let tevkifatCarpani = 0;
+    let tevkifatOrani = parseFloat(invoice.tevkifatOrani) || 0;
+    if (tevkifatOrani > 0 && tevkifatOrani < 10) {
+      tevkifatCarpani = tevkifatOrani / 10;
+    } else if (tevkifatOrani >= 10 && tevkifatOrani <= 100) {
+      tevkifatCarpani = tevkifatOrani / 100;
+    }
+    const itemTevkifat = itemKdv * tevkifatCarpani;
+    
+    const stopajRate = parseFloat(invoice.stopajOrani) || 0;
+    const itemStopaj = matrah * (stopajRate / 100);
+
     subtotal = matrah;
     vatAmount = itemKdv;
+    tevkifatAmount = itemTevkifat;
+    stopajAmount = itemStopaj;
+
+    const tevkifatKodu = (tevkifatCarpani > 0) ? (invoice.tevkifatKodu || '616') : '';
 
     items = [{
       name: invoice.aciklama || 'Hizmet / Mal Bedeli',
@@ -3557,11 +3607,12 @@ app.post('/api/gib/create-draft', authMiddleware, async (req, res) => {
       price: matrah,
       VATRate: invoice.kdvOrani || 20,
       VATAmount: itemKdv,
-      tevkifatKodu: '',
-      tevkifatOrani: 0,
-      tevkifatAmount: 0,
-      stopajRate: 0,
-      stopajAmount: 0,
+      tevkifatKodu: tevkifatKodu,
+      tevkifatOrani: tevkifatOrani > 0 && tevkifatOrani < 10 ? tevkifatOrani : (tevkifatOrani >= 10 ? tevkifatOrani / 10 : 0),
+      tevkifatAmount: itemTevkifat,
+      stopajRate: stopajRate,
+      stopajAmount: itemStopaj,
+      stopajTipi: invoice.stopajTipi || '',
       unitType: 'C62'
     }];
   }
@@ -3570,16 +3621,39 @@ app.post('/api/gib/create-draft', authMiddleware, async (req, res) => {
   const paymentTotal = subtotal + vatAmount - stopajAmount - tevkifatAmount;
 
   const now = new Date();
-  const dateParts = invoice.faturaTarihi ? invoice.faturaTarihi.split('-') : [now.getFullYear(), String(now.getMonth() + 1).padStart(2, '0'), String(now.getDate()).padStart(2, '0')];
+  let formattedGibDate = '';
+  if (invoice.faturaTarihi) {
+    const raw = String(invoice.faturaTarihi).trim();
+    if (/^\d{4}-\d{2}-\d{2}/.test(raw)) {
+      const p = raw.split('T')[0].split('-');
+      formattedGibDate = `${p[2]}/${p[1]}/${p[0]}`;
+    } else if (/^\d{2}[./-]\d{2}[./-]\d{4}/.test(raw)) {
+      const p = raw.split(/[./-]/);
+      formattedGibDate = `${p[0]}/${p[1]}/${p[2]}`;
+    } else {
+      const d = new Date(raw);
+      if (!isNaN(d.getTime())) {
+        formattedGibDate = `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+      }
+    }
+  }
+  if (!formattedGibDate) {
+    formattedGibDate = `${String(now.getDate()).padStart(2, '0')}/${String(now.getMonth() + 1).padStart(2, '0')}/${now.getFullYear()}`;
+  }
   
+  // Tevkifat tutarı varsa veya fatura tipi TEVKIFAT ise fatura tipini kesinlikle TEVKIFAT yap
+  const isTevkifat = tevkifatAmount > 0 || invoice.faturaTipi === 'TEVKIFAT';
+  const effectiveInvoiceType = isTevkifat ? 'TEVKIFAT' : (invoice.faturaTipi || 'SATIS');
+
   const invoiceDetails = {
-    date: `${dateParts[2]}/${dateParts[1]}/${dateParts[0]}`,
+    date: formattedGibDate,
     time: formatGIBTime(now),
     taxIDOrTRID: vknStr,
     title: `${invoice.ad || ''} ${invoice.soyad || ''}`.trim(),
     name: invoice.ad || '',
     surname: invoice.soyad || '',
-    invoiceType: invoice.faturaTipi || 'SATIS',
+    invoiceType: effectiveInvoiceType,
+    stopajTipi: invoice.stopajTipi || 'V0003',
     hangiTip: "5000/30000",
     fullAddress: invoice.adres || 'Adres Bulunmuyor',
     district: invoice.ilce || '',
@@ -3607,10 +3681,20 @@ app.post('/api/gib/create-draft', authMiddleware, async (req, res) => {
     const invoiceUUID = createdInvoice.uuid;
 
     let signResult = null;
+    let invoiceNo = null;
     if (autoSign === true) {
       const details = await client.findInvoice(token, createdInvoice);
       if (details !== undefined) {
         signResult = await client.signDraftInvoice(token, details);
+        invoiceNo = details.belgeNumarasi || (signResult && signResult.belgeNumarasi) || null;
+        if (!invoiceNo) {
+          try {
+            const signedDetails = await client.findInvoice(token, createdInvoice);
+            if (signedDetails && signedDetails.belgeNumarasi) {
+              invoiceNo = signedDetails.belgeNumarasi;
+            }
+          } catch (e) {}
+        }
       }
     }
 
@@ -3622,7 +3706,7 @@ app.post('/api/gib/create-draft', authMiddleware, async (req, res) => {
     return res.json({
       success: true,
       message: msg,
-      data: { invoiceUUID, signed: autoSign === true, signResult, debug: createdInvoice }
+      data: { invoiceUUID, invoiceNo, signed: autoSign === true, signResult, debug: createdInvoice }
     });
   } catch (error) {
     console.error('[GIB] Hata Oluştu:', error);

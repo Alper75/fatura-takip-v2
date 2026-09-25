@@ -27,7 +27,10 @@ import {
   FileText,
   X,
   Edit2,
-  Printer
+  Printer,
+  Clock,
+  ArrowUpDown,
+  Calendar
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Label } from '@/components/ui/label';
@@ -249,11 +252,67 @@ export function KesilecekFaturalar() {
   const [selectedInvoiceIdsForGib, setSelectedInvoiceIdsForGib] = useState<string[]>([]);
   const [isBulkGibModalOpen, setIsBulkGibModalOpen] = useState(false);
   const [isBulkGibSending, setIsBulkGibSending] = useState(false);
+  const [sortOrder, setSortOrder] = useState<'tarih_asc' | 'tarih_desc' | 'olusturma_desc'>('tarih_asc');
+
+  // Toplu GİB Konfigürasyon States
+  const [bulkFaturaTipi, setBulkFaturaTipi] = useState<string>('AUTO');
+  const [bulkStopajMode, setBulkStopajMode] = useState<string>('KEEP');
+  const [bulkStopajOrani, setBulkStopajOrani] = useState<string>('20');
+  const [bulkDefaultTevkifatKodu, setBulkDefaultTevkifatKodu] = useState<string>('616');
 
   // GİB Görüntüleyici States
   const [gibViewerHtml, setGibViewerHtml] = useState<string | null>(null);
   const [isGibViewerOpen, setIsGibViewerOpen] = useState(false);
-  const [bulkGibProgress, setBulkGibProgress] = useState({ current: 0, total: 0, successes: 0, errors: 0 });
+  const [bulkGibProgress, setBulkGibProgress] = useState<{
+    current: number;
+    total: number;
+    successes: number;
+    errors: number;
+    currentInvoiceName?: string;
+    currentInvoiceDate?: string;
+  }>({ current: 0, total: 0, successes: 0, errors: 0 });
+
+  // Tarih Çözümleyici & Kronolojik Sıralayıcı (İlk tarihten son tarihe / Eskiden yeniye)
+  const parseInvoiceDate = (dateStr?: string, fallbackStr?: string): number => {
+    if (dateStr) {
+      const clean = String(dateStr).trim();
+      if (/^\d{4}-\d{2}-\d{2}/.test(clean)) {
+        const t = new Date(clean.split('T')[0]).getTime();
+        if (!isNaN(t)) return t;
+      }
+      const parts = clean.split(/[./-]/);
+      if (parts.length === 3) {
+        if (parts[2].length === 4) {
+          const t = new Date(Number(parts[2]), Number(parts[1]) - 1, Number(parts[0])).getTime();
+          if (!isNaN(t)) return t;
+        } else if (parts[0].length === 4) {
+          const t = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2])).getTime();
+          if (!isNaN(t)) return t;
+        }
+      }
+      const t = new Date(clean).getTime();
+      if (!isNaN(t)) return t;
+    }
+    if (fallbackStr) {
+      const t = new Date(fallbackStr).getTime();
+      if (!isNaN(t)) return t;
+    }
+    return 0;
+  };
+
+  const sortInvoicesChronologically = (list: any[]) => {
+    return [...list].sort((a, b) => {
+      const timeA = parseInvoiceDate(a.faturaTarihi, a.olusturmaTarihi);
+      const timeB = parseInvoiceDate(b.faturaTarihi, b.olusturmaTarihi);
+      if (timeA !== timeB) return timeA - timeB; // Eskiden yeniye (ilk tarihten başla)
+
+      const cA = new Date(a.olusturmaTarihi || 0).getTime() || 0;
+      const cB = new Date(b.olusturmaTarihi || 0).getTime() || 0;
+      if (cA !== cB) return cA - cB;
+
+      return String(a.id || '').localeCompare(String(b.id || ''));
+    });
+  };
 
   // VKN Sorgu ve Düzenleme States
   const [isVknLoading, setIsVknLoading] = useState(false);
@@ -291,13 +350,27 @@ export function KesilecekFaturalar() {
     
     if (activeTab === 'bekleyen') {
       const pending = (kesilecekFaturalar || []).filter(f => f.durum !== 'kesildi');
-      return pending
-        .filter(f => 
-          String(f.ad || "").toLowerCase().includes(searchLower) || 
-          String(f.soyad || "").toLowerCase().includes(searchLower) ||
-          String(f.vknTckn || "").toLowerCase().includes(searchLower)
-        )
-        .sort((a, b) => new Date(b.olusturmaTarihi || 0).getTime() - new Date(a.olusturmaTarihi || 0).getTime());
+      const filtered = pending.filter(f => 
+        String(f.ad || "").toLowerCase().includes(searchLower) || 
+        String(f.soyad || "").toLowerCase().includes(searchLower) ||
+        String(f.vknTckn || "").toLowerCase().includes(searchLower)
+      );
+
+      return [...filtered].sort((a, b) => {
+        if (sortOrder === 'tarih_asc') {
+          const timeA = parseInvoiceDate(a.faturaTarihi, a.olusturmaTarihi);
+          const timeB = parseInvoiceDate(b.faturaTarihi, b.olusturmaTarihi);
+          if (timeA !== timeB) return timeA - timeB; // Eskiden yeniye (kronolojik)
+          return (new Date(a.olusturmaTarihi || 0).getTime()) - (new Date(b.olusturmaTarihi || 0).getTime());
+        } else if (sortOrder === 'tarih_desc') {
+          const timeA = parseInvoiceDate(a.faturaTarihi, a.olusturmaTarihi);
+          const timeB = parseInvoiceDate(b.faturaTarihi, b.olusturmaTarihi);
+          if (timeA !== timeB) return timeB - timeA; // Yeniden eskiye
+          return (new Date(b.olusturmaTarihi || 0).getTime()) - (new Date(a.olusturmaTarihi || 0).getTime());
+        } else {
+          return (new Date(b.olusturmaTarihi || 0).getTime()) - (new Date(a.olusturmaTarihi || 0).getTime());
+        }
+      });
     } else {
       // Kesilenler / Onaylananlar
       const planCut = (kesilecekFaturalar || []).filter(f => f.durum === 'kesildi');
@@ -333,9 +406,22 @@ export function KesilecekFaturalar() {
         )
         .sort((a, b) => new Date(b.olusturmaTarihi || 0).getTime() - new Date(a.olusturmaTarihi || 0).getTime());
     }
-  }, [kesilecekFaturalar, satisFaturalari, activeTab, searchTerm]);
+  }, [kesilecekFaturalar, satisFaturalari, activeTab, searchTerm, sortOrder]);
 
   const pendingInvoices = useMemo(() => resolvedInvoices.filter(f => f.durum === 'bekliyor'), [resolvedInvoices]);
+
+  // Seçilen faturaları tarihe göre (eskiden yeniye) sıralı sırada tut
+  const chronologicallySortedSelected = useMemo(() => {
+    const selectedList = pendingInvoices.filter(f => selectedInvoiceIdsForGib.includes(f.id));
+    return sortInvoicesChronologically(selectedList);
+  }, [pendingInvoices, selectedInvoiceIdsForGib]);
+
+  const selectedDateRange = useMemo(() => {
+    if (chronologicallySortedSelected.length === 0) return null;
+    const start = chronologicallySortedSelected[0]?.faturaTarihi || '-';
+    const end = chronologicallySortedSelected[chronologicallySortedSelected.length - 1]?.faturaTarihi || '-';
+    return { start, end };
+  }, [chronologicallySortedSelected]);
 
   const handleSelectAll = (checked: boolean) => {
     if (checked) setSelectedInvoiceIdsForGib(pendingInvoices.map(f => f.id));
@@ -648,13 +734,13 @@ export function KesilecekFaturalar() {
     updateKesilecekFatura(f.id, { durum: 'kesildi' });
   };
 
-  const transferToSales = async (f: KesilecekFatura, newUuid?: string, newFaturaNo?: string) => {
+  const transferToSales = async (f: KesilecekFatura, newUuid?: string, newFaturaNo?: string, silent = false) => {
     try {
       const finalUuid = newUuid || f.gibUuid;
       const finalFaturaNo = newFaturaNo || f.faturaNo;
       const exists = satisFaturalari.some((sf: any) => (sf.faturaNo && sf.faturaNo === finalFaturaNo) || (sf.gibUuid && sf.gibUuid === finalUuid));
       if (exists) {
-        toast.info('Bu fatura zaten satış faturalarına aktarılmış.');
+        if (!silent) toast.info('Bu fatura zaten satış faturalarına aktarılmış.');
         return;
       }
       
@@ -681,10 +767,10 @@ export function KesilecekFaturalar() {
         cariId: f.cariId,
       } as any);
 
-      toast.success(`${finalFaturaNo || 'Fatura'} satış faturalarına aktarıldı.`);
+      if (!silent) toast.success(`${finalFaturaNo || 'Fatura'} satış faturalarına aktarıldı.`);
     } catch (err: any) {
       console.error(err);
-      toast.error('Satışlara aktarım sırasında hata oluştu: ' + err.message);
+      if (!silent) toast.error('Satışlara aktarım sırasında hata oluştu: ' + err.message);
     }
   };
 
@@ -747,10 +833,18 @@ export function KesilecekFaturalar() {
   };
 
   const openBulkGibModal = () => {
-    setGibFaturaTipi('SATIS');
-    setGibStopajTipi('');
-    setGibStopajOrani('0');
-    setBulkGibProgress({ current: 0, total: selectedInvoiceIdsForGib.length, successes: 0, errors: 0 });
+    setBulkFaturaTipi('AUTO');
+    setBulkStopajMode('KEEP');
+    setBulkStopajOrani('20');
+    setBulkDefaultTevkifatKodu('616');
+    setBulkGibProgress({ 
+      current: 0, 
+      total: chronologicallySortedSelected.length, 
+      successes: 0, 
+      errors: 0,
+      currentInvoiceName: '',
+      currentInvoiceDate: ''
+    });
     setIsBulkGibModalOpen(true);
   };
 
@@ -761,21 +855,91 @@ export function KesilecekFaturalar() {
       return;
     }
     
+    if (chronologicallySortedSelected.length === 0) {
+      toast.error('Lütfen gönderilecek faturaları seçin.');
+      return;
+    }
+
     setIsBulkGibSending(true);
     let successes = 0;
     let errors = 0;
     const apiUrl = import.meta.env.DEV ? 'http://localhost:5000/api/gib/create-draft' : '/api/gib/create-draft';
     
-    for (let i = 0; i < selectedInvoiceIdsForGib.length; i++) {
-      const invId = selectedInvoiceIdsForGib[i];
-      const inv = pendingInvoices.find(f => f.id === invId);
+    // Faturaları kesinlikle ilk tarihten son tarihe (kronolojik sıra) göre gönder
+    for (let i = 0; i < chronologicallySortedSelected.length; i++) {
+      const inv = chronologicallySortedSelected[i];
       
-      setBulkGibProgress(prev => ({ ...prev, current: i + 1 }));
+      setBulkGibProgress(prev => ({ 
+        ...prev, 
+        current: i + 1, 
+        total: chronologicallySortedSelected.length,
+        currentInvoiceName: `${inv.ad || ''} ${inv.soyad || ''}`.trim(),
+        currentInvoiceDate: inv.faturaTarihi || ''
+      }));
       
       if (!inv || !inv.vknTckn) {
         errors++;
         continue;
       }
+
+      // 1. Fatura Tipini Akıllı Belirle
+      let resolvedFaturaTipi = 'SATIS';
+      const hasKalemTevkifat = (inv.kalemler || []).some((k: any) => 
+        (parseFloat(k.tevkifatOrani) > 0) || Boolean(k.tevkifatKodu)
+      );
+      const hasRootTevkifat = (parseFloat(inv.tevkifatOrani as any) > 0) || 
+                              (parseFloat(inv.tevkifatTutari as any) > 0) || 
+                              Boolean(inv.tevkifatKodu);
+
+      if (bulkFaturaTipi === 'AUTO') {
+        if (inv.faturaTipi && inv.faturaTipi !== 'SATIS') {
+          resolvedFaturaTipi = inv.faturaTipi;
+        } else if (hasKalemTevkifat || hasRootTevkifat) {
+          resolvedFaturaTipi = 'TEVKIFAT';
+        } else {
+          resolvedFaturaTipi = 'SATIS';
+        }
+      } else {
+        resolvedFaturaTipi = bulkFaturaTipi;
+      }
+
+      // 2. Stopaj Türü ve Oranını Belirle
+      let resolvedStopajTipi: string | undefined = undefined;
+      let resolvedStopajOrani: string | undefined = undefined;
+
+      if (bulkStopajMode === 'V0003' || bulkStopajMode === 'V0011') {
+        resolvedStopajTipi = bulkStopajMode;
+        resolvedStopajOrani = bulkStopajOrani !== '0' ? bulkStopajOrani : undefined;
+      } else if (bulkStopajMode === 'NONE') {
+        resolvedStopajTipi = undefined;
+        resolvedStopajOrani = undefined;
+      } else {
+        // 'KEEP' -> faturanın kendi stopajını koru
+        const invStopajOranNum = parseFloat(inv.stopajOrani as any) || 0;
+        if (inv.stopajTipi) {
+          resolvedStopajTipi = inv.stopajTipi;
+          resolvedStopajOrani = invStopajOranNum > 0 ? String(invStopajOranNum) : undefined;
+        } else if (invStopajOranNum > 0 || (inv as any)._type === 'SMM') {
+          resolvedStopajTipi = 'V0003';
+          resolvedStopajOrani = invStopajOranNum > 0 ? String(invStopajOranNum) : '20';
+        }
+      }
+
+      // 3. Kalemlerdeki Tevkifat Kodunu ve Oranını Güvenceye Al
+      const effectiveDefaultTevkifatKodu = inv.tevkifatKodu || bulkDefaultTevkifatKodu || '616';
+      const isTevkifat = resolvedFaturaTipi === 'TEVKIFAT' || hasKalemTevkifat || hasRootTevkifat;
+      
+      const safeKalemler = (inv.kalemler && inv.kalemler.length > 0) 
+        ? inv.kalemler.map((k: any) => {
+            const kOran = parseFloat(k.tevkifatOrani) || 0;
+            const itemNeedsTevkifat = isTevkifat || kOran > 0;
+            return {
+              ...k,
+              tevkifatOrani: kOran > 0 ? kOran : (itemNeedsTevkifat ? (parseFloat(inv.tevkifatOrani as any) || 50) : 0),
+              tevkifatKodu: itemNeedsTevkifat ? (k.tevkifatKodu || effectiveDefaultTevkifatKodu) : ''
+            };
+          })
+        : undefined;
       
       try {
         const response = await fetch(apiUrl, {
@@ -785,9 +949,12 @@ export function KesilecekFaturalar() {
             credentials: gibCredentials,
             invoice: {
               ...inv,
-              faturaTipi: gibFaturaTipi,
-              stopajTipi: gibStopajTipi || undefined,
-              stopajOrani: gibStopajOrani !== '0' ? gibStopajOrani : undefined,
+              kalemler: safeKalemler,
+              faturaTipi: isTevkifat ? 'TEVKIFAT' : resolvedFaturaTipi,
+              stopajTipi: resolvedStopajTipi,
+              stopajOrani: resolvedStopajOrani,
+              tevkifatKodu: isTevkifat ? effectiveDefaultTevkifatKodu : (inv.tevkifatKodu || undefined),
+              tevkifatOrani: isTevkifat ? (inv.tevkifatOrani || '5/10') : undefined,
             },
             autoSign,
           }),
@@ -796,23 +963,29 @@ export function KesilecekFaturalar() {
         
         if (result.success) {
           successes++;
+          const newUuid = result.data?.invoiceUUID || undefined;
+          const newFaturaNo = result.data?.invoiceNo || undefined;
           updateKesilecekFatura(inv.id, { 
             durum: 'kesildi',
-            gibUuid: result.data?.invoiceUUID || undefined,
-            faturaNo: result.data?.invoiceNo || undefined
+            gibUuid: newUuid,
+            faturaNo: newFaturaNo
           });
+          // Otomatik olarak satış faturalarına da kaydet (sessiz mod)
+          await transferToSales(inv, newUuid, newFaturaNo, true);
         } else {
           errors++;
+          console.error(`GİB gönderim hatası (${inv.ad} - ${inv.faturaTarihi}):`, result.message);
         }
       } catch (err) {
         errors++;
+        console.error(`Ağ hatası (${inv.ad} - ${inv.faturaTarihi}):`, err);
       }
     }
     
     setIsBulkGibSending(false);
     setIsBulkGibModalOpen(false);
     setSelectedInvoiceIdsForGib([]);
-    toast.success(`Toplu işlem tamamlandı. ${successes} başarılı, ${errors} hatalı.`);
+    toast.success(`Toplu işlem tamamlandı. ${successes} fatura tarih sırasıyla (kronolojik) GİB'e iletildi.${errors > 0 ? ` (${errors} hatalı)` : ''}`);
   };
 
   const handleGibFetch = async (e: React.FormEvent) => {
@@ -1395,6 +1568,22 @@ export function KesilecekFaturalar() {
                     </Button>
                   </div>
                 )}
+                {activeTab === 'bekleyen' && (
+                  <div className="flex items-center gap-1.5 shrink-0 bg-slate-50 border border-slate-200 rounded-md px-2 py-1">
+                    <ArrowUpDown className="w-3.5 h-3.5 text-slate-500" />
+                    <span className="text-[11px] font-semibold text-slate-600 hidden md:inline">Sıralama:</span>
+                    <select
+                      value={sortOrder}
+                      onChange={e => setSortOrder(e.target.value as any)}
+                      className="h-7 rounded border-0 bg-transparent text-xs text-slate-800 font-medium focus:outline-none focus:ring-0 cursor-pointer"
+                      title="Faturaları Sırala"
+                    >
+                      <option value="tarih_asc">📅 Tarih: Eskiden Yeniye (Kronolojik)</option>
+                      <option value="tarih_desc">📅 Tarih: Yeniden Eskiye</option>
+                      <option value="olusturma_desc">⏱️ Eklenme: Son Eklenen</option>
+                    </select>
+                  </div>
+                )}
                 <div className="relative w-full sm:w-64">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                   <Input placeholder="Müşteri veya VKN ara..." className="pl-10 h-9 bg-white" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
@@ -1433,7 +1622,12 @@ export function KesilecekFaturalar() {
                       </TableCell>
                     </TableRow>
                   ) : (
-                    resolvedInvoices.map((f: any) => (
+                    resolvedInvoices.map((f: any) => {
+                      const queueIndex = activeTab === 'bekleyen' 
+                        ? chronologicallySortedSelected.findIndex(item => item.id === f.id) 
+                        : -1;
+
+                      return (
                       <TableRow key={f.id} className="group border-0 border-b last:border-0 hover:bg-blue-50/30 transition-colors">
                         {activeTab === 'bekleyen' && (
                           <TableCell className="text-center">
@@ -1445,9 +1639,26 @@ export function KesilecekFaturalar() {
                         )}
                         <TableCell>
                           <div className="flex flex-col">
-                            <span className="font-bold text-slate-900 leading-tight">{f.ad} {f.soyad}</span>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="font-bold text-slate-900 leading-tight">{f.ad} {f.soyad}</span>
+                              {activeTab === 'bekleyen' && queueIndex !== -1 && (
+                                <span 
+                                  className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-800 border border-blue-200"
+                                  title={`Kronolojik gönderim sırasında ${queueIndex + 1}. sırada gönderilecek`}
+                                >
+                                  #{queueIndex + 1}. Sıra
+                                </span>
+                              )}
+                            </div>
                             <span className="text-[11px] text-slate-500 font-medium">{f.vknTckn}</span>
-                            {f.faturaTarihi && <span className="text-[11px] text-blue-600 font-bold bg-blue-50 px-1.5 rounded w-fit mt-0.5">{f.faturaTarihi}</span>}
+                            {f.faturaTarihi && (
+                              <div className="flex items-center gap-1 mt-0.5">
+                                <span className="text-[11px] text-blue-700 font-bold bg-blue-50 px-1.5 py-0.5 rounded border border-blue-100 w-fit flex items-center gap-1">
+                                  <Calendar className="w-3 h-3 text-blue-500" />
+                                  {f.faturaTarihi}
+                                </span>
+                              </div>
+                            )}
                           </div>
                         </TableCell>
                         <TableCell>
@@ -1711,17 +1922,46 @@ export function KesilecekFaturalar() {
 
       {/* Toplu GİB Modal */}
       <Dialog open={isBulkGibModalOpen} onOpenChange={setIsBulkGibModalOpen}>
-        <DialogContent className="sm:max-w-[480px]">
+        <DialogContent className="sm:max-w-[500px]">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <ShieldCheck className="w-5 h-5 text-amber-600" />
               Toplu GİB e-Arşiv Fatura Gönderimi
             </DialogTitle>
             <DialogDescription>
-              Seçilen {selectedInvoiceIdsForGib.length} adet faturayı GİB'e göndermek üzeresiniz.
+              Seçilen {chronologicallySortedSelected.length} adet faturayı GİB'e göndermek üzeresiniz.
             </DialogDescription>
           </DialogHeader>
-          <form onSubmit={handleBulkGibSend} className="space-y-4 py-2">
+
+          {/* Tarih Önceliği & Kronolojik Sıra Uyarısı */}
+          <div className="bg-amber-50/90 border border-amber-200 rounded-lg p-3 text-xs text-amber-900 space-y-1.5">
+            <div className="flex items-center justify-between">
+              <div className="font-semibold flex items-center gap-1.5 text-amber-950">
+                <Clock className="w-4 h-4 text-amber-600" />
+                <span>Tarih Önceliği (Müteselsil Sıra Kuralı)</span>
+              </div>
+              <span className="text-[10px] font-bold bg-amber-200/70 text-amber-900 px-2 py-0.5 rounded-full">
+                Otomatik Kronolojik
+              </span>
+            </div>
+            <p className="text-amber-800 text-[11px] leading-relaxed">
+              GİB'de evrak numaralarının fatura tarihleriyle tam uyumlu ve ardışık olması için faturalar <strong>ilk tarihten son tarihe (eskiden yeniye)</strong> sırayla gönderilecektir.
+            </p>
+            {selectedDateRange && (
+              <div className="flex items-center gap-2 pt-1 text-[11px] font-medium text-amber-950">
+                <span className="text-amber-700">Gönderim Tarih Aralığı:</span>
+                <span className="bg-white px-2 py-0.5 rounded border border-amber-200 font-mono font-bold text-amber-900">
+                  {selectedDateRange.start}
+                </span>
+                <span>➔</span>
+                <span className="bg-white px-2 py-0.5 rounded border border-amber-200 font-mono font-bold text-amber-900">
+                  {selectedDateRange.end}
+                </span>
+              </div>
+            )}
+          </div>
+
+          <form onSubmit={handleBulkGibSend} className="space-y-4 py-1">
             <div className="grid gap-3">
               <div className="grid gap-1.5">
                 <Label htmlFor="bulk_gib_user">Kullanıcı Kodu / VKN</Label>
@@ -1733,17 +1973,93 @@ export function KesilecekFaturalar() {
               </div>
             </div>
 
+            {/* Fatura Tipi Seçimi */}
             <div className="grid gap-1.5">
-              <Label className="text-sm font-semibold">Tüm Seçilenler İçin Fatura Tipi</Label>
+              <Label className="text-sm font-semibold">Fatura Tipi</Label>
               <select
-                value={gibFaturaTipi}
-                onChange={e => setGibFaturaTipi(e.target.value)}
-                className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                value={bulkFaturaTipi}
+                onChange={e => setBulkFaturaTipi(e.target.value)}
+                className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-medium"
               >
+                <option value="AUTO">🤖 Otomatik (Faturadaki Tipe Göre - Tevkifatlı ise Tevkifat, değilse Satış)</option>
                 {FATURA_TIPI_SECENEKLERI.map(t => (
                   <option key={t.value} value={t.value}>{t.label}</option>
                 ))}
               </select>
+              {bulkFaturaTipi === 'AUTO' && (
+                <p className="text-[11px] text-blue-600 bg-blue-50 border border-blue-100 rounded px-2 py-1">
+                  💡 Tevkifat oranı veya tevkifat tutarı içeren faturalar otomatik <strong>TEVKİFAT</strong>, diğerleri <strong>SATIŞ</strong> olarak gönderilecektir.
+                </p>
+              )}
+            </div>
+
+            {/* Varsayılan Tevkifat Kodu (Tevkifatlı faturalar için) */}
+            {(bulkFaturaTipi === 'AUTO' || bulkFaturaTipi === 'TEVKIFAT') && (
+              <div className="grid gap-1.5">
+                <div className="flex items-center justify-between">
+                  <Label className="text-sm font-semibold">Varsayılan Tevkifat Kodu</Label>
+                  <span className="text-[10px] text-slate-500 font-medium">Faturada boş ise kullanılır</span>
+                </div>
+                <select
+                  value={bulkDefaultTevkifatKodu}
+                  onChange={e => setBulkDefaultTevkifatKodu(e.target.value)}
+                  className="h-9 w-full rounded-md border border-input bg-background px-2.5 text-xs font-medium"
+                >
+                  {TEVKIFAT_KODLARI.map(k => (
+                    <option key={k.value} value={k.value}>{k.label}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {/* Stopaj Türü / Stopaj Kodu & Oranı */}
+            <div className="grid gap-1.5">
+              <div className="flex items-center justify-between">
+                <Label className="text-sm font-semibold">Stopaj Durumu (Varsa)</Label>
+                <span className="text-[10px] text-slate-500 font-medium">e-SMM / Serbest Meslek / KV Stopaj</span>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <select
+                  value={bulkStopajMode}
+                  onChange={e => {
+                    const val = e.target.value;
+                    setBulkStopajMode(val);
+                    if ((val === 'V0003' || val === 'V0011') && (!bulkStopajOrani || bulkStopajOrani === '0')) {
+                      setBulkStopajOrani('20');
+                    }
+                  }}
+                  className="h-9 rounded-md border border-input bg-background px-2 text-xs font-medium"
+                >
+                  <option value="KEEP">🔄 Faturalardaki Mevcut Stopajı Koru</option>
+                  <option value="NONE">❌ Stopaj Yok (Stopajsız Gönder)</option>
+                  <option value="V0003">GV. Stopajı (Gelir Vergisi / e-SMM)</option>
+                  <option value="V0011">KV. Stopajı (Kurumlar Vergisi)</option>
+                </select>
+                <div className="flex items-center gap-1">
+                  <Input
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="0.5"
+                    value={bulkStopajOrani}
+                    onChange={e => setBulkStopajOrani(e.target.value)}
+                    placeholder="20"
+                    className="h-9 w-20"
+                    disabled={bulkStopajMode === 'KEEP' || bulkStopajMode === 'NONE'}
+                  />
+                  <span className="text-xs text-slate-400 font-medium">%</span>
+                </div>
+              </div>
+              {bulkStopajMode === 'KEEP' && (
+                <p className="text-[11px] text-slate-500 bg-slate-50 border border-slate-200 rounded px-2 py-1">
+                  ℹ️ Faturaların kendi içindeki stopaj oranı (örn. e-SMM %20) korunarak GİB'e aktarılır.
+                </p>
+              )}
+              {(bulkStopajMode === 'V0003' || bulkStopajMode === 'V0011') && (
+                <p className="text-[11px] text-blue-600 bg-blue-50 border border-blue-100 rounded px-2 py-1">
+                  & Tüm seçilen faturalara %{bulkStopajOrani} {bulkStopajMode === 'V0011' ? 'Kurumlar Vergisi' : 'Gelir Vergisi'} stopajı uygulanacaktır.
+                </p>
+              )}
             </div>
 
             <div className="rounded-lg border p-3 space-y-2">
@@ -1773,15 +2089,18 @@ export function KesilecekFaturalar() {
             </div>
 
             {isBulkGibSending && (
-              <div className="space-y-2 mt-4 p-3 border rounded bg-slate-50">
-                <div className="flex justify-between text-xs font-semibold">
-                  <span>Gönderiliyor...</span>
-                  <span>{bulkGibProgress.current} / {bulkGibProgress.total}</span>
+              <div className="space-y-2 mt-4 p-3 border rounded-lg bg-blue-50 border-blue-200">
+                <div className="flex justify-between text-xs font-semibold text-blue-900">
+                  <span className="flex items-center gap-1.5 truncate max-w-[280px]">
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-600 shrink-0" />
+                    <span>Gönderiliyor: {bulkGibProgress.currentInvoiceName ? `${bulkGibProgress.currentInvoiceName} (${bulkGibProgress.currentInvoiceDate})` : 'İşleniyor...'}</span>
+                  </span>
+                  <span className="shrink-0 font-mono">{bulkGibProgress.current} / {bulkGibProgress.total}</span>
                 </div>
-                <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
+                <div className="w-full bg-blue-200/60 h-2 rounded-full overflow-hidden">
                   <div 
                     className="bg-blue-600 h-full transition-all duration-300" 
-                    style={{ width: `${(bulkGibProgress.current / bulkGibProgress.total) * 100}%` }}
+                    style={{ width: `${(bulkGibProgress.current / (bulkGibProgress.total || 1)) * 100}%` }}
                   />
                 </div>
               </div>

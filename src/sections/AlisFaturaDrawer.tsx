@@ -92,9 +92,62 @@ export function AlisFaturaDrawer() {
   // AI States
   const [isDragging, setIsDragging] = useState(false);
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
-  const [scanProgress, setScanProgress] = useState<{ current: number, total: number } | null>(null);
+  const [scanProgress, setScanProgress] = useState<{ current: number; total: number; remaining: number; percent: number; currentFileName?: string } | null>(null);
   const [isScanning, setIsScanning] = useState(false);
   const [aiAddedCount, setAiAddedCount] = useState(0);
+
+  // Dayanıklılık / Arka Planda Taslak Saklama & Kayıt İlerlemesi
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveProgress, setSaveProgress] = useState<{ current: number; total: number; remaining: number; percent: number; currentInvoice: string } | null>(null);
+  const [hasPendingDraft, setHasPendingDraft] = useState(false);
+
+  // Çekmece açıldığında taslak var mı kontrol et
+  useEffect(() => {
+    if (isAlisDrawerOpen) {
+      try {
+        const raw = localStorage.getItem('alis_fatura_draft_forms_v2');
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setHasPendingDraft(true);
+          }
+        }
+      } catch (e) {}
+    }
+  }, [isAlisDrawerOpen]);
+
+  // Forms değiştikçe otomatik taslak kaydı
+  useEffect(() => {
+    if (!isAlisDrawerOpen || isSaving) return;
+    const isMeaningful = forms.length > 1 || (forms.length === 1 && (forms[0]?.data?.faturaNo || forms[0]?.data?.tedarikciAdi || forms[0]?.data?.toplamTutar || forms[0]?.data?.malHizmetAdi));
+    if (isMeaningful) {
+      try {
+        localStorage.setItem('alis_fatura_draft_forms_v2', JSON.stringify(forms));
+      } catch (e) {}
+    }
+  }, [forms, isAlisDrawerOpen, isSaving]);
+
+  const loadDraft = () => {
+    try {
+      const raw = localStorage.getItem('alis_fatura_draft_forms_v2');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setForms(parsed);
+          setHasPendingDraft(false);
+          toast.success(`${parsed.length} adet taslak fiş geri yüklendi!`);
+        }
+      }
+    } catch (e) {
+      toast.error('Taslak yüklenirken hata oluştu.');
+    }
+  };
+
+  const clearDraft = () => {
+    localStorage.removeItem('alis_fatura_draft_forms_v2');
+    setHasPendingDraft(false);
+    toast.info('Taslak temizlendi.');
+  };
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -206,90 +259,116 @@ export function AlisFaturaDrawer() {
       return;
     }
 
-    if (validateAll()) {
-      try {
-        for (const f of forms) {
-          const hes = getHesaplanan(f);
-          
-          // Gider Kısıtlaması Mantığı (70/30)
-          let finalData = { ...f.data };
-          const isFuel = /akaryakıt|yakıt|benzin|motorin/i.test(f.data.malHizmetAdi);
-          const isOtherVehicleExpense = /bakım|onarım|otopark|yıkama/i.test(f.data.malHizmetAdi);
-          
-          let applySplit = false;
-          
-          if (f.data.vehiclePlate) {
-            const matchedVehicle = activeCompany?.vehicles?.find(v => v.plate.replace(/\s+/g, '') === f.data.vehiclePlate?.replace(/\s+/g, ''));
-            if (matchedVehicle && matchedVehicle.type === 'passenger') {
-              applySplit = true;
-            }
-          } else if (isFuel || isOtherVehicleExpense) {
-            if (!hasCommercialVehicle) {
-              applySplit = true;
-            } else {
-              // Ticari araç var, kullanıcıya sormak lazım ama loop içinde confirm zor.
-              // Şimdilik plaka yoksa ve ticari araç varsa split yapma (veya uyarı ver)
-              const userConfirm = confirm(`${f.data.tedarikciAdi} faturası bir araç gideri gibi görünüyor. Binek araç gider kısıtlaması (%70/%30) uygulansın mı?`);
-              if (userConfirm) applySplit = true;
-            }
+    if (!validateAll()) {
+      toast.error('Lütfen formdaki eksik alanları doldurun.');
+      return;
+    }
+
+    setIsSaving(true);
+    const totalToSave = forms.length;
+    let savedCount = 0;
+    const initialFormsList = [...forms];
+
+    try {
+      for (let i = 0; i < initialFormsList.length; i++) {
+        const f = initialFormsList[i];
+        const hes = getHesaplanan(f);
+
+        setSaveProgress({
+          current: savedCount + 1,
+          total: totalToSave,
+          remaining: totalToSave - savedCount,
+          percent: Math.round(((savedCount + 1) / totalToSave) * 100),
+          currentInvoice: f.data.tedarikciAdi || f.data.faturaNo || `Belge #${i + 1}`
+        });
+
+        // Gider Kısıtlaması Mantığı (70/30)
+        let finalData = { ...f.data };
+        const isFuel = /akaryakıt|yakıt|benzin|motorin/i.test(f.data.malHizmetAdi);
+        const isOtherVehicleExpense = /bakım|onarım|otopark|yıkama/i.test(f.data.malHizmetAdi);
+        
+        let applySplit = false;
+        
+        if (f.data.vehiclePlate) {
+          const matchedVehicle = activeCompany?.vehicles?.find(v => v.plate.replace(/\s+/g, '') === f.data.vehiclePlate?.replace(/\s+/g, ''));
+          if (matchedVehicle && matchedVehicle.type === 'passenger') {
+            applySplit = true;
           }
-
-          if (applySplit) {
-            const matrah = hes.matrah;
-            const kdv = hes.kdvTutari;
-            const giderPayi = Math.round(matrah * 0.7 * 100) / 100;
-            const kkegPayi = Math.round(matrah * 0.3 * 100) / 100;
-            const kdvGiderPayi = Math.round(kdv * 0.7 * 100) / 100;
-            const kdvKkegPayi = Math.round(kdv * 0.3 * 100) / 100;
-
-            // Faturayı kaydet ama açıklmaya not düş
-            finalData.aciklama = (finalData.aciklama || '') + ` [%70 Gider: ${giderPayi + kdvGiderPayi} TL, %30 KKEG: ${kkegPayi + kdvKkegPayi} TL]`;
-            toast.info(`${f.data.faturaNo} nolu faturaya %70/%30 gider kısıtı uygulandı.`);
-          }
-
-          const isEditMode = !!(f.data as any).id;
-          const invoicePayload = {
-            ...finalData,
-            toplamTutar: f.data.toplamTutar,
-            toplamTutarNet: hes.toplamNet,
-            tutarTuru: f.tutarTuru,
-            matrah: hes.matrah,
-            kdvTutari: hes.kdvTutari,
-            tevkifatTutari: hes.tevkifatTutari,
-            stopajTutari: hes.stopajTutari,
-            muhasebeKodu: f.data.muhasebeKodu,
-            dosyaBase64: f.data.dosyaBase64 || '',
-            dosyaAdi: f.data.dosyaAdi || ''
-          } as any;
-
-          if (isEditMode) {
-            await updateAlisFatura((f.data as any).id, invoicePayload);
-          } else {
-            const invoiceId = await addAlisFatura(invoicePayload);
-
-            if (f.data.urunId) {
-              await stokApi.addHareket({
-                urunId: f.data.urunId,
-                depoId: f.data.depoId || varsayilanDepoId,
-                tip: 'GIRIS',
-                miktar: 1, 
-                birimFiyat: hes.matrah,
-                tutar: hes.matrah,
-                tarih: f.data.faturaTarihi,
-                referansNo: `Alış Faturası: ${f.data.faturaNo}`,
-                aciklama: `${f.data.tedarikciAdi} firmasından alım.`,
-                bagliFaturaId: invoiceId
-              });
-            }
+        } else if (isFuel || isOtherVehicleExpense) {
+          if (!hasCommercialVehicle) {
+            applySplit = true;
           }
         }
-        toast.success(forms.some(f => (f.data as any).id) ? 'Alış faturası başarıyla güncellendi.' : `${forms.length} adet alış faturası kaydedildi.`);
-        handleClose();
-      } catch (error: any) {
-        toast.error('Kayıt sırasında bir hata oluştu: ' + error.message);
+
+        if (applySplit) {
+          const matrah = hes.matrah;
+          const kdv = hes.kdvTutari;
+          const giderPayi = Math.round(matrah * 0.7 * 100) / 100;
+          const kkegPayi = Math.round(matrah * 0.3 * 100) / 100;
+          const kdvGiderPayi = Math.round(kdv * 0.7 * 100) / 100;
+          const kdvKkegPayi = Math.round(kdv * 0.3 * 100) / 100;
+
+          finalData.aciklama = (finalData.aciklama || '') + ` [%70 Gider: ${giderPayi + kdvGiderPayi} TL, %30 KKEG: ${kkegPayi + kdvKkegPayi} TL]`;
+        }
+
+        const isEditMode = !!(f.data as any).id;
+        const invoicePayload = {
+          ...finalData,
+          toplamTutar: f.data.toplamTutar,
+          toplamTutarNet: hes.toplamNet,
+          tutarTuru: f.tutarTuru,
+          matrah: hes.matrah,
+          kdvTutari: hes.kdvTutari,
+          tevkifatTutari: hes.tevkifatTutari,
+          stopajTutari: hes.stopajTutari,
+          muhasebeKodu: f.data.muhasebeKodu,
+          dosyaBase64: f.data.dosyaBase64 || '',
+          dosyaAdi: f.data.dosyaAdi || ''
+        } as any;
+
+        if (isEditMode) {
+          await updateAlisFatura((f.data as any).id, invoicePayload);
+        } else {
+          const invoiceId = await addAlisFatura(invoicePayload);
+
+          if (f.data.urunId) {
+            await stokApi.addHareket({
+              urunId: f.data.urunId,
+              depoId: f.data.depoId || varsayilanDepoId,
+              tip: 'GIRIS',
+              miktar: 1, 
+              birimFiyat: hes.matrah,
+              tutar: hes.matrah,
+              tarih: f.data.faturaTarihi,
+              referansNo: `Alış Faturası: ${f.data.faturaNo}`,
+              aciklama: `${f.data.tedarikciAdi} firmasından alım.`,
+              bagliFaturaId: invoiceId
+            });
+          }
+        }
+
+        // Başarıyla kaydedilen fişi listeden ve taslaktan anında çıkar:
+        savedCount++;
+        setForms(prev => {
+          const nextForms = prev.filter(item => item.id !== f.id);
+          if (nextForms.length > 0) {
+            try { localStorage.setItem('alis_fatura_draft_forms_v2', JSON.stringify(nextForms)); } catch (e) {}
+          } else {
+            localStorage.removeItem('alis_fatura_draft_forms_v2');
+          }
+          return nextForms;
+        });
       }
-    } else {
-      toast.error('Lütfen formdaki eksik alanları doldurun.');
+
+      localStorage.removeItem('alis_fatura_draft_forms_v2');
+      toast.success(`${savedCount} adet alış faturası başarıyla sisteme kaydedildi.`);
+      handleClose();
+    } catch (error: any) {
+      console.error('Kayıt hatası:', error);
+      toast.error(`İşlem sırasında hata: ${error.message || 'Bilinmeyen hata'}. Başarıyla aktarılan: ${savedCount} adet. Kalan ${totalToSave - savedCount} adet fiş arka planda korundu, tekrar deneyebilirsiniz.`);
+    } finally {
+      setIsSaving(false);
+      setSaveProgress(null);
     }
   };
 
@@ -398,7 +477,13 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
 
     for (let i = 0; i < uploadedFiles.length; i++) {
       const file = uploadedFiles[i];
-      setScanProgress({ current: i + 1, total: uploadedFiles.length });
+      setScanProgress({
+        current: i + 1,
+        total: uploadedFiles.length,
+        remaining: uploadedFiles.length - (i + 1),
+        percent: Math.round(((i + 1) / uploadedFiles.length) * 100),
+        currentFileName: file.name
+      });
       
       try {
         const rawBase64 = file.base64.split(',')[1];
@@ -558,6 +643,69 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
           </SheetDescription>
         </SheetHeader>
 
+        {/* Kurtarılmış Taslak Bildirimi */}
+        {hasPendingDraft && (
+          <div className="bg-amber-50 border-2 border-amber-200 rounded-xl p-4 mt-4 flex items-center justify-between gap-3 shadow-sm animate-in fade-in slide-in-from-top-2">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-lg bg-amber-100 flex items-center justify-center shrink-0">
+                <Sparkles className="w-5 h-5 text-amber-700" />
+              </div>
+              <div>
+                <h4 className="text-sm font-bold text-amber-900">Arka Planda Kayıtlı Taslak Bulundu!</h4>
+                <p className="text-xs text-amber-700">Önceki oturumdan kalan fişler tarayıcınızda güvenle saklandı.</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button type="button" size="sm" onClick={loadDraft} className="bg-amber-600 hover:bg-amber-700 text-white font-medium shadow-sm">
+                Taslağı Yükle
+              </Button>
+              <Button type="button" size="sm" variant="ghost" onClick={clearDraft} className="text-amber-800 hover:bg-amber-100">
+                Temizle
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* Yapay Zeka Tarama İlerleme Çubuğu */}
+        {isScanning && scanProgress && (
+          <div className="bg-indigo-50 border-2 border-indigo-200 rounded-xl p-4 mt-4 space-y-2 shadow-sm animate-in fade-in">
+            <div className="flex items-center justify-between text-xs font-semibold text-indigo-900">
+              <span className="flex items-center gap-1.5">
+                <Loader2 className="w-4 h-4 animate-spin text-indigo-600" />
+                Dosyalar AI ile Taranıyor ({scanProgress.current} / {scanProgress.total})
+              </span>
+              <span className="bg-indigo-200/80 px-2 py-0.5 rounded text-indigo-900 font-bold">
+                %{scanProgress.percent}
+              </span>
+            </div>
+            <Progress value={scanProgress.percent} className="h-2.5 bg-indigo-100" />
+            <div className="flex justify-between items-center text-[11px] text-indigo-700">
+              <span className="truncate max-w-[260px] font-medium">{scanProgress.currentFileName || 'Belge işleniyor...'}</span>
+              <span>Kalan: <b>{scanProgress.remaining} dosya</b></span>
+            </div>
+          </div>
+        )}
+
+        {/* Sisteme Kaydetme / Aktarım İlerleme Çubuğu */}
+        {isSaving && saveProgress && (
+          <div className="bg-emerald-50 border-2 border-emerald-200 rounded-xl p-4 mt-4 space-y-2 shadow-sm animate-in fade-in">
+            <div className="flex items-center justify-between text-xs font-semibold text-emerald-900">
+              <span className="flex items-center gap-1.5">
+                <Loader2 className="w-4 h-4 animate-spin text-emerald-600" />
+                Sisteme Aktarılıyor ({saveProgress.current} / {saveProgress.total})
+              </span>
+              <span className="bg-emerald-200/80 px-2 py-0.5 rounded text-emerald-900 font-bold">
+                %{saveProgress.percent} Aktarıldı
+              </span>
+            </div>
+            <Progress value={saveProgress.percent} className="h-2.5 bg-emerald-100" />
+            <div className="flex justify-between items-center text-[11px] text-emerald-700">
+              <span className="truncate max-w-[260px] font-medium">{saveProgress.currentInvoice}</span>
+              <span>Kalan: <b>{saveProgress.remaining} fiş</b></span>
+            </div>
+          </div>
+        )}
+
         <div className="py-6 space-y-6">
           <div className="space-y-3">
             {uploadedFiles.length === 0 ? (
@@ -655,6 +803,26 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-6">
+            {/* Çoklu Belge Durum ve İlerleme Özeti */}
+            {forms.length > 1 && (
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 flex items-center justify-between gap-4">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-indigo-100 text-indigo-700 font-bold text-sm flex items-center justify-center">
+                    {forms.length}
+                  </div>
+                  <div>
+                    <h5 className="text-xs font-bold text-slate-800">Hazır Fişler / Faturalar</h5>
+                    <p className="text-[11px] text-slate-500">Kayıt sırasında her fiş tek tek işlenir, yarıda kalma riski yoktur.</p>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <span className="text-xs font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-2.5 py-1 rounded-full">
+                    {forms.length} Belge Bekliyor
+                  </span>
+                </div>
+              </div>
+            )}
+
             <div className="space-y-8">
               {forms.map((form, index) => {
                 const hes = getHesaplanan(form);
@@ -917,8 +1085,18 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
 
             <div className="flex gap-3 pt-4 border-t sticky bottom-0 bg-white pb-6 mt-6 z-10">
               <Button type="button" variant="outline" className="flex-1 h-12" onClick={handleClose}>İptal</Button>
-              <Button type="submit" className={cn("flex-1 h-12", aiAddedCount > 0 && "bg-indigo-600 hover:bg-indigo-700 text-white")}>
-                <Save className="w-5 h-5 mr-2" /> Kaydet ve Ekle ({forms.length})
+              <Button type="submit" disabled={isSaving || isScanning} className={cn("flex-1 h-12 shadow-sm font-semibold transition-all", aiAddedCount > 0 ? "bg-indigo-600 hover:bg-indigo-700 text-white" : "bg-primary hover:bg-primary/90 text-primary-foreground")}>
+                {isSaving ? (
+                  <>
+                    <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                    Aktarılıyor ({saveProgress ? `${saveProgress.current}/${saveProgress.total}` : '...'})
+                  </>
+                ) : (
+                  <>
+                    <Save className="w-5 h-5 mr-2" />
+                    {forms.length > 1 ? `Tümünü Kaydet ve Sisteme Aktar (${forms.length} Fiş)` : 'Kaydet ve Ekle'}
+                  </>
+                )}
               </Button>
             </div>
           </form>

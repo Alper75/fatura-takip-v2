@@ -548,7 +548,8 @@ export type ViewType =
   | 'siparis-liste'
   | 'mutabakat-yonetimi'
   | 'sirket-dosyalari'
-  | 'akilli-ogrenme';
+  | 'akilli-ogrenme'
+  | 'muhasebe-fis-inceleme';
 
 // ==================== FATURA DURUMU ====================
 export type OdemeDurumu = 'odenmedi' | 'odendi' | 'bekliyor';
