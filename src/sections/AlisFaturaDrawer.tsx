@@ -45,6 +45,59 @@ type UploadedFile = {
   name: string;
 };
 
+
+// Yüksek çözünürlüklü telefon fotoğraflarını optimize eden yardımcı fonksiyon
+const compressImageIfNeeded = async (file: File): Promise<{ base64: string; mimeType: string }> => {
+  if (file.type === 'application/pdf') {
+    const b64 = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => resolve(e.target?.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+    return { base64: b64, mimeType: file.type };
+  }
+
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = () => {
+        const maxDim = 1600;
+        let width = img.width;
+        let height = img.height;
+
+        if (width > maxDim || height > maxDim) {
+          if (width > height) {
+            height = Math.round((height * maxDim) / width);
+            width = maxDim;
+          } else {
+            width = Math.round((width * maxDim) / height);
+            height = maxDim;
+          }
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, width, height);
+          const compressedB64 = canvas.toDataURL('image/jpeg', 0.85);
+          resolve({ base64: compressedB64, mimeType: 'image/jpeg' });
+        } else {
+          resolve({ base64: event.target?.result as string, mimeType: file.type });
+        }
+      };
+      img.onerror = () => {
+        resolve({ base64: event.target?.result as string, mimeType: file.type });
+      };
+      img.src = event.target?.result as string;
+    };
+    reader.readAsDataURL(file);
+  });
+};
+
 export function AlisFaturaDrawer() {
   const { isAlisDrawerOpen, closeAlisDrawer, addAlisFatura, updateAlisFatura, cariler, alisInitialData, lucaAccounts, isIsletmeDefteri, companies, user, apiFetch } = useApp();
   const activeCompany = companies.find(c => c.id === (user?.companyId || 1));
@@ -399,13 +452,9 @@ export function AlisFaturaDrawer() {
     try {
       const newFiles: UploadedFile[] = [];
       for (const file of files) {
-        const b64 = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = (e) => resolve(e.target?.result as string);
-          reader.onerror = reject;
-          reader.readAsDataURL(file);
-        });
-        newFiles.push({ base64: b64, mimeType: file.type, name: file.name });
+        // Yüksek çözünürlüklü fotoğrafları otomatik optimize et (Failed to fetch önleyici)
+        const processed = await compressImageIfNeeded(file);
+        newFiles.push({ base64: processed.base64, mimeType: processed.mimeType, name: file.name });
       }
       setUploadedFiles(prev => [...prev, ...newFiles]);
       setAiAddedCount(0);
@@ -521,66 +570,36 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
       });
       
       try {
-        const rawBase64 = file.base64.split(',')[1];
-        
-        let responseText = '';
-        let lastAiError: any = null;
+        let parsed: any = null;
 
         if (activeProvider === 'nvidia') {
           // ==================== NVIDIA BUILD (NIM) ÇAĞRISI ====================
-          const imageUrl = file.base64.startsWith('data:') 
-            ? file.base64 
-            : `data:${file.mimeType || 'image/jpeg'};base64,${file.base64}`;
+          // Tarayıcıdan doğrudan integrate.api.nvidia.com çağrıları CORS nedeniyle engellenir (Failed to fetch).
+          // Bu nedenle istek Node.js Express proxy uç noktasına (/api/ai/analyze-invoice) yönlendirilir.
+          const proxyRes = await apiFetch('/api/ai/analyze-invoice', {
+            method: 'POST',
+            body: JSON.stringify({
+              fileBase64: file.base64,
+              mimeType: file.mimeType,
+              prompt: prompt,
+              provider: 'nvidia',
+              nvidiaApiKey: nvidiaApiKey,
+              nvidiaModel: nvidiaModelName
+            })
+          });
 
-          for (let attempt = 1; attempt <= 2; attempt++) {
-            try {
-              const nvidiaPayload = {
-                model: nvidiaModelName || 'meta/llama-3.2-11b-vision-instruct',
-                messages: [
-                  {
-                    role: "user",
-                    content: [
-                      {
-                        type: "text",
-                        text: prompt + "\nÖNEMLİ: Cevabını SADECE geçerli bir JSON objesi olarak ver. Başka hiçbir açıklama metni ekleme."
-                      },
-                      {
-                        type: "image_url",
-                        image_url: {
-                          url: imageUrl
-                        }
-                      }
-                    ]
-                  }
-                ],
-                max_tokens: 2048,
-                temperature: 0.1
-              };
-
-              const nvRes = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                  'Authorization': `Bearer ${nvidiaApiKey}`
-                },
-                body: JSON.stringify(nvidiaPayload)
-              });
-
-              const nvData = await nvRes.json();
-              if (nvData.error) {
-                throw new Error(nvData.error.message || 'NVIDIA API Hatası');
-              }
-
-              responseText = nvData.choices?.[0]?.message?.content || '';
-              if (responseText) break;
-            } catch (err: any) {
-              lastAiError = err;
-              console.warn(`[NVIDIA] Deneme ${attempt} hatası:`, err);
-              if (attempt < 2) await new Promise(r => setTimeout(r, 1500));
-            }
+          if (!proxyRes?.success || !proxyRes.data) {
+            throw new Error(proxyRes?.message || 'NVIDIA NIM analizi başarısız oldu.');
           }
+
+          parsed = proxyRes.data;
         } else {
           // ==================== GOOGLE GEMINI ÇAĞRISI ====================
+          // Doğrudan tarayıcıdan Google API çağrılır (Fotoğraflar 1600px'e sıkıştırıldığı için ~300KB boyuttadır).
+          const rawBase64 = file.base64.split(',')[1];
+          let responseText = '';
+          let lastAiError: any = null;
+
           const candidateModels = Array.from(new Set([
             safeModelName,
             'gemini-3.8-flash',
@@ -675,19 +694,49 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
             }
             if (modelSucceeded) break;
           }
+
+          if (!responseText) {
+            // İstemci çağrısı ağ kesintisi verirse bir de sunucu proxy'sini dene:
+            try {
+              const proxyRes = await apiFetch('/api/ai/analyze-invoice', {
+                method: 'POST',
+                body: JSON.stringify({
+                  fileBase64: file.base64,
+                  mimeType: file.mimeType,
+                  prompt: prompt,
+                  provider: 'gemini',
+                  geminiApiKey: apiKey,
+                  geminiModel: safeModelName
+                })
+              });
+              if (proxyRes?.success && proxyRes.data) {
+                parsed = proxyRes.data;
+              }
+            } catch (pErr) {
+              console.warn('[Gemini Proxy Fallback] Sunucu proxy de başarısız:', pErr);
+            }
+
+            if (!parsed) {
+              throw lastAiError || new Error('Google Gemini modelleri geçici yoğunlukta.');
+            }
+          } else {
+            const clean = responseText.replace(/```json/gi, '').replace(/```/g, '').trim();
+            try {
+              parsed = JSON.parse(clean);
+            } catch (pe) {
+              const match = clean.match(/\{[\s\S]*\}|\[[\s\S]*\]/);
+              if (match) parsed = JSON.parse(match[0]);
+              else throw new Error('Yapay zeka yanıtı okunamadı.');
+            }
+          }
         }
 
-        if (!responseText) {
-          throw lastAiError || new Error('Google Gemini modelleri geçici yoğunlukta.');
+        if (!parsed) {
+          throw new Error('Belge analiz edilemedi.');
         }
 
-        console.log(`Gemini raw response text for file ${i}:`, responseText);
-        
-        const clean = responseText.replace(/```json|```/g, '').trim();
-        const parsed = JSON.parse(clean);
-
-        // Her dosya işlendikten sonra rate limit'i korumak için 750ms bekle
-        await new Promise(r => setTimeout(r, 1200));
+        // Her dosya işlendikten sonra rate limit'i korumak için kısa bekleme
+        await new Promise(r => setTimeout(r, 800));
 
         if (parsed.hata) {
           toast.error(`${file.name} okunamadı: ${parsed.hata}`);

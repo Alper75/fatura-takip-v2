@@ -4828,6 +4828,123 @@ app.get('/api/settings/:key', authMiddleware, async (req, res, next) => {
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }
 });
 
+
+// ============================================================
+// --- AI ANALYZE PROXY (NVIDIA NIM & GEMINI CORS FIX) ---
+// ============================================================
+app.post('/api/ai/analyze-invoice', authMiddleware, async (req, res) => {
+  const { 
+    fileBase64, 
+    mimeType, 
+    prompt, 
+    provider: requestedProvider,
+    nvidiaApiKey: bodyNvidiaKey,
+    nvidiaModel: bodyNvidiaModel,
+    geminiApiKey: bodyGeminiKey,
+    geminiModel: bodyGeminiModel
+  } = req.body;
+  
+  if (!fileBase64) return res.status(400).json({ success: false, message: 'Görsel verisi eksik.' });
+
+  try {
+    const [provRs, nKeyRs, nModelRs, gKeyRs, gModelRs] = await Promise.all([
+      client.execute({ sql: 'SELECT setting_value FROM company_settings WHERE company_id = ? AND setting_key = ?', args: [req.user.companyId, 'ai_provider'] }).catch(() => ({ rows: [] })),
+      client.execute({ sql: 'SELECT setting_value FROM company_settings WHERE company_id = ? AND setting_key = ?', args: [req.user.companyId, 'nvidia_api_key'] }).catch(() => ({ rows: [] })),
+      client.execute({ sql: 'SELECT setting_value FROM company_settings WHERE company_id = ? AND setting_key = ?', args: [req.user.companyId, 'nvidia_model'] }).catch(() => ({ rows: [] })),
+      client.execute({ sql: 'SELECT setting_value FROM company_settings WHERE company_id = ? AND setting_key = ?', args: [req.user.companyId, 'gemini_api_key'] }).catch(() => ({ rows: [] })),
+      client.execute({ sql: 'SELECT setting_value FROM company_settings WHERE company_id = ? AND setting_key = ?', args: [req.user.companyId, 'gemini_model'] }).catch(() => ({ rows: [] })),
+    ]);
+
+    const activeProvider = requestedProvider || provRs.rows?.[0]?.setting_value || 'gemini';
+    const nvidiaApiKey = bodyNvidiaKey || nKeyRs.rows?.[0]?.setting_value || process.env.NVIDIA_API_KEY || '';
+    const nvidiaModel = bodyNvidiaModel || nModelRs.rows?.[0]?.setting_value || 'meta/llama-3.2-11b-vision-instruct';
+    const geminiApiKey = bodyGeminiKey || gKeyRs.rows?.[0]?.setting_value || process.env.VITE_GEMINI_API_KEY || process.env.GEMINI_API_KEY || '';
+    const geminiModel = bodyGeminiModel || gModelRs.rows?.[0]?.setting_value || 'gemini-3.8-flash';
+
+    let responseText = '';
+
+    if (activeProvider === 'nvidia') {
+      if (!nvidiaApiKey) {
+        return res.status(400).json({ success: false, message: 'NVIDIA API anahtarı girilmedi.' });
+      }
+
+      // NVIDIA NIM Sunucu Çağrısı (Node.js fetch - CORS engeli yok!)
+      const imageUrl = fileBase64.startsWith('data:') ? fileBase64 : `data:${mimeType || 'image/jpeg'};base64,${fileBase64}`;
+      const nvRes = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${nvidiaApiKey}`
+        },
+        body: JSON.stringify({
+          model: nvidiaModel,
+          messages: [
+            {
+              role: 'user',
+              content: [
+                { type: 'text', text: prompt + '\nÖNEMLİ: SADECE geçerli bir JSON objesi döndür. Başka hiçbir açıklama yazma.' },
+                { type: 'image_url', image_url: { url: imageUrl } }
+              ]
+            }
+          ],
+          max_tokens: 2048,
+          temperature: 0.1
+        })
+      });
+
+      const nvData = await nvRes.json();
+      if (nvData.error) throw new Error(nvData.error.message || 'NVIDIA API Hatası');
+      responseText = nvData.choices?.[0]?.message?.content || '';
+    } else {
+      if (!geminiApiKey) {
+        return res.status(400).json({ success: false, message: 'Gemini API anahtarı girilmedi.' });
+      }
+
+      // Google Gemini Sunucu Çağrısı
+      const rawB64 = fileBase64.includes(',') ? fileBase64.split(',')[1] : fileBase64;
+      const gRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${geminiApiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{
+            parts: [
+              { text: prompt },
+              { inline_data: { mime_type: mimeType || 'image/jpeg', data: rawB64 } }
+            ]
+          }],
+          generationConfig: { responseMimeType: "application/json" }
+        })
+      });
+
+      const gData = await gRes.json();
+      if (gData.error) throw new Error(gData.error.message || 'Gemini API Hatası');
+      responseText = gData.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    }
+
+    if (!responseText) {
+      throw new Error('Yapay zekadan boş yanıt alındı.');
+    }
+
+    const clean = responseText.replace(/```json/gi, '').replace(/```/g, '').trim();
+    let parsed;
+    try {
+      parsed = JSON.parse(clean);
+    } catch (parseErr) {
+      const jsonMatch = clean.match(/\{[\s\S]*\}|\[[\s\S]*\]/);
+      if (jsonMatch) {
+        parsed = JSON.parse(jsonMatch[0]);
+      } else {
+        throw new Error('Yapay zeka yanıtı geçerli bir JSON olarak okunamadı: ' + clean.substring(0, 80));
+      }
+    }
+
+    res.json({ success: true, data: parsed, provider: activeProvider });
+  } catch (err) {
+    console.error('AI Analyze Error:', err);
+    res.status(500).json({ success: false, message: err.message || 'Yapay zeka analizi sırasında hata oluştu.' });
+  }
+});
+
 app.post('/api/settings/:key', authMiddleware, async (req, res, next) => {
   if (req.params.key === 'smtp') return next();
   try {
