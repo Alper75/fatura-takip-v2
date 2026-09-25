@@ -93,7 +93,15 @@ export function AlisFaturaDrawer() {
   // AI States
   const [isDragging, setIsDragging] = useState(false);
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
-  const [scanProgress, setScanProgress] = useState<{ current: number; total: number; remaining: number; percent: number; currentFileName?: string } | null>(null);
+  const [scanProgress, setScanProgress] = useState<{ 
+    current: number; 
+    total: number; 
+    remaining: number; 
+    percent: number; 
+    currentFileName?: string;
+    isWaitingQuota?: boolean;
+    quotaWaitSeconds?: number;
+  } | null>(null);
   const [isScanning, setIsScanning] = useState(false);
   const [aiAddedCount, setAiAddedCount] = useState(0);
 
@@ -435,7 +443,10 @@ export function AlisFaturaDrawer() {
       return;
     }
 
-    const safeModelName = aiModel ? aiModel.trim() : 'gemini-3.6-flash';
+    let safeModelName = aiModel ? aiModel.trim() : 'gemini-2.5-flash';
+    if (safeModelName === 'gemini-3.6-flash' || safeModelName.includes('3.6')) {
+      safeModelName = 'gemini-2.5-flash';
+    }
     
     const [settingsRes, bankaRes] = await Promise.all([
       apiFetch('/api/settings/luca_kdv_ayarlari').catch(() => null),
@@ -508,7 +519,7 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
         let responseText = '';
         let lastAiError: any = null;
 
-        // Model fallback ve retry mekanizması
+        // Model fallback ve kota geri sayım mekanizması
         for (const model of candidateModels) {
           let modelSucceeded = false;
           for (let attempt = 1; attempt <= 2; attempt++) {
@@ -530,10 +541,27 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
               const data = await aiResponse.json();
               if (data.error) {
                 const errMsg = data.error.message || '';
-                const isOverloaded = /high demand|spikes in demand|overloaded|resource exhausted|quota|503|429/i.test(errMsg);
+                const isQuota = /quota exceeded|free_tier_requests|limit: 20|429|resource exhausted/i.test(errMsg);
+                const isOverloaded = /high demand|spikes in demand|overloaded|503/i.test(errMsg);
+
+                if (isQuota) {
+                  // Google Free Tier dakikalık 20 fiş kotası: Süreyi yakala ve geri say
+                  const retryMatch = errMsg.match(/retry in ([\d\.]+)s/i);
+                  const waitSec = retryMatch ? Math.ceil(parseFloat(retryMatch[1])) + 2 : 36;
+                  console.warn(`[Kota Sınırı] Dakikada 20 fiş sınırı. ${waitSec} saniye bekleniyor...`);
+                  
+                  for (let s = waitSec; s > 0; s--) {
+                    setScanProgress(prev => prev ? { ...prev, isWaitingQuota: true, quotaWaitSeconds: s } : null);
+                    await new Promise(r => setTimeout(r, 1000));
+                  }
+                  setScanProgress(prev => prev ? { ...prev, isWaitingQuota: false, quotaWaitSeconds: 0 } : null);
+                  lastAiError = new Error(errMsg);
+                  continue; // Bekleme bitti, aynı dosyayı tekrar gönder
+                }
+
                 if (isOverloaded) {
-                  console.warn(`[${model}] Yoğunluk yaşandı (Deneme ${attempt}), 2.5 saniye bekleniyor...`);
-                  await new Promise(r => setTimeout(r, 2500));
+                  console.warn(`[${model}] Model yoğunlukta (Deneme ${attempt}), 3 saniye bekleniyor...`);
+                  await new Promise(r => setTimeout(r, 3000));
                   lastAiError = new Error(errMsg);
                   continue;
                 }
@@ -547,13 +575,27 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
               }
             } catch (err: any) {
               lastAiError = err;
-              const isOverloaded = /high demand|spikes in demand|overloaded|503|429/i.test(err.message || '');
+              const errMsg = err.message || '';
+              const isQuota = /quota exceeded|free_tier_requests|limit: 20|429|resource exhausted/i.test(errMsg);
+              const isOverloaded = /high demand|spikes in demand|overloaded|503/i.test(errMsg);
+
+              if (isQuota) {
+                const retryMatch = errMsg.match(/retry in ([\d\.]+)s/i);
+                const waitSec = retryMatch ? Math.ceil(parseFloat(retryMatch[1])) + 2 : 36;
+                for (let s = waitSec; s > 0; s--) {
+                  setScanProgress(prev => prev ? { ...prev, isWaitingQuota: true, quotaWaitSeconds: s } : null);
+                  await new Promise(r => setTimeout(r, 1000));
+                }
+                setScanProgress(prev => prev ? { ...prev, isWaitingQuota: false, quotaWaitSeconds: 0 } : null);
+                continue;
+              }
+
               if (isOverloaded) {
                 console.warn(`[${model}] Yoğunluk nedeniyle sıradaki yedek modele geçiliyor...`);
                 await new Promise(r => setTimeout(r, 1500));
                 break;
               }
-              if (attempt < 2) await new Promise(r => setTimeout(r, 1500));
+              if (attempt < 2) await new Promise(r => setTimeout(r, 2000));
             }
           }
           if (modelSucceeded) break;
@@ -569,7 +611,7 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
         const parsed = JSON.parse(clean);
 
         // Her dosya işlendikten sonra rate limit'i korumak için 750ms bekle
-        await new Promise(r => setTimeout(r, 750));
+        await new Promise(r => setTimeout(r, 1200));
 
         if (parsed.hata) {
           toast.error(`${file.name} okunamadı: ${parsed.hata}`);
@@ -740,6 +782,19 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
               </span>
             </div>
             <Progress value={scanProgress.percent} className="h-2.5 bg-indigo-100" />
+            
+            {scanProgress.isWaitingQuota && (
+              <div className="bg-amber-100 border border-amber-300 rounded-lg p-2.5 text-xs text-amber-900 flex items-center justify-between animate-pulse">
+                <span className="flex items-center gap-1.5 font-semibold">
+                  <Loader2 className="w-4 h-4 animate-spin text-amber-700" />
+                  Google dakikalık kota sınırı (Dakikada 20 fiş). Otomatik bekleniyor...
+                </span>
+                <span className="font-mono font-bold bg-amber-200 px-2.5 py-1 rounded text-amber-900 text-xs">
+                  {scanProgress.quotaWaitSeconds} sn
+                </span>
+              </div>
+            )}
+
             <div className="flex justify-between items-center text-[11px] text-indigo-700">
               <span className="truncate max-w-[260px] font-medium">{scanProgress.currentFileName || 'Belge işleniyor...'}</span>
               <span>Kalan: <b>{scanProgress.remaining} dosya</b></span>
