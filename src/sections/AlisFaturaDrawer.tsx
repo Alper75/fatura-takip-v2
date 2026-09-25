@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet';
+import { Progress } from '@/components/ui/progress';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useApp } from '@/context/AppContext';
 import { Save, X, ShoppingCart, FileText, Sparkles, Loader2, CheckCircle2, Plus, Trash2 } from 'lucide-react';
@@ -122,7 +123,14 @@ export function AlisFaturaDrawer() {
     const isMeaningful = forms.length > 1 || (forms.length === 1 && (forms[0]?.data?.faturaNo || forms[0]?.data?.tedarikciAdi || forms[0]?.data?.toplamTutar || forms[0]?.data?.malHizmetAdi));
     if (isMeaningful) {
       try {
-        localStorage.setItem('alis_fatura_draft_forms_v2', JSON.stringify(forms));
+        const lightweightForms = forms.map(f => ({
+          ...f,
+          data: {
+            ...f.data,
+            dosyaBase64: undefined
+          }
+        }));
+        localStorage.setItem('alis_fatura_draft_forms_v2', JSON.stringify(lightweightForms));
       } catch (e) {}
     }
   }, [forms, isAlisDrawerOpen, isSaving]);
