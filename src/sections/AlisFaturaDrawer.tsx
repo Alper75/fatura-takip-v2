@@ -495,28 +495,81 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
       
       try {
         const rawBase64 = file.base64.split(',')[1];
-        const aiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${safeModelName}:generateContent?key=${apiKey}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{
-              parts: [
-                { text: prompt },
-                { inline_data: { mime_type: file.mimeType, data: rawBase64 } }
-              ]
-            }],
-            generationConfig: { responseMimeType: "application/json" }
-          })
-        });
-
-        const data = await aiResponse.json();
-        if (data.error) throw new Error(data.error.message || 'API Hatası');
-
-        const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-        console.log(`Gemini raw response text for file ${i}:`, text);
         
-        const clean = text.replace(/```json|```/g, '').trim();
+        // Çoklu model listesi: İlk tercih kullanıcının modeli, ardından alternatif modeller
+        const candidateModels = Array.from(new Set([
+          safeModelName,
+          'gemini-2.5-flash',
+          'gemini-1.5-flash',
+          'gemini-2.0-flash',
+          'gemini-1.5-flash-8b'
+        ].filter(Boolean)));
+
+        let responseText = '';
+        let lastAiError: any = null;
+
+        // Model fallback ve retry mekanizması
+        for (const model of candidateModels) {
+          let modelSucceeded = false;
+          for (let attempt = 1; attempt <= 2; attempt++) {
+            try {
+              const aiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  contents: [{
+                    parts: [
+                      { text: prompt },
+                      { inline_data: { mime_type: file.mimeType, data: rawBase64 } }
+                    ]
+                  }],
+                  generationConfig: { responseMimeType: "application/json" }
+                })
+              });
+
+              const data = await aiResponse.json();
+              if (data.error) {
+                const errMsg = data.error.message || '';
+                const isOverloaded = /high demand|spikes in demand|overloaded|resource exhausted|quota|503|429/i.test(errMsg);
+                if (isOverloaded) {
+                  console.warn(`[${model}] Yoğunluk yaşandı (Deneme ${attempt}), 2.5 saniye bekleniyor...`);
+                  await new Promise(r => setTimeout(r, 2500));
+                  lastAiError = new Error(errMsg);
+                  continue;
+                }
+                throw new Error(errMsg || 'API Hatası');
+              }
+
+              responseText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+              if (responseText) {
+                modelSucceeded = true;
+                break;
+              }
+            } catch (err: any) {
+              lastAiError = err;
+              const isOverloaded = /high demand|spikes in demand|overloaded|503|429/i.test(err.message || '');
+              if (isOverloaded) {
+                console.warn(`[${model}] Yoğunluk nedeniyle sıradaki yedek modele geçiliyor...`);
+                await new Promise(r => setTimeout(r, 1500));
+                break;
+              }
+              if (attempt < 2) await new Promise(r => setTimeout(r, 1500));
+            }
+          }
+          if (modelSucceeded) break;
+        }
+
+        if (!responseText) {
+          throw lastAiError || new Error('Google Gemini modelleri geçici yoğunlukta.');
+        }
+
+        console.log(`Gemini raw response text for file ${i}:`, responseText);
+        
+        const clean = responseText.replace(/```json|```/g, '').trim();
         const parsed = JSON.parse(clean);
+
+        // Her dosya işlendikten sonra rate limit'i korumak için 750ms bekle
+        await new Promise(r => setTimeout(r, 750));
 
         if (parsed.hata) {
           toast.error(`${file.name} okunamadı: ${parsed.hata}`);
