@@ -45,6 +45,7 @@ export function MutabakatYonetimi() {
   ];
 
   const PRESET_NVIDIA_MODELS = [
+    { value: 'moonshotai/kimi-k3', label: 'Moonshot Kimi K3 (Multimodal MoE - Çok Güçlü & Zeki)' },
     { value: 'meta/llama-3.2-11b-vision-instruct', label: 'Meta Llama 3.2 11B Vision (Çok Hızlı - Önerilen)' },
     { value: 'meta/llama-3.2-90b-vision-instruct', label: 'Meta Llama 3.2 90B Vision (En Yüksek Hassasiyet)' },
     { value: 'mistralai/pixtral-12b', label: 'Mistral Pixtral 12B (Alternatif Görsel Model)' },
