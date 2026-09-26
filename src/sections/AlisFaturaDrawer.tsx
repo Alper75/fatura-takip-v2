@@ -754,13 +754,46 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
               throw lastAiError || new Error('Google Gemini modelleri geçici yoğunlukta.');
             }
           } else {
-            const clean = responseText.replace(/```json/gi, '').replace(/```/g, '').trim();
+            // Gelişmiş JSON çıkarma ve hata yakalama
+            let text = responseText.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+            text = text.replace(/```json/gi, '').replace(/```/g, '').trim();
             try {
-              parsed = JSON.parse(clean);
+              parsed = JSON.parse(text);
             } catch (pe) {
-              const match = clean.match(/\{[\s\S]*\}|\[[\s\S]*\]/);
-              if (match) parsed = JSON.parse(match[0]);
-              else parsed = { hata: 'Yapay zeka yanıtı okunamadı.' };
+              const firstBrace = text.indexOf('{');
+              const lastBrace = text.lastIndexOf('}');
+              if (firstBrace !== -1 && lastBrace > firstBrace) {
+                const candidate = text.substring(firstBrace, lastBrace + 1);
+                try {
+                  parsed = JSON.parse(candidate);
+                } catch (e2) {
+                  try {
+                    parsed = JSON.parse(candidate.replace(/,\s*([}\]])/g, '$1'));
+                  } catch (e3) {}
+                }
+              }
+              if (!parsed) {
+                const firstSquare = text.indexOf('[');
+                const lastSquare = text.lastIndexOf(']');
+                if (firstSquare !== -1 && lastSquare > firstSquare) {
+                  const candidate = text.substring(firstSquare, lastSquare + 1);
+                  try {
+                    parsed = JSON.parse(candidate);
+                  } catch (e4) {
+                    try {
+                      parsed = JSON.parse(candidate.replace(/,\s*([}\]])/g, '$1'));
+                    } catch (e5) {}
+                  }
+                }
+              }
+              if (!parsed) {
+                const cleanSnippet = text.replace(/\s+/g, ' ').trim();
+                if (cleanSnippet.length > 5 && cleanSnippet.length < 250) {
+                  parsed = { hata: cleanSnippet };
+                } else {
+                  parsed = { hata: 'Yapay zeka bu fişi okuyamadı (Yazılar silik veya tutar/tarih net görünmüyor).' };
+                }
+              }
             }
           }
         }

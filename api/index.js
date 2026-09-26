@@ -4979,19 +4979,60 @@ app.post('/api/ai/analyze-invoice', authMiddleware, async (req, res) => {
       });
     }
 
-    const clean = responseText.replace(/```json/gi, '').replace(/```/g, '').trim();
-    let parsed;
-    try {
-      parsed = JSON.parse(clean);
-    } catch (parseErr) {
-      const jsonMatch = clean.match(/\{[\s\S]*\}|\[[\s\S]*\]/);
-      if (jsonMatch) {
-        parsed = JSON.parse(jsonMatch[0]);
-      } else {
-        parsed = { hata: 'Yapay zeka yanıtı geçerli bir formatta değil.' };
-      }
-    }
+    // Gelişmiş JSON Ayrıştırma ve Hata Ayıklama
+    const extractJson = (raw) => {
+      if (!raw || typeof raw !== 'string') return { hata: 'Yapay zekadan boş yanıt alındı.' };
+      
+      // 1. Düşünme bloklarını (<think>...</think>) temizle
+      let text = raw.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+      // 2. Markdown kod bloklarını temizle
+      text = text.replace(/```json/gi, '').replace(/```/g, '').trim();
 
+      // 3. Doğrudan parse dene
+      try {
+        return JSON.parse(text);
+      } catch (e1) {
+        // 4. En dıştaki { ... } veya [ ... ] bloğunu bul
+        const firstBrace = text.indexOf('{');
+        const lastBrace = text.lastIndexOf('}');
+        if (firstBrace !== -1 && lastBrace > firstBrace) {
+          const candidate = text.substring(firstBrace, lastBrace + 1);
+          try {
+            return JSON.parse(candidate);
+          } catch (e2) {
+            // Trailing virgülleri düzelt (örn: { "a": 1, })
+            try {
+              const fixed = candidate.replace(/,\s*([}\]])/g, '$1');
+              return JSON.parse(fixed);
+            } catch (e3) {}
+          }
+        }
+
+        const firstSquare = text.indexOf('[');
+        const lastSquare = text.lastIndexOf(']');
+        if (firstSquare !== -1 && lastSquare > firstSquare) {
+          const candidate = text.substring(firstSquare, lastSquare + 1);
+          try {
+            return JSON.parse(candidate);
+          } catch (e4) {
+            try {
+              const fixed = candidate.replace(/,\s*([}\]])/g, '$1');
+              return JSON.parse(fixed);
+            } catch (e5) {}
+          }
+        }
+
+        // 5. Eğer model JSON yerine açıklayıcı bir metin döndürdüyse (örn. "Fiş çok silik okunamadı"):
+        const cleanSnippet = text.replace(/\s+/g, ' ').trim();
+        if (cleanSnippet.length > 5 && cleanSnippet.length < 250) {
+          return { hata: cleanSnippet };
+        }
+
+        return { hata: 'Yapay zeka bu fişi okuyamadı (Görsel silik veya tutar/tarih net görünmüyor).' };
+      }
+    };
+
+    const parsed = extractJson(responseText);
     res.json({ success: true, data: parsed, provider: activeProvider });
   } catch (err) {
     console.error('AI Analyze Error:', err);
