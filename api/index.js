@@ -4870,31 +4870,61 @@ app.post('/api/ai/analyze-invoice', authMiddleware, async (req, res) => {
 
       // NVIDIA NIM Sunucu Çağrısı (Node.js fetch - CORS engeli yok!)
       const imageUrl = fileBase64.startsWith('data:') ? fileBase64 : `data:${mimeType || 'image/jpeg'};base64,${fileBase64}`;
-      const nvRes = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${nvidiaApiKey}`
-        },
-        body: JSON.stringify({
-          model: nvidiaModel,
-          messages: [
-            {
-              role: 'user',
-              content: [
-                { type: 'text', text: prompt + '\nÖNEMLİ: SADECE geçerli bir JSON objesi döndür. Başka hiçbir açıklama yazma.' },
-                { type: 'image_url', image_url: { url: imageUrl } }
-              ]
-            }
-          ],
-          max_tokens: 2048,
-          temperature: 0.1
-        })
-      });
+      
+      const callNvidia = async (targetModel) => {
+        const nvRes = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${nvidiaApiKey}`
+          },
+          body: JSON.stringify({
+            model: targetModel,
+            messages: [
+              {
+                role: 'user',
+                content: [
+                  { type: 'text', text: prompt + '\nÖNEMLİ: SADECE geçerli bir JSON objesi döndür. Başka hiçbir açıklama yazma.' },
+                  { type: 'image_url', image_url: { url: imageUrl } }
+                ]
+              }
+            ],
+            max_tokens: 4096,
+            temperature: 0.1
+          })
+        });
 
-      const nvData = await nvRes.json();
-      if (nvData.error) throw new Error(nvData.error.message || 'NVIDIA API Hatası');
-      responseText = nvData.choices?.[0]?.message?.content || '';
+        const nvData = await nvRes.json();
+        if (nvData.error) throw new Error(nvData.error.message || 'NVIDIA API Hatası');
+        
+        const choice = nvData.choices?.[0];
+        let text = choice?.message?.content || '';
+        
+        // Moonshot Kimi ve MoE reasoning modellerinde yanıt reasoning_content içinde olabilir:
+        if (!text && choice?.message?.reasoning_content) {
+          text = choice.message.reasoning_content;
+        }
+        return text;
+      };
+
+      try {
+        responseText = await callNvidia(nvidiaModel);
+      } catch (firstErr) {
+        console.warn(`[NVIDIA AI] ${nvidiaModel} çağrısında hata:`, firstErr.message);
+      }
+
+      // Eğer Kimi veya seçilen model boş döndüyse veya hata verdiyse yedek vizyon modelini dene:
+      if (!responseText) {
+        const fallbackModel = nvidiaModel.includes('kimi') 
+          ? 'meta/llama-3.2-11b-vision-instruct' 
+          : 'moonshotai/kimi-k3';
+        console.warn(`[NVIDIA AI] ${nvidiaModel} boş yanıt verdi, yedek model deneniyor: ${fallbackModel}`);
+        try {
+          responseText = await callNvidia(fallbackModel);
+        } catch (fallbackErr) {
+          console.error('[NVIDIA AI] Fallback model de başarısız:', fallbackErr.message);
+        }
+      }
     } else {
       if (!geminiApiKey) {
         return res.status(400).json({ success: false, message: 'Gemini API anahtarı girilmedi.' });
@@ -4912,17 +4942,41 @@ app.post('/api/ai/analyze-invoice', authMiddleware, async (req, res) => {
               { inline_data: { mime_type: mimeType || 'image/jpeg', data: rawB64 } }
             ]
           }],
-          generationConfig: { responseMimeType: "application/json" }
+          generationConfig: { 
+            responseMimeType: "application/json",
+            maxOutputTokens: 4096,
+            temperature: 0.1
+          },
+          safetySettings: [
+            { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
+            { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
+            { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
+            { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" }
+          ]
         })
       });
 
       const gData = await gRes.json();
       if (gData.error) throw new Error(gData.error.message || 'Gemini API Hatası');
-      responseText = gData.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      
+      const candidate = gData.candidates?.[0];
+      responseText = candidate?.content?.parts?.[0]?.text || '';
+
+      if (!responseText && candidate?.finishReason) {
+        console.warn(`[AI Analyze] Boş yanıt, finishReason: ${candidate.finishReason}`);
+        if (candidate.finishReason === 'SAFETY') {
+          responseText = JSON.stringify({ hata: 'Güvenlik filtresi (SAFETY) nedeniyle yapay zeka bu fişi okuyamadı.' });
+        }
+      }
     }
 
     if (!responseText) {
-      throw new Error('Yapay zekadan boş yanıt alındı.');
+      // Boş yanıt fırlatmak yerine güvenli hata objesi döndür
+      return res.json({ 
+        success: true, 
+        data: { hata: 'Yapay zekadan boş yanıt alındı (Görsel okunamadı veya net değil).' }, 
+        provider: activeProvider 
+      });
     }
 
     const clean = responseText.replace(/```json/gi, '').replace(/```/g, '').trim();
@@ -4934,7 +4988,7 @@ app.post('/api/ai/analyze-invoice', authMiddleware, async (req, res) => {
       if (jsonMatch) {
         parsed = JSON.parse(jsonMatch[0]);
       } else {
-        throw new Error('Yapay zeka yanıtı geçerli bir JSON olarak okunamadı: ' + clean.substring(0, 80));
+        parsed = { hata: 'Yapay zeka yanıtı geçerli bir formatta değil.' };
       }
     }
 

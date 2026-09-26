@@ -3,10 +3,11 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Progress } from '@/components/ui/progress';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useApp } from '@/context/AppContext';
-import { Save, X, ShoppingCart, FileText, Sparkles, Loader2, CheckCircle2, Plus, Trash2 } from 'lucide-react';
+import { Save, X, ShoppingCart, FileText, Sparkles, Loader2, CheckCircle2, Plus, Trash2, Eye, AlertCircle, AlertTriangle, ExternalLink, RotateCcw, Filter } from 'lucide-react';
 import type { AlisFaturaFormData } from '@/types';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -37,12 +38,15 @@ type FormEntry = {
   data: AlisFaturaFormData;
   tutarTuru: 'dahil' | 'haric';
   errors: Partial<Record<keyof AlisFaturaFormData, string>>;
+  aiError?: string;
 };
 
 type UploadedFile = {
   base64: string;
   mimeType: string;
   name: string;
+  status?: 'pending' | 'scanning' | 'success' | 'error';
+  errorMessage?: string;
 };
 
 
@@ -157,11 +161,13 @@ export function AlisFaturaDrawer() {
   } | null>(null);
   const [isScanning, setIsScanning] = useState(false);
   const [aiAddedCount, setAiAddedCount] = useState(0);
+  const [formFilter, setFormFilter] = useState<'all' | 'errors'>('all');
 
   // Dayanıklılık / Arka Planda Taslak Saklama & Kayıt İlerlemesi
   const [isSaving, setIsSaving] = useState(false);
   const [saveProgress, setSaveProgress] = useState<{ current: number; total: number; remaining: number; percent: number; currentInvoice: string } | null>(null);
   const [hasPendingDraft, setHasPendingDraft] = useState(false);
+  const [previewImage, setPreviewImage] = useState<{ url: string; name: string } | null>(null);
 
   // Çekmece açıldığında taslak var mı kontrol et
   useEffect(() => {
@@ -317,6 +323,8 @@ export function AlisFaturaDrawer() {
     setScanProgress(null);
     setAiAddedCount(0);
     setIsScanning(false);
+    setPreviewImage(null);
+    setFormFilter('all');
     closeAlisDrawer();
   };
 
@@ -329,7 +337,12 @@ export function AlisFaturaDrawer() {
     }
 
     if (!validateAll()) {
-      toast.error('Lütfen formdaki eksik alanları doldurun.');
+      const errorCount = forms.filter(f => !!f.aiError).length;
+      if (errorCount > 0) {
+        toast.error(`${errorCount} adet kırmızı çerçeveli fişin bilgileri eksik. Lütfen görselden bakarak eksik alanları doldurun veya bu fişleri listeden çıkarın.`);
+      } else {
+        toast.error('Lütfen formdaki eksik alanları doldurun.');
+      }
       return;
     }
 
@@ -454,7 +467,12 @@ export function AlisFaturaDrawer() {
       for (const file of files) {
         // Yüksek çözünürlüklü fotoğrafları otomatik optimize et (Failed to fetch önleyici)
         const processed = await compressImageIfNeeded(file);
-        newFiles.push({ base64: processed.base64, mimeType: processed.mimeType, name: file.name });
+        newFiles.push({ 
+          base64: processed.base64, 
+          mimeType: processed.mimeType, 
+          name: file.name,
+          status: 'pending' 
+        });
       }
       setUploadedFiles(prev => [...prev, ...newFiles]);
       setAiAddedCount(0);
@@ -464,11 +482,14 @@ export function AlisFaturaDrawer() {
       setIsScanning(false);
     }
   };
-  const scanImage = async () => {
-    if (uploadedFiles.length === 0) return;
+
+  const scanImage = async (filesToProcess?: UploadedFile[]) => {
+    const targetFiles = filesToProcess && filesToProcess.length > 0 ? filesToProcess : uploadedFiles;
+    if (targetFiles.length === 0) return;
 
     setIsScanning(true);
     let totalAdded = 0;
+    const failedFiles: { name: string; reason: string }[] = [];
     
     let activeProvider = 'gemini';
     let apiKey = import.meta.env.VITE_GEMINI_API_KEY || '';
@@ -559,15 +580,17 @@ SADECE JSON döndür:
 }
 Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
 
-    for (let i = 0; i < uploadedFiles.length; i++) {
-      const file = uploadedFiles[i];
+    for (let i = 0; i < targetFiles.length; i++) {
+      const file = targetFiles[i];
       setScanProgress({
         current: i + 1,
-        total: uploadedFiles.length,
-        remaining: uploadedFiles.length - (i + 1),
-        percent: Math.round(((i + 1) / uploadedFiles.length) * 100),
+        total: targetFiles.length,
+        remaining: targetFiles.length - (i + 1),
+        percent: Math.round(((i + 1) / targetFiles.length) * 100),
         currentFileName: file.name
       });
+      
+      setUploadedFiles(prev => prev.map(f => f.name === file.name ? { ...f, status: 'scanning' } : f));
       
       try {
         let parsed: any = null;
@@ -602,7 +625,8 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
 
           const candidateModels = Array.from(new Set([
             safeModelName,
-            'gemini-3.8-flash',
+            'gemini-2.5-flash',
+            'gemini-2.0-flash',
             'gemini-1.5-flash',
             'gemini-1.5-pro'
           ].filter(Boolean)));
@@ -621,7 +645,17 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
                         { inline_data: { mime_type: file.mimeType, data: rawBase64 } }
                       ]
                     }],
-                    generationConfig: { responseMimeType: "application/json" }
+                    generationConfig: { 
+                      responseMimeType: "application/json",
+                      maxOutputTokens: 4096,
+                      temperature: 0.1
+                    },
+                    safetySettings: [
+                      { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
+                      { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
+                      { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
+                      { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" }
+                    ]
                   })
                 });
 
@@ -726,21 +760,58 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
             } catch (pe) {
               const match = clean.match(/\{[\s\S]*\}|\[[\s\S]*\]/);
               if (match) parsed = JSON.parse(match[0]);
-              else throw new Error('Yapay zeka yanıtı okunamadı.');
+              else parsed = { hata: 'Yapay zeka yanıtı okunamadı.' };
             }
           }
         }
 
         if (!parsed) {
-          throw new Error('Belge analiz edilemedi.');
+          parsed = { hata: 'Belge analiz edilemedi.' };
         }
 
         // Her dosya işlendikten sonra rate limit'i korumak için kısa bekleme
-        await new Promise(r => setTimeout(r, 800));
+        await new Promise(r => setTimeout(r, 600));
 
         if (parsed.hata) {
-          toast.error(`${file.name} okunamadı: ${parsed.hata}`);
+          // ==================== OKUNAMAYAN FİŞİ KAYBETME, LİSTEYE TASLAK OLARAK EKLE ====================
+          failedFiles.push({ name: file.name, reason: parsed.hata });
+          setUploadedFiles(prev => prev.map(f => f.name === file.name ? { ...f, status: 'error', errorMessage: parsed.hata } : f));
+
+          const fallbackForm: FormEntry = {
+            id: Date.now() + Math.random(),
+            tutarTuru: 'dahil',
+            aiError: parsed.hata || 'Yapay zekadan boş yanıt alındı.',
+            errors: {},
+            data: {
+              tedarikciAdi: '',
+              tedarikciVkn: '',
+              faturaNo: '',
+              malHizmetAdi: 'Fiş Gideri (Manuel Giriş)',
+              faturaTarihi: new Date().toISOString().split('T')[0],
+              vadeTarihi: '',
+              toplamTutar: '',
+              kdvOrani: '20',
+              tevkifatOrani: '0',
+              stopajOrani: '0',
+              aciklama: `[AI Okunamadı: ${file.name}]`,
+              depoId: varsayilanDepoId,
+              muhasebeKodu: '',
+              karsiHesapKodu: kdvSettings.varsayilanKasaKodu || '',
+              vehiclePlate: '',
+              dosyaBase64: file.base64,
+              dosyaAdi: file.name
+            }
+          };
+
+          setForms(prev => {
+            const hasEmptyInitial = prev.length === 1 && !prev[0].data.faturaNo && !prev[0].data.tedarikciAdi && !prev[0].data.dosyaBase64;
+            const currentForms = hasEmptyInitial ? [] : [...prev];
+            return [...currentForms, fallbackForm];
+          });
+          setAiAddedCount(prev => prev + 1);
         } else {
+          // Başarılı ayrıştırma
+          setUploadedFiles(prev => prev.map(f => f.name === file.name ? { ...f, status: 'success', errorMessage: undefined } : f));
           const fList = parsed.faturalar ? parsed.faturalar : (Array.isArray(parsed) ? parsed : [parsed]);
           
           const newForms: FormEntry[] = fList.map((f: any, idx: number) => {
@@ -751,7 +822,7 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
             const fFaturaTarihi = f.faturaTarihi || f.fatura_tarihi || f.tarih || f.date || INITIAL_FORM.faturaTarihi;
             const fTutar = f.tutar || f.toplam_tutar || f.toplamTutar || f.amount || f.total || '';
             const fTutarTur = f.tutar_tur || f.tutarTuru || f.tutar_type || 'dahil';
-            const fKdvOrani = f.kdv_orani || f.kdvOrani || f.kdv || '18';
+            const fKdvOrani = f.kdv_orani || f.kdvOrani || f.kdv || '20';
             const fTevkifatOrani = f.tevkifat_orani || f.tevkifatOrani || f.tevkifat || '0';
             const fStopajOrani = f.stopaj_orani || f.stopajOrani || f.stopaj || '0';
             const fAciklama = f.aciklama || f.note || f.not || '';
@@ -794,7 +865,7 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
                 faturaTarihi: fFaturaTarihi,
                 vadeTarihi: '',
                 toplamTutar: fTutar?.toString() || '',
-                kdvOrani: fKdvOrani ? fKdvOrani.toString() : '18',
+                kdvOrani: fKdvOrani ? fKdvOrani.toString() : '20',
                 tevkifatOrani: fTevkifatOrani?.toString() || '0',
                 stopajOrani: fStopajOrani?.toString() || '0',
                 aciklama: fAciklama,
@@ -810,7 +881,7 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
           });
 
           setForms(prev => {
-            const hasEmptyInitial = prev.length === 1 && !prev[0].data.faturaNo && !prev[0].data.tedarikciAdi;
+            const hasEmptyInitial = prev.length === 1 && !prev[0].data.faturaNo && !prev[0].data.tedarikciAdi && !prev[0].data.dosyaBase64;
             const currentForms = hasEmptyInitial ? [] : [...prev];
             return [...currentForms, ...newForms];
           });
@@ -820,13 +891,72 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
         }
       } catch (err: any) {
         console.error('File index', i, 'error:', err);
-        toast.error(`${file.name} okunamadı: ${err.message || 'Bilinmeyen Hata'}`);
+        const errMsg = err?.message || 'Bilinmeyen Hata';
+        failedFiles.push({ name: file.name, reason: errMsg });
+        setUploadedFiles(prev => prev.map(f => f.name === file.name ? { ...f, status: 'error', errorMessage: errMsg } : f));
+
+        // Hata olsa dahi dosyayı ve görseli kaybetme, listeye ekle
+        const fallbackForm: FormEntry = {
+          id: Date.now() + Math.random(),
+          tutarTuru: 'dahil',
+          aiError: errMsg,
+          errors: {},
+          data: {
+            tedarikciAdi: '',
+            tedarikciVkn: '',
+            faturaNo: '',
+            malHizmetAdi: 'Fiş Gideri (Manuel Giriş)',
+            faturaTarihi: new Date().toISOString().split('T')[0],
+            vadeTarihi: '',
+            toplamTutar: '',
+            kdvOrani: '20',
+            tevkifatOrani: '0',
+            stopajOrani: '0',
+            aciklama: `[AI Hata: ${file.name}]`,
+            depoId: varsayilanDepoId,
+            muhasebeKodu: '',
+            karsiHesapKodu: kdvSettings.varsayilanKasaKodu || '',
+            vehiclePlate: '',
+            dosyaBase64: file.base64,
+            dosyaAdi: file.name
+          }
+        };
+
+        setForms(prev => {
+          const hasEmptyInitial = prev.length === 1 && !prev[0].data.faturaNo && !prev[0].data.tedarikciAdi && !prev[0].data.dosyaBase64;
+          const currentForms = hasEmptyInitial ? [] : [...prev];
+          return [...currentForms, fallbackForm];
+        });
+        setAiAddedCount(prev => prev + 1);
       }
     }
 
     setScanProgress(null);
     setIsScanning(false);
-    if (totalAdded > 0) toast.success(`AI tarafından toplam ${totalAdded} adet sonuç PDF/Resimlerden çıkarıldı!`);
+
+    if (totalAdded > 0 && failedFiles.length === 0) {
+      toast.success(`Yapay zeka tüm dosyaları (${totalAdded} adet fiş) başarıyla analiz etti!`);
+    } else if (totalAdded > 0 && failedFiles.length > 0) {
+      toast.warning(`${totalAdded} adet fiş okundu. ${failedFiles.length} dosya okunamadı (${failedFiles.map(f => f.name).slice(0, 2).join(', ')}${failedFiles.length > 2 ? '...' : ''}) ancak kaybolmaması için kırmızı çerçeveyle listeye eklendi!`, {
+        duration: 9000
+      });
+    } else if (failedFiles.length > 0) {
+      toast.error(`${failedFiles.length} adet dosya okunamadı. Kırmızı çerçeveyle listeye eklendi, lütfen bilgileri görseli açarak doldurunuz.`, {
+        duration: 9000
+      });
+    }
+  };
+
+  const retryFailedScans = () => {
+    const failed = uploadedFiles.filter(f => f.status === 'error' || forms.some(form => form.data.dosyaAdi === f.name && !!form.aiError));
+    if (failed.length === 0) {
+      toast.info('Hata veren fiş bulunamadı.');
+      return;
+    }
+    // Hatalı fişlerin eski boş formlarını listeden temizle
+    setForms(prev => prev.filter(form => !failed.some(ff => ff.name === form.data.dosyaAdi)));
+    // Yeniden tara
+    scanImage(failed);
   };
 
   const formatCurrency = (value: number) => {
@@ -857,6 +987,8 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
       }
     }
   };
+  const errorFormsCount = forms.filter(f => !!f.aiError).length;
+  const filteredForms = formFilter === 'errors' ? forms.filter(f => !!f.aiError) : forms;
 
   return (
     <Sheet open={isAlisDrawerOpen} onOpenChange={handleClose}>
@@ -974,27 +1106,62 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
             ) : (
               <div className="space-y-4">
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-                  {uploadedFiles.map((file, idx) => (
-                    <div key={idx} className="relative border rounded-lg overflow-hidden bg-slate-50 group aspect-square flex items-center justify-center">
-                      {file.mimeType === 'application/pdf' ? (
-                        <div className="flex flex-col items-center justify-center p-2 text-center">
-                          <FileText className="w-8 h-8 text-red-400 mb-1" />
-                          <p className="text-xs font-medium text-slate-600 truncate w-full px-2">{file.name}</p>
+                  {uploadedFiles.map((file, idx) => {
+                    const isErr = file.status === 'error';
+                    const isSuccess = file.status === 'success';
+                    const isScan = file.status === 'scanning';
+
+                    return (
+                      <div 
+                        key={idx} 
+                        onClick={() => setPreviewImage({ url: file.base64, name: file.name })}
+                        className={cn(
+                          "relative rounded-lg overflow-hidden bg-slate-50 group aspect-square flex items-center justify-center cursor-pointer transition-all",
+                          isErr ? "border-2 border-red-500 ring-2 ring-red-400/40 bg-red-50 shadow-sm" : 
+                          isSuccess ? "border-2 border-emerald-500 bg-emerald-50/20" :
+                          isScan ? "border-2 border-indigo-500 animate-pulse bg-indigo-50/30" : "border border-slate-200"
+                        )}
+                        title={isErr ? `Okunamadı: ${file.errorMessage || 'Hata'}` : file.name}
+                      >
+                        {file.mimeType === 'application/pdf' ? (
+                          <div className="flex flex-col items-center justify-center p-2 text-center">
+                            <FileText className={cn("w-8 h-8 mb-1", isErr ? "text-red-500" : isSuccess ? "text-emerald-500" : "text-slate-400")} />
+                            <p className="text-xs font-medium text-slate-600 truncate w-full px-2">{file.name}</p>
+                          </div>
+                        ) : (
+                          <img src={file.base64} alt={file.name} className="w-full h-full object-cover" />
+                        )}
+                        
+                        {/* Durum Rozetleri */}
+                        {isErr && (
+                          <div className="absolute top-1 left-1 bg-red-600 text-white text-[10px] font-bold px-1.5 py-0.5 rounded shadow flex items-center gap-1 z-10">
+                            <AlertCircle className="w-3 h-3" /> Hata
+                          </div>
+                        )}
+                        {isSuccess && (
+                          <div className="absolute top-1 left-1 bg-emerald-600 text-white text-[10px] font-bold px-1.5 py-0.5 rounded shadow flex items-center gap-1 z-10">
+                            <CheckCircle2 className="w-3 h-3" /> Okundu
+                          </div>
+                        )}
+                        {isScan && (
+                          <div className="absolute inset-0 bg-black/40 flex flex-col items-center justify-center text-white z-10">
+                            <Loader2 className="w-5 h-5 animate-spin mb-1" />
+                            <span className="text-[10px] font-medium">Taranıyor</span>
+                          </div>
+                        )}
+
+                        <div className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity z-20">
+                          <Button type="button" size="icon" variant="destructive" className="h-6 w-6 rounded-full shadow-sm" onClick={(e) => {
+                            e.stopPropagation();
+                            setUploadedFiles(prev => prev.filter((_, i) => i !== idx));
+                            setForms(prev => prev.filter(f => f.data.dosyaAdi !== file.name));
+                          }}>
+                            <X className="w-3 h-3" />
+                          </Button>
                         </div>
-                      ) : (
-                        <img src={file.base64} alt={file.name} className="w-full h-full object-cover" />
-                      )}
-                      
-                      <div className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <Button type="button" size="icon" variant="destructive" className="h-6 w-6 rounded-full shadow-sm" onClick={(e) => {
-                          e.stopPropagation();
-                          setUploadedFiles(prev => prev.filter((_, i) => i !== idx));
-                        }}>
-                          <X className="w-3 h-3" />
-                        </Button>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                   
                   {/* Add more button */}
                   <div 
@@ -1044,44 +1211,174 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-6">
-            {/* Çoklu Belge Durum ve İlerleme Özeti */}
-            {forms.length > 1 && (
-              <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 flex items-center justify-between gap-4">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-lg bg-indigo-100 text-indigo-700 font-bold text-sm flex items-center justify-center">
-                    {forms.length}
-                  </div>
-                  <div>
-                    <h5 className="text-xs font-bold text-slate-800">Hazır Fişler / Faturalar</h5>
-                    <p className="text-[11px] text-slate-500">Kayıt sırasında her fiş tek tek işlenir, yarıda kalma riski yoktur.</p>
-                  </div>
-                </div>
-                <div className="text-right">
-                  <span className="text-xs font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-2.5 py-1 rounded-full">
-                    {forms.length} Belge Bekliyor
-                  </span>
-                </div>
-              </div>
-            )}
-
-            <div className="space-y-8">
-              {forms.map((form, index) => {
-                const hes = getHesaplanan(form);
-                const isMultiple = forms.length > 1;
-
-                return (
-                  <div key={form.id} className="bg-white border rounded-xl p-4 shadow-sm relative group">
-                    {isMultiple && (
-                      <div className="absolute top-2 right-2">
-                        <Button type="button" variant="ghost" size="icon" className="h-8 w-8 text-red-400 hover:text-red-600 hover:bg-red-50" onClick={() => removeForm(form.id)}>
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
+                {/* Hata Veren Fişler Bildirim ve Filtre Paneli */}
+                {errorFormsCount > 0 && (
+                  <div className="bg-red-50 border-2 border-red-400 rounded-xl p-3.5 flex items-center justify-between gap-3 text-xs shadow-sm animate-in fade-in">
+                    <div className="flex items-center gap-3">
+                      <div className="w-9 h-9 rounded-lg bg-red-100 text-red-700 font-bold flex items-center justify-center shrink-0">
+                        <AlertTriangle className="w-5 h-5 text-red-600" />
                       </div>
-                    )}
+                      <div>
+                        <h5 className="font-bold text-red-950 text-sm">
+                          {errorFormsCount} Adet Fiş Okunamadı (Kırmızı Çerçeve ile Belirtildi)
+                        </h5>
+                        <p className="text-red-700 text-[11px] mt-0.5">
+                          Kırmızı çerçeveli fişleri "Fişi Gör" butonuna basarak inceleyebilir ve eksik bilgileri elle yazabilir veya tekrar taratabilirsiniz.
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setFormFilter(prev => prev === 'errors' ? 'all' : 'errors')}
+                        className={cn(
+                          "text-xs font-semibold h-8 border",
+                          formFilter === 'errors' 
+                            ? "bg-red-600 text-white hover:bg-red-700 border-red-600" 
+                            : "text-red-700 border-red-300 hover:bg-red-100 bg-white"
+                        )}
+                      >
+                        <Filter className="w-3.5 h-3.5 mr-1" />
+                        {formFilter === 'errors' ? 'Tüm Fişleri Göster' : `Sadece Hatalıları Göster (${errorFormsCount})`}
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={retryFailedScans}
+                        disabled={isScanning}
+                        className="bg-red-600 hover:bg-red-700 text-white font-semibold text-xs h-8 shadow-sm"
+                      >
+                        <RotateCcw className="w-3.5 h-3.5 mr-1" />
+                        Hataları Tekrar Tara
+                      </Button>
+                    </div>
+                  </div>
+                )}
 
-                    <h3 className="text-sm font-bold text-slate-400 mb-4 pb-2 border-b uppercase">
-                      Satır #{index + 1}
-                    </h3>
+                {/* Çoklu Belge Durum ve İlerleme Özeti */}
+                {forms.length > 1 && (
+                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 flex items-center justify-between gap-4">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-lg bg-indigo-100 text-indigo-700 font-bold text-sm flex items-center justify-center">
+                        {forms.length}
+                      </div>
+                      <div>
+                        <h5 className="text-xs font-bold text-slate-800">Hazır Fişler / Faturalar</h5>
+                        <p className="text-[11px] text-slate-500">
+                          {errorFormsCount > 0 
+                            ? `${forms.length - errorFormsCount} fiş hazır, ${errorFormsCount} fiş manuel inceleme bekliyor.` 
+                            : 'Kayıt sırasında her fiş tek tek işlenir, yarıda kalma riski yoktur.'}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="text-right flex items-center gap-2">
+                      {errorFormsCount > 0 && (
+                        <span className="text-xs font-bold text-red-700 bg-red-100 border border-red-300 px-2.5 py-1 rounded-full">
+                          {errorFormsCount} Hatalı
+                        </span>
+                      )}
+                      <span className="text-xs font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-2.5 py-1 rounded-full">
+                        {forms.length} Belge Bekliyor
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                <div className="space-y-8">
+                  {filteredForms.map((form) => {
+                    const actualIndex = forms.findIndex(f => f.id === form.id);
+                    const hes = getHesaplanan(form);
+                    const isMultiple = forms.length > 1;
+
+                    return (
+                      <div key={form.id} className={cn(
+                        "bg-white rounded-xl p-4 shadow-sm relative group transition-all",
+                        form.aiError 
+                          ? "border-2 border-red-500 bg-red-50/20 ring-2 ring-red-300/60 shadow-md" 
+                          : "border border-slate-200"
+                      )}>
+                        <div className="flex items-center justify-between pb-3 border-b mb-4 gap-2 flex-wrap">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className={cn(
+                              "text-xs font-bold uppercase",
+                              form.aiError ? "text-red-700 font-extrabold" : "text-slate-500"
+                            )}>
+                              Satır #{actualIndex + 1}
+                            </span>
+                            {form.data.dosyaAdi && (
+                              <span className={cn(
+                                "text-xs px-2 py-0.5 rounded font-mono font-medium flex items-center gap-1",
+                                form.aiError ? "bg-red-100 text-red-900 border border-red-200" : "bg-slate-100 text-slate-700"
+                              )}>
+                                <FileText className={cn("w-3 h-3", form.aiError ? "text-red-500" : "text-slate-500")} />
+                                {form.data.dosyaAdi}
+                              </span>
+                            )}
+                            {form.aiError && (
+                              <span className="text-xs bg-red-100 text-red-700 border border-red-300 px-2.5 py-0.5 rounded-full font-bold flex items-center gap-1 animate-pulse">
+                                <AlertCircle className="w-3.5 h-3.5 text-red-600" />
+                                ⚠️ Okunamadı • Manuel Giriş Gerekli
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="flex items-center gap-2 ml-auto">
+                            {form.data.dosyaBase64 && (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className={cn(
+                                  "h-7 text-xs gap-1.5 font-medium",
+                                  form.aiError 
+                                    ? "text-red-700 border-red-300 hover:bg-red-100 bg-red-50/60" 
+                                    : "text-indigo-700 border-indigo-200 hover:bg-indigo-50"
+                                )}
+                                onClick={() => setPreviewImage({ url: form.data.dosyaBase64!, name: form.data.dosyaAdi || `Fiş #${actualIndex + 1}` })}
+                              >
+                                <Eye className="w-3.5 h-3.5" /> Fişi Gör
+                              </Button>
+                            )}
+                            {isMultiple && (
+                              <Button 
+                                type="button" 
+                                variant="ghost" 
+                                size="icon" 
+                                className="h-7 w-7 text-red-400 hover:text-red-600 hover:bg-red-50" 
+                                onClick={() => removeForm(form.id)}
+                                title="Bu fişi listeden çıkar"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+
+                        {form.aiError && (
+                          <div className="bg-red-50 border-2 border-red-200 rounded-lg p-3.5 mb-4 text-xs text-red-950 flex items-start gap-2.5 shadow-xs">
+                            <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+                            <div className="flex-1">
+                              <div className="font-bold flex items-center justify-between">
+                                <span className="text-red-900 font-bold">Yapay Zeka Bu Fişi Okuyamadı</span>
+                                {form.data.dosyaBase64 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setPreviewImage({ url: form.data.dosyaBase64!, name: form.data.dosyaAdi || `Fiş #${actualIndex + 1}` })}
+                                    className="text-red-700 hover:text-red-900 underline font-bold flex items-center gap-1 text-[11px]"
+                                  >
+                                    <Eye className="w-3.5 h-3.5" /> Fiş Görselini Aç ve İncele
+                                  </button>
+                                )}
+                              </div>
+                              <p className="text-red-800 mt-0.5 font-medium">Hata Nedeni: {form.aiError}</p>
+                              <p className="text-slate-600 mt-1">
+                                Görsel kaybolmaması için listeye eklendi. "Fiş Görselini Aç" butonuna basarak fişteki <b>Tutar, KDV, Tarih ve Firma Adı</b> bilgilerini aşağıdaki alanlara doldurabilirsiniz.
+                              </p>
+                            </div>
+                          </div>
+                        )}
 
                     <div className={cn("grid gap-4 mb-4", !isIsletmeDefteri ? "grid-cols-2" : "grid-cols-1")}>
                       <div>
@@ -1346,6 +1643,58 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
           isOpen={isUrunFormOpen} 
           onClose={() => setIsUrunFormOpen(false)} 
         />
+
+        {/* Fiş / Belge Büyütme ve İnceleme Modalı */}
+        <Dialog open={!!previewImage} onOpenChange={(open) => !open && setPreviewImage(null)}>
+          <DialogContent className="sm:max-w-3xl max-h-[92vh] flex flex-col p-4 bg-white">
+            <DialogHeader className="pb-2 border-b">
+              <DialogTitle className="text-base font-semibold flex items-center justify-between pr-6">
+                <span className="flex items-center gap-2 truncate">
+                  <FileText className="w-4 h-4 text-indigo-600 shrink-0" />
+                  {previewImage?.name || 'Fiş Önizleme'}
+                </span>
+                {previewImage?.url && (
+                  <a
+                    href={previewImage.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-xs text-indigo-600 hover:text-indigo-800 flex items-center gap-1 font-normal"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" /> Yeni Sekmede Aç
+                  </a>
+                )}
+              </DialogTitle>
+              <DialogDescription className="text-xs text-slate-500">
+                Fişin üzerindeki tutar, KDV ve firma adını inceleyerek soldaki form alanlarını doldurabilirsiniz.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="flex-1 overflow-auto flex items-center justify-center p-3 bg-slate-900/5 rounded-lg min-h-[350px]">
+              {previewImage?.url ? (
+                previewImage.url.startsWith('data:application/pdf') ? (
+                  <iframe 
+                    src={previewImage.url} 
+                    title={previewImage.name} 
+                    className="w-full h-[65vh] border-0 rounded"
+                  />
+                ) : (
+                  <img 
+                    src={previewImage.url} 
+                    alt={previewImage.name} 
+                    className="max-h-[70vh] w-auto max-w-full object-contain rounded shadow-md border bg-white" 
+                  />
+                )
+              ) : null}
+            </div>
+
+            <div className="flex justify-between items-center pt-2 border-t">
+              <span className="text-xs text-slate-500 italic">Görseli inceledikten sonra pencereyi kapatıp formu tamamlayabilirsiniz.</span>
+              <Button type="button" size="sm" variant="default" onClick={() => setPreviewImage(null)} className="bg-indigo-600 hover:bg-indigo-700 text-white">
+                Tamam, Formu Doldur
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
       </SheetContent>
     </Sheet>
   );
