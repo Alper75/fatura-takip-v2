@@ -156,10 +156,13 @@ export function FaturaAktarim() {
   };
 
   // LUCA HIZLI FİŞ (hizliFisPopUp.do) FORMATI
-  // Bir faturanın gerçekten stopajlı olup olmadığını kontrol eden yardımcı
   const isInvoiceStopajli = (inv: any): boolean => {
-    const stopajTutari = parseFloat(inv.stopajTutari) || 0;
-    const stopajOrani = parseFloat(inv.stopajOrani) || 0;
+    const stopajTutari = typeof inv.stopajTutari === 'number'
+      ? inv.stopajTutari
+      : (parseFloat(String(inv.stopajTutari || '0').replace(',', '.')) || 0);
+    const stopajOrani = typeof inv.stopajOrani === 'number'
+      ? inv.stopajOrani
+      : (parseFloat(String(inv.stopajOrani || '0').replace(',', '.')) || 0);
     const fNo = (inv.faturaNo || inv.evrakNo || '').toString().trim().toUpperCase();
     const isSmm = fNo.startsWith('SMM') || inv.tur === 'smm' || inv.tip === 'smm';
 
@@ -560,30 +563,67 @@ export function FaturaAktarim() {
     if (isTevkifatli) setVal('tevkifat' + i, item.tevkifat);
 
     // Multiselect alanları (td24, td25, td26, td27: Beyan Belge Türü, Alış Satış Türü, Kayıt Alt Türü, Stopaj Kodu)
-    const getRowTd = (rowIdx, colIdx, colName) => {
-      return document.getElementById('td' + colIdx + '_' + rowIdx)
-        || document.querySelector('#td' + colIdx + '_' + rowIdx)
-        || (document.getElementById(colName + rowIdx) ? document.getElementById(colName + rowIdx).closest('td') : null)
-        || (document.getElementById('islem' + rowIdx) ? document.getElementById('islem' + rowIdx).closest('tr')?.querySelectorAll('td')[colIdx] : null);
-    };
+    const setMultiSelectField = async (colName, targetVal, labelKeywords, isStopaj = false) => {
+      const sSelect = document.getElementById(colName + i) 
+        || document.querySelector('select[name="detaylar[' + i + '].' + colName + '"]')
+        || (document.getElementById('islem' + i) ? document.getElementById('islem' + i).closest('tr')?.querySelector('.' + colName + 'Td select') : null);
+      
+      const m = sSelect ? sSelect.closest('.multiselect') : (
+        document.getElementById('islem' + i) ? document.getElementById('islem' + i).closest('tr')?.querySelector('.' + colName + 'Td .multiselect') : null
+      );
+      
+      const valStr = (targetVal || '').toString().trim();
 
-    const setFieldMultiSelect = (colIdx, colName, targetVal, labelKeywords) => {
-      if (!targetVal) return;
-      const td = getRowTd(i, colIdx, colName);
-      const sel = document.getElementById(colName + i) || (td ? td.querySelector('select') : null);
-      if (sel) {
-        sel.value = targetVal;
-        sel.dispatchEvent(new Event('change', { bubbles: true }));
+      if (!valStr || valStr === '0') {
+        if (sSelect) {
+          sSelect.value = '';
+          sSelect.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        if (m) {
+          m.querySelectorAll('.checkboxes input:checked').forEach(c => {
+            c.click();
+            c.checked = false;
+            c.dispatchEvent(new Event('change', { bubbles: true }));
+          });
+          const cbDiv = m.querySelector('.checkboxes');
+          if (cbDiv && cbDiv.style.display !== 'none') {
+            const box = m.querySelector('.overSelect') || m.querySelector('.selectBox');
+            if (box) box.click();
+          }
+        }
+        if (isStopaj && typeof window.stopaj_kodu_degisti === 'function' && sSelect) {
+          try { window.stopaj_kodu_degisti(sSelect); } catch(e) {}
+        }
+        return;
       }
-      if (td) {
-        const valStr = String(targetVal).trim();
-        let chk = td.querySelector('.checkboxes input[value="' + valStr + '"]')
-          || td.querySelector('.checkboxes label input[value="' + valStr + '"]')
-          || td.querySelector('input[type="checkbox"][value="' + valStr + '"]')
-          || td.querySelector('input[type="radio"][value="' + valStr + '"]');
-        
+
+      // Değer varsa:
+      if (sSelect) {
+        sSelect.value = valStr;
+        sSelect.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+
+      if (m) {
+        const box = m.querySelector('.overSelect') || m.querySelector('.selectBox');
+        const cbDiv = m.querySelector('.checkboxes');
+
+        // Checkbox listesi dinamik yüklenir, kutuyu tıkla
+        if (box) {
+          box.click();
+          if (!cbDiv || cbDiv.children.length === 0) {
+            await new Promise(r => setTimeout(r, 40));
+          }
+        }
+
+        const sCode = valStr.split('-')[0].trim();
+        let chk = m.querySelector('.checkboxes input[value="' + valStr + '"]')
+          || m.querySelector('.checkboxes input[value^="' + valStr + '-"]')
+          || m.querySelector('.checkboxes input[value^="' + valStr + '"]')
+          || (sCode ? m.querySelector('.checkboxes input[value="' + sCode + '"]') : null)
+          || (sCode ? m.querySelector('.checkboxes input[value^="' + sCode + '"]') : null);
+
         if (!chk && labelKeywords && labelKeywords.length > 0) {
-          const labels = Array.from(td.querySelectorAll('.checkboxes label'));
+          const labels = Array.from(m.querySelectorAll('.checkboxes label'));
           const foundLabel = labels.find(l => {
             const txt = (l.innerText || '').toLowerCase();
             return labelKeywords.some(kw => txt.includes(kw.toLowerCase()));
@@ -591,15 +631,34 @@ export function FaturaAktarim() {
           if (foundLabel) chk = foundLabel.querySelector('input') || foundLabel;
         }
 
-        if (chk && !chk.checked) {
-          chk.click();
-          chk.checked = true;
-          chk.dispatchEvent(new Event('change', { bubbles: true }));
+        if (chk) {
+          if (!chk.checked) {
+            chk.click();
+            chk.checked = true;
+            chk.dispatchEvent(new Event('change', { bubbles: true }));
+          }
+        } else {
+          // Eğer spesifik checkbox bulunamazsa ama tek seçenek veya default varsa ilkini seç
+          const firstChk = m.querySelector('.checkboxes input');
+          if (firstChk && !isStopaj && !firstChk.checked) {
+            firstChk.click();
+            firstChk.checked = true;
+            firstChk.dispatchEvent(new Event('change', { bubbles: true }));
+          }
         }
+
+        // Dropdown açık kaldıysa kapat
+        if (cbDiv && cbDiv.style.display !== 'none' && box) {
+          box.click();
+        }
+      }
+
+      if (isStopaj && typeof window.stopaj_kodu_degisti === 'function' && sSelect) {
+        try { window.stopaj_kodu_degisti(sSelect); } catch(e) {}
       }
     };
 
-    // Belge Türü (DB) (td24)
+    // 1. Belge Türü (DB)
     const isAlisRow = (item.islem === '1' || item.tur === '1' || item.tur === 'gider' || item.tip === 'ALIS');
     const fNoStr = (item.evrakNo || item.faturaNo || item.no || '').toString().trim();
     const isSmm = fNoStr.startsWith('SMM') || item.tur === 'smm' || item.tip === 'smm';
@@ -611,71 +670,18 @@ export function FaturaAktarim() {
       else if (isAlisRow) beyanVal = isEBelge ? '9' : '1';
       else beyanVal = isEBelge ? '7' : '1';
     }
-    setFieldMultiSelect(24, 'beyanBelgeTuru', beyanVal, isSmm ? ['serbest', 'smm'] : (isEBelge ? ['arşiv', 'fatura', 'e-'] : ['fatura']));
+    await setMultiSelectField('beyanBelgeTuru', beyanVal, isSmm ? ['serbest', 'smm'] : (isEBelge ? ['arşiv', 'fatura', 'e-'] : ['fatura']), false);
 
-    // Alış/Satış Türü (td25)
-    setFieldMultiSelect(25, 'alisSatisTuru', item.alisSatisTuru || '1', ['normal', 'satış', 'alış', '1']);
+    // 2. Alış/Satış Türü
+    await setMultiSelectField('alisSatisTuru', item.alisSatisTuru || '1', ['normal', 'satış', 'alış', '1'], false);
 
-    // Kayıt Alt Türü (td26)
-    setFieldMultiSelect(26, 'kayitAltTuru', item.kayitAltTuru || '1', ['mal', 'hizmet', '1']);
+    // 3. Kayıt Alt Türü
+    await setMultiSelectField('kayitAltTuru', item.kayitAltTuru || '1', ['mal', 'hizmet', '1'], false);
 
-    // Stopaj Kodu (td27)
+    // 4. Stopaj Kodu
     const stopajKoduVal = (item.stopajKodu || item.stopaj_kodu || '').toString().trim();
-    const td27 = getRowTd(i, 27, 'stopajKodu');
-    const sSelect = document.getElementById('stopajKodu' + i) || (td27 ? td27.querySelector('select') : null);
-
-    if (stopajKoduVal && stopajKoduVal !== '0') {
-      if (sSelect) {
-        sSelect.value = stopajKoduVal;
-        sSelect.dispatchEvent(new Event('change', { bubbles: true }));
-        if (typeof window.stopaj_kodu_degisti === 'function') {
-          try { window.stopaj_kodu_degisti(sSelect); } catch(e) {}
-        }
-      }
-      if (td27) {
-        const sCode = stopajKoduVal.split('-')[0].trim();
-        let targetRadio = td27.querySelector('input[value="' + stopajKoduVal + '"]')
-          || td27.querySelector('input[value^="' + stopajKoduVal + '-"]')
-          || td27.querySelector('input[value^="' + stopajKoduVal + '"]')
-          || td27.querySelector('input[value="' + sCode + '"]')
-          || td27.querySelector('input[value^="' + sCode + '"]');
-        if (!targetRadio && sCode) {
-          const labels = Array.from(td27.querySelectorAll('.checkboxes label'));
-          const foundLabel = labels.find(l => l.innerText && l.innerText.includes(sCode));
-          if (foundLabel) targetRadio = foundLabel.querySelector('input') || foundLabel;
-        }
-        // Yanlış seçili olanları kaldır
-        td27.querySelectorAll('.checkboxes input:checked').forEach(c => {
-          if (c !== targetRadio) {
-            c.click();
-            c.checked = false;
-            c.dispatchEvent(new Event('change', { bubbles: true }));
-          }
-        });
-        // Doğru olanı seç
-        if (targetRadio && !targetRadio.checked) {
-          targetRadio.click();
-          targetRadio.checked = true;
-          targetRadio.dispatchEvent(new Event('change', { bubbles: true }));
-        }
-      }
-    } else {
-      // Stopajsız fatura: Alt+E önceki satırdan stopaj kopyalamışsa temizle
-      if (sSelect) {
-        sSelect.value = '';
-        sSelect.dispatchEvent(new Event('change', { bubbles: true }));
-        if (typeof window.stopaj_kodu_degisti === 'function') {
-          try { window.stopaj_kodu_degisti(sSelect); } catch(e) {}
-        }
-      }
-      if (td27) {
-        td27.querySelectorAll('.checkboxes input:checked').forEach(c => {
-          c.click();
-          c.checked = false;
-          c.dispatchEvent(new Event('change', { bubbles: true }));
-        });
-      }
-    }
+    const hasStopaj = stopajKoduVal && stopajKoduVal !== '0';
+    await setMultiSelectField('stopajKodu', hasStopaj ? stopajKoduVal : '', hasStopaj ? [stopajKoduVal.split('-')[0]] : [], true);
 
     // Sonraki satır için Alt + E tuşuna bas
     if (i < faturalar.length - 1) {
