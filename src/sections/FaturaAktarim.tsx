@@ -119,7 +119,8 @@ export function FaturaAktarim() {
     const tevkifatTutar = parseFloat(fatura.tevkifatTutari) || 0;
     const stopajTutar = parseFloat(fatura.stopajTutari) || 0;
     const oivTutar = isAlis ? (parseFloat(fatura.oivTutari) || 0) : 0;
-    const toplam = isAlis ? (parseFloat(fatura.toplamTutar) || 0) : (parseFloat(fatura.alinanUcret) || 0);
+    const kdvDahil = Math.round((matrah + kdvTutar) * 100) / 100;
+    const toplam = (matrah > 0 || kdvTutar > 0) ? kdvDahil : (isAlis ? (parseFloat(fatura.toplamTutar) || 0) : (parseFloat(fatura.alinanUcret) || 0));
 
     const cariUnvan = fatura.ad || (cariler.find(c => c.id === fatura.cariId)?.unvan) || 'Muhtelif Cari';
     const tcVkn = fatura.tcVkn || (cariler.find(c => c.id === fatura.cariId)?.vknTckn) || '';
@@ -179,9 +180,13 @@ export function FaturaAktarim() {
       const tevkifatTutar = parseFloat(inv.tevkifatTutari) || 0;
       const stopajTutar = parseFloat(inv.stopajTutari) || 0;
       const stopajOran = parseFloat(inv.stopajOrani) || 0;
-      const toplam = isAlis ? (parseFloat(inv.toplamTutar) || 0) : (parseFloat(inv.alinanUcret) || 0);
       const isArac = aracGideriIds.includes(inv.id);
       const kdvOranNum = parseFloat(inv.kdvOrani || 20);
+      const matrahHesap = isArac ? Math.round(matrah * 0.7 * 100) / 100 : matrah;
+      const kdvHesap = isArac ? Math.round(kdvTutar * 0.7 * 100) / 100 : kdvTutar;
+      const kdvDahilToplam = Math.round((matrahHesap + kdvHesap) * 100) / 100;
+      const fallbackToplam = isAlis ? (parseFloat(inv.toplamTutar) || 0) : (parseFloat(inv.alinanUcret) || 0);
+      const toplam = (matrahHesap > 0 || kdvHesap > 0) ? kdvDahilToplam : fallbackToplam;
 
       // Stopaj Kodu (İşletme defterinde stopaj tutarı yerine stopaj kodu gönderilir - sadece stopajlı faturalarda)
       const hasActualStopaj = isInvoiceStopajli(inv);
@@ -282,12 +287,12 @@ export function FaturaAktarim() {
         adi: inv.soyad || '',
         unvan: cariUnvan,
         aciklama: temizAciklama,
-        tutar: isArac ? Math.round(matrah * 0.7 * 100) / 100 : matrah,
-        matrah: isArac ? Math.round(matrah * 0.7 * 100) / 100 : matrah,
+        tutar: matrahHesap,
+        matrah: matrahHesap,
         kdvOran: `${kdvOranNum.toFixed(1)}`, // "20.0", "10.0", "1.0"
         kdvOrani: `${kdvOranNum}`,
-        kdvTutar: isArac ? Math.round(kdvTutar * 0.7 * 100) / 100 : kdvTutar,
-        kdvTutari: isArac ? Math.round(kdvTutar * 0.7 * 100) / 100 : kdvTutar,
+        kdvTutar: kdvHesap,
+        kdvTutari: kdvHesap,
         toplamTutar: toplam,
         toplam: toplam,
         tevkifat: tevkifatVal,
@@ -559,7 +564,13 @@ export function FaturaAktarim() {
     setVal('tutar' + i, (item.tutar !== undefined ? item.tutar : item.matrah).toString().replace('.', ','));
     setVal('kdvOran2_' + i, item.kdvOran || '20.0');
     setVal('kdvTutar' + i, (item.kdvTutar !== undefined ? item.kdvTutar : item.kdvTutari).toString().replace('.', ','));
-    setVal('topNotBura' + i, (item.toplamTutar !== undefined ? item.toplamTutar : item.toplam).toString().replace('.', ','));
+    const tutarNum = parseFloat(String(item.tutar !== undefined ? item.tutar : item.matrah).replace(',', '.')) || 0;
+    const kdvNum = parseFloat(String(item.kdvTutar !== undefined ? item.kdvTutar : item.kdvTutari).replace(',', '.')) || 0;
+    let finalTop = item.toplamTutar !== undefined ? item.toplamTutar : item.toplam;
+    if (tutarNum > 0 && kdvNum > 0 && (!finalTop || parseFloat(String(finalTop).replace(',', '.')) === tutarNum)) {
+      finalTop = Math.round((tutarNum + kdvNum) * 100) / 100;
+    }
+    setVal('topNotBura' + i, finalTop.toString().replace('.', ','));
     if (isTevkifatli) setVal('tevkifat' + i, item.tevkifat);
 
     // Multiselect alanları (td24, td25, td26, td27: Beyan Belge Türü, Alış Satış Türü, Kayıt Alt Türü, Stopaj Kodu)
@@ -721,7 +732,9 @@ export function FaturaAktarim() {
             ? customStopajMap[inv.id]
             : (stopajKodMap[inv.id] || inv.stopajKodu || deduceStopajKodu(inv)))
         : '',
-      toplamTutar: inv._type === 'ALIS' ? (parseFloat(inv.toplamTutar) || 0) : (parseFloat(inv.alinanUcret) || 0),
+      toplamTutar: (parseFloat(inv.matrah) || 0) > 0 || (parseFloat(inv.kdvTutari) || 0) > 0
+        ? Math.round(((parseFloat(inv.matrah) || 0) + (parseFloat(inv.kdvTutari) || 0)) * 100) / 100
+        : (inv._type === 'ALIS' ? (parseFloat(inv.toplamTutar) || 0) : (parseFloat(inv.alinanUcret) || 0)),
       tur: inv._type === 'ALIS' ? 'gider' : 'gelir',
       tip: inv._type === 'ALIS' ? 'ALIS' : 'SATIS',
       defterTuru: 'ISLETME',
@@ -998,8 +1011,8 @@ export function FaturaAktarim() {
                     const isAlis = inv._type === 'ALIS';
                     const matrah = parseFloat(inv.matrah) || 0;
                     const kdvTutar = parseFloat(inv.kdvTutari) || 0;
-                    const stopajTutar = parseFloat(inv.stopajTutari) || 0;
-                    const toplam = isAlis ? (parseFloat(inv.toplamTutar) || 0) : (parseFloat(inv.alinanUcret) || 0);
+                    const kdvDahil = Math.round((matrah + kdvTutar) * 100) / 100;
+                    const toplam = (matrah > 0 || kdvTutar > 0) ? kdvDahil : (isAlis ? (parseFloat(inv.toplamTutar) || 0) : (parseFloat(inv.alinanUcret) || 0));
                     const isArac = aracGideriIds.includes(inv.id);
                     const deducedKod = stopajKodMap[inv.id] || inv.stopajKodu || (stopajTutar > 0 ? deduceStopajKodu(inv) : '');
 
