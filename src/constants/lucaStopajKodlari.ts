@@ -846,13 +846,22 @@ export const LUCA_STOPAJ_KODLARI: LucaStopajKodu[] = [
  * Fatura özelliklerine göre en olası stopaj kodunu otomatik tahmin eder
  */
 export function deduceStopajKodu(inv: any): string {
+  const stopajTutari = parseFloat(inv.stopajTutari) || 0;
+  const rate = parseFloat(inv.stopajOrani || '0') || 0;
+  const fNo = (inv.faturaNo || inv.evrakNo || '').toString().trim().toUpperCase();
+  const isSmm = fNo.startsWith('SMM') || inv.tur === 'smm' || inv.tip === 'smm';
+
+  // Stopaj tutarı 0, oranı 0 ve SMM değilse kesinlikle stopaj kodu verme
+  if (stopajTutari <= 0 && rate <= 0 && !isSmm) {
+    return '';
+  }
+
   const existingKod = String(inv.stopajKodu || '').trim();
-  if (existingKod) {
+  if (existingKod && existingKod !== '0') {
     const found = LUCA_STOPAJ_KODLARI.find(k => k.value === existingKod || k.code === existingKod || k.value.startsWith(existingKod + '-'));
     if (found) return found.value;
   }
 
-  const rate = parseFloat(inv.stopajOrani || '0') || 0;
   const desc = ((inv.aciklama || '') + ' ' + (inv.malHizmetAdi || '') + ' ' + (inv.ad || '') + ' ' + (inv.faturaNo || '')).toLowerCase();
 
   // Kira kontrolü
@@ -862,8 +871,7 @@ export function deduceStopajKodu(inv: any): string {
   }
 
   // Orana göre varsayılan eşleşmeler
-  if (rate === 20 || rate === 0) {
-    // SMM veya Genel Serbest Meslek
+  if (rate === 20 || isSmm) {
     return '022-20';
   }
   if (rate === 17) return '021-17';

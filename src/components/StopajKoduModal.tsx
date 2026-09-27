@@ -45,8 +45,8 @@ export function StopajKoduModal({
     if (isOpen) {
       const nextMap: Record<string, string> = { ...initialMap };
       invoices.forEach(inv => {
-        if (!nextMap[inv.id]) {
-          nextMap[inv.id] = inv.stopajKodu || '022-20';
+        if (nextMap[inv.id] === undefined) {
+          nextMap[inv.id] = inv.stopajKodu || '';
         }
       });
       setSelectedMap(nextMap);
@@ -55,7 +55,6 @@ export function StopajKoduModal({
   }, [isOpen, initialMap, invoices]);
 
   const handleApplyBulk = () => {
-    if (!bulkCode) return;
     const next: Record<string, string> = { ...selectedMap };
     invoices.forEach(inv => {
       next[inv.id] = bulkCode;
@@ -118,6 +117,7 @@ export function StopajKoduModal({
                 onChange={e => setBulkCode(e.target.value)}
                 className="h-9 flex-1 text-xs border border-slate-300 rounded-lg px-2.5 bg-white text-slate-800 focus:ring-2 focus:ring-amber-500 font-medium"
               >
+                <option value="">-- Stopaj Yok (Tümünden Kaldır) --</option>
                 {LUCA_STOPAJ_KODLARI.map(opt => (
                   <option key={opt.value} value={opt.value}>
                     {opt.label}
@@ -173,7 +173,7 @@ export function StopajKoduModal({
                   const matrah = parseFloat(String(inv.matrah || 0)) || 0;
                   const stopajTutari = parseFloat(String(inv.stopajTutari || 0)) || 0;
                   const stopajOrani = inv.stopajOrani || '20';
-                  const currentKod = selectedMap[inv.id] || '022-20';
+                  const currentKod = selectedMap[inv.id] !== undefined ? selectedMap[inv.id] : (inv.stopajKodu || '');
 
                   return (
                     <TableRow key={inv.id} className="hover:bg-amber-50/20 transition-colors">
@@ -201,8 +201,9 @@ export function StopajKoduModal({
                         <select
                           value={currentKod}
                           onChange={e => handleItemChange(inv.id, e.target.value)}
-                          className="h-8 w-full text-xs border border-amber-300 rounded-md px-2 bg-white text-slate-900 font-medium focus:ring-2 focus:ring-amber-500 shadow-xs"
+                          className={`h-8 w-full text-xs border rounded-md px-2 font-medium focus:ring-2 focus:ring-amber-500 shadow-xs ${currentKod ? 'border-amber-300 bg-white text-slate-900' : 'border-slate-300 bg-slate-50 text-slate-500 italic'}`}
                         >
+                          <option value="">-- Stopaj Yok (Stopajsız) --</option>
                           {LUCA_STOPAJ_KODLARI.map(opt => (
                             <option key={opt.value} value={opt.value}>
                               {opt.label}
