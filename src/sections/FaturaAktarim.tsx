@@ -1014,7 +1014,10 @@ export function FaturaAktarim() {
                     const kdvDahil = Math.round((matrah + kdvTutar) * 100) / 100;
                     const toplam = (matrah > 0 || kdvTutar > 0) ? kdvDahil : (isAlis ? (parseFloat(inv.toplamTutar) || 0) : (parseFloat(inv.alinanUcret) || 0));
                     const isArac = aracGideriIds.includes(inv.id);
-                    const deducedKod = stopajKodMap[inv.id] || inv.stopajKodu || (stopajTutar > 0 ? deduceStopajKodu(inv) : '');
+                    const stopajTutar = typeof inv.stopajTutari === 'number'
+                      ? inv.stopajTutari
+                      : (parseFloat(String(inv.stopajTutari || '0').replace(',', '.')) || 0);
+                    const deducedKod = stopajKodMap[inv.id] || inv.stopajKodu || (isInvoiceStopajli(inv) ? deduceStopajKodu(inv) : '');
 
                     return (
                       <TableRow 
