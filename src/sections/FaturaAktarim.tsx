@@ -156,19 +156,12 @@ export function FaturaAktarim() {
     });
   };
 
-  // LUCA HIZLI FİŞ (hizliFisPopUp.do) FORMATI
+  // SADECE fiilen stopaj tutarı > 0 olan faturalar stopajlıdır!
   const isInvoiceStopajli = (inv: any): boolean => {
     const stopajTutari = typeof inv.stopajTutari === 'number'
       ? inv.stopajTutari
-      : (parseFloat(String(inv.stopajTutari || '0').replace(',', '.')) || 0);
-    const stopajOrani = typeof inv.stopajOrani === 'number'
-      ? inv.stopajOrani
-      : (parseFloat(String(inv.stopajOrani || '0').replace(',', '.')) || 0);
-    const fNo = (inv.faturaNo || inv.evrakNo || '').toString().trim().toUpperCase();
-    const isSmm = fNo.startsWith('SMM') || inv.tur === 'smm' || inv.tip === 'smm';
-
-    // Sadece fiilen stopaj tutarı, stopaj oranı olanlar veya SMM olanlar stopajlıdır!
-    return (stopajTutari > 0 || stopajOrani > 0 || isSmm);
+      : (parseFloat(String(inv.stopajTutari || inv.stopaj_tutari || inv.stopajTutar || '0').replace(',', '.')) || 0);
+    return stopajTutari > 0;
   };
 
   const getLucaHizliFisItems = (selectedInvoices: any[], customStopajMap?: Record<string, string>) => {
@@ -178,8 +171,9 @@ export function FaturaAktarim() {
       const matrah = parseFloat(inv.matrah) || 0;
       const kdvTutar = parseFloat(inv.kdvTutari) || 0;
       const tevkifatTutar = parseFloat(inv.tevkifatTutari) || 0;
-      const stopajTutar = parseFloat(inv.stopajTutari) || 0;
-      const stopajOran = parseFloat(inv.stopajOrani) || 0;
+      const stopajTutar = typeof inv.stopajTutari === 'number'
+        ? inv.stopajTutari
+        : (parseFloat(String(inv.stopajTutari || inv.stopaj_tutari || inv.stopajTutar || '0').replace(',', '.')) || 0);
       const isArac = aracGideriIds.includes(inv.id);
       const kdvOranNum = parseFloat(inv.kdvOrani || 20);
       const matrahHesap = isArac ? Math.round(matrah * 0.7 * 100) / 100 : matrah;
@@ -188,7 +182,7 @@ export function FaturaAktarim() {
       const fallbackToplam = isAlis ? (parseFloat(inv.toplamTutar) || 0) : (parseFloat(inv.alinanUcret) || 0);
       const toplam = (matrahHesap > 0 || kdvHesap > 0) ? kdvDahilToplam : fallbackToplam;
 
-      // Stopaj Kodu (İşletme defterinde stopaj tutarı yerine stopaj kodu gönderilir - sadece stopajlı faturalarda)
+      // Stopaj Kodu: SADECE fiilen stopaj tutarı > 0 olan faturalarda atanır!
       const hasActualStopaj = isInvoiceStopajli(inv);
       let stopajKoduVal = '';
       if (hasActualStopaj) {
@@ -200,6 +194,9 @@ export function FaturaAktarim() {
           stopajKoduVal = inv.stopajKodu;
         } else {
           stopajKoduVal = deduceStopajKodu(inv);
+        }
+        if (!stopajKoduVal) {
+          stopajKoduVal = '022-20';
         }
       }
 
@@ -300,8 +297,8 @@ export function FaturaAktarim() {
         kodNo: istisnaKodNo,
         oranStr: istisnaOranStr,
         kodFull: kodFullStr,
-        stopajTutari: 0, // Stopaj tutarı işletme defterinde yazılmaz, stopaj kodu seçilir
-        stopajKodu: stopajKoduVal,
+        stopajTutari: stopajTutar,
+        stopajKodu: hasActualStopaj ? stopajKoduVal : '',
         beyanBelgeTuru: (fNo.startsWith('SMM') || inv.tur === 'smm' || inv.tip === 'smm') 
           ? '8' 
           : (isAlis 
@@ -689,9 +686,12 @@ export function FaturaAktarim() {
     // 3. Kayıt Alt Türü
     await setMultiSelectField('kayitAltTuru', item.kayitAltTuru || '1', ['mal', 'hizmet', '1'], false);
 
-    // 4. Stopaj Kodu
+    // 4. Stopaj Kodu (Sadece stopaj tutarı > 0 olanlarda doldurulur, diğerlerinde temizlenir)
     const stopajKoduVal = (item.stopajKodu || item.stopaj_kodu || '').toString().trim();
-    const hasStopaj = stopajKoduVal && stopajKoduVal !== '0';
+    const sTutar = typeof item.stopajTutari === 'number'
+      ? item.stopajTutari
+      : (parseFloat(String(item.stopajTutari || item.stopaj_tutari || item.stopajTutar || '0').replace(',', '.')) || 0);
+    const hasStopaj = sTutar > 0 && stopajKoduVal && stopajKoduVal !== '0';
     await setMultiSelectField('stopajKodu', hasStopaj ? stopajKoduVal : '', hasStopaj ? [stopajKoduVal.split('-')[0]] : [], true);
 
     // Sonraki satır için Alt + E tuşuna bas
@@ -715,31 +715,47 @@ export function FaturaAktarim() {
     const hizliFisItems = getLucaHizliFisItems(selectedInvoices, customStopajMap);
     const isletmeRows = selectedInvoices.map(inv => getIsletmeDefteriSatiri(inv, aracGideriIds.includes(inv.id)));
     
-    const rawInvoices = selectedInvoices.map(inv => ({
-      id: inv.id,
-      faturaNo: inv.faturaNo || '',
-      faturaTarihi: inv.faturaTarihi,
-      unvan: inv.ad || (cariler.find(c => c.id === inv.cariId)?.unvan) || '',
-      ad: inv.ad || '',
-      tcVkn: inv.tcVkn || (cariler.find(c => c.id === inv.cariId)?.vknTckn) || '',
-      matrah: parseFloat(inv.matrah) || 0,
-      kdvOrani: inv.kdvOrani || '20',
-      kdvTutari: parseFloat(inv.kdvTutari) || 0,
-      tevkifatTutari: parseFloat(inv.tevkifatTutari) || 0,
-      stopajTutari: 0, // Stopaj tutarı yazılmaz
-      stopajKodu: isInvoiceStopajli(inv)
-        ? ((customStopajMap && customStopajMap[inv.id] !== undefined)
-            ? customStopajMap[inv.id]
-            : (stopajKodMap[inv.id] || inv.stopajKodu || deduceStopajKodu(inv)))
-        : '',
-      toplamTutar: (parseFloat(inv.matrah) || 0) > 0 || (parseFloat(inv.kdvTutari) || 0) > 0
-        ? Math.round(((parseFloat(inv.matrah) || 0) + (parseFloat(inv.kdvTutari) || 0)) * 100) / 100
-        : (inv._type === 'ALIS' ? (parseFloat(inv.toplamTutar) || 0) : (parseFloat(inv.alinanUcret) || 0)),
-      tur: inv._type === 'ALIS' ? 'gider' : 'gelir',
-      tip: inv._type === 'ALIS' ? 'ALIS' : 'SATIS',
-      defterTuru: 'ISLETME',
-      isAracGideri: aracGideriIds.includes(inv.id)
-    }));
+    const rawInvoices = selectedInvoices.map(inv => {
+      const hasActualStopaj = isInvoiceStopajli(inv);
+      const stopajTutar = typeof inv.stopajTutari === 'number'
+        ? inv.stopajTutari
+        : (parseFloat(String(inv.stopajTutari || inv.stopaj_tutari || inv.stopajTutar || '0').replace(',', '.')) || 0);
+
+      let sKod = '';
+      if (hasActualStopaj) {
+        if (customStopajMap && customStopajMap[inv.id] !== undefined) {
+          sKod = customStopajMap[inv.id];
+        } else if (stopajKodMap[inv.id] !== undefined) {
+          sKod = stopajKodMap[inv.id];
+        } else if (inv.stopajKodu) {
+          sKod = inv.stopajKodu;
+        } else {
+          sKod = deduceStopajKodu(inv) || '022-20';
+        }
+      }
+
+      return {
+        id: inv.id,
+        faturaNo: inv.faturaNo || '',
+        faturaTarihi: inv.faturaTarihi,
+        unvan: inv.ad || (cariler.find(c => c.id === inv.cariId)?.unvan) || '',
+        ad: inv.ad || '',
+        tcVkn: inv.tcVkn || (cariler.find(c => c.id === inv.cariId)?.vknTckn) || '',
+        matrah: parseFloat(inv.matrah) || 0,
+        kdvOrani: inv.kdvOrani || '20',
+        kdvTutari: parseFloat(inv.kdvTutari) || 0,
+        tevkifatTutari: parseFloat(inv.tevkifatTutari) || 0,
+        stopajTutari: stopajTutar,
+        stopajKodu: sKod,
+        toplamTutar: (parseFloat(inv.matrah) || 0) > 0 || (parseFloat(inv.kdvTutari) || 0) > 0
+          ? Math.round(((parseFloat(inv.matrah) || 0) + (parseFloat(inv.kdvTutari) || 0)) * 100) / 100
+          : (inv._type === 'ALIS' ? (parseFloat(inv.toplamTutar) || 0) : (parseFloat(inv.alinanUcret) || 0)),
+        tur: inv._type === 'ALIS' ? 'gider' : 'gelir',
+        tip: inv._type === 'ALIS' ? 'ALIS' : 'SATIS',
+        defterTuru: 'ISLETME',
+        isAracGideri: aracGideriIds.includes(inv.id)
+      };
+    });
 
     const activeComp = companies.find(c => c.id === (user?.companyId || 1));
     const targetCompany = {
@@ -1016,8 +1032,11 @@ export function FaturaAktarim() {
                     const isArac = aracGideriIds.includes(inv.id);
                     const stopajTutar = typeof inv.stopajTutari === 'number'
                       ? inv.stopajTutari
-                      : (parseFloat(String(inv.stopajTutari || '0').replace(',', '.')) || 0);
-                    const deducedKod = stopajKodMap[inv.id] || inv.stopajKodu || (isInvoiceStopajli(inv) ? deduceStopajKodu(inv) : '');
+                      : (parseFloat(String(inv.stopajTutari || inv.stopaj_tutari || inv.stopajTutar || '0').replace(',', '.')) || 0);
+                    const hasStopaj = isInvoiceStopajli(inv);
+                    const deducedKod = hasStopaj
+                      ? (stopajKodMap[inv.id] || inv.stopajKodu || deduceStopajKodu(inv) || '022-20')
+                      : '';
 
                     return (
                       <TableRow 
@@ -1038,8 +1057,8 @@ export function FaturaAktarim() {
                         data-luca-tevkifat-oran={inv.tevkifatOrani || ''}
                         data-luca-tevkifat-tutar={inv.tevkifatTutari || 0}
                         data-luca-stopaj-kodu={deducedKod}
-                        data-luca-stopaj-oran={inv.stopajOrani || ''}
-                        data-luca-stopaj-tutar={0}
+                        data-luca-stopaj-oran={hasStopaj ? (inv.stopajOrani || '') : ''}
+                        data-luca-stopaj-tutar={hasStopaj ? stopajTutar : 0}
                         data-luca-muhasebe-kodu={inv.muhasebeKodu || ''}
                       >
                         <TableCell className="text-center">

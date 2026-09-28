@@ -844,19 +844,23 @@ export const LUCA_STOPAJ_KODLARI: LucaStopajKodu[] = [
 
 /**
  * Fatura özelliklerine göre en olası stopaj kodunu otomatik tahmin eder
+ * SADECE stopaj tutarı > 0 olan faturalara stopaj kodu atar!
  */
 export function deduceStopajKodu(inv: any): string {
-  const stopajTutari = parseFloat(inv.stopajTutari) || 0;
-  const rate = parseFloat(inv.stopajOrani || '0') || 0;
-  const fNo = (inv.faturaNo || inv.evrakNo || '').toString().trim().toUpperCase();
-  const isSmm = fNo.startsWith('SMM') || inv.tur === 'smm' || inv.tip === 'smm';
+  const stopajTutari = typeof inv.stopajTutari === 'number'
+    ? inv.stopajTutari
+    : (parseFloat(String(inv.stopajTutari || inv.stopaj_tutari || inv.stopajTutar || '0').replace(',', '.')) || 0);
 
-  // Stopaj tutarı 0, oranı 0 ve SMM değilse kesinlikle stopaj kodu verme
-  if (stopajTutari <= 0 && rate <= 0 && !isSmm) {
+  // Stopaj tutarı 0 veya negatifse KESİNLİKLE stopaj kodu verme!
+  if (stopajTutari <= 0) {
     return '';
   }
 
-  const existingKod = String(inv.stopajKodu || '').trim();
+  const rate = parseFloat(String(inv.stopajOrani || inv.stopaj_orani || '0').replace(',', '.')) || 0;
+  const fNo = (inv.faturaNo || inv.evrakNo || '').toString().trim().toUpperCase();
+  const isSmm = fNo.startsWith('SMM') || inv.tur === 'smm' || inv.tip === 'smm';
+
+  const existingKod = String(inv.stopajKodu || inv.stopaj_kodu || '').trim();
   if (existingKod && existingKod !== '0') {
     const found = LUCA_STOPAJ_KODLARI.find(k => k.value === existingKod || k.code === existingKod || k.value.startsWith(existingKod + '-'));
     if (found) return found.value;
@@ -885,3 +889,4 @@ export function deduceStopajKodu(inv: any): string {
 
   return '022-20';
 }
+
