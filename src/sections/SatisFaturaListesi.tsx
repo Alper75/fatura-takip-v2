@@ -60,6 +60,7 @@ import { FilterBar } from '@/components/FilterBar';
 import type { FilterValues } from '@/components/FilterBar';
 import { useUrunler } from '../modules/stok/hooks/useStokQuery';
 import { SatisExcelAktarDrawer } from './SatisExcelAktarDrawer';
+import { ParcaliOdemeModal } from '@/components/ParcaliOdemeModal';
 
 export function SatisFaturaListesi() {
   const { 
@@ -82,6 +83,7 @@ export function SatisFaturaListesi() {
   const { data: urunler } = useUrunler();
   
   const [faturaToDelete, setFaturaToDelete] = useState<string | null>(null);
+  const [selectedPartialFatura, setSelectedPartialFatura] = useState<any>(null);
   const [odemeDialogOpen, setOdemeDialogOpen] = useState(false);
   const [selectedFatura, setSelectedFatura] = useState<string | null>(null);
   const [odemeTarihi, setOdemeTarihi] = useState('');
@@ -340,11 +342,7 @@ export function SatisFaturaListesi() {
   };
 
   const openOdemeDialog = (fatura: typeof satisFaturalari[0]) => {
-    setSelectedFatura(fatura.id);
-    setOdemeTarihi(fatura.odemeTarihi || new Date().toISOString().split('T')[0]);
-    setOdemeDurumu(fatura.odemeDurumu);
-    setBankaId(''); // Reset bank selection
-    setOdemeDialogOpen(true);
+    setSelectedPartialFatura(fatura);
   };
 
   const saveOdeme = () => {
@@ -582,7 +580,12 @@ export function SatisFaturaListesi() {
                         {formatCurrency(fatura.kdvTutari)}
                       </TableCell>
                       <TableCell className="text-right font-semibold text-slate-900">
-                        {formatCurrency(fatura.alinanUcret)}
+                        <div>{formatCurrency(fatura.alinanUcret)}</div>
+                        {((fatura as any).odenenTutar > 0 || fatura.odemeDurumu === 'kismi_odendi') && fatura.odemeDurumu !== 'odendi' && (
+                          <div className="text-[10px] text-amber-800 font-semibold bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200 mt-1 inline-block">
+                            Kalan: {formatCurrency((fatura as any).kalanTutar ?? Math.max(0, fatura.alinanUcret - ((fatura as any).odenenTutar || 0)))}
+                          </div>
+                        )}
                       </TableCell>
                       <TableCell className="text-center">
                         <button
@@ -927,6 +930,17 @@ export function SatisFaturaListesi() {
         onSuccess={() => {
           fetchSatisFaturalari();
           fetchCariHareketler();
+        }}
+      />
+
+      <ParcaliOdemeModal
+        isOpen={Boolean(selectedPartialFatura)}
+        onClose={() => setSelectedPartialFatura(null)}
+        fatura={selectedPartialFatura}
+        faturaTipi="satis"
+        onSuccess={() => {
+          if (fetchSatisFaturalari) fetchSatisFaturalari();
+          if (fetchCariHareketler) fetchCariHareketler();
         }}
       />
     </div>

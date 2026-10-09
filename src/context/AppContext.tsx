@@ -208,6 +208,15 @@ interface AppContextType {
   fetchCariHareketler: () => Promise<void>;
   fetchAlisFaturalari: () => Promise<void>;
   fetchSatisFaturalari: () => Promise<void>;
+
+  // ==================== RBAC & KULLANICI YÖNETİMİ ====================
+  companyUsers: User[];
+  fetchCompanyUsers: () => Promise<void>;
+  addCompanyUser: (data: any) => Promise<{ success: boolean; message?: string }>;
+  updateCompanyUser: (id: number, data: any) => Promise<{ success: boolean; message?: string }>;
+  deleteCompanyUser: (id: number) => Promise<{ success: boolean; message?: string }>;
+  resetUserPassword: (id: number, newPassword?: string) => Promise<{ success: boolean; message?: string }>;
+  canAccess: (permissionKey: string) => boolean;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -269,6 +278,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // ==================== TEKLİF & SİPARİŞ STATE ====================
   const [teklifler, setTeklifler] = useState<Teklif[]>([]);
   const [siparisler, setSiparisler] = useState<Siparis[]>([]);
+
+  // ==================== RBAC COMPANY USERS STATE ====================
+  const [companyUsers, setCompanyUsers] = useState<User[]>([]);
 
   const fetchLucaAccounts = useCallback(async () => {
     try {
@@ -603,6 +615,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (data.user.role === 'personnel') {
           setCurrentView('personel-dashboard');
           fetchMyPersonnel();
+        } else if (data.user.role === 'depo') {
+          setCurrentView('stok-yonetimi');
+        } else if (data.user.role === 'satis') {
+          setCurrentView('satis-liste');
         } else {
           setCurrentView('dashboard');
         }
@@ -621,6 +637,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setUser(null);
     setPersonnel([]);
     setCurrentPersonnel(null);
+    setCompanyUsers([]);
     setCariler([]);
     setCariHareketler([]);
     setSatisFaturalari([]);
@@ -660,6 +677,104 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return { success: false, message: error.message };
     }
   }, [user]);
+
+  // ==================== RBAC & PERMISSIONS FUNCTIONS ====================
+  const canAccess = useCallback((permissionKey: string): boolean => {
+    if (!user) return false;
+    if (user.role === 'super_admin' || user.role === 'admin') return true;
+    if (user.permissions && typeof user.permissions[permissionKey] === 'boolean') {
+      return user.permissions[permissionKey]!;
+    }
+    return false;
+  }, [user]);
+
+  const fetchCompanyUsers = useCallback(async () => {
+    try {
+      const res = await apiFetch('/api/admin/users');
+      if (res.success && res.data) {
+        setCompanyUsers(res.data);
+      }
+    } catch (e) {
+      console.error('Failed to fetch company users:', e);
+    }
+  }, []);
+
+  const addCompanyUser = useCallback(async (data: any) => {
+    try {
+      const res = await apiFetch('/api/admin/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+      });
+      if (res.success) {
+        toast.success(res.message || 'Kullanıcı başarıyla oluşturuldu.');
+        await fetchCompanyUsers();
+        return { success: true };
+      }
+      toast.error(res.message || 'Kullanıcı oluşturulamadı.');
+      return { success: false, message: res.message };
+    } catch (err: any) {
+      toast.error(err.message || 'Bir hata oluştu.');
+      return { success: false, message: err.message };
+    }
+  }, [fetchCompanyUsers]);
+
+  const updateCompanyUser = useCallback(async (id: number, data: any) => {
+    try {
+      const res = await apiFetch(`/api/admin/users/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+      });
+      if (res.success) {
+        toast.success(res.message || 'Kullanıcı yetkileri güncellendi.');
+        await fetchCompanyUsers();
+        return { success: true };
+      }
+      toast.error(res.message || 'Güncelleme başarısız.');
+      return { success: false, message: res.message };
+    } catch (err: any) {
+      toast.error(err.message || 'Bir hata oluştu.');
+      return { success: false, message: err.message };
+    }
+  }, [fetchCompanyUsers]);
+
+  const deleteCompanyUser = useCallback(async (id: number) => {
+    try {
+      const res = await apiFetch(`/api/admin/users/${id}`, {
+        method: 'DELETE'
+      });
+      if (res.success) {
+        toast.success(res.message || 'Kullanıcı silindi.');
+        await fetchCompanyUsers();
+        return { success: true };
+      }
+      toast.error(res.message || 'Kullanıcı silinemedi.');
+      return { success: false, message: res.message };
+    } catch (err: any) {
+      toast.error(err.message || 'Bir hata oluştu.');
+      return { success: false, message: err.message };
+    }
+  }, [fetchCompanyUsers]);
+
+  const resetUserPassword = useCallback(async (id: number, newPassword?: string) => {
+    try {
+      const res = await apiFetch(`/api/admin/users/${id}/reset-password`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ newPassword })
+      });
+      if (res.success) {
+        toast.success(res.message || 'Şifre sıfırlandı.');
+        return { success: true, message: res.message };
+      }
+      toast.error(res.message || 'Şifre sıfırlanamadı.');
+      return { success: false, message: res.message };
+    } catch (err: any) {
+      toast.error(err.message || 'Bir hata oluştu.');
+      return { success: false, message: err.message };
+    }
+  }, []);
 
   // ==================== PERSONEL FUNCTIONS ====================
   const fetchPersonnel = useCallback(async () => {
@@ -2032,7 +2147,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         fetchCariler,
         fetchCariHareketler,
         fetchAlisFaturalari,
-        fetchSatisFaturalari
+        fetchSatisFaturalari,
+        companyUsers,
+        fetchCompanyUsers,
+        addCompanyUser,
+        updateCompanyUser,
+        deleteCompanyUser,
+        resetUserPassword,
+        canAccess
       }}
     >
       {children}

@@ -47,45 +47,93 @@ export class FaturaClient {
     }
 
     async runCommand(token, command, pageName, data = {}) {
-        const response = await fetch(`${this.baseURL}/earsiv-services/dispatch`, {
-            method: "POST",
-            headers: this.buildHeaders(),
-            body: `cmd=${command}&callid=${generateUUID()}&pageName=${pageName}&token=${token}&jp=${encodeURIComponent(JSON.stringify(data))}`,
-        });
-        
-        const responseText = await response.text();
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 35000);
         try {
-            const json = JSON.parse(responseText);
-            assertApiSuccess(json);
-            return json;
+            const response = await fetch(`${this.baseURL}/earsiv-services/dispatch`, {
+                method: "POST",
+                headers: this.buildHeaders(),
+                body: `cmd=${command}&callid=${generateUUID()}&pageName=${pageName}&token=${token}&jp=${encodeURIComponent(JSON.stringify(data))}`,
+                signal: controller.signal,
+            });
+            clearTimeout(timeoutId);
+            
+            const responseText = await response.text();
+            try {
+                const json = JSON.parse(responseText);
+                assertApiSuccess(json);
+                return json;
+            } catch (err) {
+                if (err instanceof SyntaxError) {
+                    console.error("GİB JSON dönmedi, HTML döndürdü. İçerik:", responseText.substring(0, 500));
+                    throw new Error(`GİB API Hatası (HTML Döndü): ${responseText.substring(0, 200)}...`);
+                }
+                throw err;
+            }
         } catch (err) {
-            if (err instanceof SyntaxError) {
-                console.error("GİB JSON dönmedi, HTML döndürdü. İçerik:", responseText.substring(0, 500));
-                throw new Error(`GİB API Hatası (HTML Döndü): ${responseText.substring(0, 200)}...`);
+            clearTimeout(timeoutId);
+            if (err.name === 'AbortError') {
+                throw new Error(`GİB sunucusu zaman aşımına uğradı (${command}). GİB sistemi şu an yoğun olabilir.`);
             }
             throw err;
         }
     }
 
     async getToken(userName, password) {
-        const response = await fetch(`${this.baseURL}/earsiv-services/assos-login`, {
-            method: "POST",
-            headers: this.buildHeaders(),
-            body: `assoscmd=${this.loginCmd}&rtype=json&userid=${userName}&sifre=${password}&sifre2=${password}&parola=1&`,
-        });
-        const json = await response.json();
-        assertApiSuccess(json);
-        return json.token;
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 15000);
+        try {
+            const response = await fetch(`${this.baseURL}/earsiv-services/assos-login`, {
+                method: "POST",
+                headers: this.buildHeaders(),
+                body: `assoscmd=${this.loginCmd}&rtype=json&userid=${userName}&sifre=${password}&sifre2=${password}&parola=1&`,
+                signal: controller.signal,
+            });
+            clearTimeout(timeoutId);
+
+            const responseText = await response.text();
+            let json;
+            try {
+                json = JSON.parse(responseText);
+            } catch (parseErr) {
+                throw new Error(`GİB giriş sunucusu geçersiz yanıt döndü: ${responseText.substring(0, 150)}`);
+            }
+
+            assertApiSuccess(json);
+            return json.token;
+        } catch (err) {
+            clearTimeout(timeoutId);
+            if (err.name === 'AbortError') {
+                throw new Error('GİB giriş sunucusu yanıt vermedi (Zaman aşımı). Lütfen biraz sonra tekrar deneyin.');
+            }
+            throw err;
+        }
     }
 
     async logout(token) {
-        const response = await fetch(`${this.baseURL}/earsiv-services/assos-login`, {
-            method: "POST",
-            headers: this.buildHeaders(),
-            body: `assoscmd=${this.logoutCmd}&rtype=json&token=${token}&`,
-        });
-        const json = await response.json();
-        return json.data;
+        if (!token) return null;
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 8000);
+        try {
+            const response = await fetch(`${this.baseURL}/earsiv-services/assos-login`, {
+                method: "POST",
+                headers: this.buildHeaders(),
+                body: `assoscmd=${this.logoutCmd}&rtype=json&token=${token}&`,
+                signal: controller.signal,
+            });
+            clearTimeout(timeoutId);
+            const text = await response.text();
+            try {
+                const json = JSON.parse(text);
+                return json.data;
+            } catch {
+                return null;
+            }
+        } catch (err) {
+            clearTimeout(timeoutId);
+            console.warn('[GIB Client] Logout isteği gönderilirken hata oluştu:', err.message);
+            return null;
+        }
     }
 
     async createDraftInvoice(token, invoiceDetails) {
@@ -206,34 +254,28 @@ export class FaturaClient {
             not: invoiceDetails.note ?? convertPriceToText(invoiceDetails.paymentTotal),
         };
 
-        if (invoiceDetails.uuid) {
-            invoiceData.faturaUuid = invoiceDetails.uuid;
-        }
+        const assignedUuid = invoiceDetails.uuid || generateUUID();
+        invoiceData.faturaUuid = assignedUuid;
 
         const invoice = await this.runCommand(token, ...COMMANDS.createDraftInvoice, invoiceData);
-        
-        let realUuid = invoiceDetails.uuid;
-        if (!realUuid) {
-            const drafts = await this.getAllInvoicesByDateRange(token, {
-                startDate: invoiceDetails.date.split("-").reverse().join("/"),
-                endDate: invoiceDetails.date.split("-").reverse().join("/"),
-            });
-            if (drafts && drafts.length > 0) {
-                // En son oluşturulan taslak genellikle listedeki ilk veya son elemandır
-                // GİB tarihine/saatine göre sıralı getirir.
-                realUuid = drafts[0].ettn;
-            }
-        }
 
-        return { date: invoiceDetails.date, uuid: realUuid, ...invoice };
+        return { date: invoiceDetails.date, uuid: assignedUuid, ...invoice };
     }
 
-    async findInvoice(token, draftInvoice) {
-        const invoices = await this.getAllInvoicesByDateRange(token, {
-            startDate: draftInvoice.date,
-            endDate: draftInvoice.date,
-        });
-        return invoices.find((inv) => inv.ettn === draftInvoice.uuid);
+    async findInvoice(token, draftInvoice, retries = 3) {
+        for (let attempt = 1; attempt <= retries; attempt++) {
+            if (attempt > 1) {
+                // GİB veritabanı indekslemesi için kısa bekleme
+                await new Promise(r => setTimeout(r, 800 * attempt));
+            }
+            const invoices = await this.getAllInvoicesByDateRange(token, {
+                startDate: draftInvoice.date,
+                endDate: draftInvoice.date,
+            });
+            const found = invoices?.find((inv) => inv.ettn === draftInvoice.uuid);
+            if (found) return found;
+        }
+        return undefined;
     }
 
     async signDraftInvoice(token, draftInvoice) {

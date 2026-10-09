@@ -20,15 +20,31 @@ import crypto from 'crypto';
 import { ElogoClient } from './services/elogoClient.js';
 import { UyumsoftClient } from './services/uyumsoftClient.js';
 import { UblBuilder } from './services/ublBuilder.js';
+import { telegramBotService } from './services/telegramBot.js';
+import { autoInvoiceFetcher } from './services/autoInvoiceFetcher.js';
+import { stockSyncService } from './services/stockSyncService.js';
 
 import { client, initDb } from './db.js';
-import { generateToken, authMiddleware, adminMiddleware, superAdminMiddleware, bcrypt } from './auth.js';
+import { 
+  generateToken, 
+  authMiddleware, 
+  adminMiddleware, 
+  superAdminMiddleware, 
+  permissionMiddleware, 
+  resolvePermissions, 
+  DEFAULT_ROLE_PERMISSIONS, 
+  bcrypt 
+} from './auth.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 // We now call initDb() automatically to ensure the new 'status' column is added.
-initDb().catch(e => console.error('Startup DB Init Error:', e));
+initDb()
+  .then(() => {
+    autoInvoiceFetcher.startScheduler();
+  })
+  .catch(e => console.error('Startup DB Init Error:', e));
 
 // BigInt Serialization Fix for LibSQL
 BigInt.prototype.toJSON = function() { return this.toString() };
@@ -125,6 +141,368 @@ app.post('/api/integrator/ayarlar', authMiddleware, async (req, res) => {
   } catch (error) {
     console.error('Entegratör ayarları kaydetme hatası:', error);
     res.status(500).json({ success: false, message: 'Ayarlar kaydedilemedi: ' + error.message });
+  }
+});
+
+// ==========================================
+// --- TELEGRAM BOT ENDPOINTS ---
+// ==========================================
+app.get('/api/telegram/status', authMiddleware, async (req, res) => {
+  try {
+    const status = telegramBotService.getStatus();
+    res.json({ success: true, ...status });
+  } catch (e) {
+    res.status(500).json({ success: false, message: e.message });
+  }
+});
+
+app.get('/api/telegram/settings', authMiddleware, async (req, res) => {
+  try {
+    const keys = ['telegram_bot_token', 'telegram_bot_enabled', 'telegram_allowed_chat_ids', 'telegram_target_mode'];
+    const placeholders = keys.map(() => '?').join(',');
+    const rs = await client.execute({
+      sql: `SELECT setting_key, setting_value FROM company_settings WHERE company_id = ? AND setting_key IN (${placeholders})`,
+      args: [req.user.companyId, ...keys]
+    });
+    const settings = {
+      telegram_bot_token: '',
+      telegram_bot_enabled: 'false',
+      telegram_allowed_chat_ids: '',
+      telegram_target_mode: 'alis_faturasi'
+    };
+    rs.rows.forEach(r => { settings[r.setting_key] = r.setting_value; });
+    res.json({ success: true, settings });
+  } catch (e) {
+    res.status(500).json({ success: false, message: e.message });
+  }
+});
+
+app.post('/api/telegram/settings', authMiddleware, async (req, res) => {
+  try {
+    const { token, enabled, allowedChatIds, targetMode } = req.body;
+    const settings = {
+      telegram_bot_token: token || '',
+      telegram_bot_enabled: enabled ? 'true' : 'false',
+      telegram_allowed_chat_ids: Array.isArray(allowedChatIds) ? allowedChatIds.join(',') : (allowedChatIds || ''),
+      telegram_target_mode: targetMode || 'alis_faturasi'
+    };
+
+    for (const [key, value] of Object.entries(settings)) {
+      if (value !== undefined) {
+        await client.execute({
+          sql: `INSERT INTO company_settings (company_id, setting_key, setting_value) VALUES (?, ?, ?)
+                ON CONFLICT(company_id, setting_key) DO UPDATE SET setting_value = excluded.setting_value`,
+          args: [req.user.companyId, key, value]
+        });
+      }
+    }
+
+    if (enabled && token) {
+      const allowedArr = settings.telegram_allowed_chat_ids ? settings.telegram_allowed_chat_ids.split(',').map(s => s.trim()).filter(Boolean) : [];
+      await telegramBotService.start(req.user.companyId, token, {
+        allowedChatIds: allowedArr,
+        targetMode: settings.telegram_target_mode
+      });
+    } else if (!enabled && telegramBotService.isRunning) {
+      await telegramBotService.stop();
+    }
+
+    res.json({ success: true, message: 'Telegram ayarları güncellendi.' });
+  } catch (e) {
+    res.status(500).json({ success: false, message: e.message });
+  }
+});
+
+app.post('/api/telegram/test', authMiddleware, async (req, res) => {
+  try {
+    const { token } = req.body;
+    if (!token) return res.status(400).json({ success: false, message: 'Token gereklidir.' });
+    const botInfo = await telegramBotService.testToken(token);
+    res.json({ success: true, botInfo });
+  } catch (e) {
+    res.status(400).json({ success: false, message: e.message });
+  }
+});
+
+app.post('/api/telegram/toggle', authMiddleware, async (req, res) => {
+  try {
+    const { action } = req.body; // 'start' | 'stop'
+    if (action === 'stop') {
+      await telegramBotService.stop();
+      await client.execute({
+        sql: `INSERT INTO company_settings (company_id, setting_key, setting_value) VALUES (?, 'telegram_bot_enabled', 'false')
+              ON CONFLICT(company_id, setting_key) DO UPDATE SET setting_value = 'false'`,
+        args: [req.user.companyId]
+      });
+      return res.json({ success: true, message: 'Bot durduruldu.' });
+    } else {
+      const rs = await client.execute({
+        sql: `SELECT setting_key, setting_value FROM company_settings WHERE company_id = ? AND setting_key IN ('telegram_bot_token', 'telegram_allowed_chat_ids', 'telegram_target_mode')`,
+        args: [req.user.companyId]
+      });
+      const map = {};
+      rs.rows.forEach(r => { map[r.setting_key] = r.setting_value; });
+      if (!map.telegram_bot_token) {
+        return res.status(400).json({ success: false, message: 'Lütfen önce Telegram Bot Token kaydedin.' });
+      }
+      const allowedArr = map.telegram_allowed_chat_ids ? map.telegram_allowed_chat_ids.split(',').map(s => s.trim()).filter(Boolean) : [];
+      await telegramBotService.start(req.user.companyId, map.telegram_bot_token, {
+        allowedChatIds: allowedArr,
+        targetMode: map.telegram_target_mode || 'alis_faturasi'
+      });
+      await client.execute({
+        sql: `INSERT INTO company_settings (company_id, setting_key, setting_value) VALUES (?, 'telegram_bot_enabled', 'true')
+              ON CONFLICT(company_id, setting_key) DO UPDATE SET setting_value = 'true'`,
+        args: [req.user.companyId]
+      });
+      return res.json({ success: true, message: 'Bot başlatıldı.', botInfo: telegramBotService.botInfo });
+    }
+  } catch (e) {
+    res.status(500).json({ success: false, message: e.message });
+  }
+});
+
+// ==========================================
+// --- OTOMATIK FATURA TARAMA & SENKRONIZASYON (GIB / ELOGO / UYUMSOFT) ---
+// ==========================================
+app.get('/api/auto-sync/settings', authMiddleware, async (req, res) => {
+  try {
+    const settings = await autoInvoiceFetcher.getCompanySettings(req.user.companyId);
+    const logs = await autoInvoiceFetcher.getLogs(req.user.companyId, 25);
+    res.json({ success: true, settings, logs });
+  } catch (e) {
+    res.status(500).json({ success: false, message: e.message });
+  }
+});
+
+app.post('/api/auto-sync/settings', authMiddleware, async (req, res) => {
+  try {
+    const updates = req.body;
+    await autoInvoiceFetcher.saveCompanySettings(req.user.companyId, updates);
+    res.json({ success: true, message: 'Otomatik tarama ayarları başarıyla kaydedildi.' });
+  } catch (e) {
+    res.status(500).json({ success: false, message: e.message });
+  }
+});
+
+app.post('/api/auto-sync/run-now', authMiddleware, async (req, res) => {
+  try {
+    const result = await autoInvoiceFetcher.scanCompany(req.user.companyId, 'manual');
+    const logs = await autoInvoiceFetcher.getLogs(req.user.companyId, 25);
+    res.json({ ...result, logs });
+  } catch (e) {
+    res.status(500).json({ success: false, message: e.message });
+  }
+});
+
+app.get('/api/auto-sync/logs', authMiddleware, async (req, res) => {
+  try {
+    const logs = await autoInvoiceFetcher.getLogs(req.user.companyId, 50);
+    res.json({ success: true, logs });
+  } catch (e) {
+    res.status(500).json({ success: false, message: e.message });
+  }
+});
+
+// ==========================================
+// --- RECONCILIATION / OTOMATIK BANKA-FATURA ESLEME ---
+// ==========================================
+app.post('/api/reconciliation/batch-close', authMiddleware, async (req, res) => {
+  const { matches } = req.body; // Array of { hareketId, faturaId, faturaTipi: 'satis'|'alis', odemeTarihi }
+  if (!Array.isArray(matches) || matches.length === 0) {
+    return res.status(400).json({ success: false, message: 'Eşleşme listesi boş.' });
+  }
+
+  let closedCount = 0;
+  for (const m of matches) {
+    try {
+      const table = m.faturaTipi === 'satis' ? 'satis_faturalari' : 'alis_faturalari';
+      const odemeTarihi = m.odemeTarihi || new Date().toISOString().split('T')[0];
+
+      // Faturayı ödendi yap
+      await client.execute({
+        sql: `UPDATE ${table} SET odeme_durumu = 'odendi', odeme_tarihi = ? WHERE id = ? AND company_id = ?`,
+        args: [odemeTarihi, m.faturaId, req.user.companyId]
+      });
+
+      // Banka hareketine bağlı fatura ID'sini bağla
+      if (m.hareketId) {
+        await client.execute({
+          sql: `UPDATE cari_hareketler SET bagli_fatura_id = ? WHERE id = ? AND company_id = ?`,
+          args: [m.faturaId, m.hareketId, req.user.companyId]
+        }).catch(() => {});
+      }
+
+      closedCount++;
+    } catch (e) {
+      console.warn(`[Reconciliation] Eşleşme kapatılamadı (${m.faturaId}):`, e.message);
+    }
+  }
+
+  res.json({ success: true, message: `${closedCount} adet fatura ve banka hareketi başarıyla kapatıldı.`, closedCount });
+});
+
+// ==========================================
+// --- PARÇALI ÖDEME & TAHSİLAT ENDPOINTS ---
+// ==========================================
+
+// Faturaya ait tahsilat/ödeme geçmişini getir
+app.get('/api/faturalar/:id/odemeler', authMiddleware, async (req, res) => {
+  try {
+    const faturaId = req.params.id;
+    const rs = await client.execute({
+      sql: `SELECT id, fatura_id, fatura_tipi, tarih, tutar, banka_id, aciklama, dekont_dosya, dekont_dosya_adi, created_at 
+            FROM fatura_tahsilatlar 
+            WHERE fatura_id = ? AND company_id = ? 
+            ORDER BY tarih DESC, created_at DESC`,
+      args: [faturaId, req.user.companyId]
+    });
+    res.json({ success: true, data: rs.rows });
+  } catch (e) {
+    res.status(500).json({ success: false, message: e.message });
+  }
+});
+
+// Faturaya yeni parçalı veya tam ödeme/tahsilat ekle
+app.post('/api/faturalar/:id/odeme-ekle', authMiddleware, async (req, res) => {
+  const faturaId = req.params.id;
+  const { tutar, tarih, bankaId, aciklama, faturaTipi, dekontDosya, dekontDosyaAdi } = req.body;
+  const paymentAmount = parseFloat(tutar);
+
+  if (!paymentAmount || paymentAmount <= 0) {
+    return res.status(400).json({ success: false, message: 'Geçerli bir ödeme tutarı giriniz.' });
+  }
+
+  const paymentDate = tarih || new Date().toISOString().split('T')[0];
+  const type = faturaTipi === 'alis' ? 'alis' : 'satis';
+  const table = type === 'satis' ? 'satis_faturalari' : 'alis_faturalari';
+  const paymentId = 'ft_' + Date.now().toString() + Math.random().toString(36).substr(2, 4);
+
+  try {
+    const fRs = await client.execute({
+      sql: `SELECT * FROM ${table} WHERE id = ? AND company_id = ?`,
+      args: [faturaId, req.user.companyId]
+    });
+    if (fRs.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Fatura bulunamadı.' });
+    }
+    const fatura = fRs.rows[0];
+    const totalInvoiceAmount = parseFloat(fatura.alinan_ucret || fatura.toplam_tutar || 0);
+
+    let chId = null;
+    const cariId = fatura.cari_id;
+    if (cariId) {
+      chId = 'ch_' + Date.now().toString() + Math.random().toString(36).substr(2, 4);
+      const chTuru = type === 'satis' ? 'tahsilat' : 'odeme';
+      const cariDesc = aciklama || `${fatura.fatura_no || ''} nolu faturaya istinaden ${type === 'satis' ? 'kısmi tahsilat' : 'kısmi ödeme'}`;
+      await client.execute({
+        sql: `INSERT INTO cari_hareketler (id, company_id, cari_id, tarih, islem_turu, tutar, aciklama, bagli_fatura_id, banka_id, olusturma_tarihi)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: [chId, req.user.companyId, cariId, paymentDate, chTuru, paymentAmount, cariDesc, faturaId, bankaId || null, new Date().toISOString().split('T')[0]]
+      }).catch(err => console.warn('Cari hareket eklenemedi:', err.message));
+    }
+
+    await client.execute({
+      sql: `INSERT INTO fatura_tahsilatlar (id, company_id, fatura_id, fatura_tipi, tarih, tutar, banka_id, aciklama, dekont_dosya, dekont_dosya_adi, cari_hareket_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [paymentId, req.user.companyId, faturaId, type, paymentDate, paymentAmount, bankaId || null, aciklama || null, dekontDosya || null, dekontDosyaAdi || null, chId]
+    });
+
+    const sumRs = await client.execute({
+      sql: `SELECT COALESCE(SUM(tutar), 0) as total_odenen FROM fatura_tahsilatlar WHERE fatura_id = ? AND company_id = ?`,
+      args: [faturaId, req.user.companyId]
+    });
+    const totalOdenen = parseFloat(sumRs.rows[0]?.total_odenen || 0);
+    const kalanTutar = Math.max(0, Math.round((totalInvoiceAmount - totalOdenen) * 100) / 100);
+
+    let yeniDurum = 'odenmedi';
+    if (kalanTutar <= 0.05) {
+      yeniDurum = 'odendi';
+    } else if (totalOdenen > 0) {
+      yeniDurum = 'kismi_odendi';
+    }
+
+    await client.execute({
+      sql: `UPDATE ${table} SET odenen_tutar = ?, kalan_tutar = ?, odeme_durumu = ?, odeme_tarihi = ? WHERE id = ? AND company_id = ?`,
+      args: [totalOdenen, kalanTutar, yeniDurum, paymentDate, faturaId, req.user.companyId]
+    });
+
+    res.json({
+      success: true,
+      message: 'Ödeme başarıyla kaydedildi.',
+      odenenTutar: totalOdenen,
+      kalanTutar,
+      odemeDurumu: yeniDurum,
+      paymentId
+    });
+  } catch (e) {
+    console.error('Ödeme ekleme hatası:', e);
+    res.status(500).json({ success: false, message: e.message });
+  }
+});
+
+// Faturaya ait tahsilat kaydını sil
+app.delete('/api/faturalar/:faturaId/odemeler/:paymentId', authMiddleware, async (req, res) => {
+  const { faturaId, paymentId } = req.params;
+  try {
+    const pRs = await client.execute({
+      sql: `SELECT * FROM fatura_tahsilatlar WHERE id = ? AND fatura_id = ? AND company_id = ?`,
+      args: [paymentId, faturaId, req.user.companyId]
+    });
+    if (pRs.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Ödeme kaydı bulunamadı.' });
+    }
+    const payment = pRs.rows[0];
+    const type = payment.fatura_tipi;
+    const table = type === 'satis' ? 'satis_faturalari' : 'alis_faturalari';
+
+    if (payment.cari_hareket_id) {
+      await client.execute({
+        sql: `DELETE FROM cari_hareketler WHERE id = ? AND company_id = ?`,
+        args: [payment.cari_hareket_id, req.user.companyId]
+      }).catch(() => {});
+    }
+
+    await client.execute({
+      sql: `DELETE FROM fatura_tahsilatlar WHERE id = ? AND company_id = ?`,
+      args: [paymentId, req.user.companyId]
+    });
+
+    const fRs = await client.execute({
+      sql: `SELECT * FROM ${table} WHERE id = ? AND company_id = ?`,
+      args: [faturaId, req.user.companyId]
+    });
+    const fatura = fRs.rows[0];
+    const totalInvoiceAmount = parseFloat(fatura?.alinan_ucret || fatura?.toplam_tutar || 0);
+
+    const sumRs = await client.execute({
+      sql: `SELECT COALESCE(SUM(tutar), 0) as total_odenen FROM fatura_tahsilatlar WHERE fatura_id = ? AND company_id = ?`,
+      args: [faturaId, req.user.companyId]
+    });
+    const totalOdenen = parseFloat(sumRs.rows[0]?.total_odenen || 0);
+    const kalanTutar = Math.max(0, Math.round((totalInvoiceAmount - totalOdenen) * 100) / 100);
+
+    let yeniDurum = 'odenmedi';
+    if (kalanTutar <= 0.05 && totalOdenen > 0) {
+      yeniDurum = 'odendi';
+    } else if (totalOdenen > 0) {
+      yeniDurum = 'kismi_odendi';
+    }
+
+    await client.execute({
+      sql: `UPDATE ${table} SET odenen_tutar = ?, kalan_tutar = ?, odeme_durumu = ? WHERE id = ? AND company_id = ?`,
+      args: [totalOdenen, kalanTutar, yeniDurum, faturaId, req.user.companyId]
+    });
+
+    res.json({
+      success: true,
+      message: 'Ödeme kaydı silindi.',
+      odenenTutar: totalOdenen,
+      kalanTutar,
+      odemeDurumu: yeniDurum
+    });
+  } catch (e) {
+    res.status(500).json({ success: false, message: e.message });
   }
 });
 
@@ -1595,6 +1973,19 @@ app.post('/api/invoices/import-from-logo', authMiddleware, async (req, res) => {
         ]
       });
     }
+
+    // Otomatik Stok Hareketi (GIRIS)
+    const itemsToSync = Array.isArray(req.body.items) && req.body.items.length > 0 
+      ? req.body.items 
+      : [{ name: faturaAciklama || cleanAciklama, qty: 1, price: payableAmount || 0 }];
+    
+    await stockSyncService.syncInvoiceStockMovements(req.user.companyId, {
+      faturaId: id,
+      faturaTipi: 'alis',
+      items: itemsToSync,
+      faturaNo,
+      faturaTarihi: islemTarihi
+    }).catch(err => console.warn('İçe aktarım stok hareketi hatası:', err.message));
     
     res.json({ success: true, message: 'Fatura başarıyla kaydedildi.', data: { id, faturaNo } });
   } catch (error) {
@@ -1839,6 +2230,10 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(401).json({ success: false, message: 'Geçersiz TC veya şifre.' });
     }
 
+    if (user.status === 'passive') {
+      return res.status(403).json({ success: false, message: 'Kullanıcı hesabınız devre dışı bırakılmıştır. Lütfen yöneticinizle iletişime geçin.' });
+    }
+
     // Check Company Status
     const compRs = await client.execute({
       sql: 'SELECT status FROM companies WHERE id = ?',
@@ -1849,8 +2244,212 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(403).json({ success: false, message: 'Şirket hesabınız pasif durumdadır. Lütfen yönetici ile iletişime geçin.' });
     }
 
+    const permissions = resolvePermissions(user.role, user.permissions);
     const token = generateToken(user);
-    res.json({ success: true, token, user: { id: user.id, tc: user.tc, role: user.role, companyId: user.company_id, mustChangePassword: !!user.must_change_password } });
+    res.json({ 
+      success: true, 
+      token, 
+      user: { 
+        id: user.id, 
+        tc: user.tc, 
+        name: user.name || '',
+        email: user.email || '',
+        role: user.role, 
+        companyId: user.company_id, 
+        permissions,
+        mustChangePassword: !!user.must_change_password 
+      } 
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// Profile / Session Refresh
+app.get('/api/auth/me', authMiddleware, async (req, res) => {
+  try {
+    const rs = await client.execute({
+      sql: 'SELECT id, tc, name, email, role, company_id, permissions, must_change_password, status FROM users WHERE id = ?',
+      args: [req.user.id]
+    });
+    const user = rs.rows[0];
+    if (!user) return res.status(404).json({ success: false, message: 'Kullanıcı bulunamadı.' });
+
+    const permissions = resolvePermissions(user.role, user.permissions);
+    res.json({
+      success: true,
+      user: {
+        id: user.id,
+        tc: user.tc,
+        name: user.name || '',
+        email: user.email || '',
+        role: user.role,
+        companyId: user.company_id,
+        permissions,
+        mustChangePassword: !!user.must_change_password,
+        status: user.status || 'active'
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// --- RBAC: COMPANY USERS MANAGEMENT ---
+
+// List all company users
+app.get('/api/admin/users', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const rs = await client.execute({
+      sql: `
+        SELECT u.id, u.tc, u.name, u.email, u.role, u.permissions, u.status, u.must_change_password, u.created_at,
+               p.first_name, p.last_name, p.position, p.department
+        FROM users u
+        LEFT JOIN personnel p ON p.user_id = u.id
+        WHERE u.company_id = ?
+        ORDER BY u.created_at DESC
+      `,
+      args: [req.user.companyId]
+    });
+
+    const users = rs.rows.map(u => ({
+      id: u.id,
+      tc: u.tc,
+      name: u.name || (u.first_name ? `${u.first_name} ${u.last_name || ''}`.trim() : u.tc),
+      email: u.email || '',
+      role: u.role,
+      permissions: resolvePermissions(u.role, u.permissions),
+      status: u.status || 'active',
+      mustChangePassword: !!u.must_change_password,
+      createdAt: u.created_at,
+      position: u.position || '',
+      department: u.department || ''
+    }));
+
+    res.json({ success: true, data: users });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// Create new company user with role and permissions
+app.post('/api/admin/users', authMiddleware, adminMiddleware, async (req, res) => {
+  const { tc, name, email, password, role = 'personnel', permissions } = req.body;
+  if (!tc || !password) {
+    return res.status(400).json({ success: false, message: 'Kullanıcı adı/TC ve şifre gereklidir.' });
+  }
+
+  try {
+    const existing = await client.execute({
+      sql: 'SELECT id FROM users WHERE tc = ?',
+      args: [tc]
+    });
+    if (existing.rows.length > 0) {
+      return res.status(400).json({ success: false, message: 'Bu kullanıcı adı/TC ile kayıtlı bir hesap zaten var.' });
+    }
+
+    const hashedPassword = bcrypt.hashSync(password, 10);
+    const permString = permissions ? (typeof permissions === 'string' ? permissions : JSON.stringify(permissions)) : null;
+
+    const result = await client.execute({
+      sql: `
+        INSERT INTO users (tc, password, role, company_id, name, email, permissions, status, must_change_password)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'active', 0)
+      `,
+      args: [tc, hashedPassword, role, req.user.companyId, name || '', email || '', permString]
+    });
+
+    res.json({ 
+      success: true, 
+      message: 'Kullanıcı başarıyla oluşturuldu.',
+      userId: Number(result.lastInsertRowid)
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// Update user role, permissions, status, name, email
+app.put('/api/admin/users/:id', authMiddleware, adminMiddleware, async (req, res) => {
+  const { id } = req.params;
+  const { name, email, role, permissions, status } = req.body;
+
+  try {
+    const existing = await client.execute({
+      sql: 'SELECT id, role, company_id FROM users WHERE id = ? AND company_id = ?',
+      args: [id, req.user.companyId]
+    });
+    if (existing.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Kullanıcı bulunamadı.' });
+    }
+
+    // Protect admin from accidentally locking self out
+    if (Number(id) === req.user.id && role && role !== req.user.role && req.user.role === 'admin') {
+      return res.status(400).json({ success: false, message: 'Kendi yönetici rolünüzü değiştiremezsiniz.' });
+    }
+
+    const permString = permissions !== undefined ? (typeof permissions === 'string' ? permissions : JSON.stringify(permissions)) : null;
+
+    await client.execute({
+      sql: `
+        UPDATE users 
+        SET name = COALESCE(?, name),
+            email = COALESCE(?, email),
+            role = COALESCE(?, role),
+            permissions = COALESCE(?, permissions),
+            status = COALESCE(?, status)
+        WHERE id = ? AND company_id = ?
+      `,
+      args: [
+        name !== undefined ? name : null, 
+        email !== undefined ? email : null, 
+        role || null, 
+        permString, 
+        status || null, 
+        id, 
+        req.user.companyId
+      ]
+    });
+
+    res.json({ success: true, message: 'Kullanıcı bilgileri ve yetkileri güncellendi.' });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// Reset user password
+app.put('/api/admin/users/:id/reset-password', authMiddleware, adminMiddleware, async (req, res) => {
+  const { id } = req.params;
+  const { newPassword = '123456' } = req.body;
+
+  try {
+    const hashedPassword = bcrypt.hashSync(newPassword, 10);
+    await client.execute({
+      sql: 'UPDATE users SET password = ?, must_change_password = 1 WHERE id = ? AND company_id = ?',
+      args: [hashedPassword, id, req.user.companyId]
+    });
+
+    res.json({ success: true, message: `Şifre sıfırlandı. Yeni geçici şifre: ${newPassword}` });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// Delete user
+app.delete('/api/admin/users/:id', authMiddleware, adminMiddleware, async (req, res) => {
+  const { id } = req.params;
+
+  if (Number(id) === req.user.id) {
+    return res.status(400).json({ success: false, message: 'Kendi hesabınızı silemezsiniz.' });
+  }
+
+  try {
+    await client.execute({
+      sql: 'DELETE FROM users WHERE id = ? AND company_id = ?',
+      args: [id, req.user.companyId]
+    });
+
+    res.json({ success: true, message: 'Kullanıcı hesabı silindi.' });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -2931,7 +3530,7 @@ app.delete('/api/cari-hareketler/:id', authMiddleware, async (req, res) => {
 app.get('/api/satis-faturalari', authMiddleware, async (req, res) => {
   try {
     const rs = await client.execute({
-      sql: 'SELECT id, fatura_no, fatura_tarihi, ad, soyad, tc_vkn, adres, alinan_ucret, kdv_orani, kdv_tutari, matrah, tevkifat_orani, tevkifat_tutari, tevkifat_kodu, stopaj_orani, stopaj_tutari, stopaj_kodu, muhasebe_kodu, pdf_dosya_adi, odeme_tarihi, odeme_durumu, cari_id, vade_tarihi, aciklama, olusturma_tarihi, urun_id, depo_id, gib_uuid FROM satis_faturalari WHERE company_id = ? ORDER BY olusturma_tarihi DESC',
+      sql: 'SELECT id, fatura_no, fatura_tarihi, ad, soyad, tc_vkn, adres, alinan_ucret, kdv_orani, kdv_tutari, matrah, tevkifat_orani, tevkifat_tutari, tevkifat_kodu, stopaj_orani, stopaj_tutari, stopaj_kodu, muhasebe_kodu, pdf_dosya_adi, odeme_tarihi, odeme_durumu, cari_id, vade_tarihi, aciklama, olusturma_tarihi, urun_id, depo_id, gib_uuid, COALESCE(odenen_tutar, 0) as odenen_tutar, kalan_tutar FROM satis_faturalari WHERE company_id = ? ORDER BY olusturma_tarihi DESC',
       args: [req.user.companyId]
     });
     
@@ -2952,6 +3551,12 @@ app.get('/api/satis-faturalari', authMiddleware, async (req, res) => {
         birimFiyat: sh.birim_fiyat
       }));
       
+      const totalAmount = parseFloat(r.alinan_ucret || 0);
+      const odenen = parseFloat(r.odenen_tutar || 0);
+      const kalan = r.kalan_tutar !== null && r.kalan_tutar !== undefined 
+        ? parseFloat(r.kalan_tutar) 
+        : (r.odeme_durumu === 'odendi' ? 0 : Math.max(0, totalAmount - odenen));
+
       return { 
         id: r.id, faturaNo: r.fatura_no, tcVkn: r.tc_vkn, ad: r.ad, soyad: r.soyad, adres: r.adres, 
         kdvOrani: r.kdv_orani, alinanUcret: r.alinan_ucret, matrah: r.matrah, kdvTutari: r.kdv_tutari, 
@@ -2963,6 +3568,8 @@ app.get('/api/satis-faturalari', authMiddleware, async (req, res) => {
         vadeTarihi: r.vade_tarihi, aciklama: r.aciklama, olusturmaTarihi: r.olusturma_tarihi, 
         urunId: r.urun_id, depoId: r.depo_id,
         gibUuid: r.gib_uuid,
+        odenenTutar: odenen,
+        kalanTutar: kalan,
         stokKalemleri: bagliStoklar.length > 0 ? bagliStoklar : undefined
       };
     });
@@ -2986,27 +3593,14 @@ app.post('/api/satis-faturalari', authMiddleware, async (req, res) => {
     }
     
     if (stokKalemleri.length > 0) {
-      // Varsayılan depoyu bul
-      let targetDepoId = f.depoId || null;
-      if (!targetDepoId) {
-        const depRs = await client.execute({ sql: 'SELECT id FROM stok_depolar WHERE company_id = ? AND varsayilan = 1 LIMIT 1', args: [req.user.companyId] });
-        if (depRs.rows.length > 0) targetDepoId = depRs.rows[0].id;
-        else {
-          const depRs2 = await client.execute({ sql: 'SELECT id FROM stok_depolar WHERE company_id = ? LIMIT 1', args: [req.user.companyId] });
-          if (depRs2.rows.length > 0) targetDepoId = depRs2.rows[0].id;
-        }
-      }
-      if (targetDepoId) {
-        for (const sk of stokKalemleri) {
-          if (!sk.urunId || sk.urunId === 'yok') continue;
-          const miktar = parseFloat(sk.miktar) || 1;
-          const birimFiyat = parseFloat(sk.birimFiyat) || 0;
-          await client.execute({
-            sql: 'INSERT INTO stok_hareketler (id, urun_id, depo_id, tip, miktar, birim_fiyat, tutar, tarih, aciklama, referans_no, bagli_fatura_id, company_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-            args: [uuidv4(), sk.urunId, targetDepoId, 'CIKIS', miktar, birimFiyat, birimFiyat * miktar, f.faturaTarihi || new Date().toISOString(), 'Satış Faturası - Otomatik Stok Çıkışı', n(f.faturaNo), n(f.id), req.user.companyId]
-          });
-        }
-      }
+      await stockSyncService.syncInvoiceStockMovements(req.user.companyId, {
+        faturaId: f.id,
+        faturaTipi: 'satis',
+        items: stokKalemleri,
+        faturaNo: f.faturaNo,
+        faturaTarihi: f.faturaTarihi,
+        depoId: f.depoId
+      }).catch(err => console.warn('Satış stok senkronizasyon hatası:', err.message));
     }
     
     res.json({ success: true });
@@ -3021,38 +3615,26 @@ app.put('/api/satis-faturalari/:id', authMiddleware, async (req, res) => {
       args: [n(f.faturaNo),n(f.odemeTarihi),n(f.odemeDurumu),n(f.odemeDekontu),n(f.odemeDekontuAdi),n(f.pdfDosya),n(f.pdfDosyaAdi),n(f.muhasebeKodu),n(f.tcVkn),n(f.ad),n(f.soyad),n(f.adres),n(f.aciklama),n(f.urunId),n(f.depoId),n(f.gibUuid),n(f.kdvOrani),n(f.alinanUcret),n(f.matrah),n(f.kdvTutari),n(f.tevkifatOrani),n(f.tevkifatTutari),n(f.stopajOrani),n(f.stopajTutari),n(f.faturaTarihi),n(f.vadeTarihi),n(f.tevkifatKodu),n(f.stopajKodu),req.params.id, req.user.companyId]
     });
 
-    // Stok hareketlerini güncelle (Önce eskileri sil, sonra yenileri ekle)
-    await client.execute({
-      sql: 'DELETE FROM stok_hareketler WHERE bagli_fatura_id = ? AND company_id = ? AND tip = ?',
-      args: [req.params.id, req.user.companyId, 'CIKIS']
-    });
-
     const stokKalemleri = f.stokKalemleri || [];
     if (stokKalemleri.length === 0 && f.urunId && f.urunId !== 'yok' && f.urunId !== '') {
       stokKalemleri.push({ urunId: f.urunId, miktar: 1, birimFiyat: parseFloat(f.matrah) || parseFloat(f.alinanUcret) || 0 });
     }
 
     if (stokKalemleri.length > 0) {
-      let targetDepoId = f.depoId || null;
-      if (!targetDepoId) {
-        const depRs = await client.execute({ sql: 'SELECT id FROM stok_depolar WHERE company_id = ? AND varsayilan = 1 LIMIT 1', args: [req.user.companyId] });
-        if (depRs.rows.length > 0) targetDepoId = depRs.rows[0].id;
-        else {
-          const depRs2 = await client.execute({ sql: 'SELECT id FROM stok_depolar WHERE company_id = ? LIMIT 1', args: [req.user.companyId] });
-          if (depRs2.rows.length > 0) targetDepoId = depRs2.rows[0].id;
-        }
-      }
-      if (targetDepoId) {
-        for (const sk of stokKalemleri) {
-          if (!sk.urunId || sk.urunId === 'yok') continue;
-          const miktar = parseFloat(sk.miktar) || 1;
-          const birimFiyat = parseFloat(sk.birimFiyat) || 0;
-          await client.execute({
-            sql: 'INSERT INTO stok_hareketler (id, urun_id, depo_id, tip, miktar, birim_fiyat, tutar, tarih, aciklama, referans_no, bagli_fatura_id, company_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-            args: [uuidv4(), sk.urunId, targetDepoId, 'CIKIS', miktar, birimFiyat, birimFiyat * miktar, f.faturaTarihi || new Date().toISOString(), 'Satış Faturası - Stok Çıkışı (Güncellendi)', n(f.faturaNo), req.params.id, req.user.companyId]
-          });
-        }
-      }
+      await stockSyncService.syncInvoiceStockMovements(req.user.companyId, {
+        faturaId: req.params.id,
+        faturaTipi: 'satis',
+        items: stokKalemleri,
+        faturaNo: f.faturaNo,
+        faturaTarihi: f.faturaTarihi,
+        depoId: f.depoId
+      }).catch(err => console.warn('Satış güncelleme stok senkronizasyon hatası:', err.message));
+    } else {
+      // Eğer stok kalemi kalmadıysa eski hareketleri sil
+      await client.execute({
+        sql: 'DELETE FROM stok_hareketler WHERE bagli_fatura_id = ? AND company_id = ?',
+        args: [req.params.id, req.user.companyId]
+      });
     }
 
     res.json({ success: true });
@@ -3080,7 +3662,7 @@ app.delete('/api/satis-faturalari/:id', authMiddleware, async (req, res) => {
 app.get('/api/alis-faturalari', authMiddleware, async (req, res) => {
   try {
     const rs = await client.execute({
-      sql: 'SELECT id, fatura_no, fatura_tarihi, tedarikci_adi, tedarikci_vkn, mal_hizmet_adi, toplam_tutar, kdv_orani, kdv_tutari, matrah, tevkifat_orani, tevkifat_tutari, stopaj_orani, stopaj_tutari, kdv1, kdv10, kdv20, oiv_tutari, muhasebe_kodu, karsi_hesap_kodu, pdf_dosya_adi, odeme_tarihi, odeme_durumu, odeme_dekontu_adi, cari_id, vade_tarihi, aciklama, olusturma_tarihi, urun_id, depo_id, vehicle_plate, gib_uuid FROM alis_faturalari WHERE company_id = ? ORDER BY olusturma_tarihi DESC',
+      sql: 'SELECT id, fatura_no, fatura_tarihi, tedarikci_adi, tedarikci_vkn, mal_hizmet_adi, toplam_tutar, kdv_orani, kdv_tutari, matrah, tevkifat_orani, tevkifat_tutari, stopaj_orani, stopaj_tutari, kdv1, kdv10, kdv20, oiv_tutari, muhasebe_kodu, karsi_hesap_kodu, pdf_dosya_adi, odeme_tarihi, odeme_durumu, odeme_dekontu_adi, cari_id, vade_tarihi, aciklama, olusturma_tarihi, urun_id, depo_id, vehicle_plate, gib_uuid, COALESCE(odenen_tutar, 0) as odenen_tutar, kalan_tutar FROM alis_faturalari WHERE company_id = ? ORDER BY olusturma_tarihi DESC',
       args: [req.user.companyId]
     });
     
@@ -3101,6 +3683,12 @@ app.get('/api/alis-faturalari', authMiddleware, async (req, res) => {
         birimFiyat: sh.birim_fiyat
       }));
       
+      const totalAmount = parseFloat(r.toplam_tutar || 0);
+      const odenen = parseFloat(r.odenen_tutar || 0);
+      const kalan = r.kalan_tutar !== null && r.kalan_tutar !== undefined 
+        ? parseFloat(r.kalan_tutar) 
+        : (r.odeme_durumu === 'odendi' ? 0 : Math.max(0, totalAmount - odenen));
+
       return { 
         id: r.id, faturaNo: r.fatura_no, faturaTarihi: r.fatura_tarihi, tedarikciAdi: r.tedarikci_adi, 
         tedarikciVkn: r.tedarikci_vkn, malHizmetAdi: r.mal_hizmet_adi, toplamTutar: r.toplam_tutar, 
@@ -3112,6 +3700,8 @@ app.get('/api/alis-faturalari', authMiddleware, async (req, res) => {
         odemeDekontuAdi: r.odeme_dekontu_adi, cariId: r.cari_id, vadeTarihi: r.vade_tarihi, 
         aciklama: r.aciklama, olusturmaTarihi: r.olusturma_tarihi, urunId: r.urun_id, depoId: r.depo_id,
         vehiclePlate: r.vehicle_plate,
+        odenenTutar: odenen,
+        kalanTutar: kalan,
         stokKalemleri: bagliStoklar.length > 0 ? bagliStoklar : undefined
       };
     });
@@ -3134,26 +3724,14 @@ app.post('/api/alis-faturalari', authMiddleware, async (req, res) => {
     }
     
     if (stokKalemleriAlis.length > 0) {
-      let targetDepoId = f.depoId || null;
-      if (!targetDepoId) {
-        const depRs = await client.execute({ sql: 'SELECT id FROM stok_depolar WHERE company_id = ? AND varsayilan = 1 LIMIT 1', args: [req.user.companyId] });
-        if (depRs.rows.length > 0) targetDepoId = depRs.rows[0].id;
-        else {
-          const depRs2 = await client.execute({ sql: 'SELECT id FROM stok_depolar WHERE company_id = ? LIMIT 1', args: [req.user.companyId] });
-          if (depRs2.rows.length > 0) targetDepoId = depRs2.rows[0].id;
-        }
-      }
-      if (targetDepoId) {
-        for (const sk of stokKalemleriAlis) {
-          if (!sk.urunId || sk.urunId === 'yok') continue;
-          const miktar = parseFloat(sk.miktar) || 1;
-          const birimFiyat = parseFloat(sk.birimFiyat) || 0;
-          await client.execute({
-            sql: 'INSERT INTO stok_hareketler (id, urun_id, depo_id, tip, miktar, birim_fiyat, tutar, tarih, aciklama, referans_no, bagli_fatura_id, company_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-            args: [uuidv4(), sk.urunId, targetDepoId, 'GIRIS', miktar, birimFiyat, birimFiyat * miktar, f.faturaTarihi || new Date().toISOString(), 'Alış Faturası - Otomatik Stok Girişi', n(f.faturaNo), n(f.id), req.user.companyId]
-          });
-        }
-      }
+      await stockSyncService.syncInvoiceStockMovements(req.user.companyId, {
+        faturaId: f.id,
+        faturaTipi: 'alis',
+        items: stokKalemleriAlis,
+        faturaNo: f.faturaNo,
+        faturaTarihi: f.faturaTarihi,
+        depoId: f.depoId
+      }).catch(err => console.warn('Alış stok senkronizasyon hatası:', err.message));
     }
     
     res.json({ success: true });
@@ -3167,7 +3745,38 @@ app.put('/api/alis-faturalari/:id', authMiddleware, async (req, res) => {
       sql: 'UPDATE alis_faturalari SET odeme_tarihi=?,odeme_durumu=?,odeme_dekontu=?,odeme_dekontu_adi=?,pdf_dosya=?,pdf_dosya_adi=?,vehicle_plate=?,fatura_no=COALESCE(?,fatura_no),fatura_tarihi=COALESCE(?,fatura_tarihi),tedarikci_adi=COALESCE(?,tedarikci_adi),tedarikci_vkn=COALESCE(?,tedarikci_vkn),mal_hizmet_adi=COALESCE(?,mal_hizmet_adi),toplam_tutar=COALESCE(?,toplam_tutar),kdv_orani=COALESCE(?,kdv_orani),kdv_tutari=COALESCE(?,kdv_tutari),matrah=COALESCE(?,matrah),tevkifat_orani=COALESCE(?,tevkifat_orani),tevkifat_tutari=COALESCE(?,tevkifat_tutari),stopaj_orani=COALESCE(?,stopaj_orani),stopaj_tutari=COALESCE(?,stopaj_tutari),muhasebe_kodu=COALESCE(?,muhasebe_kodu),karsi_hesap_kodu=COALESCE(?,karsi_hesap_kodu),aciklama=COALESCE(?,aciklama),vade_tarihi=COALESCE(?,vade_tarihi) WHERE id=? AND company_id = ?',
       args: [n(f.odemeTarihi),n(f.odemeDurumu),n(f.odemeDekontu),n(f.odemeDekontuAdi),n(f.pdfDosya),n(f.pdfDosyaAdi),n(f.vehiclePlate),n(f.faturaNo),n(f.faturaTarihi),n(f.tedarikciAdi),n(f.tedarikciVkn),n(f.malHizmetAdi),n(f.toplamTutar),n(f.kdvOrani),n(f.kdvTutari),n(f.matrah),n(f.tevkifatOrani),n(f.tevkifatTutari),n(f.stopajOrani),n(f.stopajTutari),n(f.muhasebeKodu),n(f.karsiHesapKodu),n(f.aciklama),n(f.vadeTarihi),req.params.id, req.user.companyId]
     });
+
+    const stokKalemleriAlis = f.stokKalemleri || [];
+    if (stokKalemleriAlis.length === 0 && f.urunId && f.urunId !== 'yok' && f.urunId !== '') {
+      stokKalemleriAlis.push({ urunId: f.urunId, miktar: 1, birimFiyat: parseFloat(f.matrah) || parseFloat(f.toplamTutar) || 0 });
+    }
+
+    if (stokKalemleriAlis.length > 0) {
+      await stockSyncService.syncInvoiceStockMovements(req.user.companyId, {
+        faturaId: req.params.id,
+        faturaTipi: 'alis',
+        items: stokKalemleriAlis,
+        faturaNo: f.faturaNo,
+        faturaTarihi: f.faturaTarihi,
+        depoId: f.depoId
+      }).catch(err => console.warn('Alış güncelleme stok senkronizasyon hatası:', err.message));
+    } else {
+      // Kalem kalmadıysa eski stok hareketlerini sil
+      await client.execute({
+        sql: 'DELETE FROM stok_hareketler WHERE bagli_fatura_id = ? AND company_id = ?',
+        args: [req.params.id, req.user.companyId]
+      });
+    }
+
     res.json({ success: true });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+});
+
+// Kritik Seviyedeki Stok Ürünlerini Listele
+app.get('/api/stok/kritik-seviyedekiler', authMiddleware, async (req, res) => {
+  try {
+    const list = await stockSyncService.getCriticalProducts(req.user.companyId);
+    res.json({ success: true, data: list });
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }
 });
 
@@ -3499,6 +4108,7 @@ app.put('/api/gider-kategorileri/:id', authMiddleware, async (req, res) => {
 
 // --- GİB API ROUTES (Custom FaturaClient ile) ---
 import { createFaturaClient } from './fatura-client.js';
+import { gibSessionManager } from './gibSessionManager.js';
 
 function formatGIBTime(d) {
   const hh = String(d.getHours()).padStart(2, '0');
@@ -3644,8 +4254,10 @@ app.post('/api/gib/create-draft', authMiddleware, async (req, res) => {
   // Tevkifat tutarı varsa veya fatura tipi TEVKIFAT ise fatura tipini kesinlikle TEVKIFAT yap
   const isTevkifat = tevkifatAmount > 0 || invoice.faturaTipi === 'TEVKIFAT';
   const effectiveInvoiceType = isTevkifat ? 'TEVKIFAT' : (invoice.faturaTipi || 'SATIS');
+  const assignedUuid = invoice.gibUuid || invoice.uuid || uuidv4();
 
   const invoiceDetails = {
+    uuid: assignedUuid,
     date: formattedGibDate,
     time: formatGIBTime(now),
     taxIDOrTRID: vknStr,
@@ -3672,57 +4284,69 @@ app.post('/api/gib/create-draft', authMiddleware, async (req, res) => {
     note: invoice.aciklama || ''
   };
 
-  let token;
   const isTest = process.env.GIB_TEST_MODE === 'true';
   const client = createFaturaClient(isTest ? 'TEST' : 'PROD');
-  try {
-    token = await client.getToken(credentials.username, credentials.password);
-    const createdInvoice = await client.createDraftInvoice(token, invoiceDetails);
-    const invoiceUUID = createdInvoice.uuid;
+  
+  let lastError = null;
+  // GİB anlık yoğunluklarına ve geçici düşmelerine karşı 2 kez otomatik deneme (Self-Healing Retry)
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const token = await gibSessionManager.getSessionToken(client, credentials.username, credentials.password, isTest ? 'TEST' : 'PROD');
+      const createdInvoice = await client.createDraftInvoice(token, invoiceDetails);
+      const invoiceUUID = createdInvoice.uuid || assignedUuid;
 
-    let signResult = null;
-    let invoiceNo = null;
-    if (autoSign === true) {
-      const details = await client.findInvoice(token, createdInvoice);
-      if (details !== undefined) {
-        signResult = await client.signDraftInvoice(token, details);
-        invoiceNo = details.belgeNumarasi || (signResult && signResult.belgeNumarasi) || null;
-        if (!invoiceNo) {
-          try {
-            const signedDetails = await client.findInvoice(token, createdInvoice);
-            if (signedDetails && signedDetails.belgeNumarasi) {
-              invoiceNo = signedDetails.belgeNumarasi;
-            }
-          } catch (e) {}
+      let signResult = null;
+      let invoiceNo = null;
+      if (autoSign === true) {
+        const details = await client.findInvoice(token, createdInvoice);
+        if (details !== undefined) {
+          signResult = await client.signDraftInvoice(token, details);
+          invoiceNo = details.belgeNumarasi || (signResult && signResult.belgeNumarasi) || null;
+          if (!invoiceNo) {
+            try {
+              const signedDetails = await client.findInvoice(token, createdInvoice);
+              if (signedDetails && signedDetails.belgeNumarasi) {
+                invoiceNo = signedDetails.belgeNumarasi;
+              }
+            } catch (e) {}
+          }
         }
       }
-    }
 
-    let msg = autoSign ? 'Fatura başarıyla oluşturuldu ve imzalandı.' : 'Fatura taslak olarak GİB portalına gönderildi.';
-    if (!invoiceUUID) {
-      msg = `GİB işlemi başarılı dedi ancak faturayı bulamadı! Detay: ${JSON.stringify(createdInvoice)}`;
-    }
+      let msg = autoSign ? 'Fatura başarıyla oluşturuldu ve imzalandı.' : 'Fatura taslak olarak GİB portalına gönderildi.';
+      if (!invoiceUUID) {
+        msg = `GİB işlemi başarılı dedi ancak faturayı bulamadı! Detay: ${JSON.stringify(createdInvoice)}`;
+      }
 
-    return res.json({
-      success: true,
-      message: msg,
-      data: { invoiceUUID, invoiceNo, signed: autoSign === true, signResult, debug: createdInvoice }
-    });
-  } catch (error) {
-    console.error('[GIB] Hata Oluştu:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'GİB fatura hatası: ' + error.message,
-    });
-  } finally {
-    if (token) {
-      try {
-        await client.logout(token);
-      } catch (logoutError) {
-        console.error('[GIB Create Draft] Logout Hatası:', logoutError);
+      return res.json({
+        success: true,
+        message: msg,
+        data: { invoiceUUID, invoiceNo, signed: autoSign === true, signResult, debug: createdInvoice }
+      });
+    } catch (error) {
+      lastError = error;
+      const errMsg = String(error.message || '').toLowerCase();
+      console.warn(`[GIB Create Draft] Deneme ${attempt}/2 başarısız:`, error.message);
+
+      // Token veya oturum sorunu varsa önbelleği temizle ki 2. denemede taze token alsın
+      const isAuthError = errMsg.includes('token') || errMsg.includes('oturum') || errMsg.includes('yetki') || errMsg.includes('giriş');
+      if (isAuthError) {
+        gibSessionManager.invalidate(credentials.username, isTest ? 'TEST' : 'PROD');
+      }
+
+      // Geçici GİB / ağ hatası ise 1.8 sn bekle ve tekrar dene
+      if (attempt < 2) {
+        await new Promise(r => setTimeout(r, 1800));
+        continue;
       }
     }
   }
+
+  console.error('[GIB] Hata Oluştu (Tüm denemeler tükendi):', lastError);
+  return res.status(500).json({
+    success: false,
+    message: 'GİB fatura hatası: ' + (lastError?.message || 'Bilinmeyen hata'),
+  });
 });
 
 app.post('/api/gib/recipient-info', authMiddleware, async (req, res) => {
@@ -3732,24 +4356,15 @@ app.post('/api/gib/recipient-info', authMiddleware, async (req, res) => {
   if (!vknTckn)
     return res.status(400).json({ success: false, message: 'VKN veya TCKN gereklidir.' });
 
-  let token;
   const isTest = process.env.GIB_TEST_MODE === 'true';
   const client = createFaturaClient(isTest ? 'TEST' : 'PROD');
   try {
-    token = await client.getToken(credentials.username, credentials.password);
+    const token = await gibSessionManager.getSessionToken(client, credentials.username, credentials.password, isTest ? 'TEST' : 'PROD');
     const data = await client.getRecipientData(token, vknTckn);
     res.json({ success: true, data });
   } catch (error) {
     console.error('GIB recipient info error:', error.message);
     res.status(500).json({ success: false, message: error.message || 'Alıcı bilgileri getirilemedi.' });
-  } finally {
-    if (token) {
-      try {
-        await client.logout(token);
-      } catch (e) {
-        console.error('Logout error:', e.message);
-      }
-    }
   }
 });
 
@@ -3760,7 +4375,6 @@ app.post('/api/gib/invoices', authMiddleware, async (req, res) => {
   if (!startDate || !endDate)
     return res.status(400).json({ success: false, message: 'Başlangıç ve bitiş tarihleri gereklidir.' });
 
-  let token;
   const isTest = process.env.GIB_TEST_MODE === 'true';
   const client = createFaturaClient(isTest ? 'TEST' : 'PROD');
   try {
@@ -3775,7 +4389,7 @@ app.post('/api/gib/invoices', authMiddleware, async (req, res) => {
     const gibStart = formatToGIB(startDate);
     const gibEnd = formatToGIB(endDate);
 
-    token = await client.getToken(credentials.username, credentials.password);
+    const token = await gibSessionManager.getSessionToken(client, credentials.username, credentials.password, isTest ? 'TEST' : 'PROD');
     const invoices = await client.getAllInvoicesByDateRange(token, { startDate: gibStart, endDate: gibEnd });
 
     return res.json({
@@ -3788,14 +4402,6 @@ app.post('/api/gib/invoices', authMiddleware, async (req, res) => {
       success: false,
       message: 'GİB faturaları getirme hatası: ' + error.message,
     });
-  } finally {
-    if (token) {
-      try {
-        await client.logout(token);
-      } catch (logoutError) {
-        console.error('[GIB Invoices Fetch] Logout Hatası:', logoutError);
-      }
-    }
   }
 });
 
@@ -3806,11 +4412,10 @@ app.post('/api/gib/download-pdf', authMiddleware, async (req, res) => {
   if (!uuid)
     return res.status(400).json({ success: false, message: 'Fatura UUID (ETTN) gereklidir.' });
 
-  let token;
   const isTest = process.env.GIB_TEST_MODE === 'true';
   const client = createFaturaClient(isTest ? 'TEST' : 'PROD');
   try {
-    token = await client.getToken(credentials.username, credentials.password);
+    const token = await gibSessionManager.getSessionToken(client, credentials.username, credentials.password, isTest ? 'TEST' : 'PROD');
     const html = await client.getInvoiceHTML(token, uuid, { signed: signed !== false });
     return res.json({ success: true, html });
   } catch (error) {
@@ -3819,14 +4424,6 @@ app.post('/api/gib/download-pdf', authMiddleware, async (req, res) => {
       success: false,
       message: 'GİB faturası HTML okuma hatası: ' + error.message,
     });
-  } finally {
-    if (token) {
-      try {
-        await client.logout(token);
-      } catch (logoutError) {
-        console.error('[GIB PDF Download/HTML] Logout Hatası:', logoutError);
-      }
-    }
   }
 });
 
@@ -3837,11 +4434,10 @@ app.post('/api/gib/invoice-details', authMiddleware, async (req, res) => {
   if (!uuid)
     return res.status(400).json({ success: false, message: 'Fatura UUID (ETTN) gereklidir.' });
 
-  let token;
   const isTest = process.env.GIB_TEST_MODE === 'true';
   const client = createFaturaClient(isTest ? 'TEST' : 'PROD');
   try {
-    token = await client.getToken(credentials.username, credentials.password);
+    const token = await gibSessionManager.getSessionToken(client, credentials.username, credentials.password, isTest ? 'TEST' : 'PROD');
     const downloadUrl = client.getDownloadURL(token, uuid, { signed: signed !== false });
 
     let xmlContent = null;
@@ -4044,13 +4640,53 @@ app.post('/api/gib/invoice-details', authMiddleware, async (req, res) => {
       success: false,
       message: 'GİB faturasından detay okunamadı: ' + error.message,
     });
-  } finally {
-    if (token) {
-      try {
-        await client.logout(token);
-      } catch (e) {}
-    }
   }
+});
+
+// GİB Oturumunu Güvenli Şekilde Sonlandırma (Kullanıcı Talebi veya Toplu İşlem Sonu)
+app.post('/api/gib/force-logout', authMiddleware, async (req, res) => {
+  const { username, credentials } = req.body;
+  const userToLogout = credentials?.username || username;
+  if (!userToLogout) {
+    return res.status(400).json({ success: false, message: 'GİB kullanıcı adı gereklidir.' });
+  }
+  const isTest = process.env.GIB_TEST_MODE === 'true';
+  const client = createFaturaClient(isTest ? 'TEST' : 'PROD');
+  try {
+    const result = await gibSessionManager.forceLogout(client, userToLogout, isTest ? 'TEST' : 'PROD');
+    return res.json(result);
+  } catch (error) {
+    console.error('[GIB Force Logout] Hata:', error);
+    return res.status(500).json({ success: false, message: 'Güvenli çıkış yapılırken hata: ' + error.message });
+  }
+});
+
+app.post('/api/gib/logout', authMiddleware, async (req, res) => {
+  const { username, credentials } = req.body;
+  const userToLogout = credentials?.username || username;
+  if (!userToLogout) {
+    return res.status(400).json({ success: false, message: 'GİB kullanıcı adı gereklidir.' });
+  }
+  const isTest = process.env.GIB_TEST_MODE === 'true';
+  const client = createFaturaClient(isTest ? 'TEST' : 'PROD');
+  try {
+    const result = await gibSessionManager.forceLogout(client, userToLogout, isTest ? 'TEST' : 'PROD');
+    return res.json(result);
+  } catch (error) {
+    console.error('[GIB Logout] Hata:', error);
+    return res.status(500).json({ success: false, message: 'Güvenli çıkış yapılırken hata: ' + error.message });
+  }
+});
+
+// GİB Oturum Durumu
+app.get('/api/gib/session-status', authMiddleware, async (req, res) => {
+  const username = req.query.username;
+  if (!username) {
+    return res.json({ active: false });
+  }
+  const isTest = process.env.GIB_TEST_MODE === 'true';
+  const active = gibSessionManager.hasActiveSession(username, isTest ? 'TEST' : 'PROD');
+  return res.json({ active });
 });
 
 

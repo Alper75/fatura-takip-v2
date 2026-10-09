@@ -21,7 +21,9 @@ import {
   ClipboardList,
   Download,
   BrainCircuit,
-  Scale
+  Scale,
+  TrendingUp,
+  UserCheck
 } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
 import { cn } from '@/lib/utils';
@@ -32,7 +34,18 @@ interface SidebarProps {
 }
 
 export function Sidebar({ onItemClick }: SidebarProps) {
-  const { user, currentPersonnel, currentView, setCurrentView, openSatisDrawer, openAlisDrawer, logout, companies, openSirketBilgileri } = useApp();
+  const { 
+    user, 
+    currentPersonnel, 
+    currentView, 
+    setCurrentView, 
+    openSatisDrawer, 
+    openAlisDrawer, 
+    logout, 
+    companies, 
+    openSirketBilgileri,
+    canAccess 
+  } = useApp();
   const [isPersonnelOpen, setIsPersonnelOpen] = useState(false);
   const [isEntegrasyonOpen, setIsEntegrasyonOpen] = useState(false);
 
@@ -68,6 +81,7 @@ export function Sidebar({ onItemClick }: SidebarProps) {
     actionTitle?: string;
     adminOnly?: boolean;
     superAdminOnly?: boolean;
+    permission?: string;
   }
 
   interface MenuGroup {
@@ -105,7 +119,7 @@ export function Sidebar({ onItemClick }: SidebarProps) {
           icon: FileText,
           onClick: () => setCurrentView('kesilecek-fatura-liste'),
           view: 'kesilecek-fatura-liste',
-          adminOnly: true
+          permission: 'satisFaturalari'
         },
         {
           id: 'satis-liste',
@@ -116,7 +130,7 @@ export function Sidebar({ onItemClick }: SidebarProps) {
           actionIcon: FilePlus,
           onActionClick: () => openSatisDrawer(),
           actionTitle: 'Yeni Satış Faturası Ekle',
-          adminOnly: true
+          permission: 'satisFaturalari'
         },
         {
           id: 'alis-liste',
@@ -127,7 +141,7 @@ export function Sidebar({ onItemClick }: SidebarProps) {
           actionIcon: FilePlus,
           onActionClick: () => openAlisDrawer(),
           actionTitle: 'Yeni Alış Faturası Ekle',
-          adminOnly: true
+          permission: 'alisFaturalari'
         },
         {
           id: 'muhasebe-fis-inceleme',
@@ -135,7 +149,7 @@ export function Sidebar({ onItemClick }: SidebarProps) {
           icon: Scale,
           onClick: () => setCurrentView('muhasebe-fis-inceleme'),
           view: 'muhasebe-fis-inceleme',
-          adminOnly: true
+          permission: 'muhasebeLuca'
         },
         {
           id: 'teklif-liste',
@@ -143,7 +157,7 @@ export function Sidebar({ onItemClick }: SidebarProps) {
           icon: FileSignature,
           onClick: () => setCurrentView('teklif-liste'),
           view: 'teklif-liste',
-          adminOnly: true
+          permission: 'teklifSiparis'
         },
         {
           id: 'siparis-liste',
@@ -151,7 +165,7 @@ export function Sidebar({ onItemClick }: SidebarProps) {
           icon: ClipboardList,
           onClick: () => setCurrentView('siparis-liste'),
           view: 'siparis-liste',
-          adminOnly: true
+          permission: 'teklifSiparis'
         }
       ]
     },
@@ -164,7 +178,7 @@ export function Sidebar({ onItemClick }: SidebarProps) {
           icon: Users,
           onClick: () => setCurrentView('cari-liste'),
           view: 'cari-liste',
-          adminOnly: true
+          permission: 'cariler'
         },
         {
           id: 'banka-liste',
@@ -172,7 +186,7 @@ export function Sidebar({ onItemClick }: SidebarProps) {
           icon: Landmark,
           onClick: () => setCurrentView('banka-liste'),
           view: 'banka-liste',
-          adminOnly: true
+          permission: 'bankaFinans'
         },
         {
           id: 'banka-ekstre-liste',
@@ -180,7 +194,7 @@ export function Sidebar({ onItemClick }: SidebarProps) {
           icon: CreditCard,
           onClick: () => setCurrentView('banka-ekstre-liste'),
           view: 'banka-ekstre-liste',
-          adminOnly: true
+          permission: 'bankaFinans'
         },
         {
           id: 'cek-senet-liste',
@@ -188,7 +202,15 @@ export function Sidebar({ onItemClick }: SidebarProps) {
           icon: CreditCard,
           onClick: () => setCurrentView('cek-senet-liste'),
           view: 'cek-senet-liste',
-          adminOnly: true
+          permission: 'bankaFinans'
+        },
+        {
+          id: 'nakit-akisi',
+          label: 'Nakit Akışı & Vade Takvimi',
+          icon: TrendingUp,
+          onClick: () => setCurrentView('nakit-akisi'),
+          view: 'nakit-akisi',
+          permission: 'nakitAkisi'
         },
         {
           id: 'mutabakat-yonetimi',
@@ -196,7 +218,7 @@ export function Sidebar({ onItemClick }: SidebarProps) {
           icon: FileSignature,
           onClick: () => setCurrentView('mutabakat-yonetimi'),
           view: 'mutabakat-yonetimi',
-          adminOnly: true
+          permission: 'cariler'
         },
         {
           id: 'vergi-raporu',
@@ -204,7 +226,7 @@ export function Sidebar({ onItemClick }: SidebarProps) {
           icon: Calculator,
           onClick: () => setCurrentView('vergi-raporu'),
           view: 'vergi-raporu',
-          adminOnly: true
+          permission: 'muhasebeLuca'
         }
       ]
     },
@@ -217,7 +239,7 @@ export function Sidebar({ onItemClick }: SidebarProps) {
           icon: Receipt,
           onClick: () => setCurrentView('fatura-aktarim'),
           view: 'fatura-aktarim',
-          adminOnly: true
+          permission: 'muhasebeLuca'
         },
         {
           id: 'luca-ayarlari',
@@ -225,7 +247,7 @@ export function Sidebar({ onItemClick }: SidebarProps) {
           icon: Calculator,
           onClick: () => setCurrentView('luca-ayarlari'),
           view: 'luca-ayarlari',
-          adminOnly: true
+          permission: 'muhasebeLuca'
         },
         {
           id: 'akilli-ogrenme',
@@ -233,12 +255,12 @@ export function Sidebar({ onItemClick }: SidebarProps) {
           icon: BrainCircuit,
           onClick: () => setCurrentView('akilli-ogrenme' as any),
           view: 'akilli-ogrenme',
-          adminOnly: true
+          permission: 'muhasebeLuca'
         }
       ]
     },
     {
-      title: 'Operasyon & Dosyalar',
+      title: 'Operasyon & Depo',
       items: [
         {
           id: 'stok-yonetimi',
@@ -246,7 +268,7 @@ export function Sidebar({ onItemClick }: SidebarProps) {
           icon: Package,
           onClick: () => setCurrentView('stok-yonetimi'),
           view: 'stok-yonetimi',
-          adminOnly: true
+          permission: 'stokYonetimi'
         },
         {
           id: 'sirket-dosyalari',
@@ -257,10 +279,23 @@ export function Sidebar({ onItemClick }: SidebarProps) {
           adminOnly: true
         }
       ]
+    },
+    {
+      title: 'Yönetim',
+      items: [
+        {
+          id: 'kullanici-yonetimi',
+          label: 'Kullanıcı & Rol Yönetimi',
+          icon: UserCheck,
+          onClick: () => setCurrentView('kullanici-yonetimi'),
+          view: 'kullanici-yonetimi',
+          adminOnly: true
+        }
+      ]
     }
   ];
 
-  const personnelSubItems: { id: string; label: string; view: ViewType }[] = (isAdmin || isSuperAdmin) ? [
+  const personnelSubItems: { id: string; label: string; view: ViewType }[] = (isAdmin || isSuperAdmin || canAccess('personelIK')) ? [
     { id: 'personel-liste', label: 'Personel Listesi', view: 'personel-liste' },
     { id: 'izin-yonetimi', label: 'İzin Talepleri', view: 'izin-yonetimi' },
     { id: 'talep-yonetimi', label: 'Masraf Talepleri', view: 'talep-yonetimi' },
@@ -293,6 +328,7 @@ export function Sidebar({ onItemClick }: SidebarProps) {
           const filteredItems = group.items.filter(item => {
             if (item.superAdminOnly) return isSuperAdmin;
             if (item.adminOnly) return isAdmin || isSuperAdmin;
+            if (item.permission) return canAccess(item.permission);
             return true;
           });
 
@@ -349,7 +385,7 @@ export function Sidebar({ onItemClick }: SidebarProps) {
         })}
 
         {/* Fatura Entegrasyonları (Açılır Menü) */}
-        {(isAdmin || isSuperAdmin) && (
+        {(isAdmin || isSuperAdmin || canAccess('entegrator')) && (
           <div className="space-y-1.5 pt-1">
             <p className="text-xs font-bold text-slate-400 uppercase tracking-wider px-3 mb-2">
               Entegratör Servisleri
@@ -447,15 +483,21 @@ export function Sidebar({ onItemClick }: SidebarProps) {
         <div className="flex items-center gap-3 mb-4 px-2">
           <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
             <span className="text-xs font-bold text-primary uppercase">
-              {isSuperAdmin ? 'SA' : (user?.role === 'admin' ? 'A' : (currentPersonnel?.first_name?.[0] || 'P'))}
+              {isSuperAdmin ? 'SA' : (user?.role === 'admin' ? 'A' : (user?.name?.[0] || currentPersonnel?.first_name?.[0] || 'U'))}
             </span>
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-sm font-semibold text-slate-900 truncate">
-              {isSuperAdmin ? 'Süper Admin' : (user?.role === 'admin' ? 'Admin Kullanıcı' : `${currentPersonnel?.first_name} ${currentPersonnel?.last_name}`)}
+              {user?.name || (isSuperAdmin ? 'Süper Admin' : (user?.role === 'admin' ? 'Yönetici' : (currentPersonnel ? `${currentPersonnel.first_name} ${currentPersonnel.last_name}` : user?.tc)))}
             </p>
             <p className="text-xs text-slate-400 truncate tracking-tight">
-              {isSuperAdmin ? 'Platform Sahibi' : (user?.role === 'admin' ? 'Şirket Yöneticisi' : currentPersonnel?.position || 'Personel')}
+              {user?.role === 'super_admin' ? 'Platform Yöneticisi' :
+               user?.role === 'admin' ? 'Şirket Yöneticisi' :
+               user?.role === 'muhasebe' ? 'Muhasebe / Finans' :
+               user?.role === 'satis' ? 'Satış / Ön Muhasebe' :
+               user?.role === 'depo' ? 'Depo Sorumlusu' :
+               user?.role === 'custom' ? 'Özel Yetkili' :
+               (currentPersonnel?.position || 'Personel')}
             </p>
           </div>
         </div>

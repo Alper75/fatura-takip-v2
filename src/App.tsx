@@ -37,6 +37,8 @@ import UyumsoftGidenESMM from './sections/UyumsoftGidenESMM';
 import { SirketDosyalari } from './sections/SirketDosyalari';
 import AkilliOgrenme from './sections/AkilliOgrenme';
 import { MuhasebeFisInceleme } from './sections/MuhasebeFisInceleme';
+import NakitAkisiTakvimi from './sections/NakitAkisiTakvimi';
+import KullaniciYetkiYonetimi from './sections/KullaniciYetkiYonetimi';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 const queryClient = new QueryClient({
@@ -84,6 +86,8 @@ function AppContent() {
             return <CariListe />;
           case 'cek-senet-liste':
             return <CekSenetListe />;
+          case 'nakit-akisi':
+            return <NakitAkisiTakvimi />;
           case 'banka-liste':
             return <BankaListe />;
           case 'banka-ekstre-liste':
@@ -138,6 +142,8 @@ function AppContent() {
             return <AkilliOgrenme />;
           case 'muhasebe-fis-inceleme':
             return <MuhasebeFisInceleme />;
+          case 'kullanici-yonetimi':
+            return <KullaniciYetkiYonetimi />;
           default:
             return <Dashboard />; // Default to Dashboard if currentView is not recognized
         }

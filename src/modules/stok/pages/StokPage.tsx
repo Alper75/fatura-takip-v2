@@ -13,9 +13,11 @@ import { HareketListesi } from '../components/HareketListesi';
 import { StokSayim } from '../components/StokSayim';
 import { StokRaporlar } from '../components/StokRaporlar';
 import { StokHareketForm } from '../components/StokHareketForm';
+import { KritikStokListesi } from '../components/KritikStokListesi';
 import { 
   useUrunler, 
-  useStokHareketler 
+  useStokHareketler,
+  useCriticalProducts
 } from '../hooks/useStokQuery';
 import { 
   Package, 
@@ -27,8 +29,10 @@ import {
   ClipboardList,
   ArrowDownLeft,
   ArrowUpRight,
-  ArrowRightLeft
+  ArrowRightLeft,
+  BellRing
 } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
 
 /**
  * Main Inventory Management Page.
@@ -41,6 +45,7 @@ export const StokPage: React.FC = () => {
 
   const { data: urunler } = useUrunler();
   const { data: hareketler } = useStokHareketler();
+  const { data: criticalProducts = [] } = useCriticalProducts();
 
   // Calculate summary statistics
   const stats = useMemo(() => {
@@ -97,6 +102,37 @@ export const StokPage: React.FC = () => {
         </div>
       </div>
 
+      {/* Critical Stock Alert Banner (Real-time) */}
+      {criticalProducts.length > 0 && (
+        <div className="relative overflow-hidden bg-gradient-to-r from-amber-500 via-orange-500 to-red-500 rounded-2xl p-4 text-white shadow-lg shadow-orange-500/10 flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-in slide-in-from-top-2 duration-300">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-white/20 backdrop-blur-md flex items-center justify-center shrink-0">
+              <AlertTriangle className="w-5 h-5 text-white animate-bounce" />
+            </div>
+            <div>
+              <div className="font-extrabold text-base flex items-center gap-2">
+                <span>Kritik Stok Uyarısı</span>
+                <span className="bg-white/20 text-white text-xs px-2 py-0.5 rounded-full font-bold">
+                  {criticalProducts.length} Ürün Eşiğin Altında
+                </span>
+              </div>
+              <p className="text-xs text-white/90 font-medium mt-0.5">
+                Satış faturası kesildikçe veya stok tükendikçe otomatik Telegram botu yöneticilere anlık bildirim iletmektedir.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <Button
+              onClick={() => setActiveTab('critical')}
+              className="bg-white text-slate-900 hover:bg-slate-100 font-bold rounded-xl text-xs shadow-sm"
+              size="sm"
+            >
+              Kritik Listeyi İncele
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* Stats Cards */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
         <Card className="rounded-2xl border-none shadow-sm bg-gradient-to-br from-blue-50 to-white">
@@ -113,15 +149,20 @@ export const StokPage: React.FC = () => {
           </CardContent>
         </Card>
 
-        <Card className="rounded-2xl border-none shadow-sm bg-gradient-to-br from-red-50 to-white">
+        <Card 
+          onClick={() => setActiveTab('critical')}
+          className="rounded-2xl border-none shadow-sm bg-gradient-to-br from-red-50 to-white cursor-pointer hover:ring-2 hover:ring-red-300 transition-all"
+        >
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-bold text-red-700 uppercase">Kritik Stokta Olan</CardTitle>
             <AlertTriangle className="h-5 w-5 text-red-500" />
           </CardHeader>
           <CardContent>
-            <div className="text-3xl font-black text-slate-800">{stats.criticalItems}</div>
+            <div className="text-3xl font-black text-slate-800">
+              {criticalProducts.length > 0 ? criticalProducts.length : stats.criticalItems}
+            </div>
             <p className="text-xs text-red-600 mt-1 font-medium flex items-center">
-              Acil kontrol gereken ürünler
+              Acil kontrol gereken ürünler (İncelemek için tıkla)
             </p>
           </CardContent>
         </Card>
@@ -142,24 +183,33 @@ export const StokPage: React.FC = () => {
 
       {/* Main Tabs Container */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full space-y-6">
-        <TabsList className="bg-slate-100/80 p-1 rounded-2xl border border-slate-200/50">
-          <TabsTrigger value="products" className="rounded-xl px-6 py-2.5 font-bold data-[state=active]:bg-white data-[state=active]:shadow-sm">
+        <TabsList className="bg-slate-100/80 p-1 rounded-2xl border border-slate-200/50 flex flex-wrap gap-1">
+          <TabsTrigger value="products" className="rounded-xl px-5 py-2.5 font-bold data-[state=active]:bg-white data-[state=active]:shadow-sm">
             <Package className="w-4 h-4 mr-2" />
             Ürünler
           </TabsTrigger>
-          <TabsTrigger value="warehouses" className="rounded-xl px-6 py-2.5 font-bold data-[state=active]:bg-white data-[state=active]:shadow-sm">
+          <TabsTrigger value="critical" className="rounded-xl px-5 py-2.5 font-bold data-[state=active]:bg-white data-[state=active]:shadow-sm text-red-700">
+            <AlertTriangle className="w-4 h-4 mr-2 text-red-500" />
+            Kritik Stoklar
+            {criticalProducts.length > 0 && (
+              <Badge className="ml-2 bg-red-600 hover:bg-red-700 text-white text-[11px] px-1.5 py-0 rounded-full">
+                {criticalProducts.length}
+              </Badge>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="warehouses" className="rounded-xl px-5 py-2.5 font-bold data-[state=active]:bg-white data-[state=active]:shadow-sm">
             <Warehouse className="w-4 h-4 mr-2" />
             Depolar
           </TabsTrigger>
-          <TabsTrigger value="movements" className="rounded-xl px-6 py-2.5 font-bold data-[state=active]:bg-white data-[state=active]:shadow-sm">
+          <TabsTrigger value="movements" className="rounded-xl px-5 py-2.5 font-bold data-[state=active]:bg-white data-[state=active]:shadow-sm">
             <History className="w-4 h-4 mr-2" />
             Hareketler
           </TabsTrigger>
-          <TabsTrigger value="audit" className="rounded-xl px-6 py-2.5 font-bold data-[state=active]:bg-white data-[state=active]:shadow-sm">
+          <TabsTrigger value="audit" className="rounded-xl px-5 py-2.5 font-bold data-[state=active]:bg-white data-[state=active]:shadow-sm">
             <ClipboardList className="w-4 h-4 mr-2" />
             Sayım
           </TabsTrigger>
-          <TabsTrigger value="reports" className="rounded-xl px-6 py-2.5 font-bold data-[state=active]:bg-white data-[state=active]:shadow-sm text-indigo-700">
+          <TabsTrigger value="reports" className="rounded-xl px-5 py-2.5 font-bold data-[state=active]:bg-white data-[state=active]:shadow-sm text-indigo-700">
             <BarChart3 className="w-4 h-4 mr-2" />
             Raporlar
           </TabsTrigger>
@@ -167,6 +217,10 @@ export const StokPage: React.FC = () => {
 
         <TabsContent value="products" className="mt-0 outline-none">
           <UrunListesi />
+        </TabsContent>
+
+        <TabsContent value="critical" className="mt-0 outline-none">
+          <KritikStokListesi onQuickGiris={() => openHareket('GIRIS')} />
         </TabsContent>
 
         <TabsContent value="warehouses" className="mt-0 outline-none">

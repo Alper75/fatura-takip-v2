@@ -26,8 +26,10 @@ import {
   Plus,
   Zap,
   Receipt,
-  Users
+  Users,
+  Sparkles
 } from 'lucide-react';
+import { AutoReconciliationModal } from '@/components/AutoReconciliationModal';
 import { 
   Select, 
   SelectContent, 
@@ -133,6 +135,7 @@ export function BankaEkstreListesi() {
 
   // Kategori Yönetim Modali
   const [isCategoryManageOpen, setIsCategoryManageOpen] = useState(false);
+  const [isAutoReconciliationOpen, setIsAutoReconciliationOpen] = useState(false);
   const [newCatName, setNewCatName] = useState('');
   const [newCatLuca, setNewCatLuca] = useState('');
   const [newCatTip, setNewCatTip] = useState<'GIDER'|'GELIR'>('GIDER');
@@ -632,7 +635,14 @@ export function BankaEkstreListesi() {
           </h2>
           <p className="text-slate-500 mt-1">Banka hareketlerinizi ve masraflarınızı tek bir yerden yönetin.</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <Button 
+            className="gap-2 bg-gradient-to-r from-emerald-600 via-teal-600 to-indigo-600 hover:from-emerald-700 hover:to-indigo-700 text-white shadow-md shadow-emerald-600/20 font-medium"
+            onClick={() => setIsAutoReconciliationOpen(true)}
+          >
+            <Sparkles className="w-4 h-4 text-yellow-300 animate-pulse" />
+            ⚡ Akıllı Fatura Eşle & Kapat
+          </Button>
           <Button 
             variant="outline" 
             className="gap-2 border-slate-200 hover:bg-slate-50 text-slate-700"
@@ -1599,6 +1609,11 @@ export function BankaEkstreListesi() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AutoReconciliationModal 
+        isOpen={isAutoReconciliationOpen} 
+        onClose={() => setIsAutoReconciliationOpen(false)} 
+      />
     </div>
   );
 }

@@ -61,6 +61,7 @@ import { FilterBar } from '@/components/FilterBar';
 import type { FilterValues } from '@/components/FilterBar';
 import { useUrunler } from '../modules/stok/hooks/useStokQuery';
 import { AlisTopluXMLUpload } from './AlisTopluXMLUpload';
+import { ParcaliOdemeModal } from '@/components/ParcaliOdemeModal';
 
 export function AlisFaturaListesi() {
   const { 
@@ -74,12 +75,15 @@ export function AlisFaturaListesi() {
     updateAlisFaturaOdeme,
     openAlisDrawer,
     parseInvoiceXml,
-    bankaHesaplari
+    bankaHesaplari,
+    fetchAlisFaturalari,
+    fetchCariHareketler
   } = useApp();
   
   const { data: urunler } = useUrunler();
   
   const [faturaToDelete, setFaturaToDelete] = useState<string | null>(null);
+  const [selectedPartialFatura, setSelectedPartialFatura] = useState<any>(null);
   const [odemeDialogOpen, setOdemeDialogOpen] = useState(false);
   const [selectedFatura, setSelectedFatura] = useState<string | null>(null);
   const [odemeTarihi, setOdemeTarihi] = useState('');
@@ -221,11 +225,7 @@ export function AlisFaturaListesi() {
   };
 
   const openOdemeDialog = (fatura: typeof alisFaturalari[0]) => {
-    setSelectedFatura(fatura.id);
-    setOdemeTarihi(fatura.odemeTarihi || new Date().toISOString().split('T')[0]);
-    setOdemeDurumu(fatura.odemeDurumu);
-    setBankaId(''); // Reset bank selection
-    setOdemeDialogOpen(true);
+    setSelectedPartialFatura(fatura);
   };
 
   const saveOdeme = () => {
@@ -444,7 +444,12 @@ export function AlisFaturaListesi() {
                         {formatCurrency(fatura.kdvTutari)}
                       </TableCell>
                       <TableCell className="text-right font-semibold text-slate-900">
-                        {formatCurrency(fatura.toplamTutar)}
+                        <div>{formatCurrency(fatura.toplamTutar)}</div>
+                        {((fatura as any).odenenTutar > 0 || fatura.odemeDurumu === 'kismi_odendi') && fatura.odemeDurumu !== 'odendi' && (
+                          <div className="text-[10px] text-amber-800 font-semibold bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200 mt-1 inline-block">
+                            Kalan: {formatCurrency((fatura as any).kalanTutar ?? Math.max(0, fatura.toplamTutar - ((fatura as any).odenenTutar || 0)))}
+                          </div>
+                        )}
                       </TableCell>
                       <TableCell className="text-center">
                         <button
@@ -708,6 +713,17 @@ export function AlisFaturaListesi() {
       <AlisTopluXMLUpload 
         isOpen={isTopluXmlOpen} 
         onClose={() => setIsTopluXmlOpen(false)} 
+      />
+
+      <ParcaliOdemeModal
+        isOpen={Boolean(selectedPartialFatura)}
+        onClose={() => setSelectedPartialFatura(null)}
+        fatura={selectedPartialFatura}
+        faturaTipi="alis"
+        onSuccess={() => {
+          if (fetchAlisFaturalari) fetchAlisFaturalari();
+          if (fetchCariHareketler) fetchCariHareketler();
+        }}
       />
     </div>
   );

@@ -25,7 +25,9 @@ export interface SatisFatura {
   faturaTarihi: string; // Fatura düzenleme tarihi
   // Ödeme Bilgileri
   odemeTarihi?: string | null;
-  odemeDurumu: 'odenmedi' | 'odendi' | 'bekliyor';
+  odemeDurumu: OdemeDurumu;
+  odenenTutar?: number;
+  kalanTutar?: number;
   odemeDekontu?: string | null; // Ödeme dekontu PDF
   odemeDekontuAdi?: string;
   olusturmaTarihi: string;
@@ -119,7 +121,9 @@ export interface AlisFatura {
   pdfDosyaAdi?: string;
   // Ödeme
   odemeTarihi?: string | null;
-  odemeDurumu: 'odenmedi' | 'odendi' | 'bekliyor';
+  odemeDurumu: OdemeDurumu;
+  odenenTutar?: number;
+  kalanTutar?: number;
   odemeDekontu?: string | null;
   odemeDekontuAdi?: string;
   olusturmaTarihi: string;
@@ -223,16 +227,40 @@ export interface BankaHesabi {
 
 export type BankaHesabiFormData = Omit<BankaHesabi, 'id'>;
 
-// ==================== KULLANICI ====================
+// ==================== KULLANICI & RBAC ====================
+export type UserRole = 'super_admin' | 'admin' | 'muhasebe' | 'satis' | 'depo' | 'personnel' | 'custom';
+
+export interface UserPermissions {
+  satisFaturalari?: boolean;
+  alisFaturalari?: boolean;
+  teklifSiparis?: boolean;
+  cariler?: boolean;
+  bankaFinans?: boolean;
+  nakitAkisi?: boolean;
+  stokYonetimi?: boolean;
+  muhasebeLuca?: boolean;
+  entegrator?: boolean;
+  personelIK?: boolean;
+  kullaniciYonetimi?: boolean;
+  sirketAyarlari?: boolean;
+  [key: string]: boolean | undefined;
+}
+
 export interface User {
   id?: number;
   tc: string;
+  name?: string;
   email?: string;
   password?: string;
-  role: 'admin' | 'personnel' | 'super_admin';
+  role: UserRole;
+  permissions?: UserPermissions;
   token?: string;
   mustChangePassword?: boolean;
   companyId?: number;
+  status?: 'active' | 'passive';
+  createdAt?: string;
+  position?: string;
+  department?: string;
 }
 
 export interface Vehicle {
@@ -549,22 +577,39 @@ export type ViewType =
   | 'mutabakat-yonetimi'
   | 'sirket-dosyalari'
   | 'akilli-ogrenme'
-  | 'muhasebe-fis-inceleme';
+  | 'muhasebe-fis-inceleme'
+  | 'nakit-akisi'
+  | 'kullanici-yonetimi';
 
 // ==================== FATURA DURUMU ====================
-export type OdemeDurumu = 'odenmedi' | 'odendi' | 'bekliyor';
+export type OdemeDurumu = 'odenmedi' | 'odendi' | 'bekliyor' | 'kismi_odendi';
 
 export const ODEME_DURUMU_LABELS: Record<OdemeDurumu, string> = {
   'odenmedi': 'Ödenmedi',
   'odendi': 'Ödendi',
-  'bekliyor': 'Bekliyor'
+  'bekliyor': 'Bekliyor',
+  'kismi_odendi': 'Kısmi Ödendi'
 };
 
 export const ODEME_DURUMU_COLORS: Record<OdemeDurumu, string> = {
   'odenmedi': 'bg-red-100 text-red-700',
   'odendi': 'bg-green-100 text-green-700',
-  'bekliyor': 'bg-yellow-100 text-yellow-700'
+  'bekliyor': 'bg-yellow-100 text-yellow-700',
+  'kismi_odendi': 'bg-amber-100 text-amber-800 border-amber-300'
 };
+
+export interface FaturaOdemeKaydi {
+  id: string;
+  fatura_id: string;
+  fatura_tipi: 'satis' | 'alis';
+  tarih: string;
+  tutar: number;
+  banka_id?: string;
+  aciklama?: string;
+  dekont_dosya?: string | null;
+  dekont_dosya_adi?: string;
+  created_at?: string;
+}
 
 // ==================== AY LISTESI ====================
 export const AYLAR = [

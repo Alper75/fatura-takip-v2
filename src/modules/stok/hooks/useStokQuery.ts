@@ -8,7 +8,17 @@ export const STOK_KEYS = {
   depolar: () => [...STOK_KEYS.all, 'depolar'] as const,
   hareketler: () => [...STOK_KEYS.all, 'hareketler'] as const,
   kategoriler: () => [...STOK_KEYS.all, 'kategoriler'] as const,
+  kritik: () => [...STOK_KEYS.all, 'kritik'] as const,
 };
+
+// --- Critical Products Hook ---
+export function useCriticalProducts() {
+  return useQuery({
+    queryKey: STOK_KEYS.kritik(),
+    queryFn: () => stokApi.getCriticalProducts(),
+    refetchInterval: 30000,
+  });
+}
 
 // --- Products Hooks ---
 export function useUrunler() {

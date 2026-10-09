@@ -33,16 +33,20 @@ export async function initDb() {
       );
     `);
 
-    // Kullanıcılar (Users)
+    // Kullanıcılar (Users - RBAC)
     await client.execute(`
       CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         tc TEXT UNIQUE NOT NULL,
         password TEXT NOT NULL,
-        role TEXT CHECK(role IN ('admin', 'personnel', 'super_admin')) NOT NULL DEFAULT 'personnel',
+        role TEXT NOT NULL DEFAULT 'personnel',
         must_change_password BOOLEAN DEFAULT 1,
         company_id INTEGER,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        name TEXT,
+        email TEXT,
+        permissions TEXT,
+        status TEXT DEFAULT 'active',
         FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE SET NULL
       );
     `);
@@ -500,6 +504,128 @@ export async function initDb() {
         const superPassword = bcrypt.hashSync('123456', 10);
         await client.execute({ sql: "INSERT INTO users (tc, password, role, must_change_password) VALUES ('superadmin', ?, 'super_admin', 0)", args: [superPassword] });
         console.log('Default superadmin user created.');
+    }
+
+    // Fatura Parçalı Tahsilat / Ödeme Tablosu
+    await client.execute(`
+      CREATE TABLE IF NOT EXISTS fatura_tahsilatlar (
+        id TEXT PRIMARY KEY,
+        company_id INTEGER NOT NULL,
+        fatura_id TEXT NOT NULL,
+        fatura_tipi TEXT NOT NULL,
+        tarih DATE NOT NULL,
+        tutar REAL NOT NULL,
+        banka_id TEXT,
+        aciklama TEXT,
+        dekont_dosya TEXT,
+        dekont_dosya_adi TEXT,
+        cari_hareket_id TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE
+      );
+    `);
+
+    // Otomatik Fatura Tarama & Senkronizasyon Logları
+    await client.execute(`
+      CREATE TABLE IF NOT EXISTS auto_sync_logs (
+        id TEXT PRIMARY KEY,
+        company_id INTEGER NOT NULL,
+        provider TEXT NOT NULL,
+        run_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        status TEXT NOT NULL,
+        new_count INTEGER DEFAULT 0,
+        details TEXT,
+        FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE
+      );
+    `);
+
+    // Kritik Stok Seviyesi Uyarıları
+    await client.execute(`
+      CREATE TABLE IF NOT EXISTS stok_uyarilar (
+        id TEXT PRIMARY KEY,
+        company_id INTEGER NOT NULL,
+        urun_id TEXT NOT NULL,
+        mevcut_stok REAL NOT NULL,
+        minimum_stok REAL NOT NULL,
+        tetikleyen_fatura_no TEXT,
+        olusturma_tarihi DATETIME DEFAULT CURRENT_TIMESTAMP,
+        okundu BOOLEAN DEFAULT 0,
+        FOREIGN KEY (urun_id) REFERENCES stok_urunler(id) ON DELETE CASCADE,
+        FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE
+      );
+    `);
+
+    // Satis_faturalari ve Alis_faturalari için odenen_tutar ve kalan_tutar kolonları
+    try {
+      const sfCols = await client.execute(`PRAGMA table_info(satis_faturalari)`);
+      if (!sfCols.rows.some(col => col.name === 'odenen_tutar')) {
+        await client.execute(`ALTER TABLE satis_faturalari ADD COLUMN odenen_tutar REAL DEFAULT 0`);
+      }
+      if (!sfCols.rows.some(col => col.name === 'kalan_tutar')) {
+        await client.execute(`ALTER TABLE satis_faturalari ADD COLUMN kalan_tutar REAL DEFAULT 0`);
+      }
+
+      const afCols = await client.execute(`PRAGMA table_info(alis_faturalari)`);
+      if (!afCols.rows.some(col => col.name === 'odenen_tutar')) {
+        await client.execute(`ALTER TABLE alis_faturalari ADD COLUMN odenen_tutar REAL DEFAULT 0`);
+      }
+      if (!afCols.rows.some(col => col.name === 'kalan_tutar')) {
+        await client.execute(`ALTER TABLE alis_faturalari ADD COLUMN kalan_tutar REAL DEFAULT 0`);
+      }
+    } catch (e) {
+      console.warn('Fatura tahsilat kolonları senkronize edilirken uyarı:', e.message);
+    }
+
+    // RBAC: Users tablosu kolonları ve rol kısıtlaması güncellemesi
+    try {
+      const uCols = await client.execute(`PRAGMA table_info(users)`);
+      const colNames = uCols.rows.map(c => c.name);
+      if (!colNames.includes('name')) {
+        await client.execute(`ALTER TABLE users ADD COLUMN name TEXT`);
+      }
+      if (!colNames.includes('email')) {
+        await client.execute(`ALTER TABLE users ADD COLUMN email TEXT`);
+      }
+      if (!colNames.includes('permissions')) {
+        await client.execute(`ALTER TABLE users ADD COLUMN permissions TEXT`);
+      }
+      if (!colNames.includes('status')) {
+        await client.execute(`ALTER TABLE users ADD COLUMN status TEXT DEFAULT 'active'`);
+      }
+
+      // Check if users table has old CHECK constraint on role
+      const tableDefRs = await client.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='users'");
+      const tableSql = tableDefRs.rows[0]?.sql || '';
+      if (tableSql.includes("CHECK(role IN ('admin', 'personnel', 'super_admin'))")) {
+        console.log('Migrating users table to support enterprise RBAC roles...');
+        const updatedColsRs = await client.execute('PRAGMA table_info(users)');
+        const existingColumns = updatedColsRs.rows.map(c => c.name).join(', ');
+        await client.batch([
+          "PRAGMA foreign_keys=OFF",
+          "DROP TABLE IF EXISTS users_rbac_temp",
+          `CREATE TABLE users_rbac_temp (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tc TEXT UNIQUE NOT NULL,
+            password TEXT NOT NULL,
+            role TEXT NOT NULL DEFAULT 'personnel',
+            must_change_password BOOLEAN DEFAULT 1,
+            company_id INTEGER,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            name TEXT,
+            email TEXT,
+            permissions TEXT,
+            status TEXT DEFAULT 'active',
+            FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE SET NULL
+          )`,
+          `INSERT INTO users_rbac_temp (${existingColumns}) SELECT ${existingColumns} FROM users`,
+          "DROP TABLE users",
+          "ALTER TABLE users_rbac_temp RENAME TO users",
+          "PRAGMA foreign_keys=ON"
+        ], "write");
+        console.log('Users table successfully upgraded for RBAC roles.');
+      }
+    } catch (uMigErr) {
+      console.warn('RBAC users tablosu kolon/rol senkronizasyon uyarısı:', uMigErr.message);
     }
 
     console.log('Turso Database schema initialized successfully.');

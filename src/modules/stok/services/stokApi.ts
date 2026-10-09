@@ -76,5 +76,8 @@ export const stokApi = {
   }),
 
   // Analytics
-  getAnalizVerileri: () => request<any>('/analiz')
+  getAnalizVerileri: () => request<any>('/analiz'),
+
+  // Critical Stock Products
+  getCriticalProducts: () => request<any[]>('/kritik-seviyedekiler')
 };

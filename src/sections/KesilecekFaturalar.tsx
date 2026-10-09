@@ -30,7 +30,8 @@ import {
   Printer,
   Clock,
   ArrowUpDown,
-  Calendar
+  Calendar,
+  LogOut
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Label } from '@/components/ui/label';
@@ -233,10 +234,39 @@ export function KesilecekFaturalar() {
   const [gibCredentials, setGibCredentials] = useState({ username: '', password: '' });
   const [selectedInvoiceForGib, setSelectedInvoiceForGib] = useState<KesilecekFatura | null>(null);
   const [isGibSending, setIsGibSending] = useState(false);
+  const [isGibLoggingOut, setIsGibLoggingOut] = useState(false);
   const [autoSign, setAutoSign] = useState(false);
   const [gibFaturaTipi, setGibFaturaTipi] = useState('SATIS');
   const [gibStopajTipi, setGibStopajTipi] = useState('');
   const [gibStopajOrani, setGibStopajOrani] = useState('0');
+
+  // GİB Oturumunu Güvenle Kapatma (Kilitli Oturumu Açma)
+  const handleGibForceLogout = async (targetUsername?: string) => {
+    const userToLogout = targetUsername || gibCredentials.username || gibFetchCredentials.username;
+    if (!userToLogout) {
+      toast.error('Lütfen önce GİB kullanıcı adınızı girin.');
+      return;
+    }
+    setIsGibLoggingOut(true);
+    try {
+      const apiUrl = import.meta.env.DEV ? 'http://localhost:5000/api/gib/force-logout' : '/api/gib/force-logout';
+      const res = await fetch(apiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` },
+        body: JSON.stringify({ credentials: { username: userToLogout } })
+      });
+      const data = await res.json();
+      if (data.success) {
+        toast.success(data.message || 'GİB oturumu güvenli şekilde sonlandırıldı.');
+      } else {
+        toast.error(data.message || 'Çıkış yapılırken bir hata oluştu.');
+      }
+    } catch {
+      toast.error('GİB çıkış servisine bağlanılamadı.');
+    } finally {
+      setIsGibLoggingOut(false);
+    }
+  };
 
   // GİB Fetch States
   const [isGibFetchModalOpen, setIsGibFetchModalOpen] = useState(false);
@@ -815,7 +845,18 @@ export function KesilecekFaturalar() {
         // Otomatik olarak satışlara aktar
         transferToSales(selectedInvoiceForGib, newUuid, newFaturaNo);
       } else {
-        toast.error(`${result.error || 'GİB Hatası'}: ${result.message}`);
+        const errorMsg = result.message || '';
+        if (errorMsg.includes('açık') || errorMsg.includes('Güvenli Çıkış') || errorMsg.includes('oturum') || errorMsg.includes('kilit')) {
+          toast.error(`GİB Oturum Uyarısı: ${errorMsg}`, {
+            duration: 8000,
+            action: {
+              label: 'Güvenli Çıkış Yap',
+              onClick: () => handleGibForceLogout()
+            }
+          });
+        } else {
+          toast.error(`${result.error || 'GİB Hatası'}: ${result.message}`);
+        }
       }
     } catch {
       toast.error('Sunucuya bağlanılamadı.');
@@ -868,6 +909,11 @@ export function KesilecekFaturalar() {
     // Faturaları kesinlikle ilk tarihten son tarihe (kronolojik sıra) göre gönder
     for (let i = 0; i < chronologicallySortedSelected.length; i++) {
       const inv = chronologicallySortedSelected[i];
+      
+      // GİB oturum ve servis stabilitesi için faturalar arasına dinlenme koy (ilk fatura hariç)
+      if (i > 0) {
+        await new Promise(r => setTimeout(r, 1600));
+      }
       
       setBulkGibProgress(prev => ({ 
         ...prev, 
@@ -941,44 +987,63 @@ export function KesilecekFaturalar() {
           })
         : undefined;
       
-      try {
-        const response = await fetch(apiUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` },
-          body: JSON.stringify({
-            credentials: gibCredentials,
-            invoice: {
-              ...inv,
-              kalemler: safeKalemler,
-              faturaTipi: isTevkifat ? 'TEVKIFAT' : resolvedFaturaTipi,
-              stopajTipi: resolvedStopajTipi,
-              stopajOrani: resolvedStopajOrani,
-              tevkifatKodu: isTevkifat ? effectiveDefaultTevkifatKodu : (inv.tevkifatKodu || undefined),
-              tevkifatOrani: isTevkifat ? (inv.tevkifatOrani || '5/10') : undefined,
-            },
-            autoSign,
-          }),
-        });
-        const result = await response.json();
-        
-        if (result.success) {
-          successes++;
-          const newUuid = result.data?.invoiceUUID || undefined;
-          const newFaturaNo = result.data?.invoiceNo || undefined;
-          updateKesilecekFatura(inv.id, { 
-            durum: 'kesildi',
-            gibUuid: newUuid,
-            faturaNo: newFaturaNo
-          });
-          // Otomatik olarak satış faturalarına da kaydet (sessiz mod)
-          await transferToSales(inv, newUuid, newFaturaNo, true);
-        } else {
-          errors++;
-          console.error(`GİB gönderim hatası (${inv.ad} - ${inv.faturaTarihi}):`, result.message);
+      let sentSuccessfully = false;
+      let lastErrorMessage = '';
+      
+      // Her fatura için en fazla 2 deneme (GİB anlık yoğunluğuna karşı otomatik kurtarma)
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        if (attempt > 1) {
+          setBulkGibProgress(prev => ({ 
+            ...prev, 
+            currentInvoiceName: `${inv.ad || ''} ${inv.soyad || ''} (Yeniden deneniyor...)`.trim()
+          }));
+          await new Promise(r => setTimeout(r, 2200));
         }
-      } catch (err) {
+
+        try {
+          const response = await fetch(apiUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` },
+            body: JSON.stringify({
+              credentials: gibCredentials,
+              invoice: {
+                ...inv,
+                kalemler: safeKalemler,
+                faturaTipi: isTevkifat ? 'TEVKIFAT' : resolvedFaturaTipi,
+                stopajTipi: resolvedStopajTipi,
+                stopajOrani: resolvedStopajOrani,
+                tevkifatKodu: isTevkifat ? effectiveDefaultTevkifatKodu : (inv.tevkifatKodu || undefined),
+                tevkifatOrani: isTevkifat ? (inv.tevkifatOrani || '5/10') : undefined,
+              },
+              autoSign,
+            }),
+          });
+          const result = await response.json();
+          
+          if (result.success) {
+            sentSuccessfully = true;
+            successes++;
+            const newUuid = result.data?.invoiceUUID || undefined;
+            const newFaturaNo = result.data?.invoiceNo || undefined;
+            updateKesilecekFatura(inv.id, { 
+              durum: 'kesildi',
+              gibUuid: newUuid,
+              faturaNo: newFaturaNo
+            });
+            // Otomatik olarak satış faturalarına da kaydet (sessiz mod)
+            await transferToSales(inv, newUuid, newFaturaNo, true);
+            break; // Başarılı, sonraki faturaya geç
+          } else {
+            lastErrorMessage = result.message || 'GİB Hatası';
+          }
+        } catch (err: any) {
+          lastErrorMessage = err?.message || 'Ağ hatası';
+        }
+      }
+
+      if (!sentSuccessfully) {
         errors++;
-        console.error(`Ağ hatası (${inv.ad} - ${inv.faturaTarihi}):`, err);
+        console.error(`GİB gönderim hatası (${inv.ad} - ${inv.faturaTarihi}):`, lastErrorMessage);
       }
     }
     
@@ -986,6 +1051,18 @@ export function KesilecekFaturalar() {
     setIsBulkGibModalOpen(false);
     setSelectedInvoiceIdsForGib([]);
     toast.success(`Toplu işlem tamamlandı. ${successes} fatura tarih sırasıyla (kronolojik) GİB'e iletildi.${errors > 0 ? ` (${errors} hatalı)` : ''}`);
+
+    // Toplu gönderim bittiğinde GİB oturumunu arka planda güvenle kapat
+    try {
+      const logoutApiUrl = import.meta.env.DEV ? 'http://localhost:5000/api/gib/force-logout' : '/api/gib/force-logout';
+      await fetch(logoutApiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` },
+        body: JSON.stringify({ credentials: gibCredentials })
+      });
+    } catch (e) {
+      console.warn('Toplu işlem sonrası GİB çıkış uyarısı:', e);
+    }
   };
 
   const handleGibFetch = async (e: React.FormEvent) => {
@@ -1796,6 +1873,21 @@ export function KesilecekFaturalar() {
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleGibSend} className="space-y-4 py-2">
+            <div className="flex items-center justify-between pb-1 border-b">
+              <span className="text-xs font-semibold text-slate-700">GİB Giriş Bilgileri</span>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => handleGibForceLogout()}
+                disabled={isGibLoggingOut || !gibCredentials.username}
+                className="h-7 px-2 text-[11px] text-rose-600 hover:text-rose-700 hover:bg-rose-50 flex items-center gap-1 border border-rose-200"
+                title="GİB'de açık kalan oturumu kapatır ve hesabın kilidini açar"
+              >
+                {isGibLoggingOut ? <Loader2 className="w-3 h-3 animate-spin" /> : <LogOut className="w-3 h-3" />}
+                Güvenli Çıkış Yap
+              </Button>
+            </div>
             <div className="grid gap-3">
               <div className="grid gap-1.5">
                 <Label htmlFor="gib_user">Kullanıcı Kodu / VKN</Label>
@@ -1963,6 +2055,21 @@ export function KesilecekFaturalar() {
           </div>
 
           <form onSubmit={handleBulkGibSend} className="space-y-4 py-1">
+            <div className="flex items-center justify-between pb-1 border-b">
+              <span className="text-xs font-semibold text-slate-700">GİB Giriş Bilgileri</span>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => handleGibForceLogout()}
+                disabled={isGibLoggingOut || !gibCredentials.username}
+                className="h-7 px-2 text-[11px] text-rose-600 hover:text-rose-700 hover:bg-rose-50 flex items-center gap-1 border border-rose-200"
+                title="GİB'de açık kalan oturumu kapatır ve hesabın kilidini açar"
+              >
+                {isGibLoggingOut ? <Loader2 className="w-3 h-3 animate-spin" /> : <LogOut className="w-3 h-3" />}
+                Güvenli Çıkış Yap
+              </Button>
+            </div>
             <div className="grid gap-3">
               <div className="grid gap-1.5">
                 <Label htmlFor="bulk_gib_user">Kullanıcı Kodu / VKN</Label>
