@@ -26,6 +26,7 @@ import {
 } from '../hooks/useStokQuery';
 import { StokBadge } from './StokBadge';
 import { UrunForm } from './UrunForm';
+import { UrunFaturaGecmisiModal } from './UrunFaturaGecmisiModal';
 import { 
   Edit, 
   Trash2, 
@@ -36,7 +37,8 @@ import {
   ArrowUpDown, 
   MoreHorizontal,
   PackageCheck,
-  AlertTriangle
+  AlertTriangle,
+  Receipt
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { 
@@ -62,6 +64,8 @@ export const UrunListesi: React.FC = () => {
   // Modal states
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingUrun, setEditingUrun] = useState<IUrun | null>(null);
+  const [isFaturaModalOpen, setIsFaturaModalOpen] = useState(false);
+  const [selectedUrunForFatura, setSelectedUrunForFatura] = useState<IUrun | null>(null);
 
   // Data fetching
   const { data: urunler, isLoading: isUrunlerLoading } = useUrunler();
@@ -300,9 +304,18 @@ export const UrunListesi: React.FC = () => {
                             <MoreHorizontal className="h-4 w-4" />
                           </Button>
                         </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="rounded-xl w-40">
-                          <DropdownMenuItem className="cursor-pointer flex items-center" onClick={() => handleEdit(urun)}>
-                            <Edit className="mr-2 h-4 w-4 text-blue-600" /> Düzenle
+                        <DropdownMenuContent align="end" className="rounded-xl w-52 p-1.5 shadow-lg border-slate-200">
+                          <DropdownMenuItem 
+                            className="cursor-pointer flex items-center text-indigo-600 focus:text-indigo-700 focus:bg-indigo-50 font-medium py-2 rounded-lg" 
+                            onClick={() => {
+                              setSelectedUrunForFatura(urun);
+                              setIsFaturaModalOpen(true);
+                            }}
+                          >
+                            <Receipt className="mr-2.5 h-4 w-4" /> Fatura & Tedarik Geçmişi
+                          </DropdownMenuItem>
+                          <DropdownMenuItem className="cursor-pointer flex items-center py-2 rounded-lg" onClick={() => handleEdit(urun)}>
+                            <Edit className="mr-2.5 h-4 w-4 text-blue-600" /> Düzenle
                           </DropdownMenuItem>
                           <DropdownMenuItem className="cursor-pointer flex items-center text-green-600">
                             <Plus className="mr-2 h-4 w-4" /> Hızlı Giriş
@@ -383,6 +396,16 @@ export const UrunListesi: React.FC = () => {
         isOpen={isFormOpen} 
         onClose={() => setIsFormOpen(false)} 
         editingUrun={editingUrun} 
+      />
+
+      {/* Fatura & Tedarik Geçmişi Modal */}
+      <UrunFaturaGecmisiModal 
+        isOpen={isFaturaModalOpen}
+        onClose={() => {
+          setIsFaturaModalOpen(false);
+          setSelectedUrunForFatura(null);
+        }}
+        urun={selectedUrunForFatura}
       />
     </div>
   );

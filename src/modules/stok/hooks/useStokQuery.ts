@@ -167,3 +167,13 @@ export function useDeleteStokKategori() {
     },
   });
 }
+
+// --- Product Invoices & Supplier History Hook ---
+export function useUrunFaturalari(urunId: string | null | undefined) {
+  return useQuery({
+    queryKey: ['urunFaturalari', urunId],
+    queryFn: () => stokApi.getUrunFaturalari(urunId!),
+    enabled: !!urunId,
+  });
+}
+

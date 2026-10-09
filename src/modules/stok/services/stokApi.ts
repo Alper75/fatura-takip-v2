@@ -79,5 +79,8 @@ export const stokApi = {
   getAnalizVerileri: () => request<any>('/analiz'),
 
   // Critical Stock Products
-  getCriticalProducts: () => request<any[]>('/kritik-seviyedekiler')
+  getCriticalProducts: () => request<any[]>('/kritik-seviyedekiler'),
+
+  // Product Invoices & Supplier History
+  getUrunFaturalari: (id: string) => request<any>(`/urunler/${id}/faturalar`)
 };

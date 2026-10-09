@@ -4794,6 +4794,187 @@ app.delete('/api/stok/urunler/:id', authMiddleware, async (req, res) => {
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }
 });
 
+// Ürüne ait Alış ve Satış Fatura Detayları & Tedarikçi Analizi
+app.get('/api/stok/urunler/:id/faturalar', authMiddleware, async (req, res) => {
+  const urunId = req.params.id;
+  const companyId = req.user.companyId;
+
+  try {
+    // 1. Ürün bilgilerini çek
+    const uRs = await client.execute({
+      sql: `SELECT id, stok_kodu as stokKodu, barkod, urun_adi as urunAdi, ana_birim as anaBirim, birim_fiyat as birimFiyat, minimum_stok as minimumStok 
+            FROM stok_urunler WHERE id = ? AND company_id = ?`,
+      args: [urunId, companyId]
+    });
+
+    if (uRs.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Ürün bulunamadı.' });
+    }
+    const urun = uRs.rows[0];
+    const urunAdi = String(urun.urunAdi || '').trim();
+
+    // 2. Alış Faturaları (Tedarikçiden Alımlar)
+    const alisRs = await client.execute({
+      sql: `SELECT DISTINCT
+              a.id as faturaId,
+              a.fatura_no as faturaNo,
+              a.fatura_tarihi as faturaTarihi,
+              COALESCE(a.tedarikci_adi, 'Belirtilmemiş Tedarikçi') as tedarikciAdi,
+              a.tedarikci_vkn as tedarikciVkn,
+              a.mal_hizmet_adi as malHizmetAdi,
+              a.toplam_tutar as faturaToplamTutar,
+              a.matrah as faturaMatrah,
+              a.kdv_orani as kdvOrani,
+              a.kdv_tutari as kdvTutari,
+              a.odeme_durumu as odemeDurumu,
+              a.pdf_dosya as pdfDosya,
+              h.id as hareketId,
+              h.miktar,
+              h.birim_fiyat as birimFiyat,
+              h.tutar as hareketTutar,
+              h.tarih as hareketTarihi,
+              d.ad as depoAdi
+            FROM alis_faturalari a
+            LEFT JOIN stok_hareketler h ON h.bagli_fatura_id = a.id AND h.urun_id = ? AND h.tip = 'GIRIS'
+            LEFT JOIN stok_depolar d ON h.depo_id = d.id
+            WHERE a.company_id = ?
+              AND (
+                h.id IS NOT NULL
+                OR a.urun_id = ?
+                OR (a.mal_hizmet_adi IS NOT NULL AND LOWER(a.mal_hizmet_adi) LIKE LOWER(?))
+                OR (a.aciklama IS NOT NULL AND LOWER(a.aciklama) LIKE LOWER(?))
+              )
+            ORDER BY COALESCE(a.fatura_tarihi, h.tarih) DESC`,
+      args: [urunId, companyId, urunId, `%${urunAdi}%`, `%${urunAdi}%`]
+    });
+
+    // 3. Satış Faturaları (Müşteriye Satışlar)
+    const satisRs = await client.execute({
+      sql: `SELECT DISTINCT
+              s.id as faturaId,
+              s.fatura_no as faturaNo,
+              s.fatura_tarihi as faturaTarihi,
+              TRIM(COALESCE(s.ad, '') || ' ' || COALESCE(s.soyad, '')) as musteriAdi,
+              s.tc_vkn as musteriVkn,
+              s.alinan_ucret as faturaToplamTutar,
+              s.matrah as faturaMatrah,
+              s.kdv_orani as kdvOrani,
+              s.kdv_tutari as kdvTutari,
+              s.aciklama,
+              s.odeme_durumu as odemeDurumu,
+              s.pdf_dosya as pdfDosya,
+              h.id as hareketId,
+              h.miktar,
+              h.birim_fiyat as birimFiyat,
+              h.tutar as hareketTutar,
+              h.tarih as hareketTarihi,
+              d.ad as depoAdi
+            FROM satis_faturalari s
+            LEFT JOIN stok_hareketler h ON h.bagli_fatura_id = s.id AND h.urun_id = ? AND h.tip = 'CIKIS'
+            LEFT JOIN stok_depolar d ON h.depo_id = d.id
+            WHERE s.company_id = ?
+              AND (
+                h.id IS NOT NULL
+                OR s.urun_id = ?
+                OR (s.aciklama IS NOT NULL AND LOWER(s.aciklama) LIKE LOWER(?))
+              )
+            ORDER BY COALESCE(s.fatura_tarihi, h.tarih) DESC`,
+      args: [urunId, companyId, urunId, `%${urunAdi}%`]
+    });
+
+    // 4. İstatistik ve Tedarikçi Özeti Hesapla
+    let toplamAlisMiktari = 0;
+    let toplamAlisTutari = 0;
+    let minAlisFiyati = Infinity;
+    let maxAlisFiyati = 0;
+    const tedarikciMap = {};
+
+    const alisFaturalari = alisRs.rows.map(row => {
+      const miktar = parseFloat(row.miktar) || 1;
+      const birimFiyat = parseFloat(row.birimFiyat) || (parseFloat(row.faturaMatrah) ? parseFloat(row.faturaMatrah) / miktar : parseFloat(row.faturaToplamTutar) / miktar) || 0;
+      const tutar = parseFloat(row.hareketTutar) || (miktar * birimFiyat) || parseFloat(row.faturaToplamTutar) || 0;
+
+      toplamAlisMiktari += miktar;
+      toplamAlisTutari += tutar;
+
+      if (birimFiyat > 0) {
+        if (birimFiyat < minAlisFiyati) minAlisFiyati = birimFiyat;
+        if (birimFiyat > maxAlisFiyati) maxAlisFiyati = birimFiyat;
+      }
+
+      const tedAd = row.tedarikciAdi || 'Bilinmeyen Firma';
+      if (!tedarikciMap[tedAd]) {
+        tedarikciMap[tedAd] = {
+          tedarikciAdi: tedAd,
+          tedarikciVkn: row.tedarikciVkn || '',
+          faturaSayisi: 0,
+          toplamMiktar: 0,
+          toplamTutar: 0,
+          sonTarih: row.faturaTarihi || '',
+          sonBirimFiyat: birimFiyat
+        };
+      }
+      tedarikciMap[tedAd].faturaSayisi += 1;
+      tedarikciMap[tedAd].toplamMiktar += miktar;
+      tedarikciMap[tedAd].toplamTutar += tutar;
+
+      return {
+        ...row,
+        hesaplananMiktar: miktar,
+        hesaplananBirimFiyat: birimFiyat,
+        hesaplananTutar: tutar
+      };
+    });
+
+    const ortalamaAlisFiyati = toplamAlisMiktari > 0 ? (toplamAlisTutari / toplamAlisMiktari) : 0;
+    const tedarikciler = Object.values(tedarikciMap).sort((a, b) => b.toplamTutar - a.toplamTutar);
+
+    let toplamSatisMiktari = 0;
+    let toplamSatisTutari = 0;
+    const satisFaturalari = satisRs.rows.map(row => {
+      const miktar = parseFloat(row.miktar) || 1;
+      const birimFiyat = parseFloat(row.birimFiyat) || (parseFloat(row.faturaMatrah) ? parseFloat(row.faturaMatrah) / miktar : parseFloat(row.faturaToplamTutar) / miktar) || 0;
+      const tutar = parseFloat(row.hareketTutar) || (miktar * birimFiyat) || parseFloat(row.faturaToplamTutar) || 0;
+
+      toplamSatisMiktari += miktar;
+      toplamSatisTutari += tutar;
+
+      return {
+        ...row,
+        hesaplananMiktar: miktar,
+        hesaplananBirimFiyat: birimFiyat,
+        hesaplananTutar: tutar
+      };
+    });
+
+    res.json({
+      success: true,
+      data: {
+        urun,
+        istatistik: {
+          toplamAlisMiktari,
+          toplamAlisTutari,
+          ortalamaAlisFiyati,
+          minAlisFiyati: minAlisFiyati === Infinity ? 0 : minAlisFiyati,
+          maxAlisFiyati,
+          alisFaturaSayisi: alisFaturalari.length,
+          toplamSatisMiktari,
+          toplamSatisTutari,
+          satisFaturaSayisi: satisFaturalari.length,
+          anaTedarikci: tedarikciler[0] || null,
+          enSonAlis: alisFaturalari[0] || null
+        },
+        tedarikciler,
+        alisFaturalari,
+        satisFaturalari
+      }
+    });
+  } catch (e) {
+    console.error('Stok fatura detayları hatası:', e);
+    res.status(500).json({ success: false, message: e.message });
+  }
+});
+
 // Warehouses
 app.get('/api/stok/depolar', authMiddleware, async (req, res) => {
   try {
