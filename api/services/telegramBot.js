@@ -342,13 +342,14 @@ ${first.plate ? `🚗 *Plaka:* \`${first.plate}\`\n` : ''}${first.odemeSekli ? `
   }
 
   async _analyzeReceiptWithAI(base64Data, mimeType) {
-    // Şirket AI ayarlarını veritabanından al
+    const compId = this.companyId || 1;
+    // Mutabakat Yönetimi veya Şirket AI ayarlarını veritabanından al
     const [provRs, nKeyRs, nModelRs, gKeyRs, gModelRs] = await Promise.all([
-      client.execute({ sql: 'SELECT setting_value FROM company_settings WHERE company_id = ? AND setting_key = ?', args: [this.companyId, 'ai_provider'] }).catch(() => ({ rows: [] })),
-      client.execute({ sql: 'SELECT setting_value FROM company_settings WHERE company_id = ? AND setting_key = ?', args: [this.companyId, 'nvidia_api_key'] }).catch(() => ({ rows: [] })),
-      client.execute({ sql: 'SELECT setting_value FROM company_settings WHERE company_id = ? AND setting_key = ?', args: [this.companyId, 'nvidia_model'] }).catch(() => ({ rows: [] })),
-      client.execute({ sql: 'SELECT setting_value FROM company_settings WHERE company_id = ? AND setting_key = ?', args: [this.companyId, 'gemini_api_key'] }).catch(() => ({ rows: [] })),
-      client.execute({ sql: 'SELECT setting_value FROM company_settings WHERE company_id = ? AND setting_key = ?', args: [this.companyId, 'gemini_model'] }).catch(() => ({ rows: [] })),
+      client.execute({ sql: 'SELECT setting_value FROM company_settings WHERE (company_id = ? OR company_id = 1) AND setting_key = ? ORDER BY company_id DESC LIMIT 1', args: [compId, 'ai_provider'] }).catch(() => ({ rows: [] })),
+      client.execute({ sql: 'SELECT setting_value FROM company_settings WHERE (company_id = ? OR company_id = 1) AND setting_key = ? ORDER BY company_id DESC LIMIT 1', args: [compId, 'nvidia_api_key'] }).catch(() => ({ rows: [] })),
+      client.execute({ sql: 'SELECT setting_value FROM company_settings WHERE (company_id = ? OR company_id = 1) AND setting_key = ? ORDER BY company_id DESC LIMIT 1', args: [compId, 'nvidia_model'] }).catch(() => ({ rows: [] })),
+      client.execute({ sql: 'SELECT setting_value FROM company_settings WHERE (company_id = ? OR company_id = 1) AND setting_key = ? ORDER BY company_id DESC LIMIT 1', args: [compId, 'gemini_api_key'] }).catch(() => ({ rows: [] })),
+      client.execute({ sql: 'SELECT setting_value FROM company_settings WHERE (company_id = ? OR company_id = 1) AND setting_key = ? ORDER BY company_id DESC LIMIT 1', args: [compId, 'gemini_model'] }).catch(() => ({ rows: [] })),
     ]);
 
     const activeProvider = provRs.rows?.[0]?.setting_value || 'gemini';
@@ -356,6 +357,8 @@ ${first.plate ? `🚗 *Plaka:* \`${first.plate}\`\n` : ''}${first.odemeSekli ? `
     const nvidiaModel = nModelRs.rows?.[0]?.setting_value || 'meta/llama-3.2-11b-vision-instruct';
     const geminiApiKey = gKeyRs.rows?.[0]?.setting_value || process.env.VITE_GEMINI_API_KEY || process.env.GEMINI_API_KEY || '';
     const geminiModel = gModelRs.rows?.[0]?.setting_value || 'gemini-3.8-flash';
+
+    console.log(`[TelegramBot][AI] Aktif Sağlayıcı: ${activeProvider.toUpperCase()} | Model: ${activeProvider === 'nvidia' ? nvidiaModel : geminiModel}`);
 
     const prompt = `Sen uzman bir muhasebe fiş ve fatura okuma asistanısın. Görseldeki fiş veya faturayı analiz et ve SADECE aşağıdaki JSON formatında çıktı ver.
 KURAL: Eğer birden fazla KDV oranı varsa, her bir KDV oranını ayrı bir obje olarak diziye ekle.
@@ -398,13 +401,17 @@ Eğer belge okunamıyorsa: {"hata": "Belge okunamadı"}`;
               { type: 'image_url', image_url: { url: imageUrl } }
             ]
           }],
-          max_tokens: 2048,
+          max_tokens: 4096,
           temperature: 0.1
         })
       });
       const nvData = await nvRes.json();
-      responseText = nvData.choices?.[0]?.message?.content || '';
-    } else if (geminiApiKey) {
+      const choice = nvData.choices?.[0];
+      responseText = choice?.message?.content || choice?.message?.reasoning_content || '';
+    }
+    
+    // Eğer NVIDIA yanıt vermezse veya sağlayıcı Gemini ise Gemini ile çalış
+    if (!responseText && geminiApiKey) {
       const gRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${geminiApiKey}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
