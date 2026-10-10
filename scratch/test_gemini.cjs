@@ -1,9 +1,29 @@
-const axios = require('axios');
-const apiKey = 'AIzaSyDtxSJee1iz-yJJMW48ZioEBPru3lN7HME';
-const model = 'gemini-1.5-pro';
+const apiKey = 'AIzaSyDOAnAKwOlBR4uWpEn8IYvZcHGx3XCI1UY';
 
-axios.post(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
-  contents: [{ parts: [{ text: "Hello" }] }]
-})
-.then(res => console.log("SUCCESS", res.data))
-.catch(err => console.error("ERROR", err.response ? err.response.status : err.message));
+async function test() {
+  const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=' + apiKey, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ 
+      contents: [{ parts: [{ text: 'Return JSON: {"status": "ok"}' }] }],
+      generationConfig: { responseMimeType: 'application/json' }
+    })
+  });
+  const d = await res.json();
+  console.log('Gemini 2.0 Flash Response:');
+  console.log(JSON.stringify(d, null, 2));
+
+  const res38 = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=' + apiKey, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ 
+      contents: [{ parts: [{ text: 'Return JSON: {"status": "ok"}' }] }],
+      generationConfig: { responseMimeType: 'application/json' }
+    })
+  });
+  const d38 = await res38.json();
+  console.log('Gemini 3.8 Flash Response:');
+  console.log(JSON.stringify(d38, null, 2));
+}
+
+test().catch(console.error);

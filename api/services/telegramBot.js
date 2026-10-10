@@ -484,9 +484,34 @@ Eğer belge okunamıyorsa: {"hata": "Belge okunamadı"}`;
     const firstBrace = clean.indexOf('{');
     const lastBrace = clean.lastIndexOf('}');
     if (firstBrace !== -1 && lastBrace > firstBrace) {
+      const candidate = clean.substring(firstBrace, lastBrace + 1);
       try {
-        return JSON.parse(clean.substring(firstBrace, lastBrace + 1));
-      } catch (err) {}
+        const parsed = JSON.parse(candidate);
+        if (parsed && typeof parsed === 'object') return parsed;
+      } catch (err) {
+        try {
+          const fixed = candidate.replace(/,\s*([}\]])/g, '$1');
+          const parsed = JSON.parse(fixed);
+          if (parsed && typeof parsed === 'object') return parsed;
+        } catch (err2) {}
+      }
+    }
+
+    // 5. İlk [ ile son ] arasındaki dizi bloğunu dene
+    const firstSquare = clean.indexOf('[');
+    const lastSquare = clean.lastIndexOf(']');
+    if (firstSquare !== -1 && lastSquare > firstSquare) {
+      const candidate = clean.substring(firstSquare, lastSquare + 1);
+      try {
+        const parsed = JSON.parse(candidate);
+        if (Array.isArray(parsed)) return { faturalar: parsed };
+      } catch (err) {
+        try {
+          const fixed = candidate.replace(/,\s*([}\]])/g, '$1');
+          const parsed = JSON.parse(fixed);
+          if (Array.isArray(parsed)) return { faturalar: parsed };
+        } catch (err2) {}
+      }
     }
 
     console.error('[TelegramBot][AI Parse Error] Ham yanıt:', responseText);
