@@ -92,6 +92,10 @@ class TelegramBotService {
   async getFileBuffer(fileId) {
     // 1. File path al
     const res = await fetch(`https://api.telegram.org/bot${this.token}/getFile?file_id=${fileId}`);
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      throw new Error(`Telegram dosya bilgisi alınamadı (HTTP ${res.status}): ${errText}`);
+    }
     const data = await res.json();
     if (!data.ok || !data.result?.file_path) {
       throw new Error(data.description || 'Dosya bilgisi alınamadı.');
@@ -386,51 +390,90 @@ Eğer belge okunamıyorsa: {"hata": "Belge okunamadı"}`;
 
     if (activeProvider === 'nvidia' && nvidiaApiKey) {
       const imageUrl = `data:${mimeType || 'image/jpeg'};base64,${base64Data}`;
-      const nvRes = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${nvidiaApiKey}`
-        },
-        body: JSON.stringify({
-          model: nvidiaModel,
-          messages: [{
-            role: 'user',
-            content: [
-              { type: 'text', text: prompt },
-              { type: 'image_url', image_url: { url: imageUrl } }
-            ]
-          }],
-          max_tokens: 4096,
-          temperature: 0.1
-        })
-      });
-      const nvData = await nvRes.json();
-      const choice = nvData.choices?.[0];
-      responseText = choice?.message?.content || choice?.message?.reasoning_content || '';
+      
+      const callNvidia = async (targetModel) => {
+        try {
+          const nvRes = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${nvidiaApiKey}`
+            },
+            body: JSON.stringify({
+              model: targetModel,
+              messages: [{
+                role: 'user',
+                content: [
+                  { type: 'text', text: prompt },
+                  { type: 'image_url', image_url: { url: imageUrl } }
+                ]
+              }],
+              max_tokens: 4096,
+              temperature: 0.1
+            })
+          });
+
+          if (!nvRes.ok) {
+            const errBody = await nvRes.text().catch(() => '');
+            console.warn(`[TelegramBot][NVIDIA] ${targetModel} HTTP ${nvRes.status}:`, errBody);
+            return '';
+          }
+
+          const nvData = await nvRes.json();
+          const choice = nvData.choices?.[0];
+          return choice?.message?.content || choice?.message?.reasoning_content || '';
+        } catch (e) {
+          console.warn(`[TelegramBot][NVIDIA] ${targetModel} çağrı hatası:`, e.message);
+          return '';
+        }
+      };
+
+      // 1. Kullanıcının seçtiği NVIDIA modelini dene
+      const safeNvidiaModel = nvidiaModel && nvidiaModel !== 'qwen/qwen2.5-vl-72b-instruct' 
+        ? nvidiaModel 
+        : 'meta/llama-3.2-11b-vision-instruct';
+
+      responseText = await callNvidia(safeNvidiaModel);
+
+      // 2. Eğer ilk model boş döndüyse veya hata verdiyse güvenilir Meta Llama 3.2 Vision'ı dene
+      if (!responseText && safeNvidiaModel !== 'meta/llama-3.2-11b-vision-instruct') {
+        console.warn(`[TelegramBot][NVIDIA] ${safeNvidiaModel} başarısız oldu, meta/llama-3.2-11b-vision-instruct deneniyor...`);
+        responseText = await callNvidia('meta/llama-3.2-11b-vision-instruct');
+      }
     }
     
     // Eğer NVIDIA yanıt vermezse veya sağlayıcı Gemini ise Gemini ile çalış
     if (!responseText && geminiApiKey) {
-      const gRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${geminiApiKey}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{
-            parts: [
-              { text: prompt },
-              { inline_data: { mime_type: mimeType || 'image/jpeg', data: base64Data } }
-            ]
-          }],
-          generationConfig: {
-            responseMimeType: 'application/json',
-            maxOutputTokens: 2048,
-            temperature: 0.1
-          }
-        })
-      });
-      const gData = await gRes.json();
-      responseText = gData.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      try {
+        const safeGeminiModel = geminiModel && geminiModel.startsWith('gemini') ? geminiModel : 'gemini-2.5-flash';
+        const gRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${safeGeminiModel}:generateContent?key=${geminiApiKey}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{
+              parts: [
+                { text: prompt },
+                { inline_data: { mime_type: mimeType || 'image/jpeg', data: base64Data } }
+              ]
+            }],
+            generationConfig: {
+              responseMimeType: 'application/json',
+              maxOutputTokens: 2048,
+              temperature: 0.1
+            }
+          })
+        });
+
+        if (gRes.ok) {
+          const gData = await gRes.json();
+          responseText = gData.candidates?.[0]?.content?.parts?.[0]?.text || '';
+        } else {
+          const gErr = await gRes.text().catch(() => '');
+          console.warn(`[TelegramBot][Gemini] HTTP ${gRes.status}:`, gErr);
+        }
+      } catch (gCatchErr) {
+        console.warn('[TelegramBot][Gemini] İstek hatası:', gCatchErr.message);
+      }
     }
 
     if (!responseText) {

@@ -45,12 +45,9 @@ export function MutabakatYonetimi() {
   ];
 
   const PRESET_NVIDIA_MODELS = [
-    { value: 'moonshotai/kimi-k3', label: 'Moonshot Kimi K3 (Multimodal MoE - Çok Güçlü & Zeki)' },
     { value: 'meta/llama-3.2-11b-vision-instruct', label: 'Meta Llama 3.2 11B Vision (Çok Hızlı - Önerilen)' },
     { value: 'meta/llama-3.2-90b-vision-instruct', label: 'Meta Llama 3.2 90B Vision (En Yüksek Hassasiyet)' },
-    { value: 'mistralai/pixtral-12b', label: 'Mistral Pixtral 12B (Alternatif Görsel Model)' },
-    { value: 'microsoft/phi-3.5-vision-instruct', label: 'Microsoft Phi-3.5 Vision (Hafif & Hızlı)' },
-    { value: 'qwen/qwen2.5-vl-72b-instruct', label: 'Qwen 2.5 VL 72B (Gelişmiş Çok Dilli Görsel Model)' },
+    { value: 'microsoft/phi-3-vision-128k-instruct', label: 'Microsoft Phi-3 Vision 128K (Hafif & Hızlı)' },
   ];
   
   // Selection state
