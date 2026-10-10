@@ -431,8 +431,10 @@ Eğer belge okunamıyorsa: {"hata": "Belge okunamadı"}`;
       });
       const gData = await gRes.json();
       responseText = gData.candidates?.[0]?.content?.parts?.[0]?.text || '';
-    } else {
-      throw new Error('Sistemde tanımlı aktif bir Yapay Zeka (Gemini veya NVIDIA) API anahtarı bulunamadı.');
+    }
+
+    if (!responseText) {
+      throw new Error('Sistemde tanımlı aktif bir Yapay Zeka (Gemini veya NVIDIA) API anahtarı bulunamadı veya model yanıt vermedi.');
     }
 
     // JSON Temizle ve Güvenli Parse Et
