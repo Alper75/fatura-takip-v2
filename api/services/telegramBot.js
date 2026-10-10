@@ -435,21 +435,66 @@ Eğer belge okunamıyorsa: {"hata": "Belge okunamadı"}`;
       throw new Error('Sistemde tanımlı aktif bir Yapay Zeka (Gemini veya NVIDIA) API anahtarı bulunamadı.');
     }
 
-    // JSON Temizle
-    let cleanText = responseText.replace(/<think>[\s\S]*?<\/think>/gi, '').replace(/```json/gi, '').replace(/```/g, '').trim();
-    try {
-      return JSON.parse(cleanText);
-    } catch (e) {
-      const fIdx = cleanText.indexOf('{');
-      const lIdx = cleanText.lastIndexOf('}');
-      if (fIdx !== -1 && lIdx > fIdx) {
-        return JSON.parse(cleanText.substring(fIdx, lIdx + 1));
-      }
-      throw new Error('Yapay zeka yanıtı geçerli JSON formatında değil.');
+    // JSON Temizle ve Güvenli Parse Et
+    if (!responseText || typeof responseText !== 'string') {
+      throw new Error('Yapay zeka boş yanıt döndürdü.');
     }
+
+    let clean = responseText
+      .replace(/<think>[\s\S]*?<\/think>/gi, '')
+      .replace(/```(?:json)?/gi, '')
+      .replace(/```/g, '')
+      .trim();
+
+    // 1. Doğrudan parse etmeyi dene
+    try {
+      const parsed = JSON.parse(clean);
+      if (parsed && typeof parsed === 'object') {
+        if (Array.isArray(parsed)) return { faturalar: parsed };
+        return parsed;
+      }
+    } catch (e) {}
+
+    // 2. "faturalar" anahtarını içeren en uygun bloğu bul
+    const faturalarIdx = clean.indexOf('"faturalar"');
+    if (faturalarIdx !== -1) {
+      const start = clean.lastIndexOf('{', faturalarIdx);
+      const end = clean.lastIndexOf('}');
+      if (start !== -1 && end > start) {
+        try {
+          const parsed = JSON.parse(clean.substring(start, end + 1));
+          if (parsed && typeof parsed === 'object') return parsed;
+        } catch (err) {}
+      }
+    }
+
+    // 3. "hata" anahtarını içeren bloğu dene
+    const hataIdx = clean.indexOf('"hata"');
+    if (hataIdx !== -1) {
+      const start = clean.lastIndexOf('{', hataIdx);
+      const end = clean.lastIndexOf('}');
+      if (start !== -1 && end > start) {
+        try {
+          return JSON.parse(clean.substring(start, end + 1));
+        } catch (err) {}
+      }
+    }
+
+    // 4. İlk { ile son } arasındaki en geniş bloğu dene
+    const firstBrace = clean.indexOf('{');
+    const lastBrace = clean.lastIndexOf('}');
+    if (firstBrace !== -1 && lastBrace > firstBrace) {
+      try {
+        return JSON.parse(clean.substring(firstBrace, lastBrace + 1));
+      } catch (err) {}
+    }
+
+    console.error('[TelegramBot][AI Parse Error] Ham yanıt:', responseText);
+    throw new Error('Yapay zeka yanıtı geçerli JSON formatında değil.');
   }
 
   async _saveInvoiceToDatabase(item, base64Data, senderInfo) {
+    const compId = this.companyId || 1;
     const tutar = parseFloat(String(item.tutar || '0').replace(',', '.')) || 0;
     const kdvOrani = parseFloat(String(item.kdv_orani || '20')) || 0;
     const matrah = Math.round((tutar / (1 + kdvOrani / 100)) * 100) / 100;
@@ -496,7 +541,7 @@ Eğer belge okunamıyorsa: {"hata": "Belge okunamadı"}`;
         null,
         `Telegram (${senderInfo}) üzerinden otomatik aktarıldı. ${item.plate ? `Plaka: ${item.plate}` : ''}`,
         new Date().toISOString().split('T')[0],
-        this.companyId,
+        compId,
         null, null,
         item.plate || null,
         kdv1, kdv10, kdv20, 0
