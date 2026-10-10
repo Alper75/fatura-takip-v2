@@ -18,6 +18,8 @@ class TelegramBotService {
     this.lastError = null;
     this.abortController = null;
     this.pollingPromise = null;
+    this.queue = [];
+    this.isProcessingQueue = false;
   }
 
   addLog(type, message) {
@@ -86,6 +88,24 @@ class TelegramBotService {
       return await res.json();
     } catch (e) {
       console.error('[TelegramBot] Mesaj düzenleme hatası:', e.message);
+    }
+  }
+
+  async setMessageReaction(chatId, messageId, emoji = '👍') {
+    if (!this.token || !messageId) return;
+    try {
+      const res = await fetch(`https://api.telegram.org/bot${this.token}/setMessageReaction`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: chatId,
+          message_id: messageId,
+          reaction: [{ type: 'emoji', emoji }]
+        })
+      });
+      return await res.json();
+    } catch (e) {
+      console.warn('[TelegramBot] Reaction eklenemedi:', e.message);
     }
   }
 
@@ -268,7 +288,7 @@ Ben *Fatura Takip v2* Akıllı Fiş ve Fatura Asistanıyım. 🧾⚡
 
     if (!hasPhoto && !hasDoc) {
       if (text && !text.startsWith('/')) {
-        await this.sendMessage(chatId, `💡 *İpucu:* Lütfen okutmak istediğiniz fiş veya faturanın *fotoğrafını* gönderin.`);
+        await this.sendMessage(chatId, `💡 *İpucu:* Lütfen okutmak istediğiniz fiş veya faturanın *fotoğrafını* gönderin.`, { reply_to_message_id: message.message_id });
       }
       return;
     }
@@ -281,10 +301,54 @@ Ben *Fatura Takip v2* Akıllı Fiş ve Fatura Asistanıyım. 🧾⚡
       fileId = message.document.file_id;
     }
 
-    this.addLog('info', `Yeni evrak alındı: Chat ${chatId} (${fromUser})`);
+    const task = {
+      chatId,
+      messageId: message.message_id,
+      fileId,
+      fromUser
+    };
 
-    // Bekleme bildirimi gönder
-    const waitMsg = await this.sendMessage(chatId, `⏳ *Fiş görseli alındı!* Yapay zeka ile taranıyor, lütfen bekleyin...`);
+    this.queue.push(task);
+    const queuePos = this.queue.length;
+
+    this.addLog('info', `Yeni fiş kuyruğa eklendi: Chat ${chatId} (${fromUser}), Kuyruk boyutu: ${queuePos}`);
+
+    // Eğer arka planda işlem yapılıyorsa veya sırada başka fişler varsa kullanıcıyı bilgilendir
+    if (this.isProcessingQueue || queuePos > 1) {
+      await this.sendMessage(
+        chatId, 
+        `📥 *Fiş işlem sırasına alındı!* (Kuyruktaki Sıranız: #${queuePos})`, 
+        { reply_to_message_id: message.message_id }
+      );
+    }
+
+    // Kuyruk çalışmıyorsa başlat
+    this._processQueue();
+  }
+
+  async _processQueue() {
+    if (this.isProcessingQueue) return;
+    this.isProcessingQueue = true;
+
+    while (this.queue.length > 0) {
+      const currentTask = this.queue.shift();
+      try {
+        await this._processReceiptTask(currentTask);
+      } catch (err) {
+        console.error('[TelegramBot] Kuyruk işleme hatası:', err);
+      }
+    }
+
+    this.isProcessingQueue = false;
+  }
+
+  async _processReceiptTask({ chatId, messageId, fileId, fromUser }) {
+    // Bekleme bildirimi gönder (doğrudan o fotoğrafa yanıt olarak)
+    const waitMsg = await this.sendMessage(
+      chatId, 
+      `⏳ *Fiş görseli inceleniyor...* Yapay zeka taranıyor, lütfen bekleyin.`,
+      { reply_to_message_id: messageId }
+    );
     const waitMsgId = waitMsg?.result?.message_id;
 
     try {
@@ -297,10 +361,14 @@ Ben *Fatura Takip v2* Akıllı Fiş ve Fatura Asistanıyım. 🧾⚡
       if (aiResult.hata || !aiResult.faturalar || aiResult.faturalar.length === 0) {
         const errMsg = aiResult.hata || 'Görselden fatura veya fiş bilgisi okunamadı. Lütfen fişin düzgün, net ve ışıklı bir ortamda çekildiğinden emin olun.';
         this.addLog('warn', `Fiş okunamadı: ${errMsg}`);
+        
+        // Hatalı/okunamayan görsele 👎 işareti koy
+        await this.setMessageReaction(chatId, messageId, '👎');
+
         if (waitMsgId) {
           await this.editMessageText(chatId, waitMsgId, `⚠️ *Fiş Okunamadı!*\n\n${errMsg}\n\nLütfen tekrar deneyiniz.`);
         } else {
-          await this.sendMessage(chatId, `⚠️ *Fiş Okunamadı!*\n\n${errMsg}`);
+          await this.sendMessage(chatId, `⚠️ *Fiş Okunamadı!*\n\n${errMsg}`, { reply_to_message_id: messageId });
         }
         return;
       }
@@ -312,8 +380,12 @@ Ben *Fatura Takip v2* Akıllı Fiş ve Fatura Asistanıyım. 🧾⚡
         savedList.push(saved);
       }
 
-      // Telegram kullanıcıya güzel bir özet dön
+      // 🎯 GÖRSELE İŞARET KOY: Telegram'da kullanıcı fotoğrafının üzerine 👍 tepkisi ekle!
+      await this.setMessageReaction(chatId, messageId, '👍');
+
+      // Telegram kullanıcıya güzel bir özet dön (o fotoğrafa bağlı olarak)
       const first = savedList[0];
+      const countNote = savedList.length > 1 ? `\n📑 *Toplam Kalem:* ${savedList.length} adet fatura/KDV kalemi çıkarıldı.` : '';
       const summaryText = 
 `✅ *Fiş Başarıyla Sisteme Kaydedildi!* 🧾
 
@@ -322,7 +394,7 @@ Ben *Fatura Takip v2* Akıllı Fiş ve Fatura Asistanıyım. 🧾⚡
 📅 *Tarih:* ${first.faturaTarihi || new Date().toISOString().split('T')[0]}
 💰 *Toplam Tutar:* *${parseFloat(first.toplamTutar || 0).toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺*
 📊 *KDV Oranı:* %${first.kdvOrani || 0} (${parseFloat(first.kdvTutari || 0).toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺)
-🏷️ *Gider Türü:* ${first.malHizmetAdi || 'Genel Harcama'}
+🏷️ *Gider Türü:* ${first.malHizmetAdi || 'Genel Harcama'}${countNote}
 ${first.plate ? `🚗 *Plaka:* \`${first.plate}\`\n` : ''}${first.odemeSekli ? `💳 *Ödeme:* ${first.odemeSekli}\n` : ''}
 📂 *Durum:* Alış Faturaları modülüne eklendi.`;
 
@@ -331,16 +403,17 @@ ${first.plate ? `🚗 *Plaka:* \`${first.plate}\`\n` : ''}${first.odemeSekli ? `
       if (waitMsgId) {
         await this.editMessageText(chatId, waitMsgId, summaryText);
       } else {
-        await this.sendMessage(chatId, summaryText);
+        await this.sendMessage(chatId, summaryText, { reply_to_message_id: messageId });
       }
 
     } catch (err) {
       console.error('[TelegramBot] Evrak işleme hatası:', err);
       this.addLog('error', `Evrak işlenirken hata: ${err.message}`);
+      await this.setMessageReaction(chatId, messageId, '👎');
       if (waitMsgId) {
         await this.editMessageText(chatId, waitMsgId, `❌ *İşlem Hatası:*\n${err.message}`);
       } else {
-        await this.sendMessage(chatId, `❌ *İşlem Hatası:*\n${err.message}`);
+        await this.sendMessage(chatId, `❌ *İşlem Hatası:*\n${err.message}`, { reply_to_message_id: messageId });
       }
     }
   }
