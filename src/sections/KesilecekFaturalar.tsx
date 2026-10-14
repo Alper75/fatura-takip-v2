@@ -34,8 +34,23 @@ import {
   LogOut,
   Undo2,
   RefreshCw,
-  Filter
+  Filter,
+  Sparkles,
+  ChevronDown,
+  Eye,
+  EyeOff,
+  FileSpreadsheet,
+  Layers,
+  MoreHorizontal
 } from 'lucide-react';
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuLabel
+} from '@/components/ui/dropdown-menu';
 import { toast } from 'sonner';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -205,6 +220,7 @@ export function KesilecekFaturalar() {
 
   const [searchTerm, setSearchTerm] = useState('');
   const [activeTab, setActiveTab] = useState<'bekleyen' | 'kesilenler'>('bekleyen');
+  const [isFormOpen, setIsFormOpen] = useState(false);
 
   const parseGibAmount = (val: any) => {
     if (val === undefined || val === null) return 0;
@@ -505,6 +521,77 @@ export function KesilecekFaturalar() {
     const start = chronologicallySortedSelected[0]?.faturaTarihi || '-';
     const end = chronologicallySortedSelected[chronologicallySortedSelected.length - 1]?.faturaTarihi || '-';
     return { start, end };
+  }, [chronologicallySortedSelected]);
+
+  // İstatistikler (Metrik Kartları)
+  const stats = useMemo(() => {
+    const pendingList = (kesilecekFaturalar || []).filter(f => f.durum !== 'kesildi');
+    const pendingTotal = pendingList.reduce((sum, f) => sum + (Number(f.tutar) || 0), 0);
+
+    const cutPlan = (kesilecekFaturalar || []).filter(f => f.durum === 'kesildi');
+    const cutSales = satisFaturalari || [];
+    const cutTotal = cutPlan.reduce((sum, f) => sum + (Number(f.tutar) || 0), 0) +
+                     cutSales.reduce((sum, s: any) => sum + (parseFloat(s.alinanUcret) || 0), 0);
+    const cutCount = cutPlan.length + cutSales.length;
+
+    const matchedNoCount = cutPlan.filter(f => f.faturaNo && f.faturaNo !== 'Taslak').length +
+                           cutSales.filter(s => s.faturaNo).length;
+
+    return {
+      pendingCount: pendingList.length,
+      pendingTotal,
+      cutCount,
+      cutTotal,
+      matchedNoCount,
+    };
+  }, [kesilecekFaturalar, satisFaturalari]);
+
+  // Akıllı Gönderim Ön Denetim Raporu (Smart Pre-Flight Audit)
+  const smartAudit = useMemo(() => {
+    const selected = chronologicallySortedSelected;
+    let tevkifatCount = 0;
+    let stopajCount = 0;
+    let consumerCount = 0;
+    let invalidVknCount = 0;
+    let zeroAmountCount = 0;
+    let totalAmt = 0;
+    const warnings: string[] = [];
+
+    selected.forEach(inv => {
+      const vkn = String(inv.vknTckn || '').replace(/\D/g, '');
+      const tutar = Number(inv.tutar) || 0;
+      totalAmt += tutar;
+
+      if (!vkn || (vkn.length !== 10 && vkn.length !== 11)) {
+        invalidVknCount++;
+        warnings.push(`"${inv.ad}": VKN/TCKN eksik veya geçersiz (${inv.vknTckn || 'boş'})`);
+      }
+      if (vkn === '11111111111') {
+        consumerCount++;
+      }
+      if (tutar <= 0) {
+        zeroAmountCount++;
+        warnings.push(`"${inv.ad}": Tutar 0 TL olamaz`);
+      }
+      const hasTev = (inv.kalemler || []).some((k: any) => parseFloat(k.tevkifatOrani) > 0 || k.tevkifatKodu) ||
+                     parseFloat(inv.tevkifatOrani as any) > 0;
+      if (hasTev) tevkifatCount++;
+
+      const hasStp = parseFloat(inv.stopajOrani as any) > 0 || inv.stopajTipi;
+      if (hasStp) stopajCount++;
+    });
+
+    return {
+      totalSelected: selected.length,
+      totalAmt,
+      tevkifatCount,
+      stopajCount,
+      consumerCount,
+      invalidVknCount,
+      zeroAmountCount,
+      warnings,
+      isReady: invalidVknCount === 0 && zeroAmountCount === 0 && selected.length > 0
+    };
   }, [chronologicallySortedSelected]);
 
   const handleSelectAll = (checked: boolean) => {
@@ -1125,6 +1212,7 @@ export function KesilecekFaturalar() {
 
   const loadInvoiceForEdit = (f: KesilecekFatura) => {
     setEditingInvoiceId(f.id);
+    setIsFormOpen(true);
     setForm({
       ad: f.ad, soyad: f.soyad || '', vknTckn: f.vknTckn, vergiDairesi: f.vergiDairesi || '',
       adres: f.adres || '', il: f.il || '', ilce: f.ilce || '', kdvOrani: String(f.kdvOrani || 20),
@@ -1138,6 +1226,7 @@ export function KesilecekFaturalar() {
 
   const cancelEdit = () => {
     setEditingInvoiceId(null);
+    setIsFormOpen(false);
     setForm({ ad: '', soyad: '', vknTckn: '', vergiDairesi: '', adres: '', il: '', ilce: '', kdvOrani: '20', faturaTarihi: new Date().toISOString().split('T')[0], aciklama: '', cariId: 'none', kdvHesaplamaTipi: 'DAHIL' });
     setKalemler([newKalem()]);
   };
@@ -1413,9 +1502,26 @@ export function KesilecekFaturalar() {
 
   const openGibModal = (f: KesilecekFatura) => {
     setSelectedInvoiceForGib(f);
-    setGibFaturaTipi('SATIS');
-    setGibStopajTipi('');
-    setGibStopajOrani('0');
+    
+    // Akıllı Otomatik Tip Tespiti
+    const hasKalemTev = (f.kalemler || []).some((k: any) => parseFloat(k.tevkifatOrani) > 0 || k.tevkifatKodu);
+    const hasRootTev = parseFloat(f.tevkifatOrani as any) > 0 || f.tevkifatKodu;
+    if (hasKalemTev || hasRootTev) {
+      setGibFaturaTipi('TEVKIFAT');
+    } else if (f.faturaTipi && f.faturaTipi !== 'SATIS') {
+      setGibFaturaTipi(f.faturaTipi);
+    } else {
+      setGibFaturaTipi('SATIS');
+    }
+
+    const hasStopaj = parseFloat(f.stopajOrani as any) > 0 || f.stopajTipi;
+    if (hasStopaj) {
+      setGibStopajTipi(f.stopajTipi || 'V0003');
+      setGibStopajOrani(String(parseFloat(f.stopajOrani as any) || 20));
+    } else {
+      setGibStopajTipi('');
+      setGibStopajOrani('0');
+    }
     setIsGibModalOpen(true);
   };
 
@@ -1913,396 +2019,581 @@ export function KesilecekFaturalar() {
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h2 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
-            <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center">
-              <FilePlus className="w-6 h-6 text-blue-600" />
+    <div className="space-y-5">
+      {/* 1. Üst Başlık & Global Eylemler */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-4 sm:p-5 rounded-2xl border border-slate-200/80 shadow-xs">
+        <div className="flex items-center gap-3">
+          <div className="w-11 h-11 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white shadow-md shadow-blue-500/20 shrink-0">
+            <FilePlus className="w-6 h-6" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <h2 className="text-xl font-bold text-slate-900 tracking-tight">
+                Kesilecek Faturalar
+              </h2>
+              <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200 flex items-center gap-1">
+                <Sparkles className="w-3 h-3 text-blue-500" />
+                Akıllı e-Arşiv Merkezi
+              </span>
             </div>
-            Kesilecek Faturalar
-          </h2>
-          <p className="text-slate-500 mt-1">Sıraya alınmış ve toplu kesilecek faturaları yönetin</p>
+            <p className="text-xs text-slate-500 mt-0.5">
+              GİB e-Arşiv portalına toplu gönderim, kronolojik sıra güvencesi ve resmi fatura no eşleştirme
+            </p>
+          </div>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <Button variant="outline" onClick={downloadTemplate} className="gap-2 h-10">
-            <Download className="w-4 h-4" /> Şablon İndir
+
+        <div className="flex items-center gap-2 flex-wrap">
+          <Button
+            onClick={() => setIsFormOpen(!isFormOpen)}
+            className={cn(
+              "gap-2 h-9 text-xs font-bold transition-all shadow-xs cursor-pointer",
+              isFormOpen 
+                ? "bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-200" 
+                : "bg-blue-600 hover:bg-blue-700 text-white shadow-blue-600/20"
+            )}
+          >
+            {isFormOpen ? <EyeOff className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
+            {isFormOpen ? 'Formu Kapat' : '+ Yeni Fatura Planla'}
           </Button>
-          <div className="relative">
-            <input type="file" id="excel-upload" className="hidden" accept=".xlsx,.xls" onChange={handleExcelUpload} />
-            <Button onClick={() => document.getElementById('excel-upload')?.click()} className="gap-2 h-10 bg-emerald-600 hover:bg-emerald-700 text-white">
-              <Upload className="w-4 h-4" /> Excel Yükle
-            </Button>
+
+          {/* Excel İşlemleri Dropdown */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" className="gap-1.5 h-9 text-xs font-semibold border-slate-200 text-slate-700 bg-white hover:bg-slate-50">
+                <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+                <span>Excel ▾</span>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuItem onClick={downloadTemplate} className="cursor-pointer gap-2 text-xs">
+                <Download className="w-3.5 h-3.5 text-slate-500" />
+                <span>Excel Şablonu İndir</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => document.getElementById('excel-upload')?.click()} className="cursor-pointer gap-2 text-xs">
+                <Upload className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Excel'den Toplu Yükle</span>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          <input type="file" id="excel-upload" className="hidden" accept=".xlsx,.xls" onChange={handleExcelUpload} />
+        </div>
+      </div>
+
+      {/* 2. KPI Metrik Özet Kartları */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+        {/* Bekleyen Kartı */}
+        <div 
+          onClick={() => setActiveTab('bekleyen')}
+          className={cn(
+            "p-3.5 sm:p-4 rounded-xl border transition-all cursor-pointer relative overflow-hidden group",
+            activeTab === 'bekleyen' 
+              ? "bg-amber-50/70 border-amber-300 ring-2 ring-amber-200/80 shadow-xs" 
+              : "bg-white border-slate-200 hover:border-slate-300 shadow-2xs"
+          )}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-bold text-amber-800 uppercase tracking-wider flex items-center gap-1.5">
+              <Clock className="w-3.5 h-3.5 text-amber-600" />
+              Bekleyen Faturalar
+            </span>
+            <span className="text-[10px] font-bold bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full border border-amber-200">
+              {stats.pendingCount} Adet
+            </span>
+          </div>
+          <div className="mt-2 text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
+            {formatCurrency(stats.pendingTotal)}
+          </div>
+          <p className="text-[11px] text-slate-500 mt-0.5">GİB portalına iletilmeyi bekliyor</p>
+        </div>
+
+        {/* Kesilen / Onaylanan Kartı */}
+        <div 
+          onClick={() => setActiveTab('kesilenler')}
+          className={cn(
+            "p-3.5 sm:p-4 rounded-xl border transition-all cursor-pointer relative overflow-hidden group",
+            activeTab === 'kesilenler' 
+              ? "bg-emerald-50/70 border-emerald-300 ring-2 ring-emerald-200/80 shadow-xs" 
+              : "bg-white border-slate-200 hover:border-slate-300 shadow-2xs"
+          )}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-bold text-emerald-800 uppercase tracking-wider flex items-center gap-1.5">
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+              Kesilen & Onaylanan
+            </span>
+            <span className="text-[10px] font-bold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full border border-emerald-200">
+              {stats.cutCount} Adet
+            </span>
+          </div>
+          <div className="mt-2 text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
+            {formatCurrency(stats.cutTotal)}
+          </div>
+          <p className="text-[11px] text-slate-500 mt-0.5">GİB'de onaylanmış ve sisteme işlenmiş</p>
+        </div>
+
+        {/* Akıllı GİB Durumu */}
+        <div className="p-3.5 sm:p-4 rounded-xl border bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-950 text-white border-slate-700 shadow-xs relative overflow-hidden">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+              <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+              GİB Numarası Eşleşmesi
+            </span>
+            <span className="text-[10px] font-bold bg-white/10 text-emerald-300 px-2 py-0.5 rounded-full border border-white/10">
+              {stats.matchedNoCount} Eşleşen
+            </span>
+          </div>
+          <div className="mt-2 text-xl sm:text-2xl font-black text-white tracking-tight flex items-baseline gap-2">
+            <span>{stats.matchedNoCount}</span>
+            <span className="text-xs font-medium text-slate-400 font-sans">resmi no tanımlı</span>
+          </div>
+          <div className="mt-1 flex items-center gap-2 pt-0.5">
+            <button
+              type="button"
+              onClick={openGibQueryModal}
+              className="text-[11px] font-bold text-blue-300 hover:text-white underline underline-offset-2 transition-colors cursor-pointer"
+            >
+              GİB'den Sorgula & Eşle
+            </button>
+            <span className="text-slate-500">·</span>
+            <button
+              type="button"
+              onClick={() => {
+                setIsGibFetchModalOpen(true);
+                setGibInvoices([]);
+              }}
+              className="text-[11px] font-bold text-amber-300 hover:text-white underline underline-offset-2 transition-colors cursor-pointer"
+            >
+              Faturaları Çek
+            </button>
           </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Form Kartı */}
-        <Card className="lg:col-span-5 border-0 shadow-sm ring-1 ring-slate-200">
-          <CardHeader>
-            <CardTitle className="text-lg">Fatura Planı Ekle</CardTitle>
-            <CardDescription>Müşteri bilgileri ve ürün/hizmet kalemlerini girin</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={handleAdd} className="space-y-4">
-              {/* Cari seçimi */}
-              <div className="space-y-2">
-                <Label>Cari Karttan Seç (Opsiyonel)</Label>
-                <select
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                  value={form.cariId} onChange={e => handleCariChange(e.target.value)}
+      {/* 3. Ana Gövde (Form + Tablo) */}
+      <div className={cn(
+        "transition-all",
+        isFormOpen ? "grid grid-cols-1 lg:grid-cols-12 gap-6" : "w-full"
+      )}>
+        {/* Form Kartı (Açılıp Kapanabilir) */}
+        {isFormOpen && (
+          <Card className="lg:col-span-5 border-0 shadow-sm ring-1 ring-slate-200 h-fit sticky top-4">
+            <CardHeader className="pb-3 border-b bg-slate-50/50">
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="text-base font-bold text-slate-900 flex items-center gap-1.5">
+                    {editingInvoiceId ? <Edit2 className="w-4 h-4 text-emerald-600" /> : <Plus className="w-4 h-4 text-blue-600" />}
+                    {editingInvoiceId ? 'Fatura Planını Düzenle' : 'Yeni Fatura Planı Ekle'}
+                  </CardTitle>
+                  <CardDescription className="text-xs mt-0.5">
+                    Müşteri bilgileri ve ürün/hizmet kalemlerini girin
+                  </CardDescription>
+                </div>
+                <Button 
+                  variant="ghost" 
+                  size="icon" 
+                  onClick={cancelEdit} 
+                  className="h-7 w-7 text-slate-400 hover:text-slate-700" 
+                  title="Formu Kapat"
                 >
-                  <option value="none">-- Manuel Giriş --</option>
-                  {cariler?.map(c => <option key={c.id} value={c.id}>{c.unvan}</option>)}
-                </select>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1"><Label className="text-xs">Firma Ünvanı / Ad *</Label><Input value={form.ad} onChange={e => setForm({...form, ad: e.target.value})} className="h-9" /></div>
-                <div className="space-y-1"><Label className="text-xs">Soyad</Label><Input value={form.soyad} onChange={e => setForm({...form, soyad: e.target.value})} className="h-9" /></div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <Label className="text-xs">VKN / TCKN *</Label>
-                  <div className="flex gap-1">
-                    <Input value={form.vknTckn} onChange={e => setForm({...form, vknTckn: e.target.value})} className="h-9" />
-                    <Button type="button" onClick={handleVknLookup} disabled={isVknLoading} variant="outline" className="h-9 px-2 shrink-0 bg-blue-50 text-blue-600 border-blue-200 hover:bg-blue-100 hover:text-blue-700" title="GİB'den Müşteri Sorgula">
-                      {isVknLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
-                    </Button>
-                  </div>
-                </div>
-                <div className="space-y-1"><Label className="text-xs">Vergi Dairesi</Label><Input value={form.vergiDairesi} onChange={e => setForm({...form, vergiDairesi: e.target.value})} className="h-9" /></div>
-              </div>
-              <div className="space-y-1"><Label className="text-xs">Fatura Tarihi</Label><Input type="date" value={form.faturaTarihi} onChange={e => setForm({...form, faturaTarihi: e.target.value})} className="h-9" /></div>
-              <div className="space-y-1"><Label className="text-xs">Tam Adres</Label><Input value={form.adres} onChange={e => setForm({...form, adres: e.target.value})} className="h-9" /></div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1"><Label className="text-xs">İl</Label><Input value={form.il} onChange={e => setForm({...form, il: e.target.value})} className="h-9" /></div>
-                <div className="space-y-1"><Label className="text-xs">İlçe</Label><Input value={form.ilce} onChange={e => setForm({...form, ilce: e.target.value})} className="h-9" /></div>
-              </div>
-              <div className="space-y-1"><Label className="text-xs">Fatura Açıklaması</Label><Textarea value={form.aciklama} onChange={e => setForm({...form, aciklama: e.target.value})} className="resize-none h-14" /></div>
-
-              {/* Kalem Listesi */}
-              <div className="space-y-2">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b pb-2">
-                  <Label className="text-xs font-semibold text-blue-700 flex items-center gap-1"><Package className="w-3.5 h-3.5" /> Ürün / Hizmet Kalemleri</Label>
-                  <div className="flex items-center gap-2">
-                    <select
-                      className="h-7 text-xs rounded-md border border-input bg-background px-2 py-1"
-                      value={form.kdvHesaplamaTipi}
-                      onChange={e => setForm({ ...form, kdvHesaplamaTipi: e.target.value as 'DAHIL' | 'HARIC' })}
-                    >
-                      <option value="DAHIL">Fiyat: KDV Dahil</option>
-                      <option value="HARIC">Fiyat: KDV Hariç</option>
-                    </select>
-                    <Button type="button" size="sm" variant="outline" onClick={addKalem} className="h-7 text-xs gap-1"><Plus className="w-3 h-3" />Kalem Ekle</Button>
-                  </div>
-                </div>
-
-                <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
-                  {kalemler.map((k) => (
-                    <div key={k.id} className="border rounded-lg p-3 bg-slate-50/50 space-y-2 relative">
-                      {kalemler.length > 1 && (
-                        <button type="button" onClick={() => removeKalem(k.id)} className="absolute top-2 right-2 text-slate-300 hover:text-red-500 transition-colors">
-                          <X className="w-3.5 h-3.5" />
-                        </button>
-                      )}
-
-                      {/* Stoktan seç */}
-                      <div className="space-y-1">
-                        <Label className="text-[10px] text-slate-400 font-medium">Stoktan Seç (Opsiyonel)</Label>
-                        <Select
-                          value={k.urunId || 'none'}
-                          onValueChange={(val) => selectUrunForKalem(k.id, val)}
-                        >
-                          <SelectTrigger className="h-8 text-xs bg-white">
-                            <SelectValue placeholder="Stok ürünü seç..." />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="none">-- Manuel giriş --</SelectItem>
-                            {urunler?.map(u => (
-                              <SelectItem key={u.id} value={u.id}>{u.urunAdi} ({u.stokKodu})</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-
-                      <div className="space-y-1">
-                        <Label className="text-[10px] text-slate-400">Ürün / Hizmet Adı</Label>
-                        <Input value={k.ad} onChange={e => updateKalem(k.id, 'ad', e.target.value)} className="h-8 text-sm" placeholder="Ürün veya hizmet adı" />
-                      </div>
-
-                      <div className="grid grid-cols-4 gap-2">
-                        <div className="space-y-1">
-                          <Label className="text-[10px] text-slate-400">Miktar</Label>
-                          <Input type="number" min="0.01" step="0.01" value={k.miktar} onChange={e => updateKalem(k.id, 'miktar', parseFloat(e.target.value) || 0)} className="h-8 text-sm" />
-                        </div>
-                        <div className="space-y-1">
-                          <Label className="text-[10px] text-slate-400">Birim</Label>
-                          <select value={k.birim} onChange={e => updateKalem(k.id, 'birim', e.target.value)} className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs">
-                            {BIRIM_KODLARI.map(b => <option key={b.value} value={b.value}>{b.label}</option>)}
-                          </select>
-                        </div>
-                        <div className="space-y-1">
-                          <Label className="text-[10px] text-slate-400">B.Fiyat ₺</Label>
-                          <Input type="number" min="0" step="0.01" value={k.birimFiyat || ''} onChange={e => updateKalem(k.id, 'birimFiyat', parseFloat(e.target.value) || 0)} className="h-8 text-sm" />
-                        </div>
-                        <div className="space-y-1">
-                          <Label className="text-[10px] text-slate-400">KDV %</Label>
-                          <select value={k.kdvOrani} onChange={e => updateKalem(k.id, 'kdvOrani', parseInt(e.target.value))} className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs">
-                            {KDV_ORANLARI.map(o => <option key={o} value={o}>%{o}</option>)}
-                          </select>
-                        </div>
-                      </div>
-
-                      {/* KDV Tevkifatı - çift seçici */}
-                      <div className="grid grid-cols-2 gap-2">
-                        <div className="space-y-1">
-                          <Label className="text-[10px] text-amber-700 font-medium">KDV Tevkifat Oranı</Label>
-                          <select
-                            value={k.tevkifatOrani}
-                            onChange={e => updateKalem(k.id, 'tevkifatOrani', parseInt(e.target.value))}
-                            className="h-8 w-full rounded-md border border-amber-100 bg-background px-2 text-xs"
-                          >
-                            {TEVKIFAT_ORAN_SECENEKLERI.map(o => (
-                              <option key={o.value} value={o.value}>{o.label}</option>
-                            ))}
-                          </select>
-                        </div>
-                        <div className="space-y-1">
-                          <Label className="text-[10px] text-amber-700 font-medium">Tevkifat Kodu</Label>
-                          <select
-                            value={k.tevkifatKodu || ''}
-                            onChange={e => updateKalem(k.id, 'tevkifatKodu', e.target.value)}
-                            className="h-8 w-full rounded-md border border-amber-100 bg-background px-2 text-xs"
-                            disabled={!k.tevkifatOrani}
-                          >
-                            {TEVKIFAT_KODLARI.map(kod => (
-                              <option key={kod.value} value={kod.value}>{kod.label}</option>
-                            ))}
-                          </select>
-                        </div>
-                      </div>
-
-                      <div className="text-right text-xs text-slate-500">
-                        Matrah: <span className="font-bold text-slate-700">{formatCurrency(k.birimFiyat * k.miktar)}</span>
-                        {' · '}KDV: <span className="font-bold text-emerald-700">{formatCurrency((k.birimFiyat * k.miktar) * (k.kdvOrani / 100))}</span>
-                        {k.tevkifatOrani > 0 && (
-                          <span className="text-amber-600">
-                            {' · '}Tevk: -{formatCurrency(
-                              (k.birimFiyat * k.miktar) * (k.kdvOrani / 100) * (k.tevkifatOrani / 100)
-                            )}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                {/* Toplam özeti */}
-                <div className="bg-blue-50 rounded-lg p-3 text-xs flex justify-between items-center border border-blue-100">
-                  <div className="space-y-0.5 text-slate-600">
-                    <div>Matrah: <strong>{formatCurrency(kalemToplam.matrah)}</strong></div>
-                    <div>Toplam KDV: <strong>{formatCurrency(kalemToplam.kdv)}</strong></div>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-slate-400 text-[10px]">GENEL TOPLAM</div>
-                    <div className="text-xl font-bold text-blue-700">{formatCurrency(kalemToplam.toplam)}</div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex gap-2 mt-4">
-                <Button type="submit" className={cn("flex-1 h-11 gap-2 font-semibold", editingInvoiceId ? "bg-emerald-600 hover:bg-emerald-700" : "bg-blue-600 hover:bg-blue-700")}>
-                  {editingInvoiceId ? <CheckCircle2 className="w-4 h-4" /> : <Plus className="w-4 h-4" />} 
-                  {editingInvoiceId ? 'Değişiklikleri Kaydet' : 'Planla ve Listeye Ekle'}
+                  <X className="w-4 h-4" />
                 </Button>
-                {editingInvoiceId && (
-                  <Button type="button" variant="outline" onClick={cancelEdit} className="h-11">İptal</Button>
-                )}
               </div>
-            </form>
-          </CardContent>
-        </Card>
+            </CardHeader>
+            <CardContent className="pt-4">
+              <form onSubmit={handleAdd} className="space-y-4">
+                {/* Cari seçimi */}
+                <div className="space-y-1">
+                  <Label className="text-xs font-semibold">Cari Karttan Seç (Opsiyonel)</Label>
+                  <select
+                    className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1.5 text-xs"
+                    value={form.cariId} onChange={e => handleCariChange(e.target.value)}
+                  >
+                    <option value="none">-- Manuel Giriş --</option>
+                    {cariler?.map(c => <option key={c.id} value={c.id}>{c.unvan}</option>)}
+                  </select>
+                </div>
 
-        {/* Liste Kartı */}
-        <Card className="lg:col-span-7 border-0 shadow-sm ring-1 ring-slate-200 overflow-hidden">
-          <CardHeader className="bg-slate-50/30 border-b pb-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div className="flex items-center gap-4 border-b border-slate-100 pb-1 sm:pb-0 sm:border-0">
+                <div className="grid grid-cols-2 gap-2.5">
+                  <div className="space-y-1">
+                    <Label className="text-[11px] font-semibold">Firma Ünvanı / Ad *</Label>
+                    <Input value={form.ad} onChange={e => setForm({...form, ad: e.target.value})} className="h-8 text-xs" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-[11px] font-semibold">Soyad</Label>
+                    <Input value={form.soyad} onChange={e => setForm({...form, soyad: e.target.value})} className="h-8 text-xs" />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2.5">
+                  <div className="space-y-1">
+                    <Label className="text-[11px] font-semibold">VKN / TCKN *</Label>
+                    <div className="flex gap-1">
+                      <Input value={form.vknTckn} onChange={e => setForm({...form, vknTckn: e.target.value})} className="h-8 text-xs font-mono" />
+                      <Button type="button" onClick={handleVknLookup} disabled={isVknLoading} variant="outline" className="h-8 px-2 shrink-0 bg-blue-50 text-blue-600 border-blue-200 hover:bg-blue-100" title="GİB'den Müşteri Sorgula">
+                        {isVknLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
+                      </Button>
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-[11px] font-semibold">Vergi Dairesi</Label>
+                    <Input value={form.vergiDairesi} onChange={e => setForm({...form, vergiDairesi: e.target.value})} className="h-8 text-xs" />
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-[11px] font-semibold">Fatura Tarihi</Label>
+                  <Input type="date" value={form.faturaTarihi} onChange={e => setForm({...form, faturaTarihi: e.target.value})} className="h-8 text-xs" />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-[11px] font-semibold">Tam Adres</Label>
+                  <Input value={form.adres} onChange={e => setForm({...form, adres: e.target.value})} className="h-8 text-xs" />
+                </div>
+                <div className="grid grid-cols-2 gap-2.5">
+                  <div className="space-y-1"><Label className="text-[11px] font-semibold">İl</Label><Input value={form.il} onChange={e => setForm({...form, il: e.target.value})} className="h-8 text-xs" /></div>
+                  <div className="space-y-1"><Label className="text-[11px] font-semibold">İlçe</Label><Input value={form.ilce} onChange={e => setForm({...form, ilce: e.target.value})} className="h-8 text-xs" /></div>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-[11px] font-semibold">Fatura Açıklaması</Label>
+                  <Textarea value={form.aciklama} onChange={e => setForm({...form, aciklama: e.target.value})} className="resize-none h-12 text-xs" />
+                </div>
+
+                {/* Kalem Listesi */}
+                <div className="space-y-2 border-t pt-2.5">
+                  <div className="flex items-center justify-between gap-2 border-b pb-1.5">
+                    <Label className="text-xs font-bold text-blue-700 flex items-center gap-1">
+                      <Package className="w-3.5 h-3.5" /> Ürün / Hizmet Kalemleri
+                    </Label>
+                    <div className="flex items-center gap-1.5">
+                      <select
+                        className="h-7 text-[11px] rounded-md border border-input bg-background px-1.5"
+                        value={form.kdvHesaplamaTipi}
+                        onChange={e => setForm({ ...form, kdvHesaplamaTipi: e.target.value as 'DAHIL' | 'HARIC' })}
+                      >
+                        <option value="DAHIL">KDV Dahil</option>
+                        <option value="HARIC">KDV Hariç</option>
+                      </select>
+                      <Button type="button" size="sm" variant="outline" onClick={addKalem} className="h-7 text-[11px] gap-1 px-2 font-semibold">
+                        <Plus className="w-3 h-3" /> Ekle
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+                    {kalemler.map((k) => (
+                      <div key={k.id} className="border rounded-lg p-2.5 bg-slate-50/60 space-y-2 relative">
+                        {kalemler.length > 1 && (
+                          <button type="button" onClick={() => removeKalem(k.id)} className="absolute top-2 right-2 text-slate-300 hover:text-red-500 transition-colors">
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+
+                        <div className="space-y-0.5">
+                          <Label className="text-[10px] text-slate-400">Ürün / Hizmet Adı</Label>
+                          <Input value={k.ad} onChange={e => updateKalem(k.id, 'ad', e.target.value)} className="h-7 text-xs" placeholder="Hizmet veya ürün" />
+                        </div>
+
+                        <div className="grid grid-cols-4 gap-1.5">
+                          <div>
+                            <Label className="text-[9px] text-slate-400">Miktar</Label>
+                            <Input type="number" min="0.01" step="0.01" value={k.miktar} onChange={e => updateKalem(k.id, 'miktar', parseFloat(e.target.value) || 0)} className="h-7 text-xs" />
+                          </div>
+                          <div>
+                            <Label className="text-[9px] text-slate-400">Birim</Label>
+                            <select value={k.birim} onChange={e => updateKalem(k.id, 'birim', e.target.value)} className="h-7 w-full rounded border border-input bg-background px-1 text-[11px]">
+                              {BIRIM_KODLARI.map(b => <option key={b.value} value={b.value}>{b.label}</option>)}
+                            </select>
+                          </div>
+                          <div>
+                            <Label className="text-[9px] text-slate-400">B.Fiyat ₺</Label>
+                            <Input type="number" min="0" step="0.01" value={k.birimFiyat || ''} onChange={e => updateKalem(k.id, 'birimFiyat', parseFloat(e.target.value) || 0)} className="h-7 text-xs" />
+                          </div>
+                          <div>
+                            <Label className="text-[9px] text-slate-400">KDV %</Label>
+                            <select value={k.kdvOrani} onChange={e => updateKalem(k.id, 'kdvOrani', parseInt(e.target.value))} className="h-7 w-full rounded border border-input bg-background px-1 text-[11px]">
+                              {KDV_ORANLARI.map(o => <option key={o} value={o}>%{o}</option>)}
+                            </select>
+                          </div>
+                        </div>
+
+                        {/* KDV Tevkifatı */}
+                        <div className="grid grid-cols-2 gap-1.5 pt-0.5">
+                          <div>
+                            <Label className="text-[9px] text-amber-700 font-semibold">Tevkifat Oranı</Label>
+                            <select
+                              value={k.tevkifatOrani}
+                              onChange={e => updateKalem(k.id, 'tevkifatOrani', parseInt(e.target.value))}
+                              className="h-7 w-full rounded border border-amber-200 bg-background px-1 text-[10px]"
+                            >
+                              {TEVKIFAT_ORAN_SECENEKLERI.map(o => (
+                                <option key={o.value} value={o.value}>{o.label}</option>
+                              ))}
+                            </select>
+                          </div>
+                          <div>
+                            <Label className="text-[9px] text-amber-700 font-semibold">Tevkifat Kodu</Label>
+                            <select
+                              value={k.tevkifatKodu || ''}
+                              onChange={e => updateKalem(k.id, 'tevkifatKodu', e.target.value)}
+                              className="h-7 w-full rounded border border-amber-200 bg-background px-1 text-[10px]"
+                              disabled={!k.tevkifatOrani}
+                            >
+                              {TEVKIFAT_KODLARI.map(kod => (
+                                <option key={kod.value} value={kod.value}>{kod.label}</option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+
+                        <div className="text-right text-[10px] text-slate-500 pt-0.5">
+                          Matrah: <strong className="text-slate-700">{formatCurrency(k.birimFiyat * k.miktar)}</strong>
+                          {' · '}KDV: <strong className="text-emerald-700">{formatCurrency((k.birimFiyat * k.miktar) * (k.kdvOrani / 100))}</strong>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Toplam Özeti */}
+                  <div className="bg-blue-50/80 rounded-lg p-2.5 text-xs flex justify-between items-center border border-blue-100">
+                    <div className="text-[11px] text-slate-600">
+                      <div>Matrah: <strong>{formatCurrency(kalemToplam.matrah)}</strong></div>
+                      <div>KDV: <strong>{formatCurrency(kalemToplam.kdv)}</strong></div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-slate-400 text-[9px] font-bold">GENEL TOPLAM</div>
+                      <div className="text-lg font-black text-blue-700">{formatCurrency(kalemToplam.toplam)}</div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex gap-2 pt-1">
+                  <Button type="submit" className={cn("flex-1 h-9 gap-1.5 text-xs font-bold", editingInvoiceId ? "bg-emerald-600 hover:bg-emerald-700" : "bg-blue-600 hover:bg-blue-700")}>
+                    {editingInvoiceId ? <CheckCircle2 className="w-4 h-4" /> : <Plus className="w-4 h-4" />} 
+                    {editingInvoiceId ? 'Değişiklikleri Kaydet' : 'Planla ve Ekle'}
+                  </Button>
+                  {editingInvoiceId && (
+                    <Button type="button" variant="outline" size="sm" onClick={cancelEdit} className="h-9 text-xs">İptal</Button>
+                  )}
+                </div>
+              </form>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Liste Kartı (Fatura Tablosu) */}
+        <Card className={cn(
+          "border-0 shadow-sm ring-1 ring-slate-200 overflow-hidden transition-all",
+          isFormOpen ? "lg:col-span-7" : "col-span-12"
+        )}>
+          <CardHeader className="bg-slate-50/50 border-b p-3.5 sm:p-4 space-y-3">
+            {/* Satır 1: Sekmeler ve Birincil İşlemler */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              {/* Sekmeler */}
+              <div className="flex items-center p-1 bg-slate-200/60 rounded-xl w-fit">
                 <button
                   type="button"
                   onClick={() => setActiveTab('bekleyen')}
                   className={cn(
-                    "text-sm font-bold pb-2 border-b-2 transition-all px-1",
+                    "text-xs font-bold py-1.5 px-3 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer",
                     activeTab === 'bekleyen' 
-                      ? "text-blue-600 border-blue-600" 
-                      : "text-slate-400 border-transparent hover:text-slate-600"
+                      ? "bg-white text-slate-900 shadow-xs" 
+                      : "text-slate-600 hover:text-slate-900"
                   )}
                 >
+                  <Clock className="w-3.5 h-3.5 text-amber-600" />
                   Bekleyen Faturalar
+                  <span className="text-[10px] font-bold bg-amber-100 text-amber-800 px-1.5 py-0.2 rounded-full">
+                    {pendingInvoices.length}
+                  </span>
                 </button>
                 <button
                   type="button"
                   onClick={() => setActiveTab('kesilenler')}
                   className={cn(
-                    "text-sm font-bold pb-2 border-b-2 transition-all px-1",
+                    "text-xs font-bold py-1.5 px-3 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer",
                     activeTab === 'kesilenler' 
-                      ? "text-blue-600 border-blue-600" 
-                      : "text-slate-400 border-transparent hover:text-slate-600"
+                      ? "bg-white text-slate-900 shadow-xs" 
+                      : "text-slate-600 hover:text-slate-900"
                   )}
                 >
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
                   Kesilenler / Onaylananlar
+                  <span className="text-[10px] font-bold bg-emerald-100 text-emerald-800 px-1.5 py-0.2 rounded-full">
+                    {stats.cutCount}
+                  </span>
                 </button>
               </div>
-              <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
-                {activeTab === 'kesilenler' && (
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    {/* Tarih Filtresi */}
-                    <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-md px-2 py-1 shadow-xs">
-                      <Calendar className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-                      <input
-                        type="date"
-                        value={kesilenStartDate}
-                        onChange={e => setKesilenStartDate(e.target.value)}
-                        className="h-6 w-28 bg-transparent text-xs text-slate-700 border-0 p-0 focus:outline-none"
-                        title="Başlangıç Tarihi"
-                      />
-                      <span className="text-slate-400 text-xs">-</span>
-                      <input
-                        type="date"
-                        value={kesilenEndDate}
-                        onChange={e => setKesilenEndDate(e.target.value)}
-                        className="h-6 w-28 bg-transparent text-xs text-slate-700 border-0 p-0 focus:outline-none"
-                        title="Bitiş Tarihi"
-                      />
-                      {(kesilenStartDate || kesilenEndDate) && (
-                        <button
-                          type="button"
-                          onClick={clearKesilenDateFilter}
-                          className="text-slate-400 hover:text-red-500 ml-0.5 p-0.5 rounded cursor-pointer"
-                          title="Tarih Filtresini Temizle"
-                        >
-                          <X className="w-3 h-3" />
-                        </button>
-                      )}
-                    </div>
 
-                    <div className="hidden md:flex items-center gap-1">
-                      <button
-                        type="button"
-                        onClick={setKesilenThisMonth}
-                        className={cn(
-                          "text-[11px] font-semibold rounded px-2 py-1 transition-colors border",
-                          kesilenStartDate && kesilenEndDate ? "bg-white text-slate-700 border-slate-200 hover:border-blue-300" : "bg-white text-slate-500 border-slate-200"
-                        )}
-                        title="Bu ayın faturalarını filtrele"
-                      >
-                        Bu Ay
-                      </button>
-                      <button
-                        type="button"
-                        onClick={setKesilenToday}
-                        className="text-[11px] font-semibold bg-white text-slate-700 border border-slate-200 hover:border-blue-300 rounded px-2 py-1 transition-colors"
-                        title="Bugünün faturalarını filtrele"
-                      >
-                        Bugün
-                      </button>
-                    </div>
+              {/* Sağ Eylemler (Gruplanmış & Kompakt) */}
+              <div className="flex items-center gap-2 flex-wrap">
+                {/* Seçim Varsa Akıllı Gönderim Butonu */}
+                {activeTab === 'bekleyen' && selectedInvoiceIdsForGib.length > 0 && (
+                  <Button
+                    size="sm"
+                    onClick={openBulkGibModal}
+                    className="h-8 gap-1.5 text-xs font-bold bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white shadow-md shadow-emerald-600/20"
+                  >
+                    <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                    Akıllı GİB Gönder ({selectedInvoiceIdsForGib.length})
+                  </Button>
+                )}
 
-                    {/* GİB'den Sorgula Butonu */}
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={openGibQueryModal}
-                      disabled={isGibQuerying}
-                      className={cn(
-                        "h-9 gap-1 text-xs font-bold border transition-all",
-                        selectedKesilenIds.length > 0 
-                          ? "border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100 shadow-xs" 
-                          : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
-                      )}
-                      title="Seçilen faturaları GİB'den sorgulayıp resmi numaralarını günceller"
-                    >
-                      {isGibQuerying ? <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-600" /> : <Search className="w-3.5 h-3.5 text-blue-600" />} 
-                      {isGibQuerying 
-                        ? 'Sorgulanıyor...' 
-                        : (selectedKesilenIds.length > 0 ? `GİB'den Sorgula (${selectedKesilenIds.length})` : 'GİB\'den Sorgula')}
-                    </Button>
-
-                    {/* Bekleyenlere Geri Çek Butonu */}
-                    {selectedKesilenIds.length > 0 && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          if (confirm(`Seçilen ${selectedKesilenIds.length} faturayı tekrar bekleyen faturalar listesine geri almak istiyor musunuz?`)) {
-                            revertToPending(selectedKesilenIds);
-                          }
-                        }}
-                        className="h-9 gap-1 text-xs font-bold border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100 shadow-xs"
-                        title="Seçilen faturaları tekrar Bekleyen Faturalar listesine taşır"
-                      >
-                        <Undo2 className="w-3.5 h-3.5 text-amber-700" /> Bekleyenlere Çek ({selectedKesilenIds.length})
+                {/* Seçim Varsa Bekleyenler Sekmesinde Ek İşlemler Dropdown */}
+                {activeTab === 'bekleyen' && selectedInvoiceIdsForGib.length > 0 && (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="outline" size="sm" className="h-8 text-xs font-bold border-slate-200">
+                        <span>İşlemler</span>
+                        <ChevronDown className="w-3 h-3 text-slate-400" />
                       </Button>
-                    )}
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-48">
+                      <DropdownMenuItem onClick={handleBulkLookup} disabled={isBulkLookupRunning} className="gap-2 text-xs cursor-pointer">
+                        {isBulkLookupRunning ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5 text-blue-600" />}
+                        <span>VKN/TCKN Bilgisi Sorgula</span>
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )}
 
-                    <Button
-                      variant="outline"
-                      size="sm"
+                {/* Kesilenler Sekmesinde Seçim Varsa Butonlar */}
+                {activeTab === 'kesilenler' && selectedKesilenIds.length > 0 && (
+                  <Button
+                    size="sm"
+                    onClick={() => {
+                      if (confirm(`Seçilen ${selectedKesilenIds.length} faturayı tekrar bekleyen faturalar listesine geri almak istiyor musunuz?`)) {
+                        revertToPending(selectedKesilenIds);
+                      }
+                    }}
+                    className="h-8 gap-1 text-xs font-bold bg-amber-500 hover:bg-amber-600 text-white"
+                  >
+                    <Undo2 className="w-3.5 h-3.5" />
+                    Bekleyenlere Al ({selectedKesilenIds.length})
+                  </Button>
+                )}
+
+                {/* GİB Portalı Dropdown Menüsü */}
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" size="sm" className="h-8 text-xs font-bold border-slate-200 bg-white gap-1.5 text-slate-700 hover:bg-slate-50">
+                      <ShieldCheck className="w-3.5 h-3.5 text-blue-600" />
+                      <span>GİB Portalı</span>
+                      <ChevronDown className="w-3 h-3 text-slate-400" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-56">
+                    <DropdownMenuItem onClick={openGibQueryModal} className="gap-2 text-xs cursor-pointer">
+                      <Search className="w-3.5 h-3.5 text-blue-600" />
+                      <div>
+                        <div className="font-semibold">GİB'den Sorgula & Eşle</div>
+                        <div className="text-[10px] text-slate-400">Resmi numaraları kontrol eder</div>
+                      </div>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem 
                       onClick={() => {
                         setIsGibFetchModalOpen(true);
                         setGibInvoices([]);
-                      }}
-                      className="h-9 gap-1 text-xs font-bold border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                      }} 
+                      className="gap-2 text-xs cursor-pointer"
                     >
-                      <Download className="w-3.5 h-3.5" /> GİB'den Çek
-                    </Button>
-                  </div>
+                      <Download className="w-3.5 h-3.5 text-amber-600" />
+                      <div>
+                        <div className="font-semibold">GİB'den Faturaları Çek</div>
+                        <div className="text-[10px] text-slate-400">Kesilmiş faturaları içe aktar</div>
+                      </div>
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={() => handleGibForceLogout()} className="gap-2 text-xs text-rose-600 cursor-pointer">
+                      <LogOut className="w-3.5 h-3.5" />
+                      <span>GİB Oturumunu Kapat (Kilit Çöz)</span>
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+
+                {!isFormOpen && (
+                  <Button 
+                    size="sm"
+                    onClick={() => setIsFormOpen(true)}
+                    className="h-8 text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white gap-1 shadow-xs"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> Yeni Plan
+                  </Button>
                 )}
-                {activeTab === 'bekleyen' && selectedInvoiceIdsForGib.length > 0 && (
-                  <div className="flex gap-1.5 items-center">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={handleBulkLookup}
-                      disabled={isBulkLookupRunning}
-                      className="h-9 gap-1 text-xs font-bold border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100"
-                    >
-                      {isBulkLookupRunning ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />} 
-                      {isBulkLookupRunning ? `Sorgulanıyor... (${bulkLookupProgress.current}/${bulkLookupProgress.total})` : `VKN Sorgula (${selectedInvoiceIdsForGib.length})`}
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={openBulkGibModal}
-                      className="h-9 gap-1 text-xs font-bold border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100"
-                    >
-                      <ShieldCheck className="w-3.5 h-3.5" /> Seçilenleri GİB'e Gönder ({selectedInvoiceIdsForGib.length})
-                    </Button>
-                  </div>
-                )}
-                {activeTab === 'bekleyen' && (
-                  <div className="flex items-center gap-1.5 shrink-0 bg-slate-50 border border-slate-200 rounded-md px-2 py-1">
-                    <ArrowUpDown className="w-3.5 h-3.5 text-slate-500" />
-                    <span className="text-[11px] font-semibold text-slate-600 hidden md:inline">Sıralama:</span>
-                    <select
-                      value={sortOrder}
-                      onChange={e => setSortOrder(e.target.value as any)}
-                      className="h-7 rounded border-0 bg-transparent text-xs text-slate-800 font-medium focus:outline-none focus:ring-0 cursor-pointer"
-                      title="Faturaları Sırala"
-                    >
-                      <option value="tarih_asc">📅 Tarih: Eskiden Yeniye (Kronolojik)</option>
-                      <option value="tarih_desc">📅 Tarih: Yeniden Eskiye</option>
-                      <option value="olusturma_desc">⏱️ Eklenme: Son Eklenen</option>
-                    </select>
-                  </div>
-                )}
+              </div>
+            </div>
+
+            {/* Satır 2: Arama, Sıralama ve Tarih Filtresi */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pt-2 border-t border-slate-200/60">
+              <div className="flex items-center gap-2 flex-wrap flex-1">
+                {/* Arama Kutusu */}
                 <div className="relative w-full sm:w-64">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                  <Input placeholder="Müşteri veya VKN ara..." className="pl-10 h-9 bg-white" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+                  <Input 
+                    placeholder="Müşteri, VKN veya Fatura No..." 
+                    className="pl-9 h-8 text-xs bg-white border-slate-200" 
+                    value={searchTerm} 
+                    onChange={e => setSearchTerm(e.target.value)} 
+                  />
+                  {searchTerm && (
+                    <button onClick={() => setSearchTerm('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                      <X className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+
+                {/* Sıralama */}
+                <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-md px-2 h-8">
+                  <ArrowUpDown className="w-3 h-3 text-slate-400" />
+                  <select
+                    value={sortOrder}
+                    onChange={e => setSortOrder(e.target.value as any)}
+                    className="bg-transparent text-[11px] font-semibold text-slate-700 border-0 p-0 focus:outline-none cursor-pointer"
+                  >
+                    <option value="tarih_asc">📅 Tarih: Eskiden Yeniye (GİB Sıralı)</option>
+                    <option value="tarih_desc">📅 Tarih: Yeniden Eskiye</option>
+                    <option value="olusturma_desc">⏱️ Son Eklenen</option>
+                  </select>
                 </div>
               </div>
+
+              {/* Kesilenler Tarih Filtresi */}
+              {activeTab === 'kesilenler' && (
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-md px-2 h-8 shadow-2xs">
+                    <Calendar className="w-3 h-3 text-blue-600 shrink-0" />
+                    <input
+                      type="date"
+                      value={kesilenStartDate}
+                      onChange={e => setKesilenStartDate(e.target.value)}
+                      className="w-24 bg-transparent text-[11px] text-slate-700 border-0 p-0 focus:outline-none"
+                    />
+                    <span className="text-slate-400 text-xs">-</span>
+                    <input
+                      type="date"
+                      value={kesilenEndDate}
+                      onChange={e => setKesilenEndDate(e.target.value)}
+                      className="w-24 bg-transparent text-[11px] text-slate-700 border-0 p-0 focus:outline-none"
+                    />
+                    {(kesilenStartDate || kesilenEndDate) && (
+                      <button onClick={clearKesilenDateFilter} className="text-slate-400 hover:text-rose-500">
+                        <X className="w-3 h-3" />
+                      </button>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={setKesilenThisMonth}
+                    className="text-[10px] font-semibold bg-white border border-slate-200 hover:border-blue-300 rounded px-2 h-8 text-slate-700 cursor-pointer"
+                  >
+                    Bu Ay
+                  </button>
+                  <button
+                    type="button"
+                    onClick={setKesilenToday}
+                    className="text-[10px] font-semibold bg-white border border-slate-200 hover:border-blue-300 rounded px-2 h-8 text-slate-700 cursor-pointer"
+                  >
+                    Bugün
+                  </button>
+                </div>
+              )}
             </div>
           </CardHeader>
           <CardContent className="p-0">
@@ -2732,6 +3023,65 @@ export function KesilecekFaturalar() {
                 <span className="bg-white px-2 py-0.5 rounded border border-amber-200 font-mono font-bold text-amber-900">
                   {selectedDateRange.end}
                 </span>
+              </div>
+            )}
+          </div>
+
+          {/* Akıllı Ön Denetim Paneli */}
+          <div className="bg-gradient-to-r from-blue-50/90 to-indigo-50/90 border border-blue-200 rounded-xl p-3 space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5">
+                <div className="w-6 h-6 rounded-md bg-blue-600 text-white flex items-center justify-center">
+                  <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                </div>
+                <div>
+                  <h4 className="text-xs font-bold text-blue-950">Akıllı Ön Denetim Raporu</h4>
+                  <p className="text-[10px] text-blue-700">GİB kurallarına göre analiz edildi</p>
+                </div>
+              </div>
+              <span className={cn(
+                "text-[10px] font-bold px-2 py-0.5 rounded-full border",
+                smartAudit.isReady 
+                  ? "bg-emerald-100 text-emerald-800 border-emerald-300" 
+                  : "bg-amber-100 text-amber-800 border-amber-300"
+              )}>
+                {smartAudit.isReady ? '✅ Gönderime Hazır' : '⚠️ İnceleme Gerekli'}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-4 gap-1.5 text-center">
+              <div className="bg-white/90 p-1.5 rounded-lg border border-blue-100">
+                <span className="text-[9px] text-slate-500 block font-medium">Toplam</span>
+                <span className="text-xs font-bold text-slate-900">{smartAudit.totalSelected} Adet</span>
+              </div>
+              <div className="bg-white/90 p-1.5 rounded-lg border border-blue-100">
+                <span className="text-[9px] text-slate-500 block font-medium">Tutar</span>
+                <span className="text-xs font-bold text-blue-700">{formatCurrency(smartAudit.totalAmt)}</span>
+              </div>
+              <div className="bg-white/90 p-1.5 rounded-lg border border-blue-100">
+                <span className="text-[9px] text-slate-500 block font-medium">Tevkifat</span>
+                <span className="text-xs font-bold text-amber-700">{smartAudit.tevkifatCount} Adet</span>
+              </div>
+              <div className="bg-white/90 p-1.5 rounded-lg border border-blue-100">
+                <span className="text-[9px] text-slate-500 block font-medium">Stopaj</span>
+                <span className="text-xs font-bold text-indigo-700">{smartAudit.stopajCount} Adet</span>
+              </div>
+            </div>
+
+            {smartAudit.warnings.length > 0 && (
+              <div className="bg-amber-100/90 border border-amber-300 rounded-lg p-2 text-[10px] text-amber-900 space-y-0.5">
+                <div className="font-bold flex items-center gap-1">
+                  <AlertCircle className="w-3 h-3 text-amber-700 shrink-0" />
+                  Eksik/Hatalı Olabilecek Kayıtlar:
+                </div>
+                <ul className="list-disc list-inside space-y-0.5 pl-1">
+                  {smartAudit.warnings.slice(0, 2).map((w, i) => (
+                    <li key={i}>{w}</li>
+                  ))}
+                  {smartAudit.warnings.length > 2 && (
+                    <li>...ve {smartAudit.warnings.length - 2} uyarı daha</li>
+                  )}
+                </ul>
               </div>
             )}
           </div>
