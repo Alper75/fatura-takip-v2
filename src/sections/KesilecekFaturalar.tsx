@@ -322,6 +322,7 @@ export function KesilecekFaturalar() {
     allGib: any[];
     queryRange?: { startDate: string; endDate: string };
   } | null>(null);
+  const [isGibResultModalOpen, setIsGibResultModalOpen] = useState(false);
   const [resultActiveTab, setResultActiveTab] = useState<'matched' | 'unmatched' | 'all'>('unmatched');
   const [tempGibQueryCreds, setTempGibQueryCreds] = useState({
     username: '',
