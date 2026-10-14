@@ -471,19 +471,126 @@ export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploa
   };
 
   const getAiConfig = async () => {
+    let activeProvider = 'gemini';
     let apiKey = import.meta.env.VITE_GEMINI_API_KEY || '';
     let aiModel = 'gemini-2.5-flash';
+    let nvidiaApiKey = '';
+    let nvidiaModelName = 'meta/llama-3.2-11b-vision-instruct';
+
     try {
-      const [keyRes, modelRes] = await Promise.all([
+      const [provRes, keyRes, modelRes, nKeyRes, nModelRes] = await Promise.all([
+        apiFetch('/api/settings/ai_provider').catch(() => null),
         apiFetch('/api/settings/gemini_api_key').catch(() => null),
-        apiFetch('/api/settings/gemini_model').catch(() => null)
+        apiFetch('/api/settings/gemini_model').catch(() => null),
+        apiFetch('/api/settings/nvidia_api_key').catch(() => null),
+        apiFetch('/api/settings/nvidia_model').catch(() => null),
       ]);
-      if (keyRes?.value) apiKey = keyRes.value;
-      if (modelRes?.value) aiModel = modelRes.value;
+
+      if (provRes?.success && provRes.value) activeProvider = provRes.value;
+      if (keyRes?.success && keyRes.value) apiKey = keyRes.value;
+      if (modelRes?.success && modelRes.value) aiModel = modelRes.value;
+      if (nKeyRes?.success && nKeyRes.value) nvidiaApiKey = nKeyRes.value;
+      if (nModelRes?.success && nModelRes.value) nvidiaModelName = nModelRes.value;
     } catch (err) {
-      console.warn('AI ayarları alınamadı, yerel değişkenler kullanılacak:', err);
+      console.warn('AI ayarları alınamadı:', err);
     }
-    return { apiKey: apiKey.trim(), aiModel: (aiModel || 'gemini-2.5-flash').trim() };
+
+    // Google tarafından engellenmiş sızdırılmış anahtar tespiti
+    if (apiKey.includes('AIzaSyDOAnAKwOlBR4uWpEn8IYvZcHGx3XCI1UY')) {
+      apiKey = '';
+    }
+
+    // Mutabakattaki gibi aktif sağlayıcıyı kontrol et ve anahtar yoksa akıllıca fallback yap
+    if (activeProvider === 'nvidia' && !nvidiaApiKey && apiKey) {
+      activeProvider = 'gemini';
+    } else if ((activeProvider === 'gemini' || !apiKey) && nvidiaApiKey) {
+      activeProvider = 'nvidia';
+    }
+
+    return {
+      activeProvider,
+      apiKey: (apiKey || '').trim(),
+      aiModel: (aiModel || 'gemini-2.5-flash').trim(),
+      nvidiaApiKey: (nvidiaApiKey || '').trim(),
+      nvidiaModelName: (nvidiaModelName || 'meta/llama-3.2-11b-vision-instruct').trim()
+    };
+  };
+
+  const executeAiAnalysis = async (prompt: string) => {
+    const config = await getAiConfig();
+    const hasKey = config.activeProvider === 'nvidia' ? !!config.nvidiaApiKey : !!config.apiKey;
+
+    if (!hasKey) {
+      throw new Error(
+        config.activeProvider === 'nvidia'
+          ? 'NVIDIA API anahtarı bulunamadı. Lütfen Mutabakat Yönetimi -> Ayarlar sayfasından API anahtarınızı tanımlayın.'
+          : 'Gemini API anahtarı bulunamadı. Lütfen Mutabakat Yönetimi -> Ayarlar sayfasından API anahtarınızı tanımlayın.'
+      );
+    }
+
+    // 1. Mutabakat ve Fatura taramada kullanılan güvenilir sunucu proxy'sini çağır (CORS yok, NVIDIA ve Gemini destekli)
+    const proxyRes = await apiFetch('/api/ai/analyze-invoice', {
+      method: 'POST',
+      body: JSON.stringify({
+        prompt,
+        provider: config.activeProvider,
+        nvidiaApiKey: config.nvidiaApiKey,
+        nvidiaModel: config.nvidiaModelName,
+        geminiApiKey: config.apiKey,
+        geminiModel: config.aiModel
+      })
+    });
+
+    if (proxyRes?.success && proxyRes.data) {
+      if (proxyRes.data.hata) throw new Error(proxyRes.data.hata);
+      return proxyRes.data;
+    }
+
+    if (proxyRes?.message?.includes('leaked')) {
+      throw new Error('Google Gemini API anahtarınız Google tarafından sızdırıldığı (leaked) gerekçesiyle engellenmiş. Lütfen Ayarlar sayfasından NVIDIA sağlayıcısını seçin veya yeni bir Gemini anahtarı tanımlayın.');
+    }
+
+    // 2. Eğer backend proxy bir hata verdiyse ve Gemini anahtarı varsa doğrudan tarayıcıdan Google API çağrısı yap
+    if (config.apiKey && !config.apiKey.includes('AIzaSyDOAnAKwOlBR4uWpEn8IYvZcHGx3XCI1UY')) {
+      let safeModel = config.aiModel;
+      if (safeModel === 'gemini-3.8-flash' || safeModel === 'gemini-3.6-flash') {
+        safeModel = 'gemini-2.5-flash';
+      }
+      const candidateModels = Array.from(new Set([
+        safeModel,
+        'gemini-2.5-flash',
+        'gemini-2.0-flash',
+        'gemini-1.5-flash'
+      ].filter(Boolean)));
+
+      for (const model of candidateModels) {
+        try {
+          const directRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${config.apiKey}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: prompt }] }],
+              generationConfig: { responseMimeType: "application/json" }
+            })
+          });
+          const dData = await directRes.json();
+          if (dData.error) {
+            if (dData.error.message?.includes('leaked')) {
+              throw new Error('Google Gemini anahtarınız Google tarafından güvenlik nedeniyle bloke edilmiştir. Lütfen Ayarlar sayfasından yeni bir anahtar girin.');
+            }
+            continue;
+          }
+          const raw = dData.candidates?.[0]?.content?.parts?.[0]?.text || '';
+          const clean = raw.replace(/```json|```/g, '').trim();
+          return JSON.parse(clean);
+        } catch (e: any) {
+          if (e.message?.includes('bloke') || e.message?.includes('leaked')) throw e;
+          // Bir sonraki modeli dene
+        }
+      }
+    }
+
+    throw new Error(proxyRes?.message || 'Yapay zeka analiz sonucu alınamadı.');
   };
 
   const analyzeBatchWithAI = async () => {
@@ -491,16 +598,6 @@ export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploa
     setIsAiAnalyzing(true);
 
     try {
-      const { apiKey, aiModel } = await getAiConfig();
-      if (!apiKey) {
-        toast.error('Gemini API anahtarı bulunamadı. Lütfen Ayarlar sayfasından API anahtarınızı tanımlayın.');
-        setIsAiAnalyzing(false);
-        return;
-      }
-
-      const sampleAccounts = lucaAccounts.map(a => `${a.kod}: ${a.ad}`).join('\n');
-      const sampleCariler = cariler.map(c => `${c.unvan} (${c.vknTckn || 'VKN YOK'})`).join('\n');
-
       const pendingRows = satirlar.map((s, i) => ({ originalIndex: i, row: s })).filter(s => s.row.durum !== 'success');
       
       if (pendingRows.length === 0) {
@@ -508,6 +605,9 @@ export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploa
         setIsAiAnalyzing(false);
         return;
       }
+
+      const sampleAccounts = lucaAccounts.map(a => `${a.kod}: ${a.ad}`).join('\n');
+      const sampleCariler = cariler.map(c => `${c.unvan} (${c.vknTckn || 'VKN YOK'})`).join('\n');
 
       const transactionsToAnalyze = pendingRows.map(s => ({
         id: s.originalIndex,
@@ -543,28 +643,14 @@ SADECE JSON döndür. Beklenen format:
 İşlem Türleri şunlardan biri olmalı: tahsilat, odeme, vergi_kdv, maas_odemesi, banka_masrafi, kredi_karti_odemesi, genel_gider. 
 Girişler (alacak) genellikle tahsilat, çıkışlar (borç) genellikle odeme veya giderdir.`;
 
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${aiModel}:generateContent?key=${apiKey}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { responseMimeType: "application/json" }
-        })
-      });
+      const parsed = await executeAiAnalysis(prompt);
 
-      const data = await response.json();
-      if (data.error) {
-        throw new Error(data.error.message || `API Hatası: ${data.error.code || 'Bilinmiyor'}`);
-      }
+      const sonuclar = parsed.sonuclar || (Array.isArray(parsed) ? parsed : null);
 
-      const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-      const clean = text.replace(/```json|```/g, '').trim();
-      const parsed = JSON.parse(clean);
-
-      if (parsed.sonuclar) {
+      if (sonuclar) {
         setSatirlar(prev => {
           const newState = [...prev];
-          parsed.sonuclar.forEach((res: any) => {
+          sonuclar.forEach((res: any) => {
             const idx = res.id;
             if (newState[idx]) {
               let cariId = newState[idx].eslesenCariId;
@@ -585,6 +671,8 @@ Girişler (alacak) genellikle tahsilat, çıkışlar (borç) genellikle odeme ve
           return newState;
         });
         toast.success('Toplu AI analizi tamamlandı.');
+      } else {
+        toast.warning('Yapay zekadan uygun formatta sonuç alınamadı.');
       }
     } catch (err: any) {
       console.error('Banka ekstre AI analiz hatası:', err);
@@ -602,13 +690,6 @@ Girişler (alacak) genellikle tahsilat, çıkışlar (borç) genellikle odeme ve
     updateSatir(index, { durum: 'pending' });
 
     try {
-      const { apiKey, aiModel } = await getAiConfig();
-      if (!apiKey) {
-        toast.error('Gemini API anahtarı bulunamadı.');
-        updateSatir(index, { durum: 'warning' });
-        return;
-      }
-
       const sampleAccounts = lucaAccounts.map(a => `${a.kod}: ${a.ad}`).join('\n');
       
       const prompt = `Bu banka hareketini analiz et: "${satir.aciklama}" (Tutar: ${satir.tutar}, Tip: ${satir.tip}).
@@ -624,23 +705,7 @@ SADECE JSON döndür:
 }
 İşlem Türleri: tahsilat, odeme, vergi_kdv, maas_odemesi, banka_masrafi, kredi_karti_odemesi, genel_gider.`;
 
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${aiModel}:generateContent?key=${apiKey}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { responseMimeType: "application/json" }
-        })
-      });
-
-      const data = await response.json();
-      if (data.error) {
-        throw new Error(data.error.message || `API Hatası: ${data.error.code || 'Bilinmiyor'}`);
-      }
-
-      const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-      const clean = text.replace(/```json|```/g, '').trim();
-      const res = JSON.parse(clean);
+      const res = await executeAiAnalysis(prompt);
 
       let cariId = satir.eslesenCariId;
       if (!cariId && res.cariUnvan) {
