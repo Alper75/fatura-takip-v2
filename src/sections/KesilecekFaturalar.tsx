@@ -208,12 +208,17 @@ export function KesilecekFaturalar() {
 
   const parseGibAmount = (val: any) => {
     if (val === undefined || val === null) return 0;
+    if (typeof val === 'number') return isNaN(val) ? 0 : val;
     let str = String(val).trim();
+    if (!str) return 0;
+    str = str.replace(/[^\d.,-]/g, '').trim();
     if (!str) return 0;
     if (str.includes(',') && str.includes('.')) {
       str = str.replace(/\./g, '').replace(/,/g, '.');
     } else if (str.includes(',')) {
       str = str.replace(/,/g, '.');
+    } else if ((str.match(/\./g) || []).length > 1) {
+      str = str.replace(/\./g, '');
     }
     const parsed = parseFloat(str);
     return isNaN(parsed) ? 0 : parsed;
@@ -237,7 +242,10 @@ export function KesilecekFaturalar() {
 
   // GİB States
   const [isGibModalOpen, setIsGibModalOpen] = useState(false);
-  const [gibCredentials, setGibCredentials] = useState({ username: '', password: '' });
+  const [gibCredentials, setGibCredentials] = useState(() => ({
+    username: localStorage.getItem('gib_username') || '',
+    password: localStorage.getItem('gib_password') || ''
+  }));
   const [selectedInvoiceForGib, setSelectedInvoiceForGib] = useState<KesilecekFatura | null>(null);
   const [isGibSending, setIsGibSending] = useState(false);
   const [isGibLoggingOut, setIsGibLoggingOut] = useState(false);
@@ -276,7 +284,10 @@ export function KesilecekFaturalar() {
 
   // GİB Fetch States
   const [isGibFetchModalOpen, setIsGibFetchModalOpen] = useState(false);
-  const [gibFetchCredentials, setGibFetchCredentials] = useState({ username: '', password: '' });
+  const [gibFetchCredentials, setGibFetchCredentials] = useState(() => ({
+    username: localStorage.getItem('gib_username') || '',
+    password: localStorage.getItem('gib_password') || ''
+  }));
   const [gibDateRange, setGibDateRange] = useState({
     startDate: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
     endDate: new Date().toISOString().split('T')[0]
@@ -601,7 +612,7 @@ export function KesilecekFaturalar() {
       : resolvedInvoices;
 
     const now = new Date();
-    const firstDay = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
+    const past60Days = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
     const today = now.toISOString().split('T')[0];
 
     let start = kesilenStartDate;
@@ -615,21 +626,21 @@ export function KesilecekFaturalar() {
 
       if (parsedTimes.length > 0) {
         const minD = new Date(parsedTimes[0]);
-        minD.setDate(minD.getDate() - 3);
+        minD.setDate(minD.getDate() - 7);
         const maxD = new Date(parsedTimes[parsedTimes.length - 1]);
-        maxD.setDate(maxD.getDate() + 3);
+        maxD.setDate(maxD.getDate() + 7);
         start = minD.toISOString().split('T')[0];
         end = maxD.toISOString().split('T')[0];
       } else {
-        start = firstDay;
+        start = past60Days;
         end = today;
       }
     }
 
     setTempGibQueryCreds(prev => ({
-      username: prev.username || gibCredentials.username || gibFetchCredentials.username || '',
-      password: prev.password || gibCredentials.password || gibFetchCredentials.password || '',
-      startDate: start || firstDay,
+      username: prev.username || gibCredentials.username || gibFetchCredentials.username || localStorage.getItem('gib_username') || '',
+      password: prev.password || gibCredentials.password || gibFetchCredentials.password || localStorage.getItem('gib_password') || '',
+      startDate: start || past60Days,
       endDate: end || today
     }));
     setIsGibQueryModalOpen(true);
@@ -678,6 +689,234 @@ export function KesilecekFaturalar() {
     }
   };
 
+  // GİB Faturalarını Sistem Kayıtlarıyla Akıllı Eşleştirme ve Fatura No Güncelleme
+  const matchAndApplyGibInvoices = async (
+    gibList: any[],
+    customTargets?: any[],
+    dateRangeInfo?: { startDate: string; endDate: string }
+  ) => {
+    if (!gibList || gibList.length === 0) {
+      toast.warning('Eşleştirilecek GİB faturası bulunamadı.');
+      return;
+    }
+
+    const targets = (customTargets && customTargets.length > 0)
+      ? customTargets
+      : (selectedKesilenIds.length > 0
+          ? resolvedInvoices.filter((f: any) => selectedKesilenIds.includes(f.id))
+          : resolvedInvoices);
+
+    if (targets.length === 0) {
+      toast.info('Sistemde eşleştirilecek kesilmiş fatura bulunamadı.');
+      return;
+    }
+
+    toast.info(`${gibList.length} adet GİB faturası, sistemdeki ${targets.length} adet fatura ile akıllı eşleştiriliyor...`);
+
+    const cleanDigits = (val: any) => String(val || '').replace(/\D/g, '').trim();
+
+    const normalizeText = (text: string) => {
+      return (text || '')
+        .toLowerCase()
+        .replace(/ğ/g, 'g')
+        .replace(/ü/g, 'u')
+        .replace(/ş/g, 's')
+        .replace(/ı/g, 'i')
+        .replace(/ö/g, 'o')
+        .replace(/ç/g, 'c')
+        .replace(/[^a-z0-9]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    };
+
+    const extractGibAmount = (g: any) => {
+      if (!g) return 0;
+      const raw = g.odenecek 
+        ?? g.odenecekTutar 
+        ?? g.belgeTutari 
+        ?? g.faturaTutari 
+        ?? g.toplamTutar 
+        ?? g.vergilerDahilToplamTutar 
+        ?? g.genelToplam
+        ?? g.toplam
+        ?? g.tutar;
+      return parseGibAmount(raw);
+    };
+
+    const amountsMatch = (fAmt: number, gAmt: number): boolean => {
+      if (fAmt <= 0 || gAmt <= 0) return false;
+      // 1. Doğrudan eşitlik (1.05 TL kuruş toleransı)
+      if (Math.abs(fAmt - gAmt) < 1.05) return true;
+      // 2. KDV Dahil / Hariç farklılıkları (%20, %10, %1, %8)
+      const vatRates = [1.20, 1.10, 1.01, 1.08];
+      for (const r of vatRates) {
+        if (Math.abs(fAmt * r - gAmt) < 1.50) return true;
+        if (Math.abs(gAmt * r - fAmt) < 1.50) return true;
+      }
+      // 3. Stopaj kesintisi toleransı (%20 stopaj: * 0.80)
+      if (Math.abs(fAmt * 0.80 - gAmt) < 1.50) return true;
+      if (Math.abs(gAmt * 0.80 - fAmt) < 1.50) return true;
+      return false;
+    };
+
+    const titlesMatch = (nameA: string, nameB: string): boolean => {
+      const normA = normalizeText(nameA).replace(/\s/g, '');
+      const normB = normalizeText(nameB).replace(/\s/g, '');
+      if (!normA || !normB) return false;
+      if (normA.includes(normB) || normB.includes(normA)) return true;
+
+      // Kelime bazlı benzerlik (Örn: ABC İnşaat San. Tic. Ltd. Şti. ile ABC İNŞAAT)
+      const STOP_WORDS = new Set(['ve', 'ile', 'san', 'tic', 'ltd', 'sti', 'as', 'a', 's', 'sanayi', 'ticaret', 'limited', 'sirketi', 'anonim']);
+      const wordsA = normalizeText(nameA).split(' ').filter(w => w.length >= 3 && !STOP_WORDS.has(w));
+      const wordsB = normalizeText(nameB).split(' ').filter(w => w.length >= 3 && !STOP_WORDS.has(w));
+      if (wordsA.length > 0 && wordsB.length > 0) {
+        const common = wordsA.filter(w => wordsB.includes(w));
+        if (common.length >= 1) return true;
+      }
+      return false;
+    };
+
+    const matched: any[] = [];
+    const unmatched: any[] = [];
+    const matchedGibIndices = new Set<number>();
+
+    for (const f of targets) {
+      const fTutar = Number(f.tutar) || 0;
+      const fVknClean = cleanDigits(f.vknTckn);
+      const fUuid = (f.gibUuid || '').toLowerCase().trim();
+      const fNo = (f.faturaNo || '').trim();
+      const fName = `${f.ad || ''} ${f.soyad || ''}`.trim();
+
+      let match: any = null;
+      let matchIndex = -1;
+
+      // 1. UUID / ETTN Eşleşmesi
+      if (fUuid) {
+        matchIndex = gibList.findIndex((g, idx) => {
+          if (matchedGibIndices.has(idx)) return false;
+          const gUuid = (g.ettn || g.uuid || g.faturaUuid || '').toLowerCase().trim();
+          return gUuid === fUuid;
+        });
+        if (matchIndex >= 0) match = gibList[matchIndex];
+      }
+
+      // 2. Fatura / Belge Numarası Eşleşmesi
+      if (!match && fNo && fNo !== 'Taslak') {
+        matchIndex = gibList.findIndex((g, idx) => {
+          if (matchedGibIndices.has(idx)) return false;
+          const gNo = (g.belgeNumarasi || g.faturaNo || '').trim();
+          return gNo === fNo;
+        });
+        if (matchIndex >= 0) match = gibList[matchIndex];
+      }
+
+      // 3. Gerçek VKN / TCKN (11111111111 hariç) + Tutar Eşleşmesi
+      if (!match && fVknClean && fVknClean !== '11111111111') {
+        matchIndex = gibList.findIndex((g, idx) => {
+          if (matchedGibIndices.has(idx)) return false;
+          const gVkn = cleanDigits(g.aliciVknTckn || g.vknTckn || g.aliciVergiNo || g.aliciTcKimlikNo || g.vergiNo);
+          const gTutar = extractGibAmount(g);
+          return gVkn === fVknClean && amountsMatch(fTutar, gTutar);
+        });
+        if (matchIndex >= 0) match = gibList[matchIndex];
+      }
+
+      // 4. Gerçek VKN / TCKN (11111111111 hariç) + Ünvan/İsim Eşleşmesi
+      if (!match && fVknClean && fVknClean !== '11111111111') {
+        matchIndex = gibList.findIndex((g, idx) => {
+          if (matchedGibIndices.has(idx)) return false;
+          const gVkn = cleanDigits(g.aliciVknTckn || g.vknTckn || g.aliciVergiNo || g.aliciTcKimlikNo || g.vergiNo);
+          const gName = g.aliciUnvanAdSoyad || g.aliciUnvan || g.unvan || g.aliciAdi || '';
+          return gVkn === fVknClean && titlesMatch(fName, gName);
+        });
+        if (matchIndex >= 0) match = gibList[matchIndex];
+      }
+
+      // 5. Alıcı Ünvanı / İsim + Tutar Eşleşmesi (11111111111 ve perakende şahıs dahil tüm müşteriler)
+      if (!match && fName.length >= 2) {
+        matchIndex = gibList.findIndex((g, idx) => {
+          if (matchedGibIndices.has(idx)) return false;
+          const gName = g.aliciUnvanAdSoyad || g.aliciUnvan || g.unvan || g.aliciAdi || '';
+          const gTutar = extractGibAmount(g);
+          return titlesMatch(fName, gName) && amountsMatch(fTutar, gTutar);
+        });
+        if (matchIndex >= 0) match = gibList[matchIndex];
+      }
+
+      // 6. Gerçek VKN/TCKN ile tekil kayıt (GİB listesinde bu VKN'ye ait yalnızca 1 fatura varsa)
+      if (!match && fVknClean && fVknClean !== '11111111111') {
+        const sameVknIndices: number[] = [];
+        gibList.forEach((g, idx) => {
+          if (matchedGibIndices.has(idx)) return;
+          const gVkn = cleanDigits(g.aliciVknTckn || g.vknTckn || g.aliciVergiNo || g.aliciTcKimlikNo || g.vergiNo);
+          if (gVkn === fVknClean) sameVknIndices.push(idx);
+        });
+        if (sameVknIndices.length === 1) {
+          matchIndex = sameVknIndices[0];
+          match = gibList[matchIndex];
+        }
+      }
+
+      // 7. Tekil Tutar Eşleşmesi (GİB listesinde bu tutarda yalnızca 1 adet eşleşmemiş fatura varsa)
+      if (!match && fTutar > 0) {
+        const sameAmountIndices: number[] = [];
+        gibList.forEach((g, idx) => {
+          if (matchedGibIndices.has(idx)) return;
+          const gTutar = extractGibAmount(g);
+          if (amountsMatch(fTutar, gTutar)) {
+            sameAmountIndices.push(idx);
+          }
+        });
+        if (sameAmountIndices.length === 1) {
+          matchIndex = sameAmountIndices[0];
+          match = gibList[matchIndex];
+        }
+      }
+
+      if (match && matchIndex >= 0) {
+        matchedGibIndices.add(matchIndex);
+        const officialNo = match.belgeNumarasi || match.faturaNo;
+        const officialUuid = match.ettn || match.uuid || match.faturaUuid;
+
+        if (officialNo || officialUuid) {
+          await updateKesilecekFatura(f.id, {
+            faturaNo: officialNo || f.faturaNo,
+            gibUuid: officialUuid || f.gibUuid
+          });
+
+          if (f.isRealSalesInvoice) {
+            await updateSatisFatura(f.id, {
+              ...f,
+              faturaNo: officialNo || f.faturaNo,
+              gibUuid: officialUuid || f.gibUuid
+            } as any);
+          }
+        }
+
+        matched.push({ systemInvoice: f, gibInvoice: match, newFaturaNo: officialNo });
+      } else {
+        unmatched.push(f);
+      }
+    }
+
+    setGibQueryResult({
+      matched,
+      unmatched,
+      allGib: gibList,
+      queryRange: dateRangeInfo
+    });
+    setResultActiveTab(matched.length > 0 ? 'matched' : (unmatched.length > 0 ? 'unmatched' : 'all'));
+    setIsGibResultModalOpen(true);
+    setIsGibQueryModalOpen(false);
+
+    if (matched.length > 0) {
+      toast.success(`${matched.length} faturanın GİB resmi numarası başarıyla eşleştirildi ve kaydedildi!`);
+    }
+    if (unmatched.length > 0) {
+      toast.warning(`${unmatched.length} fatura GİB'de bulunamadı (henüz kesilmemiş veya bilgileri uyuşmuyor).`);
+    }
+  };
+
   // Seçilen faturaları GİB'den sorgulayıp fatura numaralarını getirme
   const handleQueryGibForSelected = async (customCreds?: {
     username?: string;
@@ -695,6 +934,9 @@ export function KesilecekFaturalar() {
 
     const credentials = { username: credUsername, password: credPassword };
     setGibCredentials(credentials);
+    setGibFetchCredentials(credentials);
+    if (credUsername) localStorage.setItem('gib_username', credUsername);
+    if (credPassword) localStorage.setItem('gib_password', credPassword);
 
     const targets = selectedKesilenIds.length > 0
       ? resolvedInvoices.filter((f: any) => selectedKesilenIds.includes(f.id))
@@ -706,7 +948,7 @@ export function KesilecekFaturalar() {
     }
 
     const now = new Date();
-    const firstDay = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
+    const past60Days = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
     const today = now.toISOString().split('T')[0];
 
     let queryStart = customCreds?.startDate || tempGibQueryCreds.startDate || kesilenStartDate;
@@ -720,13 +962,13 @@ export function KesilecekFaturalar() {
 
       if (parsedTimes.length > 0) {
         const minD = new Date(parsedTimes[0]);
-        minD.setDate(minD.getDate() - 3);
+        minD.setDate(minD.getDate() - 7);
         const maxD = new Date(parsedTimes[parsedTimes.length - 1]);
-        maxD.setDate(maxD.getDate() + 3);
+        maxD.setDate(maxD.getDate() + 7);
         queryStart = queryStart || minD.toISOString().split('T')[0];
         queryEnd = queryEnd || maxD.toISOString().split('T')[0];
       } else {
-        queryStart = queryStart || firstDay;
+        queryStart = queryStart || past60Days;
         queryEnd = queryEnd || today;
       }
     }
@@ -755,150 +997,10 @@ export function KesilecekFaturalar() {
       }
 
       const gibList: any[] = result.data || [];
-      toast.info(`GİB'den ${gibList.length} adet fatura alındı. Sistem kayıtları ile eşleştiriliyor...`);
+      setGibInvoices(gibList);
+      toast.info(`GİB'den ${gibList.length} adet fatura alındı.`);
 
-      const normalizeText = (text: string) => {
-        return (text || '')
-          .toLowerCase()
-          .replace(/ğ/g, 'g')
-          .replace(/ü/g, 'u')
-          .replace(/ş/g, 's')
-          .replace(/ı/g, 'i')
-          .replace(/ö/g, 'o')
-          .replace(/ç/g, 'c')
-          .replace(/[^a-z0-9]/g, '')
-          .trim();
-      };
-
-      const cleanDigits = (val: any) => String(val || '').replace(/\D/g, '').trim();
-
-      const extractGibAmount = (g: any) => {
-        if (!g) return 0;
-        const raw = g.odenecek 
-          ?? g.odenecekTutar 
-          ?? g.belgeTutari 
-          ?? g.faturaTutari 
-          ?? g.toplamTutar 
-          ?? g.vergilerDahilToplamTutar 
-          ?? g.tutar;
-        return parseGibAmount(raw);
-      };
-
-      const matched: any[] = [];
-      const unmatched: any[] = [];
-      const matchedGibIndices = new Set<number>();
-
-      for (const f of targets) {
-        const fTutar = Number(f.tutar) || 0;
-        const fVknClean = cleanDigits(f.vknTckn);
-        const fUuid = (f.gibUuid || '').toLowerCase().trim();
-        const fNo = (f.faturaNo || '').trim();
-        const fNameClean = normalizeText(`${f.ad || ''} ${f.soyad || ''}`);
-
-        let match: any = null;
-        let matchIndex = -1;
-
-        // 1. UUID / ETTN Eşleşmesi
-        if (fUuid) {
-          matchIndex = gibList.findIndex((g, idx) => {
-            if (matchedGibIndices.has(idx)) return false;
-            const gUuid = (g.ettn || g.uuid || g.faturaUuid || '').toLowerCase().trim();
-            return gUuid === fUuid;
-          });
-          if (matchIndex >= 0) match = gibList[matchIndex];
-        }
-
-        // 2. Fatura / Belge Numarası Eşleşmesi
-        if (!match && fNo && fNo !== 'Taslak') {
-          matchIndex = gibList.findIndex((g, idx) => {
-            if (matchedGibIndices.has(idx)) return false;
-            const gNo = (g.belgeNumarasi || g.faturaNo || '').trim();
-            return gNo === fNo;
-          });
-          if (matchIndex >= 0) match = gibList[matchIndex];
-        }
-
-        // 3. VKN / TCKN + Tutar Eşleşmesi (Genişletilmiş VKN alanları)
-        if (!match && fVknClean && fVknClean !== '11111111111') {
-          matchIndex = gibList.findIndex((g, idx) => {
-            if (matchedGibIndices.has(idx)) return false;
-            const gVkn = cleanDigits(g.aliciVknTckn || g.vknTckn || g.aliciVergiNo || g.aliciTcKimlikNo || g.vergiNo);
-            const gTutar = extractGibAmount(g);
-            return gVkn === fVknClean && Math.abs(gTutar - fTutar) < 0.80;
-          });
-          if (matchIndex >= 0) match = gibList[matchIndex];
-        }
-
-        // 4. Alıcı Ünvanı / İsim + Tutar Eşleşmesi
-        if (!match && fNameClean.length >= 3) {
-          matchIndex = gibList.findIndex((g, idx) => {
-            if (matchedGibIndices.has(idx)) return false;
-            const gName = normalizeText(g.aliciUnvanAdSoyad || g.aliciUnvan || g.unvan || g.aliciAdi || '');
-            const gTutar = extractGibAmount(g);
-            const nameMatch = gName.includes(fNameClean) || fNameClean.includes(gName);
-            return nameMatch && Math.abs(gTutar - fTutar) < 0.80;
-          });
-          if (matchIndex >= 0) match = gibList[matchIndex];
-        }
-
-        // 5. Birebir Tutar Eşleşmesi (GİB'de bu tutarda tam 1 adet fatura varsa)
-        if (!match && fTutar > 0) {
-          const sameAmountIndices: number[] = [];
-          gibList.forEach((g, idx) => {
-            if (matchedGibIndices.has(idx)) return;
-            const gTutar = extractGibAmount(g);
-            if (Math.abs(gTutar - fTutar) < 0.05) {
-              sameAmountIndices.push(idx);
-            }
-          });
-          if (sameAmountIndices.length === 1) {
-            matchIndex = sameAmountIndices[0];
-            match = gibList[matchIndex];
-          }
-        }
-
-        if (match && matchIndex >= 0) {
-          matchedGibIndices.add(matchIndex);
-          const officialNo = match.belgeNumarasi || match.faturaNo;
-          const officialUuid = match.ettn || match.uuid || match.faturaUuid;
-
-          if (officialNo || officialUuid) {
-            await updateKesilecekFatura(f.id, {
-              faturaNo: officialNo || f.faturaNo,
-              gibUuid: officialUuid || f.gibUuid
-            });
-
-            if (f.isRealSalesInvoice) {
-              await updateSatisFatura(f.id, {
-                ...f,
-                faturaNo: officialNo || f.faturaNo,
-                gibUuid: officialUuid || f.gibUuid
-              } as any);
-            }
-          }
-
-          matched.push({ systemInvoice: f, gibInvoice: match, newFaturaNo: officialNo });
-        } else {
-          unmatched.push(f);
-        }
-      }
-
-      setGibQueryResult({
-        matched,
-        unmatched,
-        allGib: gibList,
-        queryRange: { startDate: queryStart, endDate: queryEnd }
-      });
-      setResultActiveTab(matched.length > 0 ? 'matched' : (unmatched.length > 0 ? 'unmatched' : 'all'));
-      setIsGibResultModalOpen(true);
-      setIsGibQueryModalOpen(false);
-
-      if (matched.length > 0) {
-        toast.success(`${matched.length} faturanın GİB resmi numarası başarıyla eşleştirildi!`);
-      }
-      if (unmatched.length > 0) {
-        toast.warning(`${unmatched.length} fatura GİB'de bulunamadı (henüz kesilmemiş olabilir).`);
-      }
+      await matchAndApplyGibInvoices(gibList, targets, { startDate: queryStart, endDate: queryEnd });
     } catch (err: any) {
       console.error('GİB sorgulama hatası:', err);
       toast.error('GİB sorgulama hatası: ' + (err.message || 'Bilinmeyen hata'));
@@ -2223,6 +2325,7 @@ export function KesilecekFaturalar() {
                     </TableHead>
                     <TableHead className="font-semibold text-slate-600">Müşteri Detayları</TableHead>
                     <TableHead className="font-semibold text-slate-600">Kalemler / Açıklama</TableHead>
+                    <TableHead className="font-semibold text-slate-600">Fatura No</TableHead>
                     <TableHead className="font-semibold text-slate-600">Toplam</TableHead>
                     <TableHead className="font-semibold text-slate-600 text-center">Durum</TableHead>
                     <TableHead className="text-right font-semibold text-slate-600">Aksiyon</TableHead>
@@ -2231,7 +2334,7 @@ export function KesilecekFaturalar() {
                 <TableBody>
                   {resolvedInvoices.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={6} className="h-48 text-center">
+                      <TableCell colSpan={7} className="h-48 text-center">
                         <div className="flex flex-col items-center justify-center text-slate-400 gap-2">
                           <AlertCircle className="w-8 h-8 opacity-20" />
                           <p>{activeTab === 'bekleyen' ? 'Kayıtlı bekleyen fatura planı bulunamadı.' : 'Seçili filtrelere uygun kesilmiş fatura bulunamadı.'}</p>
@@ -2299,6 +2402,22 @@ export function KesilecekFaturalar() {
                               <span className="text-[10px] text-blue-500">+{f.kalemler.length - 2} kalem daha</span>
                             )}
                           </div>
+                        </TableCell>
+                        <TableCell>
+                          {f.faturaNo ? (
+                            <div className="flex flex-col gap-0.5">
+                              <span className="font-mono text-xs font-bold text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded w-fit shadow-xs">
+                                {f.faturaNo}
+                              </span>
+                              {f.gibUuid && (
+                                <span className="text-[9px] font-mono text-slate-400 truncate max-w-[110px]" title={`GİB ETTN: ${f.gibUuid}`}>
+                                  {f.gibUuid.slice(0, 8)}...
+                                </span>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-[11px] text-slate-400 italic">No Yok</span>
+                          )}
                         </TableCell>
                         <TableCell>
                           <span className="font-bold text-slate-900">{formatCurrency(f.tutar)}</span>
@@ -2834,11 +2953,22 @@ export function KesilecekFaturalar() {
             {/* Fatura Listesi */}
             {gibInvoices.length > 0 && (
               <div className="space-y-2">
-                <div className="flex items-center justify-between border-b pb-2">
+                <div className="flex items-center justify-between border-b pb-2 flex-wrap gap-2">
                   <span className="text-xs font-bold text-slate-700">{gibInvoices.length} fatura bulundu</span>
-                  <Button type="button" size="sm" variant="outline" onClick={importAllGibInvoices} className="h-7 text-[10px] font-bold bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-600 hover:text-white">
-                    Tümünü Sisteme Aktar
-                  </Button>
+                  <div className="flex items-center gap-1.5">
+                    <Button 
+                      type="button" 
+                      size="sm" 
+                      onClick={() => matchAndApplyGibInvoices(gibInvoices)} 
+                      className="h-7 text-[10px] font-bold bg-blue-600 hover:bg-blue-700 text-white gap-1 shadow-xs"
+                      title="Listelenen bu faturaları sistemdeki kesilen faturalarla eşleştirip Fatura No ve GİB UUID'lerini kaydeder"
+                    >
+                      <Search className="w-3 h-3" /> Faturalarla Eşleştir & No Güncelle
+                    </Button>
+                    <Button type="button" size="sm" variant="outline" onClick={importAllGibInvoices} className="h-7 text-[10px] font-bold bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-600 hover:text-white">
+                      Tümünü Sisteme Aktar
+                    </Button>
+                  </div>
                 </div>
                 
                 <div className="max-h-[300px] overflow-y-auto border rounded-md">
@@ -2970,6 +3100,28 @@ export function KesilecekFaturalar() {
             e.preventDefault();
             handleQueryGibForSelected(tempGibQueryCreds);
           }} className="space-y-4 py-2">
+            {gibInvoices.length > 0 && (
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 flex items-center justify-between gap-2 shadow-xs">
+                <div className="text-xs text-amber-900">
+                  <div className="font-bold flex items-center gap-1">
+                    <Download className="w-3.5 h-3.5 text-amber-600" />
+                    Hafızada Çekilmiş {gibInvoices.length} Adet GİB Faturası Var
+                  </div>
+                  <p className="text-[11px] text-amber-700 mt-0.5">
+                    GİB portalına tekrar bağlanıp beklemeden doğrudan bu faturalarla eşleştirme yapabilirsiniz.
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={() => matchAndApplyGibInvoices(gibInvoices)}
+                  className="bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold h-8 shrink-0 shadow-xs"
+                >
+                  Hafızadakiyle Eşleştir
+                </Button>
+              </div>
+            )}
+
             <div className="bg-blue-50/70 border border-blue-200 rounded-lg p-2.5 text-xs text-blue-900 flex items-center justify-between">
               <span>Sorgulanacak Fatura:</span>
               <span className="font-bold bg-blue-100 text-blue-800 px-2 py-0.5 rounded">
@@ -3005,12 +3157,12 @@ export function KesilecekFaturalar() {
 
             {/* Tarih Aralığı */}
             <div className="space-y-2 border-t pt-3">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between flex-wrap gap-1">
                 <Label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
                   <Calendar className="w-3.5 h-3.5 text-blue-600" />
                   GİB Sorgulama Tarih Aralığı
                 </Label>
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-1 flex-wrap">
                   <button
                     type="button"
                     onClick={() => {
@@ -3026,12 +3178,14 @@ export function KesilecekFaturalar() {
                   <button
                     type="button"
                     onClick={() => {
-                      const today = new Date().toISOString().split('T')[0];
-                      setTempGibQueryCreds(p => ({ ...p, startDate: today, endDate: today }));
+                      const now = new Date();
+                      const prevMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString().split('T')[0];
+                      const prevMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0).toISOString().split('T')[0];
+                      setTempGibQueryCreds(p => ({ ...p, startDate: prevMonthStart, endDate: prevMonthEnd }));
                     }}
                     className="text-[10px] font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 px-1.5 py-0.5 rounded"
                   >
-                    Bugün
+                    Geçen Ay
                   </button>
                   <button
                     type="button"
@@ -3044,6 +3198,28 @@ export function KesilecekFaturalar() {
                     className="text-[10px] font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 px-1.5 py-0.5 rounded"
                   >
                     Son 30 Gün
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const now = new Date();
+                      const past = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+                      const today = now.toISOString().split('T')[0];
+                      setTempGibQueryCreds(p => ({ ...p, startDate: past, endDate: today }));
+                    }}
+                    className="text-[10px] font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 px-1.5 py-0.5 rounded"
+                  >
+                    Son 60 Gün
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const today = new Date().toISOString().split('T')[0];
+                      setTempGibQueryCreds(p => ({ ...p, startDate: today, endDate: today }));
+                    }}
+                    className="text-[10px] font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 px-1.5 py-0.5 rounded"
+                  >
+                    Bugün
                   </button>
                 </div>
               </div>
