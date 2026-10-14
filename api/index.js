@@ -4379,22 +4379,40 @@ app.post('/api/gib/invoices', authMiddleware, async (req, res) => {
   const client = createFaturaClient(isTest ? 'TEST' : 'PROD');
   try {
     const formatToGIB = (dateStr) => {
-      if (dateStr.includes('-')) {
-        const parts = dateStr.split('-');
-        return `${parts[2]}/${parts[1]}/${parts[0]}`;
+      if (!dateStr) return '';
+      let clean = String(dateStr).trim();
+      if (clean.includes('T')) clean = clean.split('T')[0];
+      if (clean.includes('-')) {
+        const parts = clean.split('-');
+        if (parts.length === 3) {
+          // YYYY-MM-DD -> DD/MM/YYYY
+          return `${parts[2].padStart(2, '0')}/${parts[1].padStart(2, '0')}/${parts[0]}`;
+        }
       }
-      return dateStr;
+      if (clean.includes('.')) {
+        const parts = clean.split('.');
+        if (parts.length === 3) {
+          // DD.MM.YYYY -> DD/MM/YYYY
+          return `${parts[0].padStart(2, '0')}/${parts[1].padStart(2, '0')}/${parts[2]}`;
+        }
+      }
+      return clean;
     };
 
     const gibStart = formatToGIB(startDate);
     const gibEnd = formatToGIB(endDate);
 
+    console.log(`[GIB Invoices Fetch] Sorgu başlatılıyor: ${gibStart} - ${gibEnd} (Kullanıcı: ${credentials.username})`);
+
     const token = await gibSessionManager.getSessionToken(client, credentials.username, credentials.password, isTest ? 'TEST' : 'PROD');
     const invoices = await client.getAllInvoicesByDateRange(token, { startDate: gibStart, endDate: gibEnd });
 
+    console.log(`[GIB Invoices Fetch] Başarılı! GİB'den dönen fatura adedi: ${invoices?.length || 0}`);
+
     return res.json({
       success: true,
-      data: invoices || []
+      data: invoices || [],
+      queryRange: { startDate: gibStart, endDate: gibEnd }
     });
   } catch (error) {
     console.error('[GIB Invoices Fetch] Hata Oluştu:', error);

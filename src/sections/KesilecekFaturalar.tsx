@@ -316,9 +316,19 @@ export function KesilecekFaturalar() {
   // GİB Sorgulama ve Eşleştirme States
   const [isGibQueryModalOpen, setIsGibQueryModalOpen] = useState(false);
   const [isGibQuerying, setIsGibQuerying] = useState(false);
-  const [gibQueryResult, setGibQueryResult] = useState<{ matched: any[]; unmatched: any[] } | null>(null);
-  const [isGibResultModalOpen, setIsGibResultModalOpen] = useState(false);
-  const [tempGibQueryCreds, setTempGibQueryCreds] = useState({ username: '', password: '' });
+  const [gibQueryResult, setGibQueryResult] = useState<{
+    matched: any[];
+    unmatched: any[];
+    allGib: any[];
+    queryRange?: { startDate: string; endDate: string };
+  } | null>(null);
+  const [resultActiveTab, setResultActiveTab] = useState<'matched' | 'unmatched' | 'all'>('unmatched');
+  const [tempGibQueryCreds, setTempGibQueryCreds] = useState({
+    username: '',
+    password: '',
+    startDate: '',
+    endDate: ''
+  });
 
   // Tarih Çözümleyici & Kronolojik Sıralayıcı (İlk tarihten son tarihe / Eskiden yeniye)
   const parseInvoiceDate = (dateStr?: string, fallbackStr?: string): number => {
@@ -583,20 +593,107 @@ export function KesilecekFaturalar() {
     }
   };
 
-  // Seçilen faturaları GİB'den sorgulayıp fatura numaralarını getirme
-  const handleQueryGibForSelected = async (customCreds?: { username: string; password: string }) => {
-    const credentials = customCreds 
-      || ((gibCredentials.username && gibCredentials.password) ? gibCredentials : null)
-      || ((gibFetchCredentials.username && gibFetchCredentials.password) ? gibFetchCredentials : null);
+  // GİB Sorgulama Giriş Modalı Açıcı
+  const openGibQueryModal = () => {
+    const targets = selectedKesilenIds.length > 0
+      ? resolvedInvoices.filter((f: any) => selectedKesilenIds.includes(f.id))
+      : resolvedInvoices;
 
-    if (!credentials || !credentials.username || !credentials.password) {
-      setTempGibQueryCreds({
-        username: gibCredentials.username || gibFetchCredentials.username || '',
-        password: gibCredentials.password || gibFetchCredentials.password || ''
+    const now = new Date();
+    const firstDay = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
+    const today = now.toISOString().split('T')[0];
+
+    let start = kesilenStartDate;
+    let end = kesilenEndDate;
+
+    if (!start || !end) {
+      const parsedTimes = targets
+        .map((f: any) => parseInvoiceDate(f.faturaTarihi, f.olusturmaTarihi))
+        .filter(t => t > 0)
+        .sort((a, b) => a - b);
+
+      if (parsedTimes.length > 0) {
+        const minD = new Date(parsedTimes[0]);
+        minD.setDate(minD.getDate() - 3);
+        const maxD = new Date(parsedTimes[parsedTimes.length - 1]);
+        maxD.setDate(maxD.getDate() + 3);
+        start = minD.toISOString().split('T')[0];
+        end = maxD.toISOString().split('T')[0];
+      } else {
+        start = firstDay;
+        end = today;
+      }
+    }
+
+    setTempGibQueryCreds(prev => ({
+      username: prev.username || gibCredentials.username || gibFetchCredentials.username || '',
+      password: prev.password || gibCredentials.password || gibFetchCredentials.password || '',
+      startDate: start || firstDay,
+      endDate: end || today
+    }));
+    setIsGibQueryModalOpen(true);
+  };
+
+  // Manuel GİB Faturasını Sistem Faturasına Bağlama
+  const handleManualBindGibInvoice = async (systemInvoiceId: string, gibInvoice: any) => {
+    try {
+      const officialNo = gibInvoice.belgeNumarasi || gibInvoice.faturaNo;
+      const officialUuid = gibInvoice.ettn || gibInvoice.uuid || gibInvoice.faturaUuid;
+
+      if (!officialNo && !officialUuid) {
+        toast.error('Bu faturada resmi belge numarası veya UUID bulunamadı.');
+        return;
+      }
+
+      await updateKesilecekFatura(systemInvoiceId, {
+        faturaNo: officialNo,
+        gibUuid: officialUuid
       });
-      setIsGibQueryModalOpen(true);
+
+      const realSales = (satisFaturalari || []).find(sf => sf.id === systemInvoiceId);
+      if (realSales) {
+        await updateSatisFatura(systemInvoiceId, {
+          ...realSales,
+          faturaNo: officialNo,
+          gibUuid: officialUuid
+        } as any);
+      }
+
+      setGibQueryResult(prev => {
+        if (!prev) return null;
+        const targetInv = prev.unmatched.find(u => u.id === systemInvoiceId);
+        if (!targetInv) return prev;
+        return {
+          ...prev,
+          unmatched: prev.unmatched.filter(u => u.id !== systemInvoiceId),
+          matched: [...prev.matched, { systemInvoice: targetInv, gibInvoice, newFaturaNo: officialNo }]
+        };
+      });
+
+      toast.success(`${officialNo || 'Fatura'} başarıyla sistem faturasına bağlandı!`);
+    } catch (err: any) {
+      console.error('Manuel bağlama hatası:', err);
+      toast.error('Bağlama hatası: ' + err.message);
+    }
+  };
+
+  // Seçilen faturaları GİB'den sorgulayıp fatura numaralarını getirme
+  const handleQueryGibForSelected = async (customCreds?: {
+    username?: string;
+    password?: string;
+    startDate?: string;
+    endDate?: string;
+  }) => {
+    const credUsername = (customCreds?.username || tempGibQueryCreds.username || gibCredentials.username || gibFetchCredentials.username || '').trim();
+    const credPassword = (customCreds?.password || tempGibQueryCreds.password || gibCredentials.password || gibFetchCredentials.password || '').trim();
+
+    if (!credUsername || !credPassword) {
+      openGibQueryModal();
       return;
     }
+
+    const credentials = { username: credUsername, password: credPassword };
+    setGibCredentials(credentials);
 
     const targets = selectedKesilenIds.length > 0
       ? resolvedInvoices.filter((f: any) => selectedKesilenIds.includes(f.id))
@@ -607,30 +704,34 @@ export function KesilecekFaturalar() {
       return;
     }
 
+    const now = new Date();
+    const firstDay = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
+    const today = now.toISOString().split('T')[0];
+
+    let queryStart = customCreds?.startDate || tempGibQueryCreds.startDate || kesilenStartDate;
+    let queryEnd = customCreds?.endDate || tempGibQueryCreds.endDate || kesilenEndDate;
+
+    if (!queryStart || !queryEnd) {
+      const parsedTimes = targets
+        .map((f: any) => parseInvoiceDate(f.faturaTarihi, f.olusturmaTarihi))
+        .filter(t => t > 0)
+        .sort((a, b) => a - b);
+
+      if (parsedTimes.length > 0) {
+        const minD = new Date(parsedTimes[0]);
+        minD.setDate(minD.getDate() - 3);
+        const maxD = new Date(parsedTimes[parsedTimes.length - 1]);
+        maxD.setDate(maxD.getDate() + 3);
+        queryStart = queryStart || minD.toISOString().split('T')[0];
+        queryEnd = queryEnd || maxD.toISOString().split('T')[0];
+      } else {
+        queryStart = queryStart || firstDay;
+        queryEnd = queryEnd || today;
+      }
+    }
+
     setIsGibQuerying(true);
     try {
-      let queryStart = kesilenStartDate;
-      let queryEnd = kesilenEndDate;
-
-      if (!queryStart || !queryEnd) {
-        const dates = targets
-          .map((f: any) => f.faturaTarihi)
-          .filter(Boolean)
-          .sort();
-
-        if (dates.length > 0) {
-          const minD = new Date(dates[0]);
-          minD.setDate(minD.getDate() - 3);
-          const maxD = new Date(dates[dates.length - 1]);
-          maxD.setDate(maxD.getDate() + 3);
-          queryStart = queryStart || minD.toISOString().split('T')[0];
-          queryEnd = queryEnd || maxD.toISOString().split('T')[0];
-        } else {
-          queryStart = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-          queryEnd = new Date().toISOString().split('T')[0];
-        }
-      }
-
       toast.info(`GİB e-Arşiv faturaları sorgulanıyor (${queryStart} - ${queryEnd})...`);
 
       const apiUrl = import.meta.env.DEV ? 'http://localhost:5000/api/gib/invoices' : '/api/gib/invoices';
@@ -653,35 +754,112 @@ export function KesilecekFaturalar() {
       }
 
       const gibList: any[] = result.data || [];
+      toast.info(`GİB'den ${gibList.length} adet fatura alındı. Sistem kayıtları ile eşleştiriliyor...`);
+
+      const normalizeText = (text: string) => {
+        return (text || '')
+          .toLowerCase()
+          .replace(/ğ/g, 'g')
+          .replace(/ü/g, 'u')
+          .replace(/ş/g, 's')
+          .replace(/ı/g, 'i')
+          .replace(/ö/g, 'o')
+          .replace(/ç/g, 'c')
+          .replace(/[^a-z0-9]/g, '')
+          .trim();
+      };
+
+      const cleanDigits = (val: any) => String(val || '').replace(/\D/g, '').trim();
+
+      const extractGibAmount = (g: any) => {
+        if (!g) return 0;
+        const raw = g.odenecek 
+          ?? g.odenecekTutar 
+          ?? g.belgeTutari 
+          ?? g.faturaTutari 
+          ?? g.toplamTutar 
+          ?? g.vergilerDahilToplamTutar 
+          ?? g.tutar;
+        return parseGibAmount(raw);
+      };
+
       const matched: any[] = [];
       const unmatched: any[] = [];
+      const matchedGibIndices = new Set<number>();
 
       for (const f of targets) {
         const fTutar = Number(f.tutar) || 0;
-        const fVkn = (f.vknTckn || '').trim();
+        const fVknClean = cleanDigits(f.vknTckn);
         const fUuid = (f.gibUuid || '').toLowerCase().trim();
         const fNo = (f.faturaNo || '').trim();
+        const fNameClean = normalizeText(`${f.ad || ''} ${f.soyad || ''}`);
 
-        let match = gibList.find(g => {
-          const gUuid = (g.ettn || '').toLowerCase().trim();
-          return gUuid && fUuid && gUuid === fUuid;
-        });
+        let match: any = null;
+        let matchIndex = -1;
 
-        if (!match && fNo && fNo !== 'Taslak') {
-          match = gibList.find(g => (g.belgeNumarasi || '').trim() === fNo);
-        }
-
-        if (!match && fVkn) {
-          match = gibList.find(g => {
-            const gVkn = (g.vknTckn || g.aliciVknTckn || '').trim();
-            const gTutar = parseGibAmount(g.tutar || g.faturaTutari || g.toplamTutar || g.odenecekTutar || g.vergilerDahilToplamTutar);
-            return gVkn === fVkn && Math.abs(gTutar - fTutar) < 0.50;
+        // 1. UUID / ETTN Eşleşmesi
+        if (fUuid) {
+          matchIndex = gibList.findIndex((g, idx) => {
+            if (matchedGibIndices.has(idx)) return false;
+            const gUuid = (g.ettn || g.uuid || g.faturaUuid || '').toLowerCase().trim();
+            return gUuid === fUuid;
           });
+          if (matchIndex >= 0) match = gibList[matchIndex];
         }
 
-        if (match) {
+        // 2. Fatura / Belge Numarası Eşleşmesi
+        if (!match && fNo && fNo !== 'Taslak') {
+          matchIndex = gibList.findIndex((g, idx) => {
+            if (matchedGibIndices.has(idx)) return false;
+            const gNo = (g.belgeNumarasi || g.faturaNo || '').trim();
+            return gNo === fNo;
+          });
+          if (matchIndex >= 0) match = gibList[matchIndex];
+        }
+
+        // 3. VKN / TCKN + Tutar Eşleşmesi (Genişletilmiş VKN alanları)
+        if (!match && fVknClean && fVknClean !== '11111111111') {
+          matchIndex = gibList.findIndex((g, idx) => {
+            if (matchedGibIndices.has(idx)) return false;
+            const gVkn = cleanDigits(g.aliciVknTckn || g.vknTckn || g.aliciVergiNo || g.aliciTcKimlikNo || g.vergiNo);
+            const gTutar = extractGibAmount(g);
+            return gVkn === fVknClean && Math.abs(gTutar - fTutar) < 0.80;
+          });
+          if (matchIndex >= 0) match = gibList[matchIndex];
+        }
+
+        // 4. Alıcı Ünvanı / İsim + Tutar Eşleşmesi
+        if (!match && fNameClean.length >= 3) {
+          matchIndex = gibList.findIndex((g, idx) => {
+            if (matchedGibIndices.has(idx)) return false;
+            const gName = normalizeText(g.aliciUnvanAdSoyad || g.aliciUnvan || g.unvan || g.aliciAdi || '');
+            const gTutar = extractGibAmount(g);
+            const nameMatch = gName.includes(fNameClean) || fNameClean.includes(gName);
+            return nameMatch && Math.abs(gTutar - fTutar) < 0.80;
+          });
+          if (matchIndex >= 0) match = gibList[matchIndex];
+        }
+
+        // 5. Birebir Tutar Eşleşmesi (GİB'de bu tutarda tam 1 adet fatura varsa)
+        if (!match && fTutar > 0) {
+          const sameAmountIndices: number[] = [];
+          gibList.forEach((g, idx) => {
+            if (matchedGibIndices.has(idx)) return;
+            const gTutar = extractGibAmount(g);
+            if (Math.abs(gTutar - fTutar) < 0.05) {
+              sameAmountIndices.push(idx);
+            }
+          });
+          if (sameAmountIndices.length === 1) {
+            matchIndex = sameAmountIndices[0];
+            match = gibList[matchIndex];
+          }
+        }
+
+        if (match && matchIndex >= 0) {
+          matchedGibIndices.add(matchIndex);
           const officialNo = match.belgeNumarasi || match.faturaNo;
-          const officialUuid = match.ettn || match.uuid;
+          const officialUuid = match.ettn || match.uuid || match.faturaUuid;
 
           if (officialNo || officialUuid) {
             await updateKesilecekFatura(f.id, {
@@ -704,15 +882,21 @@ export function KesilecekFaturalar() {
         }
       }
 
-      setGibQueryResult({ matched, unmatched });
+      setGibQueryResult({
+        matched,
+        unmatched,
+        allGib: gibList,
+        queryRange: { startDate: queryStart, endDate: queryEnd }
+      });
+      setResultActiveTab(matched.length > 0 ? 'matched' : (unmatched.length > 0 ? 'unmatched' : 'all'));
       setIsGibResultModalOpen(true);
       setIsGibQueryModalOpen(false);
 
       if (matched.length > 0) {
-        toast.success(`${matched.length} faturanın GİB numarası getirildi ve güncellendi.`);
+        toast.success(`${matched.length} faturanın GİB resmi numarası başarıyla eşleştirildi!`);
       }
       if (unmatched.length > 0) {
-        toast.warning(`${unmatched.length} fatura GİB'de bulunamadı (kesilmemiş olabilir).`);
+        toast.warning(`${unmatched.length} fatura GİB'de bulunamadı (henüz kesilmemiş olabilir).`);
       }
     } catch (err: any) {
       console.error('GİB sorgulama hatası:', err);
@@ -1927,7 +2111,7 @@ export function KesilecekFaturalar() {
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => handleQueryGibForSelected()}
+                      onClick={openGibQueryModal}
                       disabled={isGibQuerying}
                       className={cn(
                         "h-9 gap-1 text-xs font-bold border transition-all",
@@ -2771,46 +2955,127 @@ export function KesilecekFaturalar() {
 
       {/* GİB Sorgulama Giriş Modalı */}
       <Dialog open={isGibQueryModalOpen} onOpenChange={setIsGibQueryModalOpen}>
-        <DialogContent className="sm:max-w-[425px]">
+        <DialogContent className="sm:max-w-[480px]">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Search className="w-5 h-5 text-blue-600" />
               GİB e-Arşiv Fatura Sorgulama
             </DialogTitle>
             <DialogDescription>
-              Seçilen faturaları GİB e-Arşiv portalı ile eşleştirip resmi fatura numaralarını çekmek için lütfen kullanıcı bilgilerinizi girin.
+              Seçilen veya filtrelenen faturaların GİB e-Arşiv portalındaki resmi fatura numaralarını ve kesilme durumlarını sorgulamak için tarih aralığı ve giriş bilgilerinizi kontrol edin.
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={(e) => {
             e.preventDefault();
             handleQueryGibForSelected(tempGibQueryCreds);
           }} className="space-y-4 py-2">
-            <div className="grid gap-2">
-              <Label htmlFor="gib_query_user">Kullanıcı Kodu / VKN</Label>
-              <Input
-                id="gib_query_user"
-                value={tempGibQueryCreds.username}
-                onChange={e => setTempGibQueryCreds({ ...tempGibQueryCreds, username: e.target.value })}
-                placeholder="Kullanıcı Kodu"
-                required
-              />
+            <div className="bg-blue-50/70 border border-blue-200 rounded-lg p-2.5 text-xs text-blue-900 flex items-center justify-between">
+              <span>Sorgulanacak Fatura:</span>
+              <span className="font-bold bg-blue-100 text-blue-800 px-2 py-0.5 rounded">
+                {selectedKesilenIds.length > 0 ? `${selectedKesilenIds.length} Seçili Fatura` : `${resolvedInvoices.length} Fatura (Tüm Liste)`}
+              </span>
             </div>
-            <div className="grid gap-2">
-              <Label htmlFor="gib_query_pass">GİB Şifresi</Label>
-              <Input
-                id="gib_query_pass"
-                type="password"
-                value={tempGibQueryCreds.password}
-                onChange={e => setTempGibQueryCreds({ ...tempGibQueryCreds, password: e.target.value })}
-                placeholder="********"
-                required
-              />
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="grid gap-1.5">
+                <Label htmlFor="gib_query_user" className="text-xs">Kullanıcı Kodu / VKN</Label>
+                <Input
+                  id="gib_query_user"
+                  value={tempGibQueryCreds.username}
+                  onChange={e => setTempGibQueryCreds({ ...tempGibQueryCreds, username: e.target.value })}
+                  placeholder="Kullanıcı Kodu"
+                  required
+                  className="h-9 text-xs"
+                />
+              </div>
+              <div className="grid gap-1.5">
+                <Label htmlFor="gib_query_pass" className="text-xs">GİB Şifresi</Label>
+                <Input
+                  id="gib_query_pass"
+                  type="password"
+                  value={tempGibQueryCreds.password}
+                  onChange={e => setTempGibQueryCreds({ ...tempGibQueryCreds, password: e.target.value })}
+                  placeholder="********"
+                  required
+                  className="h-9 text-xs"
+                />
+              </div>
             </div>
-            <DialogFooter className="pt-2">
+
+            {/* Tarih Aralığı */}
+            <div className="space-y-2 border-t pt-3">
+              <div className="flex items-center justify-between">
+                <Label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                  <Calendar className="w-3.5 h-3.5 text-blue-600" />
+                  GİB Sorgulama Tarih Aralığı
+                </Label>
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const now = new Date();
+                      const first = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
+                      const today = now.toISOString().split('T')[0];
+                      setTempGibQueryCreds(p => ({ ...p, startDate: first, endDate: today }));
+                    }}
+                    className="text-[10px] font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 px-1.5 py-0.5 rounded"
+                  >
+                    Bu Ay
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const today = new Date().toISOString().split('T')[0];
+                      setTempGibQueryCreds(p => ({ ...p, startDate: today, endDate: today }));
+                    }}
+                    className="text-[10px] font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 px-1.5 py-0.5 rounded"
+                  >
+                    Bugün
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const now = new Date();
+                      const past = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+                      const today = now.toISOString().split('T')[0];
+                      setTempGibQueryCreds(p => ({ ...p, startDate: past, endDate: today }));
+                    }}
+                    className="text-[10px] font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 px-1.5 py-0.5 rounded"
+                  >
+                    Son 30 Gün
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div className="grid gap-1">
+                  <span className="text-[11px] text-slate-500">Başlangıç:</span>
+                  <Input
+                    type="date"
+                    value={tempGibQueryCreds.startDate}
+                    onChange={e => setTempGibQueryCreds({ ...tempGibQueryCreds, startDate: e.target.value })}
+                    required
+                    className="h-9 text-xs"
+                  />
+                </div>
+                <div className="grid gap-1">
+                  <span className="text-[11px] text-slate-500">Bitiş:</span>
+                  <Input
+                    type="date"
+                    value={tempGibQueryCreds.endDate}
+                    onChange={e => setTempGibQueryCreds({ ...tempGibQueryCreds, endDate: e.target.value })}
+                    required
+                    className="h-9 text-xs"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <DialogFooter className="pt-2 border-t">
               <Button type="button" variant="outline" onClick={() => setIsGibQueryModalOpen(false)}>İptal</Button>
               <Button type="submit" disabled={isGibQuerying} className="bg-blue-600 hover:bg-blue-700 text-white gap-2 font-bold">
                 {isGibQuerying ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
-                Sorgulamayı Başlat
+                {isGibQuerying ? 'Sorgulanıyor...' : 'GİB Sorgusunu Başlat'}
               </Button>
             </DialogFooter>
           </form>
@@ -2819,151 +3084,296 @@ export function KesilecekFaturalar() {
 
       {/* GİB Sorgulama Sonuçları Modalı */}
       <Dialog open={isGibResultModalOpen} onOpenChange={setIsGibResultModalOpen}>
-        <DialogContent className="sm:max-w-[700px] max-h-[85vh] overflow-y-auto">
+        <DialogContent className="sm:max-w-[780px] max-h-[88vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-slate-900">
               <Search className="w-5 h-5 text-blue-600" />
               GİB e-Arşiv Sorgulama & Eşleşme Sonuçları
             </DialogTitle>
             <DialogDescription>
-              GİB e-Arşiv portalında sorgulanan faturaların numaraları ve kesilme durumları aşağıdadır.
+              {gibQueryResult?.queryRange ? (
+                <span>Sorgulanan Tarih Aralığı: <strong className="text-slate-800">{gibQueryResult.queryRange.startDate} - {gibQueryResult.queryRange.endDate}</strong></span>
+              ) : 'GİB e-Arşiv portalında sorgulanan faturaların sonuçları.'}
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4 py-2">
             {/* Özet Kartları */}
-            <div className="grid grid-cols-2 gap-3">
-              <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg">
+            <div className="grid grid-cols-3 gap-2.5">
+              <button
+                type="button"
+                onClick={() => setResultActiveTab('matched')}
+                className={cn(
+                  "p-3 border rounded-lg text-left transition-all cursor-pointer",
+                  resultActiveTab === 'matched' 
+                    ? "bg-emerald-50 border-emerald-400 ring-2 ring-emerald-300" 
+                    : "bg-emerald-50/50 border-emerald-200 hover:bg-emerald-50"
+                )}
+              >
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-emerald-800">GİB'de Bulunan & Güncellenen</span>
+                  <span className="text-xs font-bold text-emerald-800">Eşleşen & Güncellenen</span>
                   <CheckCircle2 className="w-4 h-4 text-emerald-600" />
                 </div>
                 <div className="text-2xl font-bold text-emerald-700 mt-1">
                   {gibQueryResult?.matched.length || 0}
                 </div>
-                <p className="text-[11px] text-emerald-600 mt-0.5">Resmi fatura numarası kaydedildi</p>
-              </div>
+                <p className="text-[11px] text-emerald-600 mt-0.5">Fatura numarası kaydedildi</p>
+              </button>
 
-              <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
+              <button
+                type="button"
+                onClick={() => setResultActiveTab('unmatched')}
+                className={cn(
+                  "p-3 border rounded-lg text-left transition-all cursor-pointer",
+                  resultActiveTab === 'unmatched' 
+                    ? "bg-amber-50 border-amber-400 ring-2 ring-amber-300" 
+                    : "bg-amber-50/50 border-amber-200 hover:bg-amber-50"
+                )}
+              >
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-amber-800">GİB'de Bulunamayan (Kesilmemiş)</span>
+                  <span className="text-xs font-bold text-amber-800">GİB'de Bulunamayan</span>
                   <AlertCircle className="w-4 h-4 text-amber-600" />
                 </div>
                 <div className="text-2xl font-bold text-amber-700 mt-1">
                   {gibQueryResult?.unmatched.length || 0}
                 </div>
-                <p className="text-[11px] text-amber-600 mt-0.5">Portala yansımamış veya kesilmemiş</p>
-              </div>
+                <p className="text-[11px] text-amber-600 mt-0.5">Kesilmemiş veya eşleşmedi</p>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setResultActiveTab('all')}
+                className={cn(
+                  "p-3 border rounded-lg text-left transition-all cursor-pointer",
+                  resultActiveTab === 'all' 
+                    ? "bg-blue-50 border-blue-400 ring-2 ring-blue-300" 
+                    : "bg-blue-50/50 border-blue-200 hover:bg-blue-50"
+                )}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-blue-800">GİB'deki Tüm Faturalar</span>
+                  <FileText className="w-4 h-4 text-blue-600" />
+                </div>
+                <div className="text-2xl font-bold text-blue-700 mt-1">
+                  {gibQueryResult?.allGib?.length || 0}
+                </div>
+                <p className="text-[11px] text-blue-600 mt-0.5">GİB'den dönen tüm liste</p>
+              </button>
             </div>
 
-            {/* Bulunamayan (Kesilmemiş) Faturalar */}
-            {gibQueryResult && gibQueryResult.unmatched.length > 0 && (
-              <div className="border border-amber-200 bg-amber-50/40 rounded-lg p-3 space-y-2">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                  <div>
-                    <h4 className="text-xs font-bold text-amber-900 flex items-center gap-1.5">
-                      <AlertCircle className="w-4 h-4 text-amber-600" />
-                      GİB'de Kesilmemiş Görünen Faturalar ({gibQueryResult.unmatched.length})
-                    </h4>
-                    <p className="text-[11px] text-amber-700">
-                      Bu faturalar GİB e-Arşiv sisteminde bulunamadı. Tekrar kesilebilmesi için bekleyenler listesine çekebilirsiniz.
-                    </p>
-                  </div>
-                  <Button
-                    type="button"
-                    size="sm"
-                    onClick={() => revertToPending(gibQueryResult.unmatched.map(u => u.id))}
-                    className="bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs h-8 gap-1.5 shrink-0 shadow-sm"
-                  >
-                    <Undo2 className="w-3.5 h-3.5" />
-                    Tümünü Bekleyenlere Geri Çek
-                  </Button>
-                </div>
+            {/* TAB 1: Eşleşen Faturalar */}
+            {resultActiveTab === 'matched' && (
+              <div className="border border-emerald-200 bg-emerald-50/20 rounded-lg p-3 space-y-2">
+                <h4 className="text-xs font-bold text-emerald-900 flex items-center gap-1.5">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                  GİB Numarası Alınan ve Eşleşen Faturalar ({gibQueryResult?.matched.length || 0})
+                </h4>
 
-                <div className="max-h-[200px] overflow-y-auto border border-amber-200 rounded bg-white">
-                  <Table>
-                    <TableHeader className="bg-amber-50/80">
-                      <TableRow className="h-8">
-                        <TableHead className="text-[11px] font-bold py-1">Müşteri / VKN</TableHead>
-                        <TableHead className="text-[11px] font-bold py-1">Tarih</TableHead>
-                        <TableHead className="text-[11px] font-bold py-1 text-right">Tutar</TableHead>
-                        <TableHead className="text-[11px] font-bold py-1 text-right">İşlem</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {gibQueryResult.unmatched.map((inv: any) => (
-                        <TableRow key={inv.id} className="h-9 hover:bg-amber-50/40">
-                          <TableCell className="text-xs py-1.5 font-medium">
-                            <div>{inv.ad} {inv.soyad}</div>
-                            <div className="text-[10px] text-slate-500 font-mono">{inv.vknTckn}</div>
-                          </TableCell>
-                          <TableCell className="text-xs py-1.5 text-slate-600">{inv.faturaTarihi}</TableCell>
-                          <TableCell className="text-xs py-1.5 text-right font-bold text-slate-800">{formatCurrency(inv.tutar)}</TableCell>
-                          <TableCell className="text-xs py-1.5 text-right">
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="outline"
-                              onClick={() => revertToPending([inv.id])}
-                              className="h-6 text-[10px] border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-600 hover:text-white px-2 gap-1 font-bold"
-                            >
-                              <Undo2 className="w-3 h-3" /> Bekleyenlere Al
-                            </Button>
-                          </TableCell>
+                {(!gibQueryResult?.matched || gibQueryResult.matched.length === 0) ? (
+                  <div className="text-center py-6 text-slate-400 text-xs italic">
+                    Otomatik eşleşen fatura bulunamadı.
+                  </div>
+                ) : (
+                  <div className="max-h-[260px] overflow-y-auto border border-emerald-200 rounded bg-white">
+                    <Table>
+                      <TableHeader className="bg-emerald-50/80">
+                        <TableRow className="h-8">
+                          <TableHead className="text-[11px] font-bold py-1">Müşteri</TableHead>
+                          <TableHead className="text-[11px] font-bold py-1">GİB Fatura No</TableHead>
+                          <TableHead className="text-[11px] font-bold py-1 text-right">Tutar</TableHead>
+                          <TableHead className="text-[11px] font-bold py-1 text-center">Durum</TableHead>
                         </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
+                      </TableHeader>
+                      <TableBody>
+                        {gibQueryResult.matched.map((m: any, idx: number) => (
+                          <TableRow key={idx} className="h-9 hover:bg-emerald-50/40">
+                            <TableCell className="text-xs py-1.5 font-medium">
+                              <div>{m.systemInvoice.ad} {m.systemInvoice.soyad}</div>
+                              <div className="text-[10px] text-slate-500 font-mono">{m.systemInvoice.vknTckn}</div>
+                            </TableCell>
+                            <TableCell className="text-xs py-1.5 font-mono font-bold text-emerald-700">
+                              {m.newFaturaNo || m.gibInvoice.belgeNumarasi || 'GİB Onaylı'}
+                            </TableCell>
+                            <TableCell className="text-xs py-1.5 text-right font-bold text-slate-800">
+                              {formatCurrency(m.systemInvoice.tutar)}
+                            </TableCell>
+                            <TableCell className="text-xs py-1.5 text-center">
+                              <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded border border-emerald-200">
+                                <CheckCircle2 className="w-3 h-3" /> Güncellendi
+                              </span>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                )}
               </div>
             )}
 
-            {/* Başarıyla Eşleşen Faturalar */}
-            {gibQueryResult && gibQueryResult.matched.length > 0 && (
-              <div className="border border-emerald-200 bg-emerald-50/30 rounded-lg p-3 space-y-2">
-                <h4 className="text-xs font-bold text-emerald-900 flex items-center gap-1.5">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                  GİB Numarası Alınan & Eşleşen Faturalar ({gibQueryResult.matched.length})
-                </h4>
-
-                <div className="max-h-[200px] overflow-y-auto border border-emerald-200 rounded bg-white">
-                  <Table>
-                    <TableHeader className="bg-emerald-50/80">
-                      <TableRow className="h-8">
-                        <TableHead className="text-[11px] font-bold py-1">Müşteri</TableHead>
-                        <TableHead className="text-[11px] font-bold py-1">GİB Fatura No</TableHead>
-                        <TableHead className="text-[11px] font-bold py-1 text-right">Tutar</TableHead>
-                        <TableHead className="text-[11px] font-bold py-1 text-center">Durum</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {gibQueryResult.matched.map((m: any, idx: number) => (
-                        <TableRow key={idx} className="h-9 hover:bg-emerald-50/40">
-                          <TableCell className="text-xs py-1.5 font-medium">
-                            <div>{m.systemInvoice.ad} {m.systemInvoice.soyad}</div>
-                            <div className="text-[10px] text-slate-500 font-mono">{m.systemInvoice.vknTckn}</div>
-                          </TableCell>
-                          <TableCell className="text-xs py-1.5 font-mono font-bold text-emerald-700">
-                            {m.newFaturaNo || m.gibInvoice.belgeNumarasi || 'GİB Onaylı'}
-                          </TableCell>
-                          <TableCell className="text-xs py-1.5 text-right font-bold text-slate-800">
-                            {formatCurrency(m.systemInvoice.tutar)}
-                          </TableCell>
-                          <TableCell className="text-xs py-1.5 text-center">
-                            <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded border border-emerald-200">
-                              <CheckCircle2 className="w-3 h-3" /> Güncellendi
-                            </span>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
+            {/* TAB 2: Bulunamayan (Kesilmemiş) Faturalar */}
+            {resultActiveTab === 'unmatched' && (
+              <div className="border border-amber-200 bg-amber-50/30 rounded-lg p-3 space-y-2">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b pb-2">
+                  <div>
+                    <h4 className="text-xs font-bold text-amber-900 flex items-center gap-1.5">
+                      <AlertCircle className="w-4 h-4 text-amber-600" />
+                      GİB'de Kesilmemiş Görünen Faturalar ({gibQueryResult?.unmatched.length || 0})
+                    </h4>
+                    <p className="text-[11px] text-amber-700">
+                      Bu faturalar GİB sisteminde bulunamadı. Kesilmemiş faturaları tekrar gönderebilmek için bekleyenler listesine çekebilirsiniz.
+                    </p>
+                  </div>
+                  {gibQueryResult && gibQueryResult.unmatched.length > 0 && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={() => revertToPending(gibQueryResult.unmatched.map(u => u.id))}
+                      className="bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs h-8 gap-1.5 shrink-0 shadow-sm"
+                    >
+                      <Undo2 className="w-3.5 h-3.5" />
+                      Tümünü Bekleyenlere Geri Çek
+                    </Button>
+                  )}
                 </div>
+
+                {(!gibQueryResult?.unmatched || gibQueryResult.unmatched.length === 0) ? (
+                  <div className="text-center py-6 text-slate-400 text-xs italic">
+                    Tüm faturalar GİB ile eşleşti, kesilmemiş fatura bulunmuyor! 🎉
+                  </div>
+                ) : (
+                  <div className="max-h-[260px] overflow-y-auto border border-amber-200 rounded bg-white">
+                    <Table>
+                      <TableHeader className="bg-amber-50/80">
+                        <TableRow className="h-8">
+                          <TableHead className="text-[11px] font-bold py-1">Müşteri / VKN</TableHead>
+                          <TableHead className="text-[11px] font-bold py-1">Tarih</TableHead>
+                          <TableHead className="text-[11px] font-bold py-1 text-right">Tutar</TableHead>
+                          <TableHead className="text-[11px] font-bold py-1 text-right">İşlem</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {gibQueryResult.unmatched.map((inv: any) => (
+                          <TableRow key={inv.id} className="h-9 hover:bg-amber-50/40">
+                            <TableCell className="text-xs py-1.5 font-medium">
+                              <div>{inv.ad} {inv.soyad}</div>
+                              <div className="text-[10px] text-slate-500 font-mono">{inv.vknTckn}</div>
+                            </TableCell>
+                            <TableCell className="text-xs py-1.5 text-slate-600">{inv.faturaTarihi}</TableCell>
+                            <TableCell className="text-xs py-1.5 text-right font-bold text-slate-800">{formatCurrency(inv.tutar)}</TableCell>
+                            <TableCell className="text-xs py-1.5 text-right">
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                onClick={() => revertToPending([inv.id])}
+                                className="h-6 text-[10px] border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-600 hover:text-white px-2 gap-1 font-bold"
+                              >
+                                <Undo2 className="w-3 h-3" /> Bekleyenlere Al
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* TAB 3: GİB'den Dönen Tüm Faturalar */}
+            {resultActiveTab === 'all' && (
+              <div className="border border-blue-200 bg-blue-50/20 rounded-lg p-3 space-y-2">
+                <div className="flex items-center justify-between border-b pb-2">
+                  <div>
+                    <h4 className="text-xs font-bold text-blue-900 flex items-center gap-1.5">
+                      <FileText className="w-4 h-4 text-blue-600" />
+                      GİB Portalındaki Kayıtlı Tüm Faturalar ({gibQueryResult?.allGib?.length || 0})
+                    </h4>
+                    <p className="text-[11px] text-blue-700">
+                      GİB e-Arşiv portalında bulunan faturalar aşağıdadır. İlgili bir faturanın numarasını doğrudan sistem faturasına bağlayabilirsiniz.
+                    </p>
+                  </div>
+                </div>
+
+                {(!gibQueryResult?.allGib || gibQueryResult.allGib.length === 0) ? (
+                  <div className="text-center py-6 text-slate-400 text-xs italic">
+                    GİB e-Arşiv portalında seçilen tarih aralığında hiçbir fatura bulunamadı.
+                  </div>
+                ) : (
+                  <div className="max-h-[260px] overflow-y-auto border border-blue-200 rounded bg-white">
+                    <Table>
+                      <TableHeader className="bg-blue-50/80">
+                        <TableRow className="h-8">
+                          <TableHead className="text-[11px] font-bold py-1">Tarih</TableHead>
+                          <TableHead className="text-[11px] font-bold py-1">Belge No</TableHead>
+                          <TableHead className="text-[11px] font-bold py-1">Alıcı Ünvanı</TableHead>
+                          <TableHead className="text-[11px] font-bold py-1 text-right">Tutar</TableHead>
+                          <TableHead className="text-[11px] font-bold py-1 text-right">Manuel Eşle</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {gibQueryResult.allGib.map((gibInv: any, idx: number) => {
+                          const gTutar = parseGibAmount(gibInv.odenecek || gibInv.odenecekTutar || gibInv.belgeTutari || gibInv.toplamTutar || gibInv.tutar);
+                          const gAlici = gibInv.aliciUnvanAdSoyad || gibInv.aliciUnvan || gibInv.unvan || gibInv.aliciAdi || 'Bilinmeyen Alıcı';
+                          const isAlreadyMatched = gibQueryResult.matched.some(m => (m.gibInvoice?.ettn && m.gibInvoice.ettn === gibInv.ettn) || (m.newFaturaNo && m.newFaturaNo === gibInv.belgeNumarasi));
+
+                          return (
+                            <TableRow key={idx} className="h-9 hover:bg-blue-50/30">
+                              <TableCell className="text-xs py-1.5 text-slate-600">{gibInv.belgeTarihi || gibInv.tarih}</TableCell>
+                              <TableCell className="text-xs py-1.5 font-mono font-bold text-slate-800">
+                                {gibInv.belgeNumarasi || 'Taslak'}
+                              </TableCell>
+                              <TableCell className="text-xs py-1.5 max-w-[180px] truncate" title={gAlici}>
+                                {gAlici}
+                              </TableCell>
+                              <TableCell className="text-xs py-1.5 text-right font-bold text-slate-800">
+                                {formatCurrency(gTutar)}
+                              </TableCell>
+                              <TableCell className="text-xs py-1.5 text-right">
+                                {isAlreadyMatched ? (
+                                  <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                                    <CheckCircle2 className="w-3 h-3" /> Eşleşti
+                                  </span>
+                                ) : (
+                                  gibQueryResult.unmatched.length > 0 ? (
+                                    <select
+                                      onChange={(e) => {
+                                        const selectedTargetId = e.target.value;
+                                        if (selectedTargetId) {
+                                          handleManualBindGibInvoice(selectedTargetId, gibInv);
+                                        }
+                                      }}
+                                      defaultValue=""
+                                      className="h-6 text-[10px] font-bold rounded border border-blue-300 bg-blue-50 text-blue-800 px-1 focus:outline-none cursor-pointer"
+                                    >
+                                      <option value="" disabled>Bu faturaya bağla...</option>
+                                      {gibQueryResult.unmatched.map(u => (
+                                        <option key={u.id} value={u.id}>
+                                          {u.ad} {u.soyad} ({formatCurrency(u.tutar)})
+                                        </option>
+                                      ))}
+                                    </select>
+                                  ) : (
+                                    <span className="text-[10px] text-slate-400">Bekleyen Yok</span>
+                                  )
+                                )}
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
+                  </div>
+                )}
               </div>
             )}
           </div>
 
-          <DialogFooter className="pt-2">
+          <DialogFooter className="pt-2 border-t flex justify-between items-center">
+            <span className="text-xs text-slate-500">
+              GİB'de toplam <strong className="text-slate-800">{gibQueryResult?.allGib?.length || 0}</strong> fatura bulundu.
+            </span>
             <Button type="button" onClick={() => setIsGibResultModalOpen(false)} className="bg-slate-900 text-white hover:bg-slate-800 font-medium">
               Kapat
             </Button>
