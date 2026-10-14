@@ -41,7 +41,12 @@ import {
   EyeOff,
   FileSpreadsheet,
   Layers,
-  MoreHorizontal
+  MoreHorizontal,
+  GitCompare,
+  FileCheck2,
+  UploadCloud,
+  CheckCheck,
+  AlertTriangle
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -244,7 +249,130 @@ export function KesilecekFaturalar() {
     return inv.aliciUnvan || inv.aliciUnvanAdSoyad || (inv.aliciAdi ? `${inv.aliciAdi} ${inv.aliciSoyadi || ''}`.trim() : '') || 'Bilinmeyen Alıcı';
   };
 
-  
+  const cleanDigits = (val: any) => String(val || '').replace(/\D/g, '').trim();
+
+  const normalizeText = (text: string) => {
+    return (text || '')
+      .toLowerCase()
+      .replace(/ğ/g, 'g')
+      .replace(/ü/g, 'u')
+      .replace(/ş/g, 's')
+      .replace(/ı/g, 'i')
+      .replace(/ö/g, 'o')
+      .replace(/ç/g, 'c')
+      .replace(/[^a-z0-9]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  };
+
+  const extractGibAmount = (g: any) => {
+    if (!g) return 0;
+    const raw = g.odenecek 
+      ?? g.odenecekTutar 
+      ?? g.belgeTutari 
+      ?? g.faturaTutari 
+      ?? g.toplamTutar 
+      ?? g.vergilerDahilToplamTutar 
+      ?? g.genelToplam
+      ?? g.toplam
+      ?? g.tutar;
+    return parseGibAmount(raw);
+  };
+
+  const amountsMatch = (fAmt: number, gAmt: number): boolean => {
+    if (fAmt <= 0 || gAmt <= 0) return false;
+    if (Math.abs(fAmt - gAmt) < 1.05) return true;
+    const vatRates = [1.20, 1.10, 1.01, 1.08];
+    for (const r of vatRates) {
+      if (Math.abs(fAmt * r - gAmt) < 1.50) return true;
+      if (Math.abs(gAmt * r - fAmt) < 1.50) return true;
+    }
+    if (Math.abs(fAmt * 0.80 - gAmt) < 1.50) return true;
+    if (Math.abs(gAmt * 0.80 - fAmt) < 1.50) return true;
+    return false;
+  };
+
+  const datesMatch = (dateA: string, dateB: string): boolean => {
+    if (!dateA || !dateB) return true;
+    const cleanA = dateA.split('T')[0].trim();
+    const cleanB = dateB.split('T')[0].trim();
+    if (cleanA === cleanB) return true;
+    const timeA = new Date(cleanA).getTime();
+    const timeB = new Date(cleanB).getTime();
+    if (!isNaN(timeA) && !isNaN(timeB)) {
+      const diffDays = Math.abs(timeA - timeB) / (1000 * 60 * 60 * 24);
+      if (diffDays <= 3) return true;
+    }
+    return false;
+  };
+
+  const titlesMatch = (nameA: string, nameB: string): boolean => {
+    const normA = normalizeText(nameA).replace(/\s/g, '');
+    const normB = normalizeText(nameB).replace(/\s/g, '');
+    if (!normA || !normB) return false;
+    if (normA.includes(normB) || normB.includes(normA)) return true;
+
+    const STOP_WORDS = new Set(['ve', 'ile', 'san', 'tic', 'ltd', 'sti', 'as', 'a', 's', 'sanayi', 'ticaret', 'limited', 'sirketi', 'anonim']);
+    const wordsA = normalizeText(nameA).split(' ').filter(w => w.length >= 3 && !STOP_WORDS.has(w));
+    const wordsB = normalizeText(nameB).split(' ').filter(w => w.length >= 3 && !STOP_WORDS.has(w));
+    if (wordsA.length > 0 && wordsB.length > 0) {
+      const common = wordsA.filter(w => wordsB.includes(w));
+      if (common.length >= 1) return true;
+    }
+    return false;
+  };
+
+  const parseExcelDate = (rowDate: any): string => {
+    if (!rowDate) return new Date().toISOString().split('T')[0];
+    if (typeof rowDate === 'number') {
+      const dateObj = new Date(Math.round((rowDate - 25569) * 86400 * 1000));
+      const yyyy = dateObj.getUTCFullYear();
+      const mm = String(dateObj.getUTCMonth() + 1).padStart(2, '0');
+      const dd = String(dateObj.getUTCDate()).padStart(2, '0');
+      return `${yyyy}-${mm}-${dd}`;
+    }
+    if (typeof rowDate === 'string') {
+      const strDate = rowDate.trim();
+      const parts = strDate.split(/[.\/-]/);
+      if (parts.length === 3) {
+        if (parts[2].length === 4) {
+          return `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+        } else if (parts[0].length === 4) {
+          return `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
+        } else if (parts[2].length === 2) {
+          const year = parseInt(parts[2]) > 50 ? "19" + parts[2] : "20" + parts[2];
+          return `${year}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+        }
+      }
+      return strDate.split('T')[0];
+    }
+    if (rowDate instanceof Date) {
+      const yyyy = rowDate.getFullYear();
+      const mm = String(rowDate.getMonth() + 1).padStart(2, '0');
+      const dd = String(rowDate.getDate()).padStart(2, '0');
+      return `${yyyy}-${mm}-${dd}`;
+    }
+    return new Date().toISOString().split('T')[0];
+  };
+
+  // Akıllı Çapraz Kontrol & Mutabakat States
+  const [isCrossCheckModalOpen, setIsCrossCheckModalOpen] = useState(false);
+  const [crossCheckFileName, setCrossCheckFileName] = useState('');
+  const [isCrossChecking, setIsCrossChecking] = useState(false);
+  const [isImportingUnmatched, setIsImportingUnmatched] = useState(false);
+  const [crossCheckActiveTab, setCrossCheckActiveTab] = useState<'unmatched' | 'matched'>('unmatched');
+  const [crossCheckResult, setCrossCheckResult] = useState<{
+    totalUploaded: number;
+    matchedList: any[];
+    unmatchedList: any[];
+    isCalculated: boolean;
+  }>({
+    totalUploaded: 0,
+    matchedList: [],
+    unmatchedList: [],
+    isCalculated: false
+  });
+
   // Form
   const [form, setForm] = useState({
     ad: '', soyad: '', vknTckn: '', vergiDairesi: '',
@@ -1290,6 +1418,273 @@ export function KesilecekFaturalar() {
     XLSX.writeFile(wb, 'kesilecek_fatura_sablon.xlsx');
   };
 
+  // Akıllı Çapraz Kontrol ve Eşleştirme Motoru
+  const executeCrossCheck = (uploadedRows: any[], gibInvoicesList?: any[]) => {
+    // 1. Zaten kesilmiş tüm fatura havuzunu oluştur
+    const allCutPool: Array<{
+      date: string;
+      amount: number;
+      matrah?: number;
+      kdvTutari?: number;
+      vkn: string;
+      title: string;
+      faturaNo: string;
+      source: string;
+      raw: any;
+    }> = [];
+
+    // satisFaturalari (Sistemdeki resmi satış faturaları)
+    satisFaturalari.forEach(sf => {
+      allCutPool.push({
+        date: sf.faturaTarihi || '',
+        amount: Number(sf.alinanUcret) || 0,
+        matrah: sf.matrah ? Number(sf.matrah) : undefined,
+        kdvTutari: sf.kdvTutari ? Number(sf.kdvTutari) : undefined,
+        vkn: cleanDigits(sf.tcVkn),
+        title: `${sf.ad || ''} ${sf.soyad || ''}`.trim(),
+        faturaNo: sf.faturaNo || '',
+        source: 'Kayıtlı Satış Faturası',
+        raw: sf
+      });
+    });
+
+    // kesilecekFaturalar içinde durumu 'kesildi' olan veya faturaNo atanmış olanlar
+    kesilecekFaturalar.forEach(kf => {
+      if (kf.durum === 'kesildi' || (kf.faturaNo && kf.faturaNo.trim() !== '')) {
+        allCutPool.push({
+          date: kf.faturaTarihi || '',
+          amount: Number(kf.tutar) || 0,
+          matrah: kf.matrah ? Number(kf.matrah) : undefined,
+          kdvTutari: kf.kdvTutari ? Number(kf.kdvTutari) : undefined,
+          vkn: cleanDigits(kf.vknTckn),
+          title: `${kf.ad || ''} ${kf.soyad || ''}`.trim(),
+          faturaNo: kf.faturaNo || '',
+          source: 'Kesilmiş Fatura',
+          raw: kf
+        });
+      }
+    });
+
+    // GİB e-Arşiv listesi
+    const currentGibList = gibInvoicesList || gibInvoices || [];
+    currentGibList.forEach(g => {
+      const gTutar = parseGibAmount(g.tutar || g.faturaTutari || g.toplamTutar || g.odenecekTutar || g.vergilerDahilToplamTutar);
+      const gParts = (g.belgeTarihi || '').split(/[.\/-]/);
+      const gFormattedDate = gParts.length === 3 ? `${gParts[2]}-${gParts[1]}-${gParts[0]}` : (g.belgeTarihi || '');
+      allCutPool.push({
+        date: gFormattedDate,
+        amount: gTutar,
+        matrah: g.matrah ? Number(g.matrah) : undefined,
+        kdvTutari: g.kdvTutari ? Number(g.kdvTutari) : undefined,
+        vkn: cleanDigits(g.aliciVknTckn || g.vknTckn),
+        title: getAliciUnvan(g),
+        faturaNo: g.belgeNumarasi || 'GİB Taslak/Onaylı',
+        source: 'GİB e-Arşiv',
+        raw: g
+      });
+    });
+
+    const matchedList: any[] = [];
+    const unmatchedList: any[] = [];
+    const usedTargetIndices = new Set<number>();
+
+    for (const row of uploadedRows) {
+      const rowDate = row.faturaTarihi || '';
+      const rowTutar = Number(row.tutar) || 0;
+      const rowVknClean = cleanDigits(row.vknTckn);
+      const rowTitle = `${row.ad || ''} ${row.soyad || ''}`.trim();
+
+      let matchedIdx = -1;
+      let matchType: 'TC111_NAME_MATCH' | 'VKN_MATCH' | 'TITLE_MATCH' = 'VKN_MATCH';
+
+      // 1. ÖZEL KURAL: Eğer VKN 11111111111 ise -> ADA GÖRE kontrol et (Tarih + Tutar + Müşteri Adı/Unvanı)
+      if (rowVknClean === '11111111111') {
+        matchedIdx = allCutPool.findIndex((target, idx) => {
+          if (usedTargetIndices.has(idx)) return false;
+          const amountsOk = amountsMatch(rowTutar, target.amount);
+          const datesOk = datesMatch(rowDate, target.date);
+          const namesOk = titlesMatch(rowTitle, target.title);
+          return amountsOk && datesOk && namesOk;
+        });
+        if (matchedIdx >= 0) {
+          matchType = 'TC111_NAME_MATCH';
+        }
+      } else {
+        // 2. STANDART KURAL: Tarih + Tutar + VKN eşleştirmesi
+        matchedIdx = allCutPool.findIndex((target, idx) => {
+          if (usedTargetIndices.has(idx)) return false;
+          const amountsOk = amountsMatch(rowTutar, target.amount);
+          const datesOk = datesMatch(rowDate, target.date);
+          const vknOk = rowVknClean && target.vkn && rowVknClean === target.vkn;
+          return amountsOk && datesOk && vknOk;
+        });
+        if (matchedIdx >= 0) {
+          matchType = 'VKN_MATCH';
+        } else if (rowTitle.length >= 3) {
+          // VKN formatı farklı veya boşsa İsim + Tarih + Tutar yedek eşleşmesi
+          matchedIdx = allCutPool.findIndex((target, idx) => {
+            if (usedTargetIndices.has(idx)) return false;
+            const amountsOk = amountsMatch(rowTutar, target.amount);
+            const datesOk = datesMatch(rowDate, target.date);
+            const namesOk = titlesMatch(rowTitle, target.title);
+            return amountsOk && datesOk && namesOk;
+          });
+          if (matchedIdx >= 0) {
+            matchType = 'TITLE_MATCH';
+          }
+        }
+      }
+
+      if (matchedIdx >= 0) {
+        usedTargetIndices.add(matchedIdx);
+        matchedList.push({
+          excelRow: row,
+          matchedInvoice: allCutPool[matchedIdx],
+          matchType
+        });
+      } else {
+        unmatchedList.push({
+          excelRow: row
+        });
+      }
+    }
+
+    setCrossCheckResult({
+      totalUploaded: uploadedRows.length,
+      matchedList,
+      unmatchedList,
+      isCalculated: true
+    });
+    setCrossCheckActiveTab(unmatchedList.length > 0 ? 'unmatched' : 'matched');
+  };
+
+  const handleCrossCheckFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setCrossCheckFileName(file.name);
+    setIsCrossChecking(true);
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const wb = XLSX.read(evt.target?.result, { type: 'binary' });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const rawData: any[] = XLSX.utils.sheet_to_json(ws, { raw: true });
+
+        if (!rawData || rawData.length === 0) {
+          toast.warning('Yüklenen dosya boş.');
+          setIsCrossChecking(false);
+          return;
+        }
+
+        const parsedRows = rawData.map((row: any) => {
+          const rawDate = row['Fatura Tarihi (GG.AA.YYYY)'] || row['Fatura Tarihi'] || row['Tarih'] || row['Belge Tarihi'] || row['Tarih (GG.AA.YYYY)'];
+          const parsedDate = parseExcelDate(rawDate);
+
+          const miktar = parseFloat(String(row['Miktar'] || '1').replace(',', '.')) || 1;
+          const birimFiyat = parseFloat(String(row['Birim Fiyat'] || '0').replace(',', '.')) || 0;
+          let tutar = parseFloat(String(row['Tutar'] || row['Toplam Tutar'] || row['Genel Toplam'] || row['Ödenecek Tutar'] || row['Toplam'] || '0').replace(',', '.')) || 0;
+          if (tutar === 0 && birimFiyat > 0) tutar = miktar * birimFiyat;
+
+          const rawMatrah = row['Matrah'] || row['Mal Hizmet Toplam'] || row['Vergisiz Tutar'];
+          const matrah = rawMatrah ? parseFloat(String(rawMatrah).replace(',', '.')) : (tutar > 0 ? +(tutar / 1.2).toFixed(2) : 0);
+
+          const rawKdv = row['KDV'] || row['KDV Tutarı'] || row['Hesaplanan KDV'];
+          const kdvTutari = rawKdv ? parseFloat(String(rawKdv).replace(',', '.')) : +(tutar - matrah).toFixed(2);
+
+          const urunAdi = row['Ürün/Hizmet Adı'] || row['Hizmet Adı'] || row['Ürün Adı'] || row['Açıklama'] || 'Hizmet Bedeli';
+
+          const vkn = String(row['VKN / TCKN'] || row['VKN'] || row['TCKN'] || row['Vergi No'] || row['Müşteri VKN'] || '').trim();
+          const ad = String(row['Ad (veya Firma)'] || row['Firma Adı'] || row['Müşteri'] || row['Unvan'] || row['Alıcı Unvan'] || row['Ad'] || '').trim();
+          const soyad = String(row['Soyad (Şahıs ise)'] || row['Soyad'] || '').trim();
+
+          return {
+            ad,
+            soyad,
+            vknTckn: vkn,
+            vergiDairesi: String(row['Vergi Dairesi'] || ''),
+            adres: String(row['Adres'] || ''),
+            il: String(row['İl'] || ''),
+            ilce: String(row['İlçe'] || ''),
+            tutar,
+            matrah,
+            kdvTutari,
+            kdvOrani: parseInt(row['KDV Oranı'] || '20') || 20,
+            faturaTarihi: parsedDate,
+            aciklama: String(row['Açıklama'] || 'Excel Çapraz Kontrol Listesinden Aktarıldı'),
+            kdvDahil: (row['KDV Dahil mi? (E/H)'] || 'E').toUpperCase() !== 'H',
+            urunAdi,
+            miktar,
+            birimFiyat: birimFiyat > 0 ? birimFiyat : tutar,
+            kalemler: [
+              {
+                id: 'k' + Date.now() + Math.random().toString(36).substr(2, 5),
+                ad: urunAdi,
+                miktar,
+                birim: 'C62',
+                birimFiyat: birimFiyat > 0 ? birimFiyat : tutar,
+                kdvOrani: parseInt(row['KDV Oranı'] || '20') || 20,
+                tevkifatOrani: 0
+              }
+            ]
+          };
+        });
+
+        executeCrossCheck(parsedRows);
+        toast.success(`${parsedRows.length} fatura başarıyla okundu ve çapraz kontrolden geçirildi.`);
+      } catch (err: any) {
+        console.error('Dosya okuma hatası:', err);
+        toast.error('Dosya okunamadı. Lütfen geçerli bir Excel veya CSV dosyası yükleyin.');
+      } finally {
+        setIsCrossChecking(false);
+      }
+    };
+    reader.readAsBinaryString(file);
+  };
+
+  const handleImportUnmatchedToKesilecek = async () => {
+    if (!crossCheckResult.unmatchedList || crossCheckResult.unmatchedList.length === 0) {
+      toast.info('Eklenecek kesilmemiş fatura bulunamadı.');
+      return;
+    }
+
+    setIsImportingUnmatched(true);
+    let addedCount = 0;
+    try {
+      for (const item of crossCheckResult.unmatchedList) {
+        const row = item.excelRow;
+        await addKesilecekFatura({
+          ad: row.ad,
+          soyad: row.soyad,
+          vknTckn: row.vknTckn,
+          vergiDairesi: row.vergiDairesi,
+          adres: row.adres,
+          il: row.il,
+          ilce: row.ilce,
+          tutar: row.tutar,
+          matrah: row.matrah,
+          kdvTutari: row.kdvTutari,
+          kdvOrani: row.kdvOrani,
+          faturaTarihi: row.faturaTarihi,
+          aciklama: row.aciklama,
+          kdvDahil: row.kdvDahil,
+          kalemler: row.kalemler
+        });
+        addedCount++;
+      }
+
+      toast.success(`${addedCount} adet kesilmemiş fatura Kesilecek Faturalar listesine eklendi! (${crossCheckResult.matchedList.length} adet mükerrer fatura korundu)`);
+      setIsCrossCheckModalOpen(false);
+      setActiveTab('bekleyen');
+    } catch (err: any) {
+      console.error('Aktarma hatası:', err);
+      toast.error('Aktarma sırasında hata oluştu: ' + (err.message || 'Bilinmeyen hata'));
+    } finally {
+      setIsImportingUnmatched(false);
+    }
+  };
+
   const handleExcelUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -1735,13 +2130,14 @@ export function KesilecekFaturalar() {
         body: JSON.stringify({
           credentials: gibFetchCredentials,
           startDate: gibDateRange.startDate,
-          endDate: gibDateRange.endDate
+          endDate: gibDateRange.endDate,
+          includeDetails: true
         })
       });
       const result = await response.json();
       if (result.success) {
         setGibInvoices(result.data || []);
-        toast.success(`${(result.data || []).length} fatura taslağı/onaylı fatura getirildi.`);
+        toast.success(`${(result.data || []).length} fatura (Matrah, KDV ve Toplam tutarlarıyla) başarıyla getirildi.`);
       } else {
         toast.error(result.message || 'Faturalar getirilemedi.');
       }
@@ -2056,6 +2452,19 @@ export function KesilecekFaturalar() {
             {isFormOpen ? 'Formu Kapat' : '+ Yeni Fatura Planla'}
           </Button>
 
+          {/* Akıllı Çapraz Kontrol & Excel Yükle Butonu */}
+          <Button
+            onClick={() => {
+              setIsCrossCheckModalOpen(true);
+              setCrossCheckFileName('');
+              setCrossCheckResult({ totalUploaded: 0, matchedList: [], unmatchedList: [], isCalculated: false });
+            }}
+            className="gap-1.5 h-9 text-xs font-bold bg-gradient-to-r from-indigo-600 via-indigo-700 to-purple-700 hover:from-indigo-700 hover:to-purple-800 text-white shadow-xs cursor-pointer"
+          >
+            <GitCompare className="w-4 h-4 text-amber-300" />
+            <span>Akıllı Karşılaştır & Yükle</span>
+          </Button>
+
           {/* Excel İşlemleri Dropdown */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -2064,14 +2473,25 @@ export function KesilecekFaturalar() {
                 <span>Excel ▾</span>
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-48">
+            <DropdownMenuContent align="end" className="w-56">
+              <DropdownMenuItem 
+                onClick={() => {
+                  setIsCrossCheckModalOpen(true);
+                  setCrossCheckFileName('');
+                  setCrossCheckResult({ totalUploaded: 0, matchedList: [], unmatchedList: [], isCalculated: false });
+                }} 
+                className="cursor-pointer gap-2 text-xs font-semibold text-indigo-700 bg-indigo-50/50 hover:bg-indigo-50"
+              >
+                <GitCompare className="w-3.5 h-3.5 text-indigo-600" />
+                <span>GİB Çapraz Kontrol & Yükle</span>
+              </DropdownMenuItem>
               <DropdownMenuItem onClick={downloadTemplate} className="cursor-pointer gap-2 text-xs">
                 <Download className="w-3.5 h-3.5 text-slate-500" />
                 <span>Excel Şablonu İndir</span>
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => document.getElementById('excel-upload')?.click()} className="cursor-pointer gap-2 text-xs">
                 <Upload className="w-3.5 h-3.5 text-emerald-600" />
-                <span>Excel'den Toplu Yükle</span>
+                <span>Excel'den Doğrudan Yükle</span>
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -2711,7 +3131,15 @@ export function KesilecekFaturalar() {
                           )}
                         </TableCell>
                         <TableCell>
-                          <span className="font-bold text-slate-900">{formatCurrency(f.tutar)}</span>
+                          <div className="flex flex-col">
+                            <span className="font-bold text-slate-900">{formatCurrency(f.tutar)}</span>
+                            {(f.matrah !== undefined || f.kdvTutari !== undefined) ? (
+                              <div className="flex items-center gap-1.5 text-[10px] text-slate-500 font-mono mt-0.5">
+                                {f.matrah !== undefined && <span title="Matrah">M: {formatCurrency(f.matrah)}</span>}
+                                {f.kdvTutari !== undefined && <span className="text-blue-600 font-medium" title="KDV Tutarı">KDV: {formatCurrency(f.kdvTutari)}</span>}
+                              </div>
+                            ) : null}
+                          </div>
                         </TableCell>
                         <TableCell className="text-center">
                           <div className="flex justify-center">
@@ -3263,14 +3691,14 @@ export function KesilecekFaturalar() {
 
       {/* GİB Fetch Modal */}
       <Dialog open={isGibFetchModalOpen} onOpenChange={setIsGibFetchModalOpen}>
-        <DialogContent className="sm:max-w-[700px] max-h-[85vh] overflow-y-auto">
+        <DialogContent className="sm:max-w-[880px] max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Download className="w-5 h-5 text-amber-600" />
-              GİB e-Arşiv Fatura Çekme
+              GİB e-Arşiv Fatura Çekme (Matrah & KDV Destekli)
             </DialogTitle>
             <DialogDescription>
-              Belirli tarih aralığında GİB e-Arşiv portalında kestiğiniz faturaları sorgulayın ve sisteme aktarın.
+              Belirli tarih aralığında GİB e-Arşiv portalında kestiğiniz faturaları Matrah, KDV ve Toplam tutar detaylarıyla sorgulayın ve sisteme aktarın.
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleGibFetch} className="space-y-4 py-2">
@@ -3285,7 +3713,7 @@ export function KesilecekFaturalar() {
               </div>
               <Button type="submit" disabled={isGibFetching} className="bg-amber-600 hover:bg-amber-700 h-9 gap-1 text-xs font-bold text-white">
                 {isGibFetching ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
-                Sorgula
+                Sorgula & Detayları Getir
               </Button>
             </div>
 
@@ -3321,14 +3749,16 @@ export function KesilecekFaturalar() {
                   </div>
                 </div>
                 
-                <div className="max-h-[300px] overflow-y-auto border rounded-md">
+                <div className="max-h-[340px] overflow-y-auto border rounded-md">
                   <Table>
-                    <TableHeader className="bg-slate-50">
+                    <TableHeader className="bg-slate-50 sticky top-0 z-10">
                       <TableRow>
                         <TableHead className="text-xs py-2 font-bold text-slate-600">Tarih</TableHead>
                         <TableHead className="text-xs py-2 font-bold text-slate-600">Fatura No</TableHead>
-                        <TableHead className="text-xs py-2 font-bold text-slate-600">Alıcı</TableHead>
-                        <TableHead className="text-xs py-2 font-bold text-slate-600 text-right">Tutar</TableHead>
+                        <TableHead className="text-xs py-2 font-bold text-slate-600">Alıcı (VKN / Unvan)</TableHead>
+                        <TableHead className="text-xs py-2 font-bold text-slate-600 text-right">Matrah</TableHead>
+                        <TableHead className="text-xs py-2 font-bold text-slate-600 text-right">KDV</TableHead>
+                        <TableHead className="text-xs py-2 font-bold text-slate-600 text-right">Toplam Tutar</TableHead>
                         <TableHead className="text-xs py-2 font-bold text-slate-600 text-right">İşlem</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -3336,14 +3766,22 @@ export function KesilecekFaturalar() {
                       {gibInvoices.map((inv) => {
                         const isAlreadyImported = inv.isImported || satisFaturalari.some(sf => sf.faturaNo === inv.belgeNumarasi);
                         const invTutar = parseGibAmount(inv.tutar || inv.faturaTutari || inv.toplamTutar || inv.odenecekTutar || inv.vergilerDahilToplamTutar);
+                        const invMatrah = Number(inv.matrah) || (invTutar > 0 ? +(invTutar / 1.2).toFixed(2) : 0);
+                        const invKdv = Number(inv.kdvTutari) || +(invTutar - invMatrah).toFixed(2);
                         const aliciUnvan = getAliciUnvan(inv);
+                        const aliciVkn = inv.aliciVknTckn || inv.vknTckn || '';
                         
                         return (
                           <TableRow key={inv.ettn} className="hover:bg-slate-50 transition-colors">
-                            <TableCell className="text-xs py-2">{inv.belgeTarihi}</TableCell>
-                            <TableCell className="text-xs py-2 font-mono font-medium">{inv.belgeNumarasi || 'Taslak'}</TableCell>
-                            <TableCell className="text-xs py-2 max-w-[180px] truncate">{aliciUnvan}</TableCell>
-                            <TableCell className="text-xs py-2 text-right font-bold">{formatCurrency(invTutar)}</TableCell>
+                            <TableCell className="text-xs py-2 whitespace-nowrap font-mono">{inv.belgeTarihi}</TableCell>
+                            <TableCell className="text-xs py-2 font-mono font-bold text-blue-700">{inv.belgeNumarasi || 'Taslak'}</TableCell>
+                            <TableCell className="text-xs py-2 max-w-[190px]">
+                              <div className="truncate font-medium text-slate-800" title={aliciUnvan}>{aliciUnvan}</div>
+                              {aliciVkn && <div className="text-[10px] font-mono text-slate-500">{aliciVkn}</div>}
+                            </TableCell>
+                            <TableCell className="text-xs py-2 text-right font-mono font-medium text-slate-600">{formatCurrency(invMatrah)}</TableCell>
+                            <TableCell className="text-xs py-2 text-right font-mono font-medium text-blue-600">{formatCurrency(invKdv)}</TableCell>
+                            <TableCell className="text-xs py-2 text-right font-mono font-bold text-slate-900">{formatCurrency(invTutar)}</TableCell>
                             <TableCell className="text-xs py-2 text-right">
                               <div className="flex justify-end items-center gap-1.5">
                                 <Button
@@ -3904,6 +4342,302 @@ export function KesilecekFaturalar() {
             <Button type="button" onClick={() => setIsGibResultModalOpen(false)} className="bg-slate-900 text-white hover:bg-slate-800 font-medium">
               Kapat
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 8. Akıllı GİB Çapraz Kontrol & Excel İçe Aktarma Modalı */}
+      <Dialog open={isCrossCheckModalOpen} onOpenChange={setIsCrossCheckModalOpen}>
+        <DialogContent className="sm:max-w-[950px] max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <div className="flex items-center gap-2.5">
+              <div className="w-9 h-9 rounded-lg bg-indigo-50 border border-indigo-200 flex items-center justify-center text-indigo-700">
+                <GitCompare className="w-5 h-5" />
+              </div>
+              <div>
+                <DialogTitle className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                  <span>GİB Çapraz Kontrol & Akıllı Fatura Yükleme</span>
+                  <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-800 border border-indigo-200">
+                    Akıllı Mutabakat
+                  </span>
+                </DialogTitle>
+                <DialogDescription className="text-xs text-slate-500 mt-0.5">
+                  Excel listenizi yükleyin; sistem <strong>Tarih + Tutar + VKN</strong> ile, <strong>11111111111 (Nihai Tüketiciler)</strong> için ise <strong>Tarih + Tutar + Müşteri Adı</strong> ile kontrol edip kesilmemiş faturaları otomatik listeler.
+                </DialogDescription>
+              </div>
+            </div>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            {/* Dosya Yükleme ve Çapraz Kontrol Tetikleyici */}
+            <div className="p-4 rounded-xl border-2 border-dashed border-indigo-200 bg-indigo-50/40 hover:bg-indigo-50/70 transition-all text-center">
+              <input
+                type="file"
+                id="cross-check-file-input"
+                className="hidden"
+                accept=".xlsx,.xls,.csv"
+                onChange={handleCrossCheckFileChange}
+              />
+              <div className="flex flex-col items-center justify-center gap-2">
+                <div className="w-12 h-12 rounded-full bg-white shadow-xs border border-indigo-100 flex items-center justify-center text-indigo-600">
+                  <UploadCloud className="w-6 h-6" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-slate-800">
+                    {crossCheckFileName ? `Yüklenen Dosya: ${crossCheckFileName}` : 'Kesilecek Faturalar Excel / CSV Dosyasını Seçin'}
+                  </h4>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Excel'deki Tarih, VKN, Müşteri Adı ve Tutar sütunları otomatik tanınır
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 mt-1">
+                  <Button
+                    type="button"
+                    onClick={() => document.getElementById('cross-check-file-input')?.click()}
+                    disabled={isCrossChecking}
+                    className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold h-8 text-xs gap-1.5 shadow-xs"
+                  >
+                    {isCrossChecking ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FileSpreadsheet className="w-3.5 h-3.5" />}
+                    {crossCheckFileName ? 'Farklı Dosya Seç' : 'Excel Dosyası Yükle & Tara'}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={downloadTemplate}
+                    className="h-8 text-xs font-semibold text-slate-600 border-slate-300 hover:bg-white"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    Şablon İndir
+                  </Button>
+                </div>
+              </div>
+            </div>
+
+            {/* Analiz Sonuç Kartları */}
+            {crossCheckResult.isCalculated && (
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  {/* Toplam Okunan */}
+                  <div className="p-3.5 rounded-xl border border-slate-200 bg-white shadow-2xs">
+                    <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
+                      Excel'den Okunan
+                    </span>
+                    <div className="mt-1 text-2xl font-black text-slate-900">
+                      {crossCheckResult.totalUploaded} <span className="text-xs font-medium text-slate-500">Adet Fatura</span>
+                    </div>
+                  </div>
+
+                  {/* Zaten Kesilmişler */}
+                  <div className="p-3.5 rounded-xl border border-emerald-200 bg-emerald-50/60 shadow-2xs">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-bold text-emerald-800 uppercase tracking-wider flex items-center gap-1">
+                        <CheckCheck className="w-3.5 h-3.5 text-emerald-600" />
+                        Zaten Kesilmiş (GİB'de Mevcut)
+                      </span>
+                      <span className="text-[10px] font-bold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full border border-emerald-200">
+                        {crossCheckResult.matchedList.length} Adet
+                      </span>
+                    </div>
+                    <div className="mt-1 text-2xl font-black text-emerald-950">
+                      {formatCurrency(crossCheckResult.matchedList.reduce((acc, curr) => acc + (Number(curr.excelRow.tutar) || 0), 0))}
+                    </div>
+                    <p className="text-[10px] text-emerald-700 mt-0.5">Mükerrer fatura kesimi otomatik engellendi</p>
+                  </div>
+
+                  {/* Henüz Kesilmemişler (Eklenecekler) */}
+                  <div className="p-3.5 rounded-xl border border-amber-300 bg-amber-50/70 shadow-2xs">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-bold text-amber-900 uppercase tracking-wider flex items-center gap-1">
+                        <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
+                        Kesilmemiş (Eklenecek)
+                      </span>
+                      <span className="text-[10px] font-bold bg-amber-200/80 text-amber-900 px-2 py-0.5 rounded-full border border-amber-300">
+                        {crossCheckResult.unmatchedList.length} Adet
+                      </span>
+                    </div>
+                    <div className="mt-1 text-2xl font-black text-amber-950">
+                      {formatCurrency(crossCheckResult.unmatchedList.reduce((acc, curr) => acc + (Number(curr.excelRow.tutar) || 0), 0))}
+                    </div>
+                    <p className="text-[10px] text-amber-800 mt-0.5">Kesilecekler listesine aktarılmaya hazır</p>
+                  </div>
+                </div>
+
+                {/* Sekme Geçişi */}
+                <div className="flex items-center justify-between border-b pb-2 flex-wrap gap-2">
+                  <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg">
+                    <button
+                      type="button"
+                      onClick={() => setCrossCheckActiveTab('unmatched')}
+                      className={cn(
+                        "px-3 py-1 text-xs font-bold rounded-md transition-all cursor-pointer flex items-center gap-1.5",
+                        crossCheckActiveTab === 'unmatched'
+                          ? "bg-amber-500 text-white shadow-xs"
+                          : "text-slate-600 hover:text-slate-900"
+                      )}
+                    >
+                      <AlertTriangle className="w-3.5 h-3.5" />
+                      <span>Kesilmemiş Faturalar ({crossCheckResult.unmatchedList.length})</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCrossCheckActiveTab('matched')}
+                      className={cn(
+                        "px-3 py-1 text-xs font-bold rounded-md transition-all cursor-pointer flex items-center gap-1.5",
+                        crossCheckActiveTab === 'matched'
+                          ? "bg-emerald-600 text-white shadow-xs"
+                          : "text-slate-600 hover:text-slate-900"
+                      )}
+                    >
+                      <CheckCheck className="w-3.5 h-3.5" />
+                      <span>Zaten Kesilmiş Olanlar ({crossCheckResult.matchedList.length})</span>
+                    </button>
+                  </div>
+
+                  {crossCheckResult.unmatchedList.length > 0 && (
+                    <Button
+                      type="button"
+                      onClick={handleImportUnmatchedToKesilecek}
+                      disabled={isImportingUnmatched}
+                      className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs h-8 gap-1.5 shadow-sm"
+                    >
+                      {isImportingUnmatched ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FilePlus className="w-3.5 h-3.5" />}
+                      <span>Kesilmeyen {crossCheckResult.unmatchedList.length} Faturayı Kesilecek Listesine Ekle</span>
+                    </Button>
+                  )}
+                </div>
+
+                {/* Tablolar */}
+                {crossCheckActiveTab === 'unmatched' ? (
+                  <div className="border rounded-lg overflow-hidden max-h-[340px] overflow-y-auto">
+                    {crossCheckResult.unmatchedList.length === 0 ? (
+                      <div className="p-8 text-center text-slate-500 text-xs">
+                        <CheckCircle2 className="w-8 h-8 text-emerald-500 mx-auto mb-2" />
+                        Tebrikler! Yüklediğiniz listedeki tüm faturalar zaten kesilmiş veya sistemde kayıtlı.
+                      </div>
+                    ) : (
+                      <Table>
+                        <TableHeader className="bg-amber-50/80 sticky top-0 z-10">
+                          <TableRow>
+                            <TableHead className="text-xs py-2 font-bold text-amber-900">Tarih</TableHead>
+                            <TableHead className="text-xs py-2 font-bold text-amber-900">VKN / TCKN</TableHead>
+                            <TableHead className="text-xs py-2 font-bold text-amber-900">Müşteri / Ünvan</TableHead>
+                            <TableHead className="text-xs py-2 font-bold text-amber-900 text-right">Matrah</TableHead>
+                            <TableHead className="text-xs py-2 font-bold text-amber-900 text-right">KDV</TableHead>
+                            <TableHead className="text-xs py-2 font-bold text-amber-900 text-right">Toplam Tutar</TableHead>
+                            <TableHead className="text-xs py-2 font-bold text-amber-900 text-center">Durum</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {crossCheckResult.unmatchedList.map((item, idx) => {
+                            const r = item.excelRow;
+                            const isRetail = cleanDigits(r.vknTckn) === '11111111111';
+                            return (
+                              <TableRow key={idx} className="hover:bg-amber-50/40">
+                                <TableCell className="text-xs py-2 whitespace-nowrap font-mono">{r.faturaTarihi}</TableCell>
+                                <TableCell className="text-xs py-2 font-mono">
+                                  {isRetail ? (
+                                    <span className="text-[10px] font-bold bg-purple-100 text-purple-800 px-1.5 py-0.5 rounded border border-purple-200">
+                                      11111111111 (Nihai)
+                                    </span>
+                                  ) : (
+                                    r.vknTckn || '-'
+                                  )}
+                                </TableCell>
+                                <TableCell className="text-xs py-2 font-medium text-slate-900 max-w-[220px] truncate" title={`${r.ad} ${r.soyad || ''}`}>
+                                  {r.ad} {r.soyad || ''}
+                                </TableCell>
+                                <TableCell className="text-xs py-2 text-right font-mono text-slate-600">{formatCurrency(r.matrah || 0)}</TableCell>
+                                <TableCell className="text-xs py-2 text-right font-mono text-blue-600">{formatCurrency(r.kdvTutari || 0)}</TableCell>
+                                <TableCell className="text-xs py-2 text-right font-mono font-bold text-slate-900">{formatCurrency(r.tutar || 0)}</TableCell>
+                                <TableCell className="text-xs py-2 text-center">
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-800 bg-amber-100 px-2 py-0.5 rounded-full border border-amber-200">
+                                    KESİLECEK
+                                  </span>
+                                </TableCell>
+                              </TableRow>
+                            );
+                          })}
+                        </TableBody>
+                      </Table>
+                    )}
+                  </div>
+                ) : (
+                  <div className="border rounded-lg overflow-hidden max-h-[340px] overflow-y-auto">
+                    {crossCheckResult.matchedList.length === 0 ? (
+                      <div className="p-8 text-center text-slate-500 text-xs">
+                        Hiçbir fatura kesilenlerle eşleşmedi.
+                      </div>
+                    ) : (
+                      <Table>
+                        <TableHeader className="bg-emerald-50/80 sticky top-0 z-10">
+                          <TableRow>
+                            <TableHead className="text-xs py-2 font-bold text-emerald-900">Tarih</TableHead>
+                            <TableHead className="text-xs py-2 font-bold text-emerald-900">Müşteri / Ünvan</TableHead>
+                            <TableHead className="text-xs py-2 font-bold text-emerald-900 text-right">Tutar</TableHead>
+                            <TableHead className="text-xs py-2 font-bold text-emerald-900">Eşleşen Belge No</TableHead>
+                            <TableHead className="text-xs py-2 font-bold text-emerald-900">Kaynak</TableHead>
+                            <TableHead className="text-xs py-2 font-bold text-emerald-900 text-center">Eşleşme Kriteri</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {crossCheckResult.matchedList.map((item, idx) => {
+                            const r = item.excelRow;
+                            const m = item.matchedInvoice;
+                            return (
+                              <TableRow key={idx} className="hover:bg-emerald-50/30">
+                                <TableCell className="text-xs py-2 whitespace-nowrap font-mono">{r.faturaTarihi}</TableCell>
+                                <TableCell className="text-xs py-2 font-medium text-slate-900 max-w-[200px] truncate" title={`${r.ad} ${r.soyad || ''}`}>
+                                  {r.ad} {r.soyad || ''}
+                                </TableCell>
+                                <TableCell className="text-xs py-2 text-right font-mono font-bold text-emerald-900">{formatCurrency(r.tutar || 0)}</TableCell>
+                                <TableCell className="text-xs py-2 font-mono font-bold text-blue-700">{m.faturaNo || 'Kayıtlı Fatura'}</TableCell>
+                                <TableCell className="text-xs py-2 text-[11px] text-slate-600">{m.source}</TableCell>
+                                <TableCell className="text-xs py-2 text-center">
+                                  {item.matchType === 'TC111_NAME_MATCH' ? (
+                                    <span className="text-[10px] font-bold text-purple-700 bg-purple-100 px-2 py-0.5 rounded border border-purple-200">
+                                      Ad + Tutar + Tarih
+                                    </span>
+                                  ) : (
+                                    <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded border border-emerald-200">
+                                      VKN + Tutar + Tarih
+                                    </span>
+                                  )}
+                                </TableCell>
+                              </TableRow>
+                            );
+                          })}
+                        </TableBody>
+                      </Table>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          <DialogFooter className="pt-2 border-t flex justify-between items-center">
+            <span className="text-xs text-slate-500">
+              {crossCheckResult.isCalculated 
+                ? `Toplam ${crossCheckResult.totalUploaded} fatura denetlendi: ${crossCheckResult.matchedList.length} kesilmiş, ${crossCheckResult.unmatchedList.length} kesilmeyi bekliyor.`
+                : 'Lütfen karşılaştırmak istediğiniz Excel veya CSV dosyasını seçin.'}
+            </span>
+            <div className="flex items-center gap-2">
+              <Button type="button" variant="outline" onClick={() => setIsCrossCheckModalOpen(false)}>
+                Kapat
+              </Button>
+              {crossCheckResult.isCalculated && crossCheckResult.unmatchedList.length > 0 && (
+                <Button 
+                  type="button" 
+                  onClick={handleImportUnmatchedToKesilecek}
+                  disabled={isImportingUnmatched}
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold"
+                >
+                  {isImportingUnmatched ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : null}
+                  {crossCheckResult.unmatchedList.length} Faturayı Ekle
+                </Button>
+              )}
+            </div>
           </DialogFooter>
         </DialogContent>
       </Dialog>

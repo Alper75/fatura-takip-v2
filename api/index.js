@@ -4409,6 +4409,31 @@ app.post('/api/gib/invoices', authMiddleware, async (req, res) => {
 
     console.log(`[GIB Invoices Fetch] Başarılı! GİB'den dönen fatura adedi: ${invoices?.length || 0}`);
 
+    // Faturaların matrah, kdv ve toplam tutar detaylarını otomatik çözümle
+    if (Array.isArray(invoices) && invoices.length > 0 && req.body.includeDetails !== false) {
+      console.log(`[GIB Invoices Fetch] Faturaların matrah, kdv ve toplam tutar bilgileri çözümleniyor (${invoices.length} adet)...`);
+      const chunkSize = 4;
+      for (let i = 0; i < invoices.length; i += chunkSize) {
+        const chunk = invoices.slice(i, i + chunkSize);
+        await Promise.all(chunk.map(async (inv) => {
+          try {
+            const details = await getGibInvoiceDetails(client, token, inv.ettn, inv.onayDurumu === 'Onaylandı');
+            if (details && details.success) {
+              inv.tutar = details.tutar || inv.tutar || 0;
+              inv.matrah = details.matrah || 0;
+              inv.kdvTutari = details.kdvTutari || 0;
+              inv.tevkifatTutari = details.tevkifatTutari || 0;
+              inv.stopajTutari = details.stopajTutari || 0;
+              if (details.aliciUnvan && !inv.aliciUnvanAdSoyad) inv.aliciUnvanAdSoyad = details.aliciUnvan;
+              if (details.aliciVknTckn && !inv.aliciVknTckn) inv.aliciVknTckn = details.aliciVknTckn;
+            }
+          } catch (detErr) {
+            console.warn(`[GIB Invoices Fetch] ${inv.ettn} detay çözümlenemedi:`, detErr.message);
+          }
+        }));
+      }
+    }
+
     return res.json({
       success: true,
       data: invoices || [],
@@ -4445,61 +4470,47 @@ app.post('/api/gib/download-pdf', authMiddleware, async (req, res) => {
   }
 });
 
-app.post('/api/gib/invoice-details', authMiddleware, async (req, res) => {
-  const { credentials, uuid, signed } = req.body;
-  if (!credentials?.username || !credentials?.password)
-    return res.status(400).json({ success: false, message: 'GİB kullanıcı adı ve şifre gereklidir.' });
-  if (!uuid)
-    return res.status(400).json({ success: false, message: 'Fatura UUID (ETTN) gereklidir.' });
+async function getGibInvoiceDetails(client, token, uuid, signed) {
+  const downloadUrl = client.getDownloadURL(token, uuid, { signed: signed !== false });
 
-  const isTest = process.env.GIB_TEST_MODE === 'true';
-  const client = createFaturaClient(isTest ? 'TEST' : 'PROD');
+  let xmlContent = null;
+  let htmlContent = null;
+
   try {
-    const token = await gibSessionManager.getSessionToken(client, credentials.username, credentials.password, isTest ? 'TEST' : 'PROD');
-    const downloadUrl = client.getDownloadURL(token, uuid, { signed: signed !== false });
-
-    let xmlContent = null;
-    let htmlContent = null;
-
-    try {
-      const zipResponse = await axios.get(downloadUrl, {
-        responseType: 'arraybuffer',
-        headers: client.buildHeaders()
-      });
-      const zip = new AdmZip(Buffer.from(zipResponse.data));
-      const zipEntries = zip.getEntries();
-      
-      const xmlEntry = zipEntries.find(entry => entry.entryName.endsWith('.xml'));
-      if (xmlEntry) {
-        xmlContent = xmlEntry.getData().toString('utf8');
-      } else {
-        const htmlEntry = zipEntries.find(entry => entry.entryName.endsWith('.html') || entry.entryName.endsWith('.htm'));
-        if (htmlEntry) htmlContent = htmlEntry.getData().toString('utf8');
-      }
-    } catch (zipErr) {
-      console.warn('ZIP okunamadı (muhtemelen PDF veya HTML döndü), doğrudan HTML alınacak:', zipErr.message);
-    }
-
-    if (!xmlContent && !htmlContent) {
-      // Fallback: Fetch HTML directly
-      htmlContent = await client.getInvoiceHTML(token, uuid, { signed: signed !== false });
-    }
+    const zipResponse = await axios.get(downloadUrl, {
+      responseType: 'arraybuffer',
+      headers: client.buildHeaders()
+    });
+    const zip = new AdmZip(Buffer.from(zipResponse.data));
+    const zipEntries = zip.getEntries();
     
-    if (!xmlContent && !htmlContent) {
-      throw new Error('Fatura detayı (XML veya HTML) alınamadı.');
+    const xmlEntry = zipEntries.find(entry => entry.entryName.endsWith('.xml'));
+    if (xmlEntry) {
+      xmlContent = xmlEntry.getData().toString('utf8');
+    } else {
+      const htmlEntry = zipEntries.find(entry => entry.entryName.endsWith('.html') || entry.entryName.endsWith('.htm'));
+      if (htmlEntry) htmlContent = htmlEntry.getData().toString('utf8');
     }
+  } catch (zipErr) {
+    // ZIP okunamadı, doğrudan HTML alınacak
+  }
 
-    let parsedData = { success: true, tutar: 0, matrah: 0, kdvTutari: 0, aliciVknTckn: '', aliciUnvan: '' };
-    
-    if (xmlContent) {
-      const jsonObj = parser.parse(xmlContent);
-    
+  if (!xmlContent && !htmlContent) {
+    htmlContent = await client.getInvoiceHTML(token, uuid, { signed: signed !== false });
+  }
+  
+  if (!xmlContent && !htmlContent) {
+    throw new Error('Fatura detayı (XML veya HTML) alınamadı.');
+  }
+
+  let parsedData = { success: true, tutar: 0, matrah: 0, kdvTutari: 0, tevkifatTutari: 0, stopajTutari: 0, aliciVknTckn: '', aliciUnvan: '' };
+  
+  if (xmlContent) {
+    const jsonObj = parser.parse(xmlContent);
     if (jsonObj.Invoice) {
       const inv = jsonObj.Invoice;
       const monTotal = inv['LegalMonetaryTotal'];
       const taxTotal = inv['TaxTotal'];
-      
-      const supplierParty = inv['AccountingSupplierParty']?.['Party'];
       const customerParty = inv['AccountingCustomerParty']?.['Party'];
       
       const getText = (node) => (typeof node === 'object' && node !== null) ? (node['#text'] || '') : (node || '');
@@ -4523,8 +4534,6 @@ app.post('/api/gib/invoice-details', authMiddleware, async (req, res) => {
       };
       const getSoyad = (party) => getText(party?.['Person']?.['FamilyName']) || '';
 
-      // UBL-TR vergi ayrıştırma
-      // TaxTotal içindeki TaxSubtotal'lardan KDV (0015) ve Stopaj (0003) ayıklama
       let xmlKdvTutari = 0;
       let xmlStopajTutari = 0;
       
@@ -4543,12 +4552,10 @@ app.post('/api/gib/invoice-details', authMiddleware, async (req, res) => {
           }
         }
       }
-      // Fallback: üst düzey TaxAmount'tan KDV al
       if (xmlKdvTutari === 0) {
         xmlKdvTutari = parseFloat(taxTotal?.['TaxAmount']?.['#text'] || taxTotal?.['TaxAmount'] || 0);
       }
 
-      // WithholdingTaxTotal → KDV Tevkifatı
       let xmlTevkifatTutari = 0;
       const withholdingTax = inv['WithholdingTaxTotal'];
       if (withholdingTax) {
@@ -4566,91 +4573,88 @@ app.post('/api/gib/invoice-details', authMiddleware, async (req, res) => {
         tevkifatTutari: xmlTevkifatTutari,
         stopajTutari: xmlStopajTutari,
         aliciVknTckn: getVkn(customerParty),
-        aliciUnvan: (getAd(customerParty) + ' ' + getSoyad(customerParty)).trim()
+        aliciUnvan: (getAd(customerParty) + ' ' + getSoyad(customerParty)).trim(),
+        rawXml: xmlContent
       };
-      } else {
-        throw new Error('XML formatı standart UBL-TR değil.');
+    } else {
+      throw new Error('XML formatı standart UBL-TR değil.');
+    }
+  } else if (htmlContent) {
+    const parseAmount = (str) => {
+      if (!str) return 0;
+      let clean = str.replace(/[^\d\.,]/g, '');
+      if (!clean) return 0;
+      if (clean.includes(',') && clean.includes('.')) {
+        if (clean.lastIndexOf(',') > clean.lastIndexOf('.')) {
+          clean = clean.replace(/\./g, '').replace(/,/g, '.');
+        } else {
+          clean = clean.replace(/,/g, '');
+        }
+      } else if (clean.includes(',')) {
+        clean = clean.replace(/,/g, '.');
       }
-    } else if (htmlContent) {
-      // Parse amount from HTML table by extracting text from table cells
-      const parseAmount = (str) => {
-        if (!str) return 0;
-        let clean = str.replace(/[^\d\.,]/g, '');
-        if (!clean) return 0;
-        if (clean.includes(',') && clean.includes('.')) {
-          if (clean.lastIndexOf(',') > clean.lastIndexOf('.')) {
-            clean = clean.replace(/\./g, '').replace(/,/g, '.');
-          } else {
-            clean = clean.replace(/,/g, '');
-          }
-        } else if (clean.includes(',')) {
-          clean = clean.replace(/,/g, '.');
-        }
-        return parseFloat(clean) || 0;
-      };
+      return parseFloat(clean) || 0;
+    };
 
-      const rows = [];
-      const trRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
-      let trMatch;
-      while ((trMatch = trRegex.exec(htmlContent)) !== null) {
-        const tdRegex = /<td[^>]*>([\s\S]*?)<\/td>/gi;
-        const tds = [];
-        let tdMatch;
-        while ((tdMatch = tdRegex.exec(trMatch[1])) !== null) {
-          const text = tdMatch[1].replace(/<[^>]+>/g, '').trim();
-          if (text) tds.push(text);
-        }
-        if (tds.length >= 2) {
-          rows.push(tds);
-        }
+    const rows = [];
+    const trRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
+    let trMatch;
+    while ((trMatch = trRegex.exec(htmlContent)) !== null) {
+      const tdRegex = /<td[^>]*>([\s\S]*?)<\/td>/gi;
+      const tds = [];
+      let tdMatch;
+      while ((tdMatch = tdRegex.exec(trMatch[1])) !== null) {
+        const text = tdMatch[1].replace(/<[^>]+>/g, '').trim();
+        if (text) tds.push(text);
       }
-
-      // Kalem satırları (5-11 sütunlu) dip toplam satırlarıyla karışmasın
-      // Dip toplam satırları 2-4 hücreden oluşur
-      const summaryRows = rows.filter(r => r.length <= 4);
-
-      const extractAmount = (keywords, excludeKeywords = []) => {
-        // Öncelik: Dip toplam tablosu satırları (Summary rows)
-        for (const tds of summaryRows) {
-          const labelCell = tds[tds.length - 2];
-          const amountCell = tds[tds.length - 1];
-          const matchesKeyword = keywords.some(k => new RegExp(k, 'i').test(labelCell));
-          const matchesExclude = excludeKeywords.some(k => new RegExp(k, 'i').test(labelCell));
-          if (matchesKeyword && !matchesExclude) return parseAmount(amountCell);
-        }
-        // Fallback: Tüm satırlar (birden fazla vergi içeren kalem hücrelerini atla)
-        for (const tds of rows) {
-          const labelCell = tds[tds.length - 2];
-          const amountCell = tds[tds.length - 1];
-          const matchesKeyword = keywords.some(k => new RegExp(k, 'i').test(labelCell));
-          const matchesExclude = excludeKeywords.some(k => new RegExp(k, 'i').test(labelCell));
-          if (matchesKeyword && !matchesExclude && !labelCell.includes('=')) return parseAmount(amountCell);
-        }
-        return 0;
-      };
-
-      parsedData.tutar = extractAmount(['Ödenecek Tutar', 'Genel Toplam']);
-      parsedData.matrah = extractAmount(['Mal Hizmet Toplam', 'Tevkifata Tabi İşlem Tutarı']);
-      parsedData.kdvTutari = extractAmount(['Hesaplanan KDV'], ['Tevkifat', 'Tevkifata Tabi', 'İade']);
-      parsedData.tevkifatTutari = extractAmount(['KDV Tevkifat']);
-      parsedData.stopajTutari = extractAmount(['STOPAJ', 'KV. STOPAJ']);
-      parsedData.rawXml = xmlContent || null;
-      parsedData.rawHtml = htmlContent;
-      parsedData.debugHtml = htmlContent.substring(0, 500) + '...';
-
-      if (parsedData.tutar === 0) {
-        console.error("====== GİB PARSE HATASI ======");
-        console.error("Bulunamayan Etiketler, HTML'den ayıklanan metinler:", rows);
-        console.error("--- HTML İÇERİĞİ BAŞLANGICI ---");
-        console.error(htmlContent);
-        console.error("--- HTML İÇERİĞİ BİTİŞİ ---");
+      if (tds.length >= 2) {
+        rows.push(tds);
       }
     }
 
-    if (xmlContent && !parsedData.rawXml) {
-      parsedData.rawXml = xmlContent;
-    }
+    const summaryRows = rows.filter(r => r.length <= 4);
 
+    const extractAmount = (keywords, excludeKeywords = []) => {
+      for (const tds of summaryRows) {
+        const labelCell = tds[tds.length - 2];
+        const amountCell = tds[tds.length - 1];
+        const matchesKeyword = keywords.some(k => new RegExp(k, 'i').test(labelCell));
+        const matchesExclude = excludeKeywords.some(k => new RegExp(k, 'i').test(labelCell));
+        if (matchesKeyword && !matchesExclude) return parseAmount(amountCell);
+      }
+      for (const tds of rows) {
+        const labelCell = tds[tds.length - 2];
+        const amountCell = tds[tds.length - 1];
+        const matchesKeyword = keywords.some(k => new RegExp(k, 'i').test(labelCell));
+        const matchesExclude = excludeKeywords.some(k => new RegExp(k, 'i').test(labelCell));
+        if (matchesKeyword && !matchesExclude && !labelCell.includes('=')) return parseAmount(amountCell);
+      }
+      return 0;
+    };
+
+    parsedData.tutar = extractAmount(['Ödenecek Tutar', 'Genel Toplam']);
+    parsedData.matrah = extractAmount(['Mal Hizmet Toplam', 'Tevkifata Tabi İşlem Tutarı']);
+    parsedData.kdvTutari = extractAmount(['Hesaplanan KDV'], ['Tevkifat', 'Tevkifata Tabi', 'İade']);
+    parsedData.tevkifatTutari = extractAmount(['KDV Tevkifat']);
+    parsedData.stopajTutari = extractAmount(['STOPAJ', 'KV. STOPAJ']);
+    parsedData.rawHtml = htmlContent;
+  }
+
+  return parsedData;
+}
+
+app.post('/api/gib/invoice-details', authMiddleware, async (req, res) => {
+  const { credentials, uuid, signed } = req.body;
+  if (!credentials?.username || !credentials?.password)
+    return res.status(400).json({ success: false, message: 'GİB kullanıcı adı ve şifre gereklidir.' });
+  if (!uuid)
+    return res.status(400).json({ success: false, message: 'Fatura UUID (ETTN) gereklidir.' });
+
+  const isTest = process.env.GIB_TEST_MODE === 'true';
+  const client = createFaturaClient(isTest ? 'TEST' : 'PROD');
+  try {
+    const token = await gibSessionManager.getSessionToken(client, credentials.username, credentials.password, isTest ? 'TEST' : 'PROD');
+    const parsedData = await getGibInvoiceDetails(client, token, uuid, signed !== false);
     return res.json(parsedData);
   } catch (error) {
     console.error('[GIB Invoice Details] Hata Oluştu:', error);
