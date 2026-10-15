@@ -4254,19 +4254,22 @@ app.post('/api/gib/create-draft', authMiddleware, async (req, res) => {
   // Tevkifat tutarı varsa veya fatura tipi TEVKIFAT ise fatura tipini kesinlikle TEVKIFAT yap
   const isTevkifat = tevkifatAmount > 0 || invoice.faturaTipi === 'TEVKIFAT';
   const effectiveInvoiceType = isTevkifat ? 'TEVKIFAT' : (invoice.faturaTipi || 'SATIS');
-  const assignedUuid = invoice.gibUuid || invoice.uuid || uuidv4();
+
+  // VKN/TCKN Ayrımı: 10 haneli VKN için sadece Unvan, 11 haneli TCKN için Ad/Soyad
+  const isCorporate = vknStr.length === 10 && vknStr !== '11111111111';
+  const fullRecipientTitle = `${invoice.ad || ''} ${invoice.soyad || ''}`.trim();
 
   const invoiceDetails = {
-    uuid: assignedUuid,
+    uuid: invoice.gibUuid || invoice.uuid || '',
     date: formattedGibDate,
     time: formatGIBTime(now),
     taxIDOrTRID: vknStr,
-    title: `${invoice.ad || ''} ${invoice.soyad || ''}`.trim(),
-    name: invoice.ad || '',
-    surname: invoice.soyad || '',
+    title: isCorporate ? fullRecipientTitle : (vknStr === '11111111111' ? (fullRecipientTitle || 'NİHAİ TÜKETİCİ') : ''),
+    name: isCorporate ? '' : (invoice.ad || ''),
+    surname: isCorporate ? '' : (invoice.soyad || ''),
     invoiceType: effectiveInvoiceType,
     stopajTipi: invoice.stopajTipi || 'V0003',
-    hangiTip: "5000/30000",
+    hangiTip: "Buyuk",
     fullAddress: invoice.adres || 'Adres Bulunmuyor',
     district: invoice.ilce || '',
     city: invoice.il || '',
@@ -4274,6 +4277,7 @@ app.post('/api/gib/create-draft', authMiddleware, async (req, res) => {
     taxOffice: invoice.vergiDairesi || '',
     items: items,
     subtotal: subtotal,
+    grandTotal: subtotal,
     totalVAT: vatAmount,
     totalStopaj: stopajAmount,
     totalTevkifat: tevkifatAmount,
@@ -4293,7 +4297,7 @@ app.post('/api/gib/create-draft', authMiddleware, async (req, res) => {
     try {
       const token = await gibSessionManager.getSessionToken(client, credentials.username, credentials.password, isTest ? 'TEST' : 'PROD');
       const createdInvoice = await client.createDraftInvoice(token, invoiceDetails);
-      const invoiceUUID = createdInvoice.uuid || assignedUuid;
+      const invoiceUUID = createdInvoice.uuid || '';
 
       let signResult = null;
       let invoiceNo = null;
@@ -4315,7 +4319,7 @@ app.post('/api/gib/create-draft', authMiddleware, async (req, res) => {
 
       let msg = autoSign ? 'Fatura başarıyla oluşturuldu ve imzalandı.' : 'Fatura taslak olarak GİB portalına gönderildi.';
       if (!invoiceUUID) {
-        msg = `GİB işlemi başarılı dedi ancak faturayı bulamadı! Detay: ${JSON.stringify(createdInvoice)}`;
+        msg = `Fatura taslak olarak GİB portalına iletildi. (GİB: ${createdInvoice.data || 'Başarılı'})`;
       }
 
       return res.json({

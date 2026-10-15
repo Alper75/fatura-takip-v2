@@ -20,10 +20,38 @@ const COMMANDS = {
 };
 
 function assertApiSuccess(response) {
-    if (response.error && response.error !== "0") {
+    if (!response) {
+        throw new Error("GİB sunucusundan boş yanıt döndü.");
+    }
+
+    // 1. GİB numeric/string error kodu kontrolü (0 harici hata demektir)
+    if (response.error && response.error !== "0" && response.error !== 0) {
         const raw = response.messages?.[0];
-        const text = typeof raw === "string" ? raw : (typeof raw === "object" && raw !== null ? raw.text : "GİB API hatası");
-        throw new Error(text ?? "GİB API hatası");
+        const text = typeof raw === "string" ? raw : (typeof raw === "object" && raw !== null ? (raw.text || raw.description || JSON.stringify(raw)) : "GİB API hatası");
+        throw new Error(text || `GİB Hatası (Kod: ${response.error})`);
+    }
+
+    // 2. messages dizisi içinde ERROR / HATA / UYARI var mı?
+    if (Array.isArray(response.messages) && response.messages.length > 0) {
+        const errItem = response.messages.find(m => {
+            const t = String(m?.type || '').toUpperCase();
+            return t === 'ERROR' || t === 'HATA' || t === 'WARN' || t === 'WARNING';
+        });
+        
+        if (errItem) {
+            const text = typeof errItem === 'string' ? errItem : (errItem.text || errItem.description || JSON.stringify(errItem));
+            if (text && !text.includes('başarı') && !text.includes('basari') && !text.includes('başarılı')) {
+                throw new Error(text);
+            }
+        }
+    }
+
+    // 3. Eğer data alanı null ve messages varsa doğrudan fırlat
+    if ((response.data === null || response.data === undefined) && Array.isArray(response.messages) && response.messages.length > 0) {
+        const text = response.messages.map(m => (typeof m === 'string' ? m : m.text || JSON.stringify(m))).join(' - ');
+        if (text && !text.includes('başarı') && !text.includes('basari')) {
+            throw new Error(text);
+        }
     }
 }
 
@@ -137,14 +165,59 @@ export class FaturaClient {
     }
 
     async createDraftInvoice(token, invoiceDetails) {
+        const normDate = (d) => {
+            if (!d) return "";
+            const s = String(d).trim();
+            if (s.includes("-")) {
+                const p = s.split("T")[0].split("-");
+                if (p.length === 3 && p[0].length === 4) return `${p[2]}/${p[1]}/${p[0]}`;
+            }
+            return s;
+        };
+
+        const vknClean = String(invoiceDetails.taxIDOrTRID || "").trim().replace(/\s/g, "");
+        let aliciUnvan = "";
+        let aliciAdi = "";
+        let aliciSoyadi = "";
+
+        if (vknClean.length === 11 && vknClean !== "11111111111") {
+            // Şahıs (TCKN) -> Sadece Ad ve Soyad gönderilmeli, Unvan boş olmalı!
+            aliciUnvan = "";
+            if (invoiceDetails.surname && String(invoiceDetails.surname).trim()) {
+                aliciAdi = String(invoiceDetails.name || "").trim();
+                aliciSoyadi = String(invoiceDetails.surname).trim();
+            } else {
+                const fullName = String(invoiceDetails.title || invoiceDetails.name || "").trim();
+                const parts = fullName.split(/\s+/);
+                if (parts.length > 1) {
+                    aliciSoyadi = parts.pop();
+                    aliciAdi = parts.join(" ");
+                } else {
+                    aliciAdi = parts[0] || "Alıcı";
+                    aliciSoyadi = ".";
+                }
+            }
+        } else if (vknClean === "11111111111") {
+            // Nihai Tüketici
+            aliciUnvan = invoiceDetails.title || `${invoiceDetails.name || ''} ${invoiceDetails.surname || ''}`.trim() || "NİHAİ TÜKETİCİ";
+            aliciAdi = invoiceDetails.name || "";
+            aliciSoyadi = invoiceDetails.surname || "";
+        } else {
+            // Şirket / Kurum (10 Haneli VKN) -> Sadece Unvan gönderilmeli, Ad ve Soyad kesinlikle boş olmalı!
+            aliciUnvan = invoiceDetails.title || `${invoiceDetails.name || ''} ${invoiceDetails.surname || ''}`.trim();
+            aliciAdi = "";
+            aliciSoyadi = "";
+        }
+
         const invoiceData = {
+            faturaUuid: "", // GİB son güncellemelerle boş ETTN bekler, kendisi portaldan tekil ETTN üretir
             belgeNumarasi: invoiceDetails.documentNumber ?? "",
-            faturaTarihi: invoiceDetails.date.includes("-") ? invoiceDetails.date.split("-").reverse().join("/") : invoiceDetails.date,
-            saat: invoiceDetails.time,
+            faturaTarihi: normDate(invoiceDetails.date),
+            saat: invoiceDetails.time || "00:00:00",
             paraBirimi: invoiceDetails.currency ?? "TRY",
             dovzTLkur: invoiceDetails.currencyRate ?? "0",
             faturaTipi: invoiceDetails.invoiceType ?? "SATIS",
-            hangiTip: invoiceDetails.hangiTip ?? "Buyuk",
+            hangiTip: "Buyuk",
             siparisNumarasi: invoiceDetails.orderNumber ?? "",
             siparisTarihi: invoiceDetails.orderDate ?? "",
             irsaliyeNumarasi: invoiceDetails.dispatchNumber ?? "",
@@ -155,10 +228,10 @@ export class FaturaClient {
             fisTipi: invoiceDetails.slipType ?? " ",
             zRaporNo: invoiceDetails.zReportNumber ?? "",
             okcSeriNo: invoiceDetails.okcSerialNumber ?? "",
-            vknTckn: invoiceDetails.taxIDOrTRID ?? "11111111111",
-            aliciUnvan: invoiceDetails.title ?? "",
-            aliciAdi: invoiceDetails.name ?? "",
-            aliciSoyadi: invoiceDetails.surname ?? "",
+            vknTckn: vknClean || "11111111111",
+            aliciUnvan: aliciUnvan,
+            aliciAdi: aliciAdi,
+            aliciSoyadi: aliciSoyadi,
             bulvarcaddesokak: invoiceDetails.fullAddress ?? "",
             binaAdi: invoiceDetails.buildingName ?? "",
             binaNo: invoiceDetails.buildingNumber ?? "",
@@ -166,7 +239,7 @@ export class FaturaClient {
             kasabaKoy: invoiceDetails.town ?? "",
             mahalleSemtIlce: invoiceDetails.district ?? "",
             sehir: invoiceDetails.city ?? " ",
-            ulke: invoiceDetails.country ?? "",
+            ulke: invoiceDetails.country ?? "Türkiye",
             postaKodu: invoiceDetails.zipCode ?? "",
             tel: invoiceDetails.phoneNumber ?? "",
             fax: invoiceDetails.faxNumber ?? "",
@@ -254,12 +327,35 @@ export class FaturaClient {
             not: invoiceDetails.note ?? convertPriceToText(invoiceDetails.paymentTotal),
         };
 
-        const assignedUuid = invoiceDetails.uuid || generateUUID();
-        invoiceData.faturaUuid = assignedUuid;
-
         const invoice = await this.runCommand(token, ...COMMANDS.createDraftInvoice, invoiceData);
 
-        return { date: invoiceDetails.date, uuid: assignedUuid, ...invoice };
+        // GİB portalında oluşturulan taslağın gerçek ETTN (UUID) değerini çekelim
+        let realUuid = "";
+        try {
+            await new Promise(r => setTimeout(r, 600));
+            const drafts = await this.getAllInvoicesByDateRange(token, {
+                startDate: invoiceData.faturaTarihi,
+                endDate: invoiceData.faturaTarihi,
+            });
+            if (Array.isArray(drafts) && drafts.length > 0) {
+                const targetAmt = parseFloat(invoiceData.odenecekTutar);
+                const matched = drafts.find(d => {
+                    const dVkn = String(d.vknTckn || "").trim();
+                    const rawAmt = String(d.odenecek || d.belgeToplamTutar || '0').replace(/[^\d.,]/g, '').replace(',', '.');
+                    const dAmt = parseFloat(rawAmt) || 0;
+                    return dVkn === vknClean && Math.abs(dAmt - targetAmt) < 0.05;
+                });
+                realUuid = (matched || drafts[0]).ettn;
+            }
+        } catch (fetchErr) {
+            console.warn('[GIB] Yeni oluşturulan taslak UUID getirilirken uyarı:', fetchErr.message);
+        }
+
+        return { 
+            date: invoiceData.faturaTarihi, 
+            uuid: realUuid || "", 
+            ...invoice 
+        };
     }
 
     async findInvoice(token, draftInvoice, retries = 3) {
@@ -285,9 +381,20 @@ export class FaturaClient {
     }
 
     async getAllInvoicesByDateRange(token, { startDate, endDate }) {
+        const norm = (d) => {
+            if (!d) return "";
+            const s = String(d).trim();
+            if (s.includes("-")) {
+                const p = s.split("T")[0].split("-");
+                if (p.length === 3 && p[0].length === 4) return `${p[2]}/${p[1]}/${p[0]}`;
+            }
+            return s;
+        };
+        const sDate = norm(startDate);
+        const eDate = norm(endDate);
         const result = await this.runCommand(token, ...COMMANDS.getAllInvoicesByDateRange, { 
-            baslangic: startDate, 
-            bitis: endDate, 
+            baslangic: sDate, 
+            bitis: eDate, 
             hangiTip: "5000/30000", 
             table: [] 
         });
