@@ -1005,33 +1005,38 @@ export function KesilecekFaturalar() {
       let match: any = null;
       let matchIndex = -1;
 
-      // 1. UUID / ETTN Eşleşmesi
-      if (fUuid) {
-        matchIndex = gibList.findIndex((g, idx) => {
-          if (matchedGibIndices.has(idx)) return false;
-          const gUuid = (g.ettn || g.uuid || g.faturaUuid || '').toLowerCase().trim();
-          return gUuid === fUuid;
-        });
-        if (matchIndex >= 0) match = gibList[matchIndex];
-      }
-
-      // 2. Fatura / Belge Numarası Eşleşmesi
-      if (!match && fNo && fNo !== 'Taslak') {
+      // 1. Fatura / Belge Numarası Eşleşmesi (En kesin resmi numara)
+      if (fNo && fNo !== 'Taslak') {
         matchIndex = gibList.findIndex((g, idx) => {
           if (matchedGibIndices.has(idx)) return false;
           const gNo = (g.belgeNumarasi || g.faturaNo || '').trim();
-          return gNo === fNo;
+          return gNo && gNo === fNo;
         });
         if (matchIndex >= 0) match = gibList[matchIndex];
       }
 
-      // 3. Gerçek VKN / TCKN (11111111111 hariç) + Tutar Eşleşmesi
+      // 2. Gerçek VKN / TCKN (11111111111 hariç) + Tutar Eşleşmesi
       if (!match && fVknClean && fVknClean !== '11111111111') {
         matchIndex = gibList.findIndex((g, idx) => {
           if (matchedGibIndices.has(idx)) return false;
           const gVkn = cleanDigits(g.aliciVknTckn || g.vknTckn || g.aliciVergiNo || g.aliciTcKimlikNo || g.vergiNo);
           const gTutar = extractGibAmount(g);
           return gVkn === fVknClean && amountsMatch(fTutar, gTutar);
+        });
+        if (matchIndex >= 0) match = gibList[matchIndex];
+      }
+
+      // 3. UUID / ETTN Eşleşmesi (Mükerrer sahte UUID'lerin yanlış bağlanmasını önlemek için VKN, Tutar veya İsim doğrulamasıyla)
+      if (!match && fUuid) {
+        matchIndex = gibList.findIndex((g, idx) => {
+          if (matchedGibIndices.has(idx)) return false;
+          const gUuid = (g.ettn || g.uuid || g.faturaUuid || '').toLowerCase().trim();
+          if (gUuid !== fUuid) return false;
+          // Doğrulama: VKN, isim veya tutardan en az biri uyuşmalı
+          const gVkn = cleanDigits(g.aliciVknTckn || g.vknTckn || g.aliciVergiNo || g.aliciTcKimlikNo || g.vergiNo);
+          const gTutar = extractGibAmount(g);
+          const gName = g.aliciUnvanAdSoyad || g.aliciUnvan || g.unvan || g.aliciAdi || '';
+          return (fVknClean && gVkn === fVknClean) || amountsMatch(fTutar, gTutar) || titlesMatch(fName, gName);
         });
         if (matchIndex >= 0) match = gibList[matchIndex];
       }
