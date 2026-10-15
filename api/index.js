@@ -4269,7 +4269,7 @@ app.post('/api/gib/create-draft', authMiddleware, async (req, res) => {
     surname: isCorporate ? '' : (invoice.soyad || ''),
     invoiceType: effectiveInvoiceType,
     stopajTipi: invoice.stopajTipi || 'V0003',
-    hangiTip: "Buyuk",
+    hangiTip: "5000/30000",
     fullAddress: invoice.adres || 'Adres Bulunmuyor',
     district: invoice.ilce || '',
     city: invoice.il || '',
@@ -4299,9 +4299,18 @@ app.post('/api/gib/create-draft', authMiddleware, async (req, res) => {
       const createdInvoice = await client.createDraftInvoice(token, invoiceDetails);
       const invoiceUUID = createdInvoice.uuid || '';
 
+      const dataStr = String(createdInvoice.data || '');
+      const isGibSuccess = dataStr.includes('başarı') || dataStr.includes('basari') || dataStr.includes('oluşturulmuştur') || Boolean(invoiceUUID);
+      if (!isGibSuccess) {
+        return res.status(400).json({
+          success: false,
+          message: dataStr || 'GİB faturası oluşturulamadı.'
+        });
+      }
+
       let signResult = null;
       let invoiceNo = null;
-      if (autoSign === true) {
+      if (autoSign === true && invoiceUUID) {
         const details = await client.findInvoice(token, createdInvoice);
         if (details !== undefined) {
           signResult = await client.signDraftInvoice(token, details);

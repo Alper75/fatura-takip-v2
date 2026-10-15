@@ -46,7 +46,16 @@ function assertApiSuccess(response) {
         }
     }
 
-    // 3. Eğer data alanı null ve messages varsa doğrudan fırlat
+    // 3. Eğer data alanı string ve hata mesajı içeriyorsa (Örn: "Bu mükellef ... fatura kesemez")
+    if (typeof response.data === 'string') {
+        const dStr = response.data.trim();
+        const lower = dStr.toLowerCase();
+        if (lower.includes('kesemez') || lower.includes('yetkisi yok') || lower.includes('hata oluştu') || lower.includes('başarısız') || lower.includes('gecersiz')) {
+            throw new Error(dStr);
+        }
+    }
+
+    // 4. Eğer data alanı null ve messages varsa doğrudan fırlat
     if ((response.data === null || response.data === undefined) && Array.isArray(response.messages) && response.messages.length > 0) {
         const text = response.messages.map(m => (typeof m === 'string' ? m : m.text || JSON.stringify(m))).join(' - ');
         if (text && !text.includes('başarı') && !text.includes('basari')) {
@@ -217,7 +226,7 @@ export class FaturaClient {
             paraBirimi: invoiceDetails.currency ?? "TRY",
             dovzTLkur: invoiceDetails.currencyRate ?? "0",
             faturaTipi: invoiceDetails.invoiceType ?? "SATIS",
-            hangiTip: "Buyuk",
+            hangiTip: "5000/30000",
             siparisNumarasi: invoiceDetails.orderNumber ?? "",
             siparisTarihi: invoiceDetails.orderDate ?? "",
             irsaliyeNumarasi: invoiceDetails.dispatchNumber ?? "",
