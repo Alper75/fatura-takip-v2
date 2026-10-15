@@ -66,7 +66,7 @@ class StockSyncService {
     }
 
     // 3. Ürün Adı ile ara
-    const name = String(item.name || item.urunAdi || item.aciklama || '').trim();
+    const name = String(item.name || item.urunAdi || item.malHizmetAdi || item.aciklama || item.description || '').trim();
     if (name) {
       const nRs = await client.execute({
         sql: 'SELECT id FROM stok_urunler WHERE company_id = ? AND LOWER(urun_adi) = LOWER(?) LIMIT 1',
@@ -77,7 +77,7 @@ class StockSyncService {
 
     // 4. Bulunamadıysa otomatik yeni ürün aç
     const newId = uuidv4();
-    const cleanName = name || 'İsimsiz Ürün';
+    const cleanName = name || (item.barcode ? `Ürün (${item.barcode})` : '') || (item.stokKodu ? `Ürün (${item.stokKodu})` : '') || 'İsimsiz Ürün';
     const autoCode = 'STK-' + Date.now().toString().slice(-6);
     const unitPrice = parseFloat(item.price || item.birimFiyat) || 0;
 

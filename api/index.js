@@ -816,7 +816,7 @@ app.get('/api/elogo/gelen-faturalar', authMiddleware, async (req, res) => {
         
         const lines = inv['InvoiceLine'];
         const lineArr = Array.isArray(lines) ? lines : (lines ? [lines] : []);
-        let faturaAciklama = lineArr.map(l => getText(l?.['Item']?.['Name'])).filter(n => n).join(', ');
+        let faturaAciklama = lineArr.map(l => getText(l?.['Item']?.['Name']) || getText(l?.['Item']?.['Description'])).filter(n => n).join(', ');
         
         if (!faturaAciklama) {
           const notes = inv['Note'];
@@ -827,6 +827,25 @@ app.get('/api/elogo/gelen-faturalar', authMiddleware, async (req, res) => {
         if (!faturaAciklama) {
           faturaAciklama = 'eLogo Gelen Fatura';
         }
+
+        const items = lineArr.map(l => {
+          const q = parseFloat(getText(l?.['InvoicedQuantity'])) || 1;
+          const p = parseFloat(getText(l?.['Price']?.['PriceAmount'])) || (parseFloat(getText(l?.['LineExtensionAmount'])) / q) || 0;
+          const itemName = getText(l?.['Item']?.['Name']) || 
+                           getText(l?.['Item']?.['Description']) || 
+                           getText(l?.['Item']?.['SellersItemIdentification']?.['ID']) ||
+                           getText(l?.['Item']?.['BuyersItemIdentification']?.['ID']) ||
+                           'Mal/Hizmet';
+          return {
+            name: itemName,
+            urunAdi: itemName,
+            qty: q,
+            miktar: q,
+            price: p,
+            birimFiyat: p,
+            barcode: getText(l?.['Item']?.['SellersItemIdentification']?.['ID']) || ''
+          };
+        });
 
         return {
           ...doc,
@@ -841,7 +860,8 @@ app.get('/api/elogo/gelen-faturalar', authMiddleware, async (req, res) => {
           kdvOrani,
           kdvTutari,
           oivTutari,
-          faturaAciklama
+          faturaAciklama,
+          items
         };
       } catch (err) {
         console.error('Invoice parse error for UUID', doc.documentUuid, err);
@@ -1025,7 +1045,7 @@ app.get('/api/elogo/giden-faturalar', authMiddleware, async (req, res) => {
         
         const lines = inv['InvoiceLine'];
         const lineArr = Array.isArray(lines) ? lines : (lines ? [lines] : []);
-        let faturaAciklama = lineArr.map(l => getText(l?.['Item']?.['Name'])).filter(n => n).join(', ');
+        let faturaAciklama = lineArr.map(l => getText(l?.['Item']?.['Name']) || getText(l?.['Item']?.['Description'])).filter(n => n).join(', ');
         
         if (!faturaAciklama) {
           const notes = inv['Note'];
@@ -1036,6 +1056,25 @@ app.get('/api/elogo/giden-faturalar', authMiddleware, async (req, res) => {
         if (!faturaAciklama) {
           faturaAciklama = 'eLogo Giden Fatura';
         }
+
+        const items = lineArr.map(l => {
+          const q = parseFloat(getText(l?.['InvoicedQuantity'])) || 1;
+          const p = parseFloat(getText(l?.['Price']?.['PriceAmount'])) || (parseFloat(getText(l?.['LineExtensionAmount'])) / q) || 0;
+          const itemName = getText(l?.['Item']?.['Name']) || 
+                           getText(l?.['Item']?.['Description']) || 
+                           getText(l?.['Item']?.['SellersItemIdentification']?.['ID']) ||
+                           getText(l?.['Item']?.['BuyersItemIdentification']?.['ID']) ||
+                           'Mal/Hizmet';
+          return {
+            name: itemName,
+            urunAdi: itemName,
+            qty: q,
+            miktar: q,
+            price: p,
+            birimFiyat: p,
+            barcode: getText(l?.['Item']?.['SellersItemIdentification']?.['ID']) || ''
+          };
+        });
 
         return {
           ...doc,
@@ -1050,7 +1089,8 @@ app.get('/api/elogo/giden-faturalar', authMiddleware, async (req, res) => {
           kdvOrani,
           kdvTutari,
           oivTutari,
-          faturaAciklama
+          faturaAciklama,
+          items
         };
       } catch (err) {
         console.error('Invoice parse error for UUID', doc.documentUuid, err);
@@ -1526,7 +1566,7 @@ app.get('/api/uyumsoft/gelen-faturalar', authMiddleware, async (req, res) => {
         
         const lines = inv['InvoiceLine'];
         const lineArr = Array.isArray(lines) ? lines : (lines ? [lines] : []);
-        let faturaAciklama = lineArr.map(l => getText(l?.['Item']?.['Name'])).filter(n => n).join(', ');
+        let faturaAciklama = lineArr.map(l => getText(l?.['Item']?.['Name']) || getText(l?.['Item']?.['Description'])).filter(n => n).join(', ');
         
         if (!faturaAciklama) {
           const notes = inv['Note'];
@@ -1537,6 +1577,25 @@ app.get('/api/uyumsoft/gelen-faturalar', authMiddleware, async (req, res) => {
         if (!faturaAciklama) {
           faturaAciklama = 'Uyumsoft Gelen Fatura';
         }
+
+        const items = lineArr.map(l => {
+          const q = parseFloat(getText(l?.['InvoicedQuantity'])) || 1;
+          const p = parseFloat(getText(l?.['Price']?.['PriceAmount'])) || (parseFloat(getText(l?.['LineExtensionAmount'])) / q) || 0;
+          const itemName = getText(l?.['Item']?.['Name']) || 
+                           getText(l?.['Item']?.['Description']) || 
+                           getText(l?.['Item']?.['SellersItemIdentification']?.['ID']) ||
+                           getText(l?.['Item']?.['BuyersItemIdentification']?.['ID']) ||
+                           'Mal/Hizmet';
+          return {
+            name: itemName,
+            urunAdi: itemName,
+            qty: q,
+            miktar: q,
+            price: p,
+            birimFiyat: p,
+            barcode: getText(l?.['Item']?.['SellersItemIdentification']?.['ID']) || ''
+          };
+        });
 
         return {
           ...doc,
@@ -1551,7 +1610,8 @@ app.get('/api/uyumsoft/gelen-faturalar', authMiddleware, async (req, res) => {
           kdvOrani,
           kdvTutari,
           oivTutari,
-          faturaAciklama
+          faturaAciklama,
+          items
         };
       } catch (err) {
         console.error('Invoice parse error for UUID', doc.documentUuid, err);
@@ -3534,9 +3594,13 @@ app.get('/api/satis-faturalari', authMiddleware, async (req, res) => {
       args: [req.user.companyId]
     });
     
-    // Stok hareketlerini de çek
+    // Stok hareketlerini ürün adlarıyla birlikte çek
     const stokRs = await client.execute({
-      sql: 'SELECT * FROM stok_hareketler WHERE company_id = ? AND tip = ?',
+      sql: `SELECT sh.id, sh.bagli_fatura_id, sh.urun_id, sh.miktar, sh.birim_fiyat,
+                   u.urun_adi, u.stok_kodu
+            FROM stok_hareketler sh
+            LEFT JOIN stok_urunler u ON u.id = sh.urun_id
+            WHERE sh.company_id = ? AND sh.tip = ?`,
       args: [req.user.companyId, 'CIKIS']
     });
     
@@ -3547,6 +3611,8 @@ app.get('/api/satis-faturalari', authMiddleware, async (req, res) => {
       const bagliStoklar = stokHareketler.filter(sh => sh.bagli_fatura_id === r.id).map(sh => ({
         id: sh.id,
         urunId: sh.urun_id,
+        urunAdi: sh.urun_adi || '',
+        stokKodu: sh.stok_kodu || '',
         miktar: sh.miktar,
         birimFiyat: sh.birim_fiyat
       }));
@@ -3667,8 +3733,13 @@ app.get('/api/alis-faturalari', authMiddleware, async (req, res) => {
     });
     
     // Stok hareketlerini de çek
+    // Stok hareketlerini ürün adlarıyla birlikte çek
     const stokRs = await client.execute({
-      sql: 'SELECT * FROM stok_hareketler WHERE company_id = ? AND tip = ?',
+      sql: `SELECT sh.id, sh.bagli_fatura_id, sh.urun_id, sh.miktar, sh.birim_fiyat,
+                   u.urun_adi, u.stok_kodu
+            FROM stok_hareketler sh
+            LEFT JOIN stok_urunler u ON u.id = sh.urun_id
+            WHERE sh.company_id = ? AND sh.tip = ?`,
       args: [req.user.companyId, 'GIRIS']
     });
     
@@ -3679,6 +3750,8 @@ app.get('/api/alis-faturalari', authMiddleware, async (req, res) => {
       const bagliStoklar = stokHareketler.filter(sh => sh.bagli_fatura_id === r.id).map(sh => ({
         id: sh.id,
         urunId: sh.urun_id,
+        urunAdi: sh.urun_adi || '',
+        stokKodu: sh.stok_kodu || '',
         miktar: sh.miktar,
         birimFiyat: sh.birim_fiyat
       }));

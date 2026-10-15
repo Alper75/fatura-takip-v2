@@ -425,14 +425,28 @@ class AutoInvoiceFetcherService {
 
     const lines = inv['InvoiceLine'];
     const lineArr = Array.isArray(lines) ? lines : (lines ? [lines] : []);
-    const itemsText = lineArr.map(l => getText(l?.['Item']?.['Name'])).filter(Boolean).join(', ');
+    const itemsText = lineArr.map(l => {
+      return getText(l?.['Item']?.['Name']) || 
+             getText(l?.['Item']?.['Description']) || 
+             getText(l?.['Item']?.['SellersItemIdentification']?.['ID']) ||
+             getText(l?.['Item']?.['BuyersItemIdentification']?.['ID']) ||
+             '';
+    }).filter(Boolean).join(', ');
     const rawItems = lineArr.map(l => {
       const q = parseFloat(getText(l?.['InvoicedQuantity'])) || 1;
       const p = parseFloat(getText(l?.['Price']?.['PriceAmount'])) || (parseFloat(getText(l?.['LineExtensionAmount'])) / q) || 0;
+      const itemName = getText(l?.['Item']?.['Name']) || 
+                       getText(l?.['Item']?.['Description']) || 
+                       getText(l?.['Item']?.['SellersItemIdentification']?.['ID']) ||
+                       getText(l?.['Item']?.['BuyersItemIdentification']?.['ID']) ||
+                       'Mal/Hizmet';
       return {
-        name: getText(l?.['Item']?.['Name']) || 'Mal/Hizmet',
+        name: itemName,
+        urunAdi: itemName,
         qty: q,
+        miktar: q,
         price: p,
+        birimFiyat: p,
         barcode: getText(l?.['Item']?.['SellersItemIdentification']?.['ID']) || getText(l?.['Item']?.['StandardItemIdentification']?.['ID']) || ''
       };
     });

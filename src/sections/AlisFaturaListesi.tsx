@@ -422,7 +422,8 @@ export function AlisFaturaListesi() {
                         <div className="flex flex-col gap-1 max-w-[200px]">
                           {(fatura as any).stokKalemleri && (fatura as any).stokKalemleri.length > 0 ? (
                             (fatura as any).stokKalemleri.map((sk: any, idx: number) => {
-                              const ad = urunler?.find(u => u.id === sk.urunId)?.urunAdi || 'İsimsiz Ürün';
+                              const malHizmetList = fatura.malHizmetAdi ? fatura.malHizmetAdi.split(',').map((s: string) => s.trim()) : [];
+                              const ad = sk.urunAdi || urunler?.find(u => u.id === sk.urunId)?.urunAdi || malHizmetList[idx] || (sk.stokKodu ? `Ürün (${sk.stokKodu})` : '') || 'İsimsiz Ürün';
                               return (
                                 <div key={idx} className="text-xs flex items-center justify-between bg-slate-50 border rounded px-1.5 py-0.5">
                                   <span className="truncate max-w-[120px]" title={ad}>{ad}</span>
