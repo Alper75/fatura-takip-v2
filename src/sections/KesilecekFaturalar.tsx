@@ -823,6 +823,64 @@ export function KesilecekFaturalar() {
     }
   };
 
+  // Toplu Silme Fonksiyonu (Bekleyen veya Kesilen seçili faturalar için)
+  const handleBulkDelete = async () => {
+    const isBekleyen = activeTab === 'bekleyen';
+    const selectedIds = isBekleyen ? selectedInvoiceIdsForGib : selectedKesilenIds;
+    
+    if (!selectedIds || selectedIds.length === 0) {
+      toast.warning('Lütfen silmek istediğiniz faturaları seçin.');
+      return;
+    }
+
+    const message = isBekleyen
+      ? `Seçilen ${selectedIds.length} adet bekleyen faturayı sistemden kalıcı olarak silmek istediğinize emin misiniz?`
+      : `Seçilen ${selectedIds.length} adet faturayı sistemden kalıcı olarak silmek istediğinize emin misiniz? (Bağlı satış ve cari kayıtları da temizlenecektir)`;
+
+    if (!window.confirm(message)) return;
+
+    try {
+      const count = selectedIds.length;
+      for (const invId of selectedIds) {
+        const inv = resolvedInvoices.find((f: any) => f.id === invId);
+
+        // 1. Kesilecek fatura planında varsa sil
+        if (kesilecekFaturalar.some(k => k.id === invId)) {
+          await deleteKesilecekFatura(invId);
+        }
+
+        // 2. Satış faturasında varsa sil
+        const matchingSales = (satisFaturalari || []).find((sf: any) => 
+          sf.id === invId || (inv?.gibUuid && sf.gibUuid === inv.gibUuid) || (inv?.faturaNo && sf.faturaNo === inv.faturaNo)
+        );
+        if (matchingSales) {
+          await deleteSatisFatura(matchingSales.id);
+        } else if (inv?.isRealSalesInvoice) {
+          await deleteSatisFatura(invId);
+        }
+
+        // 3. Varsa bağlı cari hareketi sil
+        const matchingHareket = (cariHareketler || []).find((ch: any) => 
+          ch.bagliFaturaId === invId || (matchingSales && ch.bagliFaturaId === matchingSales.id)
+        );
+        if (matchingHareket) {
+          await deleteCariHareket(matchingHareket.id);
+        }
+      }
+
+      if (isBekleyen) {
+        setSelectedInvoiceIdsForGib([]);
+      } else {
+        setSelectedKesilenIds([]);
+      }
+
+      toast.success(`${count} adet fatura başarıyla silindi.`);
+    } catch (err: any) {
+      console.error('Toplu silme hatası:', err);
+      toast.error('Toplu silme sırasında hata oluştu: ' + (err.message || 'Bilinmeyen hata'));
+    }
+  };
+
   // GİB Sorgulama Giriş Modalı Açıcı
   const openGibQueryModal = () => {
     const targets = selectedKesilenIds.length > 0
@@ -2870,6 +2928,19 @@ export function KesilecekFaturalar() {
                   </Button>
                 )}
 
+                {/* Bekleyenlerde Seçilenleri Sil Butonu */}
+                {activeTab === 'bekleyen' && selectedInvoiceIdsForGib.length > 0 && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={handleBulkDelete}
+                    className="h-8 gap-1.5 text-xs font-bold border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-600 hover:text-white transition-colors"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    Seçilenleri Sil ({selectedInvoiceIdsForGib.length})
+                  </Button>
+                )}
+
                 {/* Seçim Varsa Bekleyenler Sekmesinde Ek İşlemler Dropdown */}
                 {activeTab === 'bekleyen' && selectedInvoiceIdsForGib.length > 0 && (
                   <DropdownMenu>
@@ -2884,24 +2955,39 @@ export function KesilecekFaturalar() {
                         {isBulkLookupRunning ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5 text-blue-600" />}
                         <span>VKN/TCKN Bilgisi Sorgula</span>
                       </DropdownMenuItem>
+                      <DropdownMenuItem onClick={handleBulkDelete} className="gap-2 text-xs cursor-pointer text-rose-600 focus:text-rose-700">
+                        <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                        <span>Seçilenleri Sil</span>
+                      </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
                 )}
 
                 {/* Kesilenler Sekmesinde Seçim Varsa Butonlar */}
                 {activeTab === 'kesilenler' && selectedKesilenIds.length > 0 && (
-                  <Button
-                    size="sm"
-                    onClick={() => {
-                      if (confirm(`Seçilen ${selectedKesilenIds.length} faturayı tekrar bekleyen faturalar listesine geri almak istiyor musunuz?`)) {
-                        revertToPending(selectedKesilenIds);
-                      }
-                    }}
-                    className="h-8 gap-1 text-xs font-bold bg-amber-500 hover:bg-amber-600 text-white"
-                  >
-                    <Undo2 className="w-3.5 h-3.5" />
-                    Bekleyenlere Al ({selectedKesilenIds.length})
-                  </Button>
+                  <div className="flex items-center gap-1.5">
+                    <Button
+                      size="sm"
+                      onClick={() => {
+                        if (confirm(`Seçilen ${selectedKesilenIds.length} faturayı tekrar bekleyen faturalar listesine geri almak istiyor musunuz?`)) {
+                          revertToPending(selectedKesilenIds);
+                        }
+                      }}
+                      className="h-8 gap-1 text-xs font-bold bg-amber-500 hover:bg-amber-600 text-white"
+                    >
+                      <Undo2 className="w-3.5 h-3.5" />
+                      Bekleyenlere Al ({selectedKesilenIds.length})
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={handleBulkDelete}
+                      className="h-8 gap-1.5 text-xs font-bold border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-600 hover:text-white transition-colors"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      Seçilenleri Sil ({selectedKesilenIds.length})
+                    </Button>
+                  </div>
                 )}
 
                 {/* GİB Portalı Dropdown Menüsü */}
@@ -3775,6 +3861,20 @@ export function KesilecekFaturalar() {
                     </Button>
                     <Button type="button" size="sm" variant="outline" onClick={importAllGibInvoices} className="h-7 text-[10px] font-bold bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-600 hover:text-white">
                       Tümünü Sisteme Aktar
+                    </Button>
+                    <Button 
+                      type="button" 
+                      size="sm" 
+                      variant="outline" 
+                      onClick={() => {
+                        if (confirm('GİB listesindeki tüm faturaları temizlemek istiyor musunuz?')) {
+                          setGibInvoices([]);
+                          toast.info('GİB listesi temizlendi.');
+                        }
+                      }} 
+                      className="h-7 text-[10px] font-bold bg-rose-50 border-rose-200 text-rose-700 hover:bg-rose-600 hover:text-white"
+                    >
+                      <Trash2 className="w-3 h-3" /> Listeyi Temizle
                     </Button>
                   </div>
                 </div>
