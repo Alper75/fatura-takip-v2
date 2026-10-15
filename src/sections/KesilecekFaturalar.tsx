@@ -594,6 +594,9 @@ export function KesilecekFaturalar() {
         soyad: sf.soyad || '',
         vknTckn: sf.tcVkn || '',
         tutar: parseFloat(sf.alinanUcret) || 0,
+        matrah: sf.matrah !== undefined && sf.matrah !== null ? parseFloat(sf.matrah) : undefined,
+        kdvTutari: sf.kdvTutari !== undefined && sf.kdvTutari !== null ? parseFloat(sf.kdvTutari) : undefined,
+        tevkifatTutari: sf.tevkifatTutari !== undefined && sf.tevkifatTutari !== null ? parseFloat(sf.tevkifatTutari) : undefined,
         faturaTarihi: sf.faturaTarihi,
         aciklama: sf.aciklama,
         durum: 'kesildi',
@@ -2243,7 +2246,7 @@ export function KesilecekFaturalar() {
       }
 
       if (finalAmount === 0) {
-        finalAmount = parseGibAmount(gibInv.tutar || gibInv.faturaTutari || gibInv.toplamTutar || gibInv.odenecekTutar || gibInv.vergilerDahilToplamTutar);
+        finalAmount = extractGibAmount(gibInv);
       }
 
       const parts = (gibInv.belgeTarihi || '').split(/-|\//);
@@ -2268,6 +2271,9 @@ export function KesilecekFaturalar() {
         if (anyMatch && anyMatch.muhasebeKodu) learnedMuhasebeKodu = anyMatch.muhasebeKodu;
       }
 
+      const finalMatrah = Number(gibInv.matrah) || (finalAmount > 0 ? +(finalAmount / 1.20).toFixed(2) : 0);
+      const finalKdv = Number(gibInv.kdvTutari) || (finalAmount > 0 ? +(finalAmount - finalMatrah).toFixed(2) : 0);
+
       await addSatisFatura({
         id: gibInv.ettn,
         gibUuid: gibInv.ettn,
@@ -2278,8 +2284,8 @@ export function KesilecekFaturalar() {
         adres: 'GİB e-Arşiv Portaldan Aktarıldı',
         hizmetAdi: 'Muhtelif İşlemler (GİB Aktarım)',
         alinanUcret: finalAmount.toString(),
-        matrah: gibInv.matrah || finalAmount,
-        kdvTutari: gibInv.kdvTutari || 0,
+        matrah: finalMatrah,
+        kdvTutari: finalKdv,
         faturaTarihi: formattedDate,
         kdvOrani: (gibInv.kdvTutari && gibInv.matrah) ? Math.round((gibInv.kdvTutari / gibInv.matrah) * 100).toString() : '20',
         tevkifatOrani: (gibInv.tevkifatTutari && gibInv.kdvTutari) ? `${Math.round((gibInv.tevkifatTutari / gibInv.kdvTutari) * 10)}/10` : '0',
@@ -2355,7 +2361,7 @@ export function KesilecekFaturalar() {
         }
 
         if (finalAmount === 0) {
-          finalAmount = parseGibAmount(gibInv.tutar || gibInv.faturaTutari || gibInv.toplamTutar || gibInv.odenecekTutar || gibInv.vergilerDahilToplamTutar);
+          finalAmount = extractGibAmount(gibInv);
         }
 
         const parts = (gibInv.belgeTarihi || '').split(/-|\//);
@@ -2380,6 +2386,9 @@ export function KesilecekFaturalar() {
           if (anyMatchAll && anyMatchAll.muhasebeKodu) learnedMuhasebeKoduAll = anyMatchAll.muhasebeKodu;
         }
 
+        const finalMatrahAll = Number(gibInv.matrah) || (finalAmount > 0 ? +(finalAmount / 1.20).toFixed(2) : 0);
+        const finalKdvAll = Number(gibInv.kdvTutari) || (finalAmount > 0 ? +(finalAmount - finalMatrahAll).toFixed(2) : 0);
+
         await addSatisFatura({
           id: gibInv.ettn,
           gibUuid: gibInv.ettn,
@@ -2390,8 +2399,8 @@ export function KesilecekFaturalar() {
           adres: 'GİB e-Arşiv Portaldan Aktarıldı',
           hizmetAdi: 'Muhtelif İşlemler (GİB Aktarım)',
           alinanUcret: finalAmount.toString(),
-          matrah: gibInv.matrah || finalAmount,
-          kdvTutari: gibInv.kdvTutari || 0,
+          matrah: finalMatrahAll,
+          kdvTutari: finalKdvAll,
           faturaTarihi: formattedDate,
           kdvOrani: (gibInv.kdvTutari && gibInv.matrah) ? Math.round((gibInv.kdvTutari / gibInv.matrah) * 100).toString() : '20',
           tevkifatOrani: (gibInv.tevkifatTutari && gibInv.kdvTutari) ? `${Math.round((gibInv.tevkifatTutari / gibInv.kdvTutari) * 10)}/10` : '0',
@@ -3042,7 +3051,9 @@ export function KesilecekFaturalar() {
                     <TableHead className="font-semibold text-slate-600">Müşteri Detayları</TableHead>
                     <TableHead className="font-semibold text-slate-600">Kalemler / Açıklama</TableHead>
                     <TableHead className="font-semibold text-slate-600">Fatura No</TableHead>
-                    <TableHead className="font-semibold text-slate-600">Toplam</TableHead>
+                    <TableHead className="font-semibold text-slate-600 text-right">Matrah</TableHead>
+                    <TableHead className="font-semibold text-slate-600 text-right">KDV</TableHead>
+                    <TableHead className="font-semibold text-slate-600 text-right">Genel Toplam</TableHead>
                     <TableHead className="font-semibold text-slate-600 text-center">Durum</TableHead>
                     <TableHead className="text-right font-semibold text-slate-600">Aksiyon</TableHead>
                   </TableRow>
@@ -3050,7 +3061,7 @@ export function KesilecekFaturalar() {
                 <TableBody>
                   {resolvedInvoices.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={7} className="h-48 text-center">
+                      <TableCell colSpan={9} className="h-48 text-center">
                         <div className="flex flex-col items-center justify-center text-slate-400 gap-2">
                           <AlertCircle className="w-8 h-8 opacity-20" />
                           <p>{activeTab === 'bekleyen' ? 'Kayıtlı bekleyen fatura planı bulunamadı.' : 'Seçili filtrelere uygun kesilmiş fatura bulunamadı.'}</p>
@@ -3135,17 +3146,31 @@ export function KesilecekFaturalar() {
                             <span className="text-[11px] text-slate-400 italic">No Yok</span>
                           )}
                         </TableCell>
-                        <TableCell>
-                          <div className="flex flex-col">
-                            <span className="font-bold text-slate-900">{formatCurrency(f.tutar)}</span>
-                            {(f.matrah !== undefined || f.kdvTutari !== undefined) ? (
-                              <div className="flex items-center gap-1.5 text-[10px] text-slate-500 font-mono mt-0.5">
-                                {f.matrah !== undefined && <span title="Matrah">M: {formatCurrency(f.matrah)}</span>}
-                                {f.kdvTutari !== undefined && <span className="text-blue-600 font-medium" title="KDV Tutarı">KDV: {formatCurrency(f.kdvTutari)}</span>}
-                              </div>
-                            ) : null}
-                          </div>
-                        </TableCell>
+                        {(() => {
+                          const rowTutar = Number(f.tutar) || 0;
+                          const rowMatrah = (f.matrah !== undefined && f.matrah !== null && Number(f.matrah) > 0)
+                            ? Number(f.matrah)
+                            : (f.kalemler && f.kalemler.length > 0)
+                              ? f.kalemler.reduce((sum: number, k: any) => sum + (Number(k.miktar || 1) * Number(k.birimFiyat || 0)), 0)
+                              : (rowTutar > 0 ? +(rowTutar / 1.20).toFixed(2) : 0);
+                          const rowKdv = (f.kdvTutari !== undefined && f.kdvTutari !== null && Number(f.kdvTutari) > 0)
+                            ? Number(f.kdvTutari)
+                            : (rowTutar > 0 ? +(rowTutar - rowMatrah).toFixed(2) : 0);
+
+                          return (
+                            <>
+                              <TableCell className="text-right">
+                                <span className="font-mono text-xs font-medium text-slate-600">{formatCurrency(rowMatrah)}</span>
+                              </TableCell>
+                              <TableCell className="text-right">
+                                <span className="font-mono text-xs font-medium text-blue-600">{formatCurrency(rowKdv)}</span>
+                              </TableCell>
+                              <TableCell className="text-right">
+                                <span className="font-mono text-xs font-bold text-slate-900">{formatCurrency(rowTutar)}</span>
+                              </TableCell>
+                            </>
+                          );
+                        })()}
                         <TableCell className="text-center">
                           <div className="flex justify-center">
                             {f.durum === 'bekliyor' ? (
@@ -3770,7 +3795,7 @@ export function KesilecekFaturalar() {
                     <TableBody>
                       {gibInvoices.map((inv) => {
                         const isAlreadyImported = inv.isImported || satisFaturalari.some(sf => sf.faturaNo === inv.belgeNumarasi);
-                        const invTutar = parseGibAmount(inv.tutar || inv.faturaTutari || inv.toplamTutar || inv.odenecekTutar || inv.vergilerDahilToplamTutar);
+                        const invTutar = extractGibAmount(inv);
                         const invMatrah = Number(inv.matrah) || (invTutar > 0 ? +(invTutar / 1.2).toFixed(2) : 0);
                         const invKdv = Number(inv.kdvTutari) || +(invTutar - invMatrah).toFixed(2);
                         const aliciUnvan = getAliciUnvan(inv);

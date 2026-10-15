@@ -4413,7 +4413,41 @@ app.post('/api/gib/invoices', authMiddleware, async (req, res) => {
 
     console.log(`[GIB Invoices Fetch] Başarılı! GİB'den dönen fatura adedi: ${invoices?.length || 0}`);
 
-    // Faturaların matrah, kdv ve toplam tutar detaylarını otomatik çözümle
+    const parseGibMoney = (str) => {
+      if (typeof str === 'number') return str;
+      if (!str) return 0;
+      let clean = String(str).replace(/[^\d\.,]/g, '');
+      if (!clean) return 0;
+      if (clean.includes(',') && clean.includes('.')) {
+        if (clean.lastIndexOf(',') > clean.lastIndexOf('.')) {
+          clean = clean.replace(/\./g, '').replace(/,/g, '.');
+        } else {
+          clean = clean.replace(/,/g, '');
+        }
+      } else if (clean.includes(',')) {
+        clean = clean.replace(/,/g, '.');
+      }
+      return parseFloat(clean) || 0;
+    };
+
+    // Her faturanın temel tutar ve matrah/kdv bilgilerini odenecek bilgisinden öncelikli oluştur
+    if (Array.isArray(invoices)) {
+      for (const inv of invoices) {
+        const rawAmt = inv.odenecek ?? inv.odenecekTutar ?? inv.belgeTutari ?? inv.belgeToplamTutar ?? inv.toplamTutar ?? inv.tutar;
+        const baseAmt = parseGibMoney(rawAmt);
+        inv.tutar = baseAmt;
+        inv.odenecekTutar = baseAmt;
+        if (baseAmt > 0) {
+          inv.matrah = +(baseAmt / 1.20).toFixed(2);
+          inv.kdvTutari = +(baseAmt - inv.matrah).toFixed(2);
+        } else {
+          inv.matrah = 0;
+          inv.kdvTutari = 0;
+        }
+      }
+    }
+
+    // Faturaların matrah, kdv ve toplam tutar detaylarını otomatik çözümle (varsa ayrıntılı XML/HTML'den üzerine yaz)
     if (Array.isArray(invoices) && invoices.length > 0 && req.body.includeDetails !== false) {
       console.log(`[GIB Invoices Fetch] Faturaların matrah, kdv ve toplam tutar bilgileri çözümleniyor (${invoices.length} adet)...`);
       const chunkSize = 4;
@@ -4423,11 +4457,22 @@ app.post('/api/gib/invoices', authMiddleware, async (req, res) => {
           try {
             const details = await getGibInvoiceDetails(client, token, inv.ettn, inv.onayDurumu === 'Onaylandı');
             if (details && details.success) {
-              inv.tutar = details.tutar || inv.tutar || 0;
-              inv.matrah = details.matrah || 0;
-              inv.kdvTutari = details.kdvTutari || 0;
-              inv.tevkifatTutari = details.tevkifatTutari || 0;
-              inv.stopajTutari = details.stopajTutari || 0;
+              if (details.tutar > 0) {
+                inv.tutar = details.tutar;
+                inv.odenecekTutar = details.tutar;
+              }
+              if (details.matrah > 0) {
+                inv.matrah = details.matrah;
+              } else if (inv.tutar > 0 && !inv.matrah) {
+                inv.matrah = +(inv.tutar / 1.20).toFixed(2);
+              }
+              if (details.kdvTutari > 0) {
+                inv.kdvTutari = details.kdvTutari;
+              } else if (inv.tutar > 0 && !inv.kdvTutari) {
+                inv.kdvTutari = +(inv.tutar - (inv.matrah || 0)).toFixed(2);
+              }
+              if (details.tevkifatTutari) inv.tevkifatTutari = details.tevkifatTutari;
+              if (details.stopajTutari) inv.stopajTutari = details.stopajTutari;
               if (details.aliciUnvan && !inv.aliciUnvanAdSoyad) inv.aliciUnvanAdSoyad = details.aliciUnvan;
               if (details.aliciVknTckn && !inv.aliciVknTckn) inv.aliciVknTckn = details.aliciVknTckn;
             }
@@ -4619,19 +4664,36 @@ async function getGibInvoiceDetails(client, token, uuid, signed) {
     const summaryRows = rows.filter(r => r.length <= 4);
 
     const extractAmount = (keywords, excludeKeywords = []) => {
+      // 1. Önce summaryRows içinde (kısa satırlar)
       for (const tds of summaryRows) {
-        const labelCell = tds[tds.length - 2];
+        const allExceptLast = tds.slice(0, -1).join(' ');
         const amountCell = tds[tds.length - 1];
-        const matchesKeyword = keywords.some(k => new RegExp(k, 'i').test(labelCell));
-        const matchesExclude = excludeKeywords.some(k => new RegExp(k, 'i').test(labelCell));
-        if (matchesKeyword && !matchesExclude) return parseAmount(amountCell);
+        const matchesKeyword = keywords.some(k => new RegExp(k, 'i').test(allExceptLast));
+        const matchesExclude = excludeKeywords.some(k => new RegExp(k, 'i').test(allExceptLast));
+        if (matchesKeyword && !matchesExclude) {
+          const val = parseAmount(amountCell);
+          if (val > 0) return val;
+        }
       }
+      // 2. Tüm satırlar içinde
       for (const tds of rows) {
-        const labelCell = tds[tds.length - 2];
+        const allExceptLast = tds.slice(0, -1).join(' ');
         const amountCell = tds[tds.length - 1];
-        const matchesKeyword = keywords.some(k => new RegExp(k, 'i').test(labelCell));
-        const matchesExclude = excludeKeywords.some(k => new RegExp(k, 'i').test(labelCell));
-        if (matchesKeyword && !matchesExclude && !labelCell.includes('=')) return parseAmount(amountCell);
+        const matchesKeyword = keywords.some(k => new RegExp(k, 'i').test(allExceptLast));
+        const matchesExclude = excludeKeywords.some(k => new RegExp(k, 'i').test(allExceptLast));
+        if (matchesKeyword && !matchesExclude && !allExceptLast.includes('=')) {
+          const val = parseAmount(amountCell);
+          if (val > 0) return val;
+        }
+      }
+      // 3. Doğrudan HTML regex eşleşmesi
+      for (const kw of keywords) {
+        const regex = new RegExp(kw + '[\\s\\S]{0,120}?([0-9]{1,3}(?:\\.[0-9]{3})*,[0-9]{2}|[0-9]+(?:\\.[0-9]{2}))', 'i');
+        const match = htmlContent.match(regex);
+        if (match && match[1]) {
+          const val = parseAmount(match[1]);
+          if (val > 0) return val;
+        }
       }
       return 0;
     };
