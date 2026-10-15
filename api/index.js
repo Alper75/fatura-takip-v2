@@ -73,6 +73,7 @@ const uploadsDir = isVercel ? '/tmp/uploads' : path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
+app.use('/uploads', express.static(uploadsDir));
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, uploadsDir),
@@ -1725,17 +1726,18 @@ app.post('/api/invoices/import-satis', authMiddleware, async (req, res) => {
         if (docDataRes.success && docDataRes.data?.document?.binaryData?.Value) {
           const base64Data = docDataRes.data.document.binaryData.Value;
           const buffer = Buffer.from(base64Data, 'base64');
+          pdfDosyaAdi = `${uuid}.pdf`;
           if (buffer[0] === 0x50 && buffer[1] === 0x4B) { // ZIP
              const zip = new AdmZip(buffer);
              const zipEntries = zip.getEntries();
              const pdfEntry = zipEntries.find(e => e.entryName.toLowerCase().endsWith('.pdf'));
              if (pdfEntry) {
-               pdfDosyaBase64 = `data:application/pdf;base64,${pdfEntry.getData().toString('base64')}`;
-               pdfDosyaAdi = `${uuid}.pdf`;
+               const savedPath = saveBufferFile(pdfEntry.getData(), pdfDosyaAdi, 'faturalar');
+               pdfDosyaBase64 = savedPath || `data:application/pdf;base64,${pdfEntry.getData().toString('base64')}`;
              }
           } else {
-             pdfDosyaBase64 = `data:application/pdf;base64,${base64Data}`;
-             pdfDosyaAdi = `${uuid}.pdf`;
+             const savedPath = saveBufferFile(buffer, pdfDosyaAdi, 'faturalar');
+             pdfDosyaBase64 = savedPath || `data:application/pdf;base64,${base64Data}`;
           }
         }
       }
@@ -1754,17 +1756,18 @@ app.post('/api/invoices/import-satis', authMiddleware, async (req, res) => {
         if (docDataRes.success && docDataRes.data?.document?.binaryData?.Value) {
           const base64Data = docDataRes.data.document.binaryData.Value;
           const buffer = Buffer.from(base64Data, 'base64');
+          pdfDosyaAdi = `${uuid}.pdf`;
           if (buffer[0] === 0x50 && buffer[1] === 0x4B) { // ZIP
              const zip = new AdmZip(buffer);
              const zipEntries = zip.getEntries();
              const pdfEntry = zipEntries.find(e => e.entryName.toLowerCase().endsWith('.pdf'));
              if (pdfEntry) {
-               pdfDosyaBase64 = `data:application/pdf;base64,${pdfEntry.getData().toString('base64')}`;
-               pdfDosyaAdi = `${uuid}.pdf`;
+               const savedPath = saveBufferFile(pdfEntry.getData(), pdfDosyaAdi, 'faturalar');
+               pdfDosyaBase64 = savedPath || `data:application/pdf;base64,${pdfEntry.getData().toString('base64')}`;
              }
           } else {
-             pdfDosyaBase64 = `data:application/pdf;base64,${base64Data}`;
-             pdfDosyaAdi = `${uuid}.pdf`;
+             const savedPath = saveBufferFile(buffer, pdfDosyaAdi, 'faturalar');
+             pdfDosyaBase64 = savedPath || `data:application/pdf;base64,${base64Data}`;
           }
         }
       }
@@ -3595,7 +3598,7 @@ app.delete('/api/cari-hareketler/:id', authMiddleware, async (req, res) => {
 app.get('/api/satis-faturalari', authMiddleware, async (req, res) => {
   try {
     const rs = await client.execute({
-      sql: 'SELECT id, fatura_no, fatura_tarihi, ad, soyad, tc_vkn, adres, alinan_ucret, kdv_orani, kdv_tutari, matrah, tevkifat_orani, tevkifat_tutari, tevkifat_kodu, stopaj_orani, stopaj_tutari, stopaj_kodu, muhasebe_kodu, pdf_dosya_adi, odeme_tarihi, odeme_durumu, cari_id, vade_tarihi, aciklama, olusturma_tarihi, urun_id, depo_id, gib_uuid, COALESCE(odenen_tutar, 0) as odenen_tutar, kalan_tutar FROM satis_faturalari WHERE company_id = ? ORDER BY olusturma_tarihi DESC',
+      sql: 'SELECT id, fatura_no, fatura_tarihi, ad, soyad, tc_vkn, adres, alinan_ucret, kdv_orani, kdv_tutari, matrah, tevkifat_orani, tevkifat_tutari, tevkifat_kodu, stopaj_orani, stopaj_tutari, stopaj_kodu, muhasebe_kodu, pdf_dosya, pdf_dosya_adi, odeme_tarihi, odeme_durumu, odeme_dekontu, odeme_dekontu_adi, cari_id, vade_tarihi, aciklama, olusturma_tarihi, urun_id, depo_id, gib_uuid, COALESCE(odenen_tutar, 0) as odenen_tutar, kalan_tutar FROM satis_faturalari WHERE company_id = ? ORDER BY olusturma_tarihi DESC',
       args: [req.user.companyId]
     });
     
@@ -3739,7 +3742,7 @@ app.delete('/api/satis-faturalari/:id', authMiddleware, async (req, res) => {
 app.get('/api/alis-faturalari', authMiddleware, async (req, res) => {
   try {
     const rs = await client.execute({
-      sql: 'SELECT id, fatura_no, fatura_tarihi, tedarikci_adi, tedarikci_vkn, mal_hizmet_adi, toplam_tutar, kdv_orani, kdv_tutari, matrah, tevkifat_orani, tevkifat_tutari, stopaj_orani, stopaj_tutari, kdv1, kdv10, kdv20, oiv_tutari, muhasebe_kodu, karsi_hesap_kodu, pdf_dosya_adi, odeme_tarihi, odeme_durumu, odeme_dekontu_adi, cari_id, vade_tarihi, aciklama, olusturma_tarihi, urun_id, depo_id, vehicle_plate, gib_uuid, COALESCE(odenen_tutar, 0) as odenen_tutar, kalan_tutar FROM alis_faturalari WHERE company_id = ? ORDER BY olusturma_tarihi DESC',
+      sql: 'SELECT id, fatura_no, fatura_tarihi, tedarikci_adi, tedarikci_vkn, mal_hizmet_adi, toplam_tutar, kdv_orani, kdv_tutari, matrah, tevkifat_orani, tevkifat_tutari, stopaj_orani, stopaj_tutari, kdv1, kdv10, kdv20, oiv_tutari, muhasebe_kodu, karsi_hesap_kodu, pdf_dosya, pdf_dosya_adi, odeme_tarihi, odeme_durumu, odeme_dekontu, odeme_dekontu_adi, cari_id, vade_tarihi, aciklama, olusturma_tarihi, urun_id, depo_id, vehicle_plate, gib_uuid, COALESCE(odenen_tutar, 0) as odenen_tutar, kalan_tutar FROM alis_faturalari WHERE company_id = ? ORDER BY olusturma_tarihi DESC',
       args: [req.user.companyId]
     });
     

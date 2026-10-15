@@ -177,20 +177,30 @@ export class ElogoClient {
     await this.init();
     if (!this.sessionId) await this.login();
 
-    const args = {
-      sessionID: this.sessionId,
-      uuid: uuid,
-      paramList: {
-        'string': [ 'DOCUMENTTYPE=EINVOICE', 'DATAFORMAT=PDF' ]
-      }
-    };
+    // Satış faturası e-Fatura veya e-Arşiv olabilir. İkisini de deneyelim.
+    const docTypes = ['EINVOICE', 'EARCHIVE'];
+    let lastError = null;
 
-    try {
-      const [result] = await this.client.GetDocumentDataAsync(args);
-      return { success: true, data: result };
-    } catch (error) {
-      console.error('eLogo GetDocumentPdf Error:', error);
-      return { success: false, message: error.message };
+    for (const docType of docTypes) {
+      try {
+        const args = {
+          sessionID: this.sessionId,
+          uuid: uuid,
+          paramList: {
+            'string': [ `DOCUMENTTYPE=${docType}`, 'DATAFORMAT=PDF' ]
+          }
+        };
+
+        const [result] = await this.client.GetDocumentDataAsync(args);
+        if (result && result.document && result.document.binaryData && result.document.binaryData.Value) {
+          return { success: true, data: result };
+        }
+      } catch (error) {
+        lastError = error;
+      }
     }
+
+    console.error('eLogo GetDocumentPdf Error:', lastError);
+    return { success: false, message: lastError ? lastError.message : 'PDF bulunamadı' };
   }
 }
