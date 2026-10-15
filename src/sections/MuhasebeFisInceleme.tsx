@@ -392,7 +392,10 @@ export function MuhasebeFisInceleme() {
   // Belge Tipi Belirleme (PDF mi resim mi?)
   const isPdf = useMemo(() => {
     if (!currentDocBase64) return false;
-    return currentDocBase64.startsWith('data:application/pdf') || (currentFatura?.pdfDosyaAdi || '').toLowerCase().endsWith('.pdf');
+    return currentDocBase64.startsWith('data:application/pdf') || 
+           currentDocBase64.toLowerCase().endsWith('.pdf') ||
+           currentDocBase64.toLowerCase().includes('.pdf') ||
+           (currentFatura?.pdfDosyaAdi || '').toLowerCase().endsWith('.pdf');
   }, [currentDocBase64, currentFatura?.pdfDosyaAdi]);
 
   return (

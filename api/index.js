@@ -23,6 +23,7 @@ import { UblBuilder } from './services/ublBuilder.js';
 import { telegramBotService } from './services/telegramBot.js';
 import { autoInvoiceFetcher } from './services/autoInvoiceFetcher.js';
 import { stockSyncService } from './services/stockSyncService.js';
+import { saveBase64File, saveBufferFile, saveTextFile, getTextFileIfExists } from './services/fileStorage.js';
 
 import { client, initDb } from './db.js';
 import { 
@@ -1984,16 +1985,17 @@ app.post('/api/invoices/import-from-logo', authMiddleware, async (req, res) => {
         if (docDataRes.success && docDataRes.data?.document?.binaryData?.Value) {
           const base64Data = docDataRes.data.document.binaryData.Value;
           const buffer = Buffer.from(base64Data, 'base64');
+          const subFolder = (finalMuhasebeKodu && finalMuhasebeKodu.startsWith('7')) ? 'fisler' : 'faturalar';
           if (buffer[0] === 0x50 && buffer[1] === 0x4B) { // ZIP
              const zip = new AdmZip(buffer);
              const zipEntries = zip.getEntries();
              const pdfEntry = zipEntries.find(e => e.entryName.toLowerCase().endsWith('.pdf'));
              if (pdfEntry) {
-               pdfDosyaBase64 = `data:application/pdf;base64,${pdfEntry.getData().toString('base64')}`;
+               pdfDosyaBase64 = saveBufferFile(pdfEntry.getData(), `${uuid}.pdf`, subFolder);
                pdfDosyaAdi = `${uuid}.pdf`;
              }
           } else {
-             pdfDosyaBase64 = `data:application/pdf;base64,${base64Data}`;
+             pdfDosyaBase64 = saveBufferFile(buffer, `${uuid}.pdf`, subFolder);
              pdfDosyaAdi = `${uuid}.pdf`;
           }
         }
@@ -3649,9 +3651,12 @@ app.get('/api/satis-faturalari', authMiddleware, async (req, res) => {
 app.post('/api/satis-faturalari', authMiddleware, async (req, res) => {
   const f = req.body;
   try {
+    const pdfPath = saveBase64File(f.pdfDosya, f.pdfDosyaAdi || 'satis_faturasi.pdf', 'faturalar');
+    const dekontPath = saveBase64File(f.odemeDekontu, f.odemeDekontuAdi || 'dekont.pdf', 'dekontlar');
+
     await client.execute({
       sql: 'INSERT INTO satis_faturalari (id,fatura_no,tc_vkn,ad,soyad,adres,kdv_orani,alinan_ucret,matrah,kdv_tutari,tevkifat_orani,tevkifat_tutari,tevkifat_kodu,stopaj_orani,stopaj_tutari,stopaj_kodu,muhasebe_kodu,pdf_dosya,pdf_dosya_adi,fatura_tarihi,odeme_tarihi,odeme_durumu,odeme_dekontu,odeme_dekontu_adi,cari_id,vade_tarihi,aciklama,olusturma_tarihi,company_id,urun_id,depo_id,gib_uuid) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
-      args: [n(f.id),n(f.faturaNo),n(f.tcVkn),n(f.ad),n(f.soyad),n(f.adres),n(f.kdvOrani),n(f.alinanUcret),n(f.matrah),n(f.kdvTutari),n(f.tevkifatOrani),n(f.tevkifatTutari),n(f.tevkifatKodu),n(f.stopajOrani),n(f.stopajTutari),n(f.stopajKodu),n(f.muhasebeKodu),n(f.pdfDosya),n(f.pdfDosyaAdi),n(f.faturaTarihi),n(f.odemeTarihi),n(f.odemeDurumu||'odenmedi'),n(f.odemeDekontu),n(f.odemeDekontuAdi),n(f.cariId),n(f.vadeTarihi),n(f.aciklama),n(f.olusturmaTarihi),req.user.companyId,n(f.urunId),n(f.depoId),n(f.gibUuid)]
+      args: [n(f.id),n(f.faturaNo),n(f.tcVkn),n(f.ad),n(f.soyad),n(f.adres),n(f.kdvOrani),n(f.alinanUcret),n(f.matrah),n(f.kdvTutari),n(f.tevkifatOrani),n(f.tevkifatTutari),n(f.tevkifatKodu),n(f.stopajOrani),n(f.stopajTutari),n(f.stopajKodu),n(f.muhasebeKodu),pdfPath,n(f.pdfDosyaAdi),n(f.faturaTarihi),n(f.odemeTarihi),n(f.odemeDurumu||'odenmedi'),dekontPath,n(f.odemeDekontuAdi),n(f.cariId),n(f.vadeTarihi),n(f.aciklama),n(f.olusturmaTarihi),req.user.companyId,n(f.urunId),n(f.depoId),n(f.gibUuid)]
     });
     
     // Çoklu stok hareketleri oluştur
@@ -3679,9 +3684,12 @@ app.post('/api/satis-faturalari', authMiddleware, async (req, res) => {
 app.put('/api/satis-faturalari/:id', authMiddleware, async (req, res) => {
   const f = req.body;
   try {
+    const pdfPath = f.pdfDosya !== undefined ? saveBase64File(f.pdfDosya, f.pdfDosyaAdi || 'satis_faturasi.pdf', 'faturalar') : undefined;
+    const dekontPath = f.odemeDekontu !== undefined ? saveBase64File(f.odemeDekontu, f.odemeDekontuAdi || 'dekont.pdf', 'dekontlar') : undefined;
+
     await client.execute({
-      sql: 'UPDATE satis_faturalari SET fatura_no=?,odeme_tarihi=?,odeme_durumu=?,odeme_dekontu=?,odeme_dekontu_adi=?,pdf_dosya=?,pdf_dosya_adi=?,muhasebe_kodu=?,tc_vkn=?,ad=?,soyad=?,adres=?,aciklama=?,urun_id=?,depo_id=?,gib_uuid=?,kdv_orani=COALESCE(?,kdv_orani),alinan_ucret=COALESCE(?,alinan_ucret),matrah=COALESCE(?,matrah),kdv_tutari=COALESCE(?,kdv_tutari),tevkifat_orani=COALESCE(?,tevkifat_orani),tevkifat_tutari=COALESCE(?,tevkifat_tutari),stopaj_orani=COALESCE(?,stopaj_orani),stopaj_tutari=COALESCE(?,stopaj_tutari),fatura_tarihi=COALESCE(?,fatura_tarihi),vade_tarihi=COALESCE(?,vade_tarihi),tevkifat_kodu=COALESCE(?,tevkifat_kodu),stopaj_kodu=COALESCE(?,stopaj_kodu) WHERE id=? AND company_id = ?',
-      args: [n(f.faturaNo),n(f.odemeTarihi),n(f.odemeDurumu),n(f.odemeDekontu),n(f.odemeDekontuAdi),n(f.pdfDosya),n(f.pdfDosyaAdi),n(f.muhasebeKodu),n(f.tcVkn),n(f.ad),n(f.soyad),n(f.adres),n(f.aciklama),n(f.urunId),n(f.depoId),n(f.gibUuid),n(f.kdvOrani),n(f.alinanUcret),n(f.matrah),n(f.kdvTutari),n(f.tevkifatOrani),n(f.tevkifatTutari),n(f.stopajOrani),n(f.stopajTutari),n(f.faturaTarihi),n(f.vadeTarihi),n(f.tevkifatKodu),n(f.stopajKodu),req.params.id, req.user.companyId]
+      sql: 'UPDATE satis_faturalari SET fatura_no=?,odeme_tarihi=?,odeme_durumu=?,odeme_dekontu=COALESCE(?,odeme_dekontu),odeme_dekontu_adi=?,pdf_dosya=COALESCE(?,pdf_dosya),pdf_dosya_adi=?,muhasebe_kodu=?,tc_vkn=?,ad=?,soyad=?,adres=?,aciklama=?,urun_id=?,depo_id=?,gib_uuid=?,kdv_orani=COALESCE(?,kdv_orani),alinan_ucret=COALESCE(?,alinan_ucret),matrah=COALESCE(?,matrah),kdv_tutari=COALESCE(?,kdv_tutari),tevkifat_orani=COALESCE(?,tevkifat_orani),tevkifat_tutari=COALESCE(?,tevkifat_tutari),stopaj_orani=COALESCE(?,stopaj_orani),stopaj_tutari=COALESCE(?,stopaj_tutari),fatura_tarihi=COALESCE(?,fatura_tarihi),vade_tarihi=COALESCE(?,vade_tarihi),tevkifat_kodu=COALESCE(?,tevkifat_kodu),stopaj_kodu=COALESCE(?,stopaj_kodu) WHERE id=? AND company_id = ?',
+      args: [n(f.faturaNo),n(f.odemeTarihi),n(f.odemeDurumu),dekontPath,n(f.odemeDekontuAdi),pdfPath,n(f.pdfDosyaAdi),n(f.muhasebeKodu),n(f.tcVkn),n(f.ad),n(f.soyad),n(f.adres),n(f.aciklama),n(f.urunId),n(f.depoId),n(f.gibUuid),n(f.kdvOrani),n(f.alinanUcret),n(f.matrah),n(f.kdvTutari),n(f.tevkifatOrani),n(f.tevkifatTutari),n(f.stopajOrani),n(f.stopajTutari),n(f.faturaTarihi),n(f.vadeTarihi),n(f.tevkifatKodu),n(f.stopajKodu),req.params.id, req.user.companyId]
     });
 
     const stokKalemleri = f.stokKalemleri || [];
@@ -3788,9 +3796,14 @@ app.get('/api/alis-faturalari', authMiddleware, async (req, res) => {
 app.post('/api/alis-faturalari', authMiddleware, async (req, res) => {
   const f = req.body;
   try {
+    const isExpense = f.muhasebeKodu && String(f.muhasebeKodu).trim().startsWith('7');
+    const folder = isExpense ? 'fisler' : 'faturalar';
+    const pdfPath = saveBase64File(f.pdfDosya, f.pdfDosyaAdi || (isExpense ? 'fis.jpg' : 'alis_faturasi.pdf'), folder);
+    const dekontPath = saveBase64File(f.odemeDekontu, f.odemeDekontuAdi || 'dekont.pdf', 'dekontlar');
+
     await client.execute({
       sql: 'INSERT INTO alis_faturalari (id,fatura_no,fatura_tarihi,tedarikci_adi,tedarikci_vkn,mal_hizmet_adi,toplam_tutar,kdv_orani,kdv_tutari,matrah,tevkifat_orani,tevkifat_tutari,stopaj_orani,stopaj_tutari,muhasebe_kodu,karsi_hesap_kodu,pdf_dosya,pdf_dosya_adi,odeme_tarihi,odeme_durumu,odeme_dekontu,odeme_dekontu_adi,cari_id,vade_tarihi,aciklama,olusturma_tarihi,company_id,urun_id,depo_id,vehicle_plate,kdv1,kdv10,kdv20,oiv_tutari) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
-      args: [n(f.id),n(f.faturaNo),n(f.faturaTarihi),n(f.tedarikciAdi),n(f.tedarikciVkn),n(f.malHizmetAdi),n(f.toplamTutar),n(f.kdvOrani),n(f.kdvTutari),n(f.matrah),n(f.tevkifatOrani),n(f.tevkifatTutari),n(f.stopajOrani),n(f.stopajTutari),n(f.muhasebeKodu),n(f.karsiHesapKodu),n(f.pdfDosya),n(f.pdfDosyaAdi),n(f.odemeTarihi),n(f.odemeDurumu||'odenmedi'),n(f.odemeDekontu),n(f.odemeDekontuAdi),n(f.cariId),n(f.vadeTarihi),n(f.aciklama),n(f.olusturmaTarihi),req.user.companyId,n(f.urunId),n(f.depoId),n(f.vehiclePlate),n(f.kdv1),n(f.kdv10),n(f.kdv20),n(f.oivTutari)]
+      args: [n(f.id),n(f.faturaNo),n(f.faturaTarihi),n(f.tedarikciAdi),n(f.tedarikciVkn),n(f.malHizmetAdi),n(f.toplamTutar),n(f.kdvOrani),n(f.kdvTutari),n(f.matrah),n(f.tevkifatOrani),n(f.tevkifatTutari),n(f.stopajOrani),n(f.stopajTutari),n(f.muhasebeKodu),n(f.karsiHesapKodu),pdfPath,n(f.pdfDosyaAdi),n(f.odemeTarihi),n(f.odemeDurumu||'odenmedi'),dekontPath,n(f.odemeDekontuAdi),n(f.cariId),n(f.vadeTarihi),n(f.aciklama),n(f.olusturmaTarihi),req.user.companyId,n(f.urunId),n(f.depoId),n(f.vehiclePlate),n(f.kdv1),n(f.kdv10),n(f.kdv20),n(f.oivTutari)]
     });
     
     // Çoklu stok hareketleri oluştur (GIRIS - alış = stoğa giriş)
@@ -3818,9 +3831,14 @@ app.post('/api/alis-faturalari', authMiddleware, async (req, res) => {
 app.put('/api/alis-faturalari/:id', authMiddleware, async (req, res) => {
   const f = req.body;
   try {
+    const isExpense = f.muhasebeKodu && String(f.muhasebeKodu).trim().startsWith('7');
+    const folder = isExpense ? 'fisler' : 'faturalar';
+    const pdfPath = f.pdfDosya !== undefined ? saveBase64File(f.pdfDosya, f.pdfDosyaAdi || (isExpense ? 'fis.jpg' : 'alis_faturasi.pdf'), folder) : undefined;
+    const dekontPath = f.odemeDekontu !== undefined ? saveBase64File(f.odemeDekontu, f.odemeDekontuAdi || 'dekont.pdf', 'dekontlar') : undefined;
+
     await client.execute({
-      sql: 'UPDATE alis_faturalari SET odeme_tarihi=?,odeme_durumu=?,odeme_dekontu=?,odeme_dekontu_adi=?,pdf_dosya=?,pdf_dosya_adi=?,vehicle_plate=?,fatura_no=COALESCE(?,fatura_no),fatura_tarihi=COALESCE(?,fatura_tarihi),tedarikci_adi=COALESCE(?,tedarikci_adi),tedarikci_vkn=COALESCE(?,tedarikci_vkn),mal_hizmet_adi=COALESCE(?,mal_hizmet_adi),toplam_tutar=COALESCE(?,toplam_tutar),kdv_orani=COALESCE(?,kdv_orani),kdv_tutari=COALESCE(?,kdv_tutari),matrah=COALESCE(?,matrah),tevkifat_orani=COALESCE(?,tevkifat_orani),tevkifat_tutari=COALESCE(?,tevkifat_tutari),stopaj_orani=COALESCE(?,stopaj_orani),stopaj_tutari=COALESCE(?,stopaj_tutari),muhasebe_kodu=COALESCE(?,muhasebe_kodu),karsi_hesap_kodu=COALESCE(?,karsi_hesap_kodu),aciklama=COALESCE(?,aciklama),vade_tarihi=COALESCE(?,vade_tarihi) WHERE id=? AND company_id = ?',
-      args: [n(f.odemeTarihi),n(f.odemeDurumu),n(f.odemeDekontu),n(f.odemeDekontuAdi),n(f.pdfDosya),n(f.pdfDosyaAdi),n(f.vehiclePlate),n(f.faturaNo),n(f.faturaTarihi),n(f.tedarikciAdi),n(f.tedarikciVkn),n(f.malHizmetAdi),n(f.toplamTutar),n(f.kdvOrani),n(f.kdvTutari),n(f.matrah),n(f.tevkifatOrani),n(f.tevkifatTutari),n(f.stopajOrani),n(f.stopajTutari),n(f.muhasebeKodu),n(f.karsiHesapKodu),n(f.aciklama),n(f.vadeTarihi),req.params.id, req.user.companyId]
+      sql: 'UPDATE alis_faturalari SET odeme_tarihi=?,odeme_durumu=?,odeme_dekontu=COALESCE(?,odeme_dekontu),odeme_dekontu_adi=?,pdf_dosya=COALESCE(?,pdf_dosya),pdf_dosya_adi=?,vehicle_plate=?,fatura_no=COALESCE(?,fatura_no),fatura_tarihi=COALESCE(?,fatura_tarihi),tedarikci_adi=COALESCE(?,tedarikci_adi),tedarikci_vkn=COALESCE(?,tedarikci_vkn),mal_hizmet_adi=COALESCE(?,mal_hizmet_adi),toplam_tutar=COALESCE(?,toplam_tutar),kdv_orani=COALESCE(?,kdv_orani),kdv_tutari=COALESCE(?,kdv_tutari),matrah=COALESCE(?,matrah),tevkifat_orani=COALESCE(?,tevkifat_orani),tevkifat_tutari=COALESCE(?,tevkifat_tutari),stopaj_orani=COALESCE(?,stopaj_orani),stopaj_tutari=COALESCE(?,stopaj_tutari),muhasebe_kodu=COALESCE(?,muhasebe_kodu),karsi_hesap_kodu=COALESCE(?,karsi_hesap_kodu),aciklama=COALESCE(?,aciklama),vade_tarihi=COALESCE(?,vade_tarihi) WHERE id=? AND company_id = ?',
+      args: [n(f.odemeTarihi),n(f.odemeDurumu),dekontPath,n(f.odemeDekontuAdi),pdfPath,n(f.pdfDosyaAdi),n(f.vehiclePlate),n(f.faturaNo),n(f.faturaTarihi),n(f.tedarikciAdi),n(f.tedarikciVkn),n(f.malHizmetAdi),n(f.toplamTutar),n(f.kdvOrani),n(f.kdvTutari),n(f.matrah),n(f.tevkifatOrani),n(f.tevkifatTutari),n(f.stopajOrani),n(f.stopajTutari),n(f.muhasebeKodu),n(f.karsiHesapKodu),n(f.aciklama),n(f.vadeTarihi),req.params.id, req.user.companyId]
     });
 
     const stokKalemleriAlis = f.stokKalemleri || [];
@@ -4591,11 +4609,23 @@ app.post('/api/gib/download-pdf', authMiddleware, async (req, res) => {
   if (!uuid)
     return res.status(400).json({ success: false, message: 'Fatura UUID (ETTN) gereklidir.' });
 
+  // 1. Önce sunucu diskindeki önbelleğe bak (Saliseler içinde açılır)
+  const cachedHtml = getTextFileIfExists(`gib_${uuid}.html`, 'faturalar');
+  if (cachedHtml) {
+    return res.json({ success: true, html: cachedHtml, cached: true });
+  }
+
   const isTest = process.env.GIB_TEST_MODE === 'true';
   const client = createFaturaClient(isTest ? 'TEST' : 'PROD');
   try {
     const token = await gibSessionManager.getSessionToken(client, credentials.username, credentials.password, isTest ? 'TEST' : 'PROD');
     const html = await client.getInvoiceHTML(token, uuid, { signed: signed !== false });
+    
+    // Sunucu diskine kaydet
+    if (html) {
+      saveTextFile(html, `gib_${uuid}.html`, 'faturalar');
+    }
+
     return res.json({ success: true, html });
   } catch (error) {
     console.error('[GIB PDF Download/HTML] Hata Oluştu:', error);

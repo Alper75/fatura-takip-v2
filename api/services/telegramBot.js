@@ -1,5 +1,6 @@
 import { client } from '../db.js';
 import { v4 as uuidv4 } from 'uuid';
+import { saveBase64File } from './fileStorage.js';
 
 /**
  * Telegram Bot Service
@@ -674,7 +675,7 @@ Eğer belge okunamıyorsa: {"hata": "Belge okunamadı"}`;
         '0', 0,
         '0', 0,
         '770', '100', // Varsayılan genel gider hesabı
-        `data:image/jpeg;base64,${base64Data}`,
+        saveBase64File(`data:image/jpeg;base64,${base64Data}`, `telegram_fis_${faturaNo}.jpg`, 'fisler'),
         `telegram_fis_${faturaNo}.jpg`,
         faturaTarihi,
         item.odeme_sekli === 'KREDI_KARTI' ? 'odendi' : 'bekliyor',
