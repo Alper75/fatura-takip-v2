@@ -2026,169 +2026,179 @@ export function KesilecekFaturalar() {
     let errors = 0;
     const apiUrl = import.meta.env.DEV ? 'http://localhost:5000/api/gib/create-draft' : '/api/gib/create-draft';
     
-    // Faturaları kesinlikle ilk tarihten son tarihe (kronolojik sıra) göre gönder
-    for (let i = 0; i < chronologicallySortedSelected.length; i++) {
-      const inv = chronologicallySortedSelected[i];
-      
-      // GİB oturum ve servis stabilitesi için faturalar arasına dinlenme koy (ilk fatura hariç)
-      if (i > 0) {
-        await new Promise(r => setTimeout(r, 1600));
+    try {
+      // Faturaları kesinlikle ilk tarihten son tarihe (kronolojik sıra) göre gönder
+      for (let i = 0; i < chronologicallySortedSelected.length; i++) {
+        const inv = chronologicallySortedSelected[i];
+        
+        // GİB oturum ve servis stabilitesi için faturalar arasına dinlenme koy (ilk fatura hariç)
+        if (i > 0) {
+          await new Promise(r => setTimeout(r, 1600));
+        }
+        
+        setBulkGibProgress(prev => ({ 
+          ...prev, 
+          current: i + 1, 
+          total: chronologicallySortedSelected.length,
+          currentInvoiceName: `${inv.ad || ''} ${inv.soyad || ''}`.trim(),
+          currentInvoiceDate: inv.faturaTarihi || ''
+        }));
+        
+        if (!inv || !inv.vknTckn) {
+          errors++;
+          continue;
+        }
+
+        // 1. Fatura Tipini Akıllı Belirle
+        let resolvedFaturaTipi = 'SATIS';
+        const hasKalemTevkifat = (inv.kalemler || []).some((k: any) => 
+          (parseFloat(k.tevkifatOrani) > 0) || Boolean(k.tevkifatKodu)
+        );
+        const hasRootTevkifat = (parseFloat(inv.tevkifatOrani as any) > 0) || 
+                                (parseFloat(inv.tevkifatTutari as any) > 0) || 
+                                Boolean(inv.tevkifatKodu);
+
+        if (bulkFaturaTipi === 'AUTO') {
+          if (inv.faturaTipi && inv.faturaTipi !== 'SATIS') {
+            resolvedFaturaTipi = inv.faturaTipi;
+          } else if (hasKalemTevkifat || hasRootTevkifat) {
+            resolvedFaturaTipi = 'TEVKIFAT';
+          } else {
+            resolvedFaturaTipi = 'SATIS';
+          }
+        } else {
+          resolvedFaturaTipi = bulkFaturaTipi;
+        }
+
+        // 2. Stopaj Türü ve Oranını Belirle
+        let resolvedStopajTipi: string | undefined = undefined;
+        let resolvedStopajOrani: string | undefined = undefined;
+
+        if (bulkStopajMode === 'V0003' || bulkStopajMode === 'V0011') {
+          resolvedStopajTipi = bulkStopajMode;
+          resolvedStopajOrani = bulkStopajOrani !== '0' ? bulkStopajOrani : undefined;
+        } else if (bulkStopajMode === 'NONE') {
+          resolvedStopajTipi = undefined;
+          resolvedStopajOrani = undefined;
+        } else {
+          // 'KEEP' -> faturanın kendi stopajını koru
+          const invStopajOranNum = parseFloat(inv.stopajOrani as any) || 0;
+          if (inv.stopajTipi) {
+            resolvedStopajTipi = inv.stopajTipi;
+            resolvedStopajOrani = invStopajOranNum > 0 ? String(invStopajOranNum) : undefined;
+          } else if (invStopajOranNum > 0 || (inv as any)._type === 'SMM') {
+            resolvedStopajTipi = 'V0003';
+            resolvedStopajOrani = invStopajOranNum > 0 ? String(invStopajOranNum) : '20';
+          }
+        }
+
+        // 3. Kalemlerdeki Tevkifat Kodunu ve Oranını Güvenceye Al
+        const effectiveDefaultTevkifatKodu = inv.tevkifatKodu || bulkDefaultTevkifatKodu || '616';
+        const isTevkifat = resolvedFaturaTipi === 'TEVKIFAT' || hasKalemTevkifat || hasRootTevkifat;
+        
+        const safeKalemler = (inv.kalemler && inv.kalemler.length > 0) 
+          ? inv.kalemler.map((k: any) => {
+              const kOran = parseFloat(k.tevkifatOrani) || 0;
+              const itemNeedsTevkifat = isTevkifat || kOran > 0;
+              return {
+                ...k,
+                tevkifatOrani: kOran > 0 ? kOran : (itemNeedsTevkifat ? (parseFloat(inv.tevkifatOrani as any) || 50) : 0),
+                tevkifatKodu: itemNeedsTevkifat ? (k.tevkifatKodu || effectiveDefaultTevkifatKodu) : ''
+              };
+            })
+          : undefined;
+        
+        let sentSuccessfully = false;
+        let lastErrorMessage = '';
+        
+        // Her fatura için en fazla 2 deneme (GİB anlık yoğunluğuna karşı otomatik kurtarma)
+        for (let attempt = 1; attempt <= 2; attempt++) {
+          if (attempt > 1) {
+            setBulkGibProgress(prev => ({ 
+              ...prev, 
+              currentInvoiceName: `${inv.ad || ''} ${inv.soyad || ''} (Yeniden deneniyor...)`.trim()
+            }));
+            await new Promise(r => setTimeout(r, 2200));
+          }
+
+          try {
+            const response = await fetch(apiUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` },
+              body: JSON.stringify({
+                credentials: gibCredentials,
+                invoice: {
+                  ...inv,
+                  kalemler: safeKalemler,
+                  faturaTipi: isTevkifat ? 'TEVKIFAT' : resolvedFaturaTipi,
+                  stopajTipi: resolvedStopajTipi,
+                  stopajOrani: resolvedStopajOrani,
+                  tevkifatKodu: isTevkifat ? effectiveDefaultTevkifatKodu : (inv.tevkifatKodu || undefined),
+                  tevkifatOrani: isTevkifat ? (inv.tevkifatOrani || '5/10') : undefined,
+                },
+                autoSign,
+              }),
+            });
+            const result = await response.json();
+            
+            const hasValidIdentifier = Boolean(result.data?.invoiceUUID || result.data?.invoiceNo);
+            const isExplicitSuccess = response.ok && result.success && (
+              hasValidIdentifier || 
+              (result.message && (result.message.includes('başarı') || result.message.includes('oluşturuldu') || result.message.includes('imzalandı')) && 
+               !result.message.includes('kesemez') && !result.message.includes('Hata') && !result.message.includes('yetkisi yok'))
+            );
+
+            if (isExplicitSuccess) {
+              sentSuccessfully = true;
+              successes++;
+              const newUuid = result.data?.invoiceUUID || undefined;
+              const newFaturaNo = result.data?.invoiceNo || undefined;
+              updateKesilecekFatura(inv.id, { 
+                durum: 'kesildi',
+                gibUuid: newUuid,
+                faturaNo: newFaturaNo
+              });
+              // Otomatik olarak satış faturalarına da kaydet (sessiz mod)
+              await transferToSales(inv, newUuid, newFaturaNo, true);
+              break; // Başarılı, sonraki faturaya geç
+            } else {
+              lastErrorMessage = result.message || 'GİB Hatası';
+            }
+          } catch (err: any) {
+            lastErrorMessage = err?.message || 'Ağ hatası';
+          }
+        }
+
+        if (!sentSuccessfully) {
+          errors++;
+          console.error(`GİB gönderim hatası (${inv.ad} - ${inv.faturaTarihi}):`, lastErrorMessage);
+        }
       }
-      
+    } finally {
+      // Toplu gönderim bittiğinde veya durdurulduğunda GİB oturumunu güvenle kapat
       setBulkGibProgress(prev => ({ 
         ...prev, 
-        current: i + 1, 
-        total: chronologicallySortedSelected.length,
-        currentInvoiceName: `${inv.ad || ''} ${inv.soyad || ''}`.trim(),
-        currentInvoiceDate: inv.faturaTarihi || ''
+        currentInvoiceName: 'GİB portalından güvenli çıkış yapılıyor...',
+        currentInvoiceDate: ''
       }));
-      
-      if (!inv || !inv.vknTckn) {
-        errors++;
-        continue;
+
+      try {
+        const logoutApiUrl = import.meta.env.DEV ? 'http://localhost:5000/api/gib/force-logout' : '/api/gib/force-logout';
+        const logoutRes = await fetch(logoutApiUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` },
+          body: JSON.stringify({ credentials: { username: gibCredentials.username } })
+        });
+        const logoutData = await logoutRes.json().catch(() => ({}));
+        console.log('[Bulk GIB] Güvenli çıkış yapıldı:', logoutData);
+      } catch (e) {
+        console.warn('Toplu işlem sonrası GİB çıkış uyarısı:', e);
       }
 
-      // 1. Fatura Tipini Akıllı Belirle
-      let resolvedFaturaTipi = 'SATIS';
-      const hasKalemTevkifat = (inv.kalemler || []).some((k: any) => 
-        (parseFloat(k.tevkifatOrani) > 0) || Boolean(k.tevkifatKodu)
-      );
-      const hasRootTevkifat = (parseFloat(inv.tevkifatOrani as any) > 0) || 
-                              (parseFloat(inv.tevkifatTutari as any) > 0) || 
-                              Boolean(inv.tevkifatKodu);
-
-      if (bulkFaturaTipi === 'AUTO') {
-        if (inv.faturaTipi && inv.faturaTipi !== 'SATIS') {
-          resolvedFaturaTipi = inv.faturaTipi;
-        } else if (hasKalemTevkifat || hasRootTevkifat) {
-          resolvedFaturaTipi = 'TEVKIFAT';
-        } else {
-          resolvedFaturaTipi = 'SATIS';
-        }
-      } else {
-        resolvedFaturaTipi = bulkFaturaTipi;
-      }
-
-      // 2. Stopaj Türü ve Oranını Belirle
-      let resolvedStopajTipi: string | undefined = undefined;
-      let resolvedStopajOrani: string | undefined = undefined;
-
-      if (bulkStopajMode === 'V0003' || bulkStopajMode === 'V0011') {
-        resolvedStopajTipi = bulkStopajMode;
-        resolvedStopajOrani = bulkStopajOrani !== '0' ? bulkStopajOrani : undefined;
-      } else if (bulkStopajMode === 'NONE') {
-        resolvedStopajTipi = undefined;
-        resolvedStopajOrani = undefined;
-      } else {
-        // 'KEEP' -> faturanın kendi stopajını koru
-        const invStopajOranNum = parseFloat(inv.stopajOrani as any) || 0;
-        if (inv.stopajTipi) {
-          resolvedStopajTipi = inv.stopajTipi;
-          resolvedStopajOrani = invStopajOranNum > 0 ? String(invStopajOranNum) : undefined;
-        } else if (invStopajOranNum > 0 || (inv as any)._type === 'SMM') {
-          resolvedStopajTipi = 'V0003';
-          resolvedStopajOrani = invStopajOranNum > 0 ? String(invStopajOranNum) : '20';
-        }
-      }
-
-      // 3. Kalemlerdeki Tevkifat Kodunu ve Oranını Güvenceye Al
-      const effectiveDefaultTevkifatKodu = inv.tevkifatKodu || bulkDefaultTevkifatKodu || '616';
-      const isTevkifat = resolvedFaturaTipi === 'TEVKIFAT' || hasKalemTevkifat || hasRootTevkifat;
-      
-      const safeKalemler = (inv.kalemler && inv.kalemler.length > 0) 
-        ? inv.kalemler.map((k: any) => {
-            const kOran = parseFloat(k.tevkifatOrani) || 0;
-            const itemNeedsTevkifat = isTevkifat || kOran > 0;
-            return {
-              ...k,
-              tevkifatOrani: kOran > 0 ? kOran : (itemNeedsTevkifat ? (parseFloat(inv.tevkifatOrani as any) || 50) : 0),
-              tevkifatKodu: itemNeedsTevkifat ? (k.tevkifatKodu || effectiveDefaultTevkifatKodu) : ''
-            };
-          })
-        : undefined;
-      
-      let sentSuccessfully = false;
-      let lastErrorMessage = '';
-      
-      // Her fatura için en fazla 2 deneme (GİB anlık yoğunluğuna karşı otomatik kurtarma)
-      for (let attempt = 1; attempt <= 2; attempt++) {
-        if (attempt > 1) {
-          setBulkGibProgress(prev => ({ 
-            ...prev, 
-            currentInvoiceName: `${inv.ad || ''} ${inv.soyad || ''} (Yeniden deneniyor...)`.trim()
-          }));
-          await new Promise(r => setTimeout(r, 2200));
-        }
-
-        try {
-          const response = await fetch(apiUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` },
-            body: JSON.stringify({
-              credentials: gibCredentials,
-              invoice: {
-                ...inv,
-                kalemler: safeKalemler,
-                faturaTipi: isTevkifat ? 'TEVKIFAT' : resolvedFaturaTipi,
-                stopajTipi: resolvedStopajTipi,
-                stopajOrani: resolvedStopajOrani,
-                tevkifatKodu: isTevkifat ? effectiveDefaultTevkifatKodu : (inv.tevkifatKodu || undefined),
-                tevkifatOrani: isTevkifat ? (inv.tevkifatOrani || '5/10') : undefined,
-              },
-              autoSign,
-            }),
-          });
-          const result = await response.json();
-          
-          const hasValidIdentifier = Boolean(result.data?.invoiceUUID || result.data?.invoiceNo);
-          const isExplicitSuccess = response.ok && result.success && (
-            hasValidIdentifier || 
-            (result.message && (result.message.includes('başarı') || result.message.includes('oluşturuldu') || result.message.includes('imzalandı')) && 
-             !result.message.includes('kesemez') && !result.message.includes('Hata') && !result.message.includes('yetkisi yok'))
-          );
-
-          if (isExplicitSuccess) {
-            sentSuccessfully = true;
-            successes++;
-            const newUuid = result.data?.invoiceUUID || undefined;
-            const newFaturaNo = result.data?.invoiceNo || undefined;
-            updateKesilecekFatura(inv.id, { 
-              durum: 'kesildi',
-              gibUuid: newUuid,
-              faturaNo: newFaturaNo
-            });
-            // Otomatik olarak satış faturalarına da kaydet (sessiz mod)
-            await transferToSales(inv, newUuid, newFaturaNo, true);
-            break; // Başarılı, sonraki faturaya geç
-          } else {
-            lastErrorMessage = result.message || 'GİB Hatası';
-          }
-        } catch (err: any) {
-          lastErrorMessage = err?.message || 'Ağ hatası';
-        }
-      }
-
-      if (!sentSuccessfully) {
-        errors++;
-        console.error(`GİB gönderim hatası (${inv.ad} - ${inv.faturaTarihi}):`, lastErrorMessage);
-      }
-    }
-    
-    setIsBulkGibSending(false);
-    setIsBulkGibModalOpen(false);
-    setSelectedInvoiceIdsForGib([]);
-    toast.success(`Toplu işlem tamamlandı. ${successes} fatura tarih sırasıyla (kronolojik) GİB'e iletildi.${errors > 0 ? ` (${errors} hatalı)` : ''}`);
-
-    // Toplu gönderim bittiğinde GİB oturumunu arka planda güvenle kapat
-    try {
-      const logoutApiUrl = import.meta.env.DEV ? 'http://localhost:5000/api/gib/force-logout' : '/api/gib/force-logout';
-      await fetch(logoutApiUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` },
-        body: JSON.stringify({ credentials: gibCredentials })
-      });
-    } catch (e) {
-      console.warn('Toplu işlem sonrası GİB çıkış uyarısı:', e);
+      setIsBulkGibSending(false);
+      setIsBulkGibModalOpen(false);
+      setSelectedInvoiceIdsForGib([]);
+      toast.success(`Toplu işlem tamamlandı. ${successes} fatura tarih sırasıyla GİB'e iletildi ve GİB oturumu güvenli şekilde kapatıldı.${errors > 0 ? ` (${errors} hatalı)` : ''}`);
     }
   };
 

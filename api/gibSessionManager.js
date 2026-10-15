@@ -166,37 +166,63 @@ class GibSessionManager {
   /**
    * Belirtilen kullanıcı için güvenli çıkış yapar ve token'ı temizler.
    */
-  async forceLogout(client, username, env = 'PROD') {
+  async forceLogout(client, username, env = 'PROD', explicitToken = null) {
     const cleanUser = String(username || '').trim();
     const key = this.getKey(env, cleanUser);
-    const existing = this.sessions.get(key);
+    
+    // 1. Önce hafızadaki anahtardan ara
+    let existing = this.sessions.get(key);
+    
+    // 2. Bulunamazsa diskteki güncel önbelleği yükleyip tekrar kontrol et
+    if (!existing) {
+      this.loadFromDisk();
+      existing = this.sessions.get(key);
+    }
+
+    // 3. Hala bulunamazsa username eşleşen herhangi bir session ara
+    if (!existing && cleanUser) {
+      for (const [k, s] of this.sessions.entries()) {
+        if (s.username === cleanUser || k.toLowerCase().endsWith(`:${cleanUser.toLowerCase()}`)) {
+          existing = s;
+          break;
+        }
+      }
+    }
 
     if (existing?.timer) {
       clearTimeout(existing.timer);
     }
 
     let loggedOut = false;
-    let tokenUsed = existing?.token;
+    let tokenUsed = explicitToken || existing?.token;
 
     if (tokenUsed) {
       try {
-        await client.logout(tokenUsed);
+        const out = await client.logout(tokenUsed);
         loggedOut = true;
-        console.log(`[GibSessionManager] ${cleanUser} için GİB'den güvenli çıkış yapıldı.`);
+        console.log(`[GibSessionManager] ${cleanUser || 'Kullanıcı'} için GİB'den güvenli çıkış yapıldı:`, out);
       } catch (e) {
         console.warn(`[GibSessionManager] Logout çağrısı sırasında hata (${cleanUser}):`, e.message);
       }
+    } else {
+      console.log(`[GibSessionManager] ${cleanUser || 'Kullanıcı'} için aktif oturum token'ı bulunamadı, oturum kayıtları temizleniyor.`);
     }
 
-    this.sessions.delete(key);
+    // Kullanıcıya ait tüm session kayıtlarını temizle
+    for (const [k, s] of Array.from(this.sessions.entries())) {
+      if (k === key || s.username === cleanUser || k.toLowerCase().endsWith(`:${cleanUser.toLowerCase()}`)) {
+        if (s.timer) clearTimeout(s.timer);
+        this.sessions.delete(k);
+      }
+    }
     this.saveToDisk();
 
     return {
       success: true,
       loggedOut,
       message: loggedOut 
-        ? 'GİB portalından güvenli çıkış başarıyla tamamlandı. Artık tekrar işlem yapabilir veya portala girebilirsiniz.' 
-        : 'Sistemdeki açık oturum kaydı temizlendi. GİB oturumları en geç 15 dakika içinde otomatik zaman aşımına uğrar.'
+        ? 'GİB portalından güvenli çıkış başarıyla tamamlandı. Oturum kapatıldı.' 
+        : 'Sistemdeki açık oturum kaydı temizlendi.'
     };
   }
 

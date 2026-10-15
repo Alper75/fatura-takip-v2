@@ -71,7 +71,7 @@ export class FaturaClient {
         this.logoutCmd = "logout";
     }
 
-    buildHeaders() {
+    buildHeaders(customReferer) {
         return {
             accept: "*/*",
             "accept-language": "tr,en-US;q=0.9,en;q=0.8",
@@ -80,6 +80,9 @@ export class FaturaClient {
             pragma: "no-cache",
             "sec-fetch-mode": "cors",
             "sec-fetch-site": "same-origin",
+            Referer: customReferer || `${this.baseURL}/intragiris.html`,
+            Origin: this.baseURL,
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
         };
     }
 
@@ -89,7 +92,7 @@ export class FaturaClient {
         try {
             const response = await fetch(`${this.baseURL}/earsiv-services/dispatch`, {
                 method: "POST",
-                headers: this.buildHeaders(),
+                headers: this.buildHeaders(`${this.baseURL}/index.jsp`),
                 body: `cmd=${command}&callid=${generateUUID()}&pageName=${pageName}&token=${token}&jp=${encodeURIComponent(JSON.stringify(data))}`,
                 signal: controller.signal,
             });
@@ -122,7 +125,7 @@ export class FaturaClient {
         try {
             const response = await fetch(`${this.baseURL}/earsiv-services/assos-login`, {
                 method: "POST",
-                headers: this.buildHeaders(),
+                headers: this.buildHeaders(`${this.baseURL}/intragiris.html`),
                 body: `assoscmd=${this.loginCmd}&rtype=json&userid=${userName}&sifre=${password}&sifre2=${password}&parola=1&`,
                 signal: controller.signal,
             });
@@ -150,21 +153,22 @@ export class FaturaClient {
     async logout(token) {
         if (!token) return null;
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 8000);
+        const timeoutId = setTimeout(() => controller.abort(), 10000);
         try {
             const response = await fetch(`${this.baseURL}/earsiv-services/assos-login`, {
                 method: "POST",
-                headers: this.buildHeaders(),
-                body: `assoscmd=${this.logoutCmd}&rtype=json&token=${token}&`,
+                headers: this.buildHeaders(`${this.baseURL}/index.jsp`),
+                body: `assoscmd=logout&rtype=json&token=${encodeURIComponent(token)}&`,
                 signal: controller.signal,
             });
             clearTimeout(timeoutId);
             const text = await response.text();
+            console.log(`[GIB Client] Logout isteği yanıtı (${response.status}):`, text.substring(0, 150));
             try {
                 const json = JSON.parse(text);
-                return json.data;
+                return json.data || json;
             } catch {
-                return null;
+                return text;
             }
         } catch (err) {
             clearTimeout(timeoutId);

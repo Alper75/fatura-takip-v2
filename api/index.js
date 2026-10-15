@@ -4742,15 +4742,15 @@ app.post('/api/gib/invoice-details', authMiddleware, async (req, res) => {
 
 // GİB Oturumunu Güvenli Şekilde Sonlandırma (Kullanıcı Talebi veya Toplu İşlem Sonu)
 app.post('/api/gib/force-logout', authMiddleware, async (req, res) => {
-  const { username, credentials } = req.body;
+  const { username, credentials, token } = req.body;
   const userToLogout = credentials?.username || username;
-  if (!userToLogout) {
-    return res.status(400).json({ success: false, message: 'GİB kullanıcı adı gereklidir.' });
+  if (!userToLogout && !token) {
+    return res.status(400).json({ success: false, message: 'GİB kullanıcı adı veya oturum anahtarı gereklidir.' });
   }
   const isTest = process.env.GIB_TEST_MODE === 'true';
   const client = createFaturaClient(isTest ? 'TEST' : 'PROD');
   try {
-    const result = await gibSessionManager.forceLogout(client, userToLogout, isTest ? 'TEST' : 'PROD');
+    const result = await gibSessionManager.forceLogout(client, userToLogout, isTest ? 'TEST' : 'PROD', token);
     return res.json(result);
   } catch (error) {
     console.error('[GIB Force Logout] Hata:', error);
@@ -4759,15 +4759,15 @@ app.post('/api/gib/force-logout', authMiddleware, async (req, res) => {
 });
 
 app.post('/api/gib/logout', authMiddleware, async (req, res) => {
-  const { username, credentials } = req.body;
+  const { username, credentials, token } = req.body;
   const userToLogout = credentials?.username || username;
-  if (!userToLogout) {
-    return res.status(400).json({ success: false, message: 'GİB kullanıcı adı gereklidir.' });
+  if (!userToLogout && !token) {
+    return res.status(400).json({ success: false, message: 'GİB kullanıcı adı veya oturum anahtarı gereklidir.' });
   }
   const isTest = process.env.GIB_TEST_MODE === 'true';
   const client = createFaturaClient(isTest ? 'TEST' : 'PROD');
   try {
-    const result = await gibSessionManager.forceLogout(client, userToLogout, isTest ? 'TEST' : 'PROD');
+    const result = await gibSessionManager.forceLogout(client, userToLogout, isTest ? 'TEST' : 'PROD', token);
     return res.json(result);
   } catch (error) {
     console.error('[GIB Logout] Hata:', error);
