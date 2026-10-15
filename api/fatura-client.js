@@ -329,36 +329,99 @@ export class FaturaClient {
 
         const invoice = await this.runCommand(token, ...COMMANDS.createDraftInvoice, invoiceData);
 
+        const parseMoney = (val) => {
+            if (typeof val === 'number') return val;
+            if (!val) return 0;
+            let str = String(val).trim().replace(/[^\d.,]/g, '');
+            if (str.includes(',') && str.includes('.')) {
+                if (str.lastIndexOf(',') > str.lastIndexOf('.')) {
+                    str = str.replace(/\./g, '').replace(',', '.');
+                } else {
+                    str = str.replace(/,/g, '');
+                }
+            } else if (str.includes(',')) {
+                str = str.replace(',', '.');
+            }
+            return parseFloat(str) || 0;
+        };
+
+        const cleanDigits = (v) => String(v || '').replace(/\D/g, '');
+
         // GİB portalında oluşturulan taslağın gerçek ETTN (UUID) değerini çekelim
         let realUuid = "";
-        try {
-            await new Promise(r => setTimeout(r, 600));
-            const drafts = await this.getAllInvoicesByDateRange(token, {
-                startDate: invoiceData.faturaTarihi,
-                endDate: invoiceData.faturaTarihi,
-            });
-            if (Array.isArray(drafts) && drafts.length > 0) {
-                const targetAmt = parseFloat(invoiceData.odenecekTutar);
-                const matched = drafts.find(d => {
-                    const dVkn = String(d.vknTckn || "").trim();
-                    const rawAmt = String(d.odenecek || d.belgeToplamTutar || '0').replace(/[^\d.,]/g, '').replace(',', '.');
-                    const dAmt = parseFloat(rawAmt) || 0;
-                    return dVkn === vknClean && Math.abs(dAmt - targetAmt) < 0.05;
+        
+        // 1. Yanıt metninde doğrudan UUID varsa al
+        const uuidRegex = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
+        const directMatch = JSON.stringify(invoice).match(uuidRegex);
+        if (directMatch && directMatch[0] && directMatch[0] !== '00000000-0000-0000-0000-000000000000') {
+            realUuid = directMatch[0];
+        }
+
+        // 2. Yanıtta UUID yoksa GİB taslaklar listesinden bu VKN ve Tutara ait faturayı tam eşleştir
+        if (!realUuid) {
+            try {
+                await new Promise(r => setTimeout(r, 800));
+                const drafts = await this.getAllInvoicesByDateRange(token, {
+                    startDate: invoiceData.faturaTarihi,
+                    endDate: invoiceData.faturaTarihi,
                 });
-                realUuid = (matched || drafts[0]).ettn;
+                if (Array.isArray(drafts) && drafts.length > 0) {
+                    const targetAmt = parseFloat(invoiceData.odenecekTutar) || 0;
+                    const targetVkn = cleanDigits(vknClean);
+                    const targetName = String(aliciUnvan || `${aliciAdi} ${aliciSoyadi}`).toLowerCase().replace(/[^a-z0-9]/g, '');
+
+                    // 1. Öncelik: VKN + Tutar (1.05 TL kuruş toleransı)
+                    let matched = drafts.find(d => {
+                        const dVkn = cleanDigits(d.aliciVknTckn || d.vknTckn || d.aliciVergiNo || d.aliciTcKimlikNo);
+                        const dAmt = parseMoney(d.odenecek || d.belgeToplamTutar || d.belgeTutari || d.toplamTutar);
+                        return dVkn && targetVkn && dVkn === targetVkn && Math.abs(dAmt - targetAmt) < 1.05;
+                    });
+
+                    // 2. Öncelik: İsim + Tutar (VKN 11111111111 veya şahıslar için)
+                    if (!matched && targetName) {
+                        matched = drafts.find(d => {
+                            const dName = String(d.aliciUnvanAdSoyad || d.aliciUnvan || d.unvan || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+                            const dAmt = parseMoney(d.odenecek || d.belgeToplamTutar || d.belgeTutari || d.toplamTutar);
+                            const nameMatches = dName && (dName.includes(targetName) || targetName.includes(dName));
+                            return nameMatches && Math.abs(dAmt - targetAmt) < 1.05;
+                        });
+                    }
+
+                    // 3. Öncelik: VKN eşleşmesi (ve henüz numarası olmayan / taslak olan en yeni kayıt)
+                    if (!matched && targetVkn && targetVkn !== '11111111111') {
+                        const sameVkn = drafts.filter(d => {
+                            const dVkn = cleanDigits(d.aliciVknTckn || d.vknTckn || d.aliciVergiNo || d.aliciTcKimlikNo);
+                            return dVkn === targetVkn && (!d.belgeNumarasi || d.belgeNumarasi === 'Taslak' || d.onayDurumu !== 'Onaylandı');
+                        });
+                        if (sameVkn.length > 0) {
+                            matched = sameVkn[sameVkn.length - 1];
+                        }
+                    }
+
+                    if (matched && matched.ettn) {
+                        realUuid = matched.ettn;
+                    } else {
+                        console.warn(`[GIB] Taslak oluşturuldu fakat liste eşleştirmesinde tam uyuşan kayıt bulunamadı (VKN: ${targetVkn}, Tutar: ${targetAmt}). Yanlış fatura atanmaması için fallback uygulanmadı.`);
+                    }
+                }
+            } catch (fetchErr) {
+                console.warn('[GIB] Yeni oluşturulan taslak UUID getirilirken uyarı:', fetchErr.message);
             }
-        } catch (fetchErr) {
-            console.warn('[GIB] Yeni oluşturulan taslak UUID getirilirken uyarı:', fetchErr.message);
         }
 
         return { 
             date: invoiceData.faturaTarihi, 
             uuid: realUuid || "", 
+            taxIDOrTRID: vknClean,
+            paymentTotal: invoiceData.odenecekTutar,
             ...invoice 
         };
     }
 
     async findInvoice(token, draftInvoice, retries = 3) {
+        if (!draftInvoice?.uuid && !draftInvoice?.taxIDOrTRID) {
+            return undefined;
+        }
         for (let attempt = 1; attempt <= retries; attempt++) {
             if (attempt > 1) {
                 // GİB veritabanı indekslemesi için kısa bekleme
@@ -368,8 +431,19 @@ export class FaturaClient {
                 startDate: draftInvoice.date,
                 endDate: draftInvoice.date,
             });
-            const found = invoices?.find((inv) => inv.ettn === draftInvoice.uuid);
-            if (found) return found;
+            if (draftInvoice.uuid) {
+                const found = invoices?.find((inv) => inv.ettn === draftInvoice.uuid);
+                if (found) return found;
+            } else if (draftInvoice.taxIDOrTRID) {
+                const targetVkn = String(draftInvoice.taxIDOrTRID).replace(/\D/g, '');
+                const targetAmt = parseFloat(draftInvoice.paymentTotal || 0);
+                const found = invoices?.find(d => {
+                    const dVkn = String(d.aliciVknTckn || d.vknTckn || d.aliciVergiNo || d.aliciTcKimlikNo || '').replace(/\D/g, '');
+                    const dAmt = parseFloat(String(d.odenecek || d.belgeToplamTutar || '0').replace(/\./g, '').replace(',', '.')) || 0;
+                    return dVkn === targetVkn && (targetAmt <= 0 || Math.abs(dAmt - targetAmt) < 1.05);
+                });
+                if (found) return found;
+            }
         }
         return undefined;
     }
