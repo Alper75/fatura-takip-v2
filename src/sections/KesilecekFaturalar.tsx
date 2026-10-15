@@ -1928,7 +1928,14 @@ export function KesilecekFaturalar() {
         }),
       });
       const result = await response.json();
-      if (result.success) {
+      const hasValidIdentifier = Boolean(result.data?.invoiceUUID || result.data?.invoiceNo);
+      const isExplicitSuccess = response.ok && result.success && (
+        hasValidIdentifier || 
+        (result.message && (result.message.includes('başarı') || result.message.includes('oluşturuldu') || result.message.includes('imzalandı')) && 
+         !result.message.includes('kesemez') && !result.message.includes('Hata') && !result.message.includes('yetkisi yok'))
+      );
+
+      if (isExplicitSuccess) {
         const newUuid = result.data?.invoiceUUID || undefined;
         const newFaturaNo = result.data?.invoiceNo || undefined;
         toast.success(result.message + (newUuid ? ` (UUID: ${newUuid})` : ''));
@@ -1941,7 +1948,7 @@ export function KesilecekFaturalar() {
         // Otomatik olarak satışlara aktar
         transferToSales(selectedInvoiceForGib, newUuid, newFaturaNo);
       } else {
-        const errorMsg = result.message || '';
+        const errorMsg = result.message || 'Fatura GİB portalında oluşturulamadı.';
         if (errorMsg.includes('açık') || errorMsg.includes('Güvenli Çıkış') || errorMsg.includes('oturum') || errorMsg.includes('kilit')) {
           toast.error(`GİB Oturum Uyarısı: ${errorMsg}`, {
             duration: 8000,
@@ -1951,7 +1958,7 @@ export function KesilecekFaturalar() {
             }
           });
         } else {
-          toast.error(`${result.error || 'GİB Hatası'}: ${result.message}`);
+          toast.error(`${result.error || 'GİB Hatası'}: ${errorMsg}`);
         }
       }
     } catch {
@@ -2133,7 +2140,14 @@ export function KesilecekFaturalar() {
           });
           const result = await response.json();
           
-          if (result.success) {
+          const hasValidIdentifier = Boolean(result.data?.invoiceUUID || result.data?.invoiceNo);
+          const isExplicitSuccess = response.ok && result.success && (
+            hasValidIdentifier || 
+            (result.message && (result.message.includes('başarı') || result.message.includes('oluşturuldu') || result.message.includes('imzalandı')) && 
+             !result.message.includes('kesemez') && !result.message.includes('Hata') && !result.message.includes('yetkisi yok'))
+          );
+
+          if (isExplicitSuccess) {
             sentSuccessfully = true;
             successes++;
             const newUuid = result.data?.invoiceUUID || undefined;
