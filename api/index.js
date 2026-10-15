@@ -2034,18 +2034,21 @@ app.post('/api/invoices/import-from-logo', authMiddleware, async (req, res) => {
       });
     }
 
-    // Otomatik Stok Hareketi (GIRIS)
-    const itemsToSync = Array.isArray(req.body.items) && req.body.items.length > 0 
-      ? req.body.items 
-      : [{ name: faturaAciklama || cleanAciklama, qty: 1, price: payableAmount || 0 }];
-    
-    await stockSyncService.syncInvoiceStockMovements(req.user.companyId, {
-      faturaId: id,
-      faturaTipi: 'alis',
-      items: itemsToSync,
-      faturaNo,
-      faturaTarihi: islemTarihi
-    }).catch(err => console.warn('İçe aktarım stok hareketi hatası:', err.message));
+    // Otomatik Stok Hareketi (GIRIS) - Yalnızca 150/153 gibi ticari mal/hammadde stok hesapları için
+    if (stockSyncService.isStockAccount(finalMuhasebeKodu)) {
+      const itemsToSync = Array.isArray(req.body.items) && req.body.items.length > 0 
+        ? req.body.items 
+        : [{ name: faturaAciklama || cleanAciklama, qty: 1, price: payableAmount || 0 }];
+      
+      await stockSyncService.syncInvoiceStockMovements(req.user.companyId, {
+        faturaId: id,
+        faturaTipi: 'alis',
+        items: itemsToSync,
+        faturaNo,
+        faturaTarihi: islemTarihi,
+        muhasebeKodu: finalMuhasebeKodu
+      }).catch(err => console.warn('İçe aktarım stok hareketi hatası:', err.message));
+    }
     
     res.json({ success: true, message: 'Fatura başarıyla kaydedildi.', data: { id, faturaNo } });
   } catch (error) {
@@ -3803,7 +3806,8 @@ app.post('/api/alis-faturalari', authMiddleware, async (req, res) => {
         items: stokKalemleriAlis,
         faturaNo: f.faturaNo,
         faturaTarihi: f.faturaTarihi,
-        depoId: f.depoId
+        depoId: f.depoId,
+        muhasebeKodu: f.muhasebeKodu
       }).catch(err => console.warn('Alış stok senkronizasyon hatası:', err.message));
     }
     
@@ -3831,7 +3835,8 @@ app.put('/api/alis-faturalari/:id', authMiddleware, async (req, res) => {
         items: stokKalemleriAlis,
         faturaNo: f.faturaNo,
         faturaTarihi: f.faturaTarihi,
-        depoId: f.depoId
+        depoId: f.depoId,
+        muhasebeKodu: f.muhasebeKodu
       }).catch(err => console.warn('Alış güncelleme stok senkronizasyon hatası:', err.message));
     } else {
       // Kalem kalmadıysa eski stok hareketlerini sil

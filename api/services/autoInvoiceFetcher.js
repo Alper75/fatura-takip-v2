@@ -473,13 +473,15 @@ class AutoInvoiceFetcherService {
 
     // Cari Hesabı Çözümle veya Yeni Cari Oluştur
     let cariId = null;
+    let muhasebeKodu = null;
     if (data.tedarikciVkn && data.tedarikciVkn !== '-') {
       const cariRs = await client.execute({
-        sql: 'SELECT id FROM cariler WHERE company_id = ? AND vkn_tckn = ? LIMIT 1',
+        sql: 'SELECT id, muhasebe_kodu FROM cariler WHERE company_id = ? AND vkn_tckn = ? LIMIT 1',
         args: [companyId, data.tedarikciVkn]
       });
       if (cariRs.rows.length > 0) {
         cariId = cariRs.rows[0].id;
+        if (cariRs.rows[0].muhasebe_kodu) muhasebeKodu = cariRs.rows[0].muhasebe_kodu;
       } else {
         cariId = uuidv4();
         await client.execute({
@@ -487,6 +489,25 @@ class AutoInvoiceFetcherService {
                 VALUES (?, ?, ?, 'tedarikci', 0, ?, ?)`,
           args: [cariId, data.tedarikciAdi, data.tedarikciVkn, new Date().toISOString().split('T')[0], companyId]
         }).catch(err => console.warn('Cari oluşturulamadı:', err.message));
+      }
+    }
+
+    // Geçmiş alış faturalarından muhasebe kodu öğren
+    if (!muhasebeKodu && data.tedarikciVkn) {
+      const pastAlis = await client.execute({
+        sql: 'SELECT muhasebe_kodu FROM alis_faturalari WHERE company_id = ? AND tedarikci_vkn = ? AND muhasebe_kodu IS NOT NULL AND muhasebe_kodu != "" ORDER BY id DESC LIMIT 1',
+        args: [companyId, data.tedarikciVkn]
+      });
+      if (pastAlis.rows && pastAlis.rows.length > 0) {
+        muhasebeKodu = pastAlis.rows[0].muhasebe_kodu;
+      }
+    }
+
+    // Masraf / Gider anahtar kelimelerinden tespit et (Örn: Elektrik, Otel, Yemek, Akaryakıt -> 770)
+    if (!muhasebeKodu) {
+      const textToSearch = `${data.tedarikciAdi || ''} ${data.faturaAciklama || ''}`.toUpperCase();
+      if (/ELEKTRİK|ENERJİ|OTEL|KONAKLAMA|YEMEK|LOKANTA|RESTORAN|PETROL|AKARYAKIT|KOMİSYON|TELEKOM|TURKCELL|VODAFONE|KIRTASİYE/.test(textToSearch)) {
+        muhasebeKodu = '770.03.001';
       }
     }
 
@@ -498,7 +519,7 @@ class AutoInvoiceFetcherService {
          stopaj_orani, stopaj_tutari, muhasebe_kodu, karsi_hesap_kodu, pdf_dosya, pdf_dosya_adi, 
          odeme_tarihi, odeme_durumu, odenen_tutar, kalan_tutar, cari_id, vade_tarihi, 
          aciklama, olusturma_tarihi, company_id, gib_uuid) 
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '0', 0, '0', 0, null, null, null, null, null, 'odenmedi', 0, ?, ?, null, ?, ?, ?, ?)`,
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '0', 0, '0', 0, ?, null, null, null, null, 'odenmedi', 0, ?, ?, null, ?, ?, ?, ?)`,
       args: [
         id,
         data.faturaNo,
@@ -510,6 +531,7 @@ class AutoInvoiceFetcherService {
         data.kdvOrani || 20,
         data.kdvTutari || 0,
         data.matrah || (payable - (data.kdvTutari || 0)),
+        muhasebeKodu,
         payable, // kalan_tutar
         cariId,
         `Otomatik İçe Aktarıldı (${data.faturaNo})`,
@@ -538,14 +560,15 @@ class AutoInvoiceFetcherService {
       }).catch(err => console.warn('Cari hareket eklenemedi:', err.message));
     }
 
-    // Otomatik Stok Girişi Senkronizasyonu
-    if (data.items && data.items.length > 0) {
+    // Otomatik Stok Girişi Senkronizasyonu (SADECE 150/153 GİBİ STOK HESAPLARI İÇİN)
+    if (stockSyncService.isStockAccount(muhasebeKodu) && data.items && data.items.length > 0) {
       await stockSyncService.syncInvoiceStockMovements(companyId, {
         faturaId: id,
         faturaTipi: 'alis',
         items: data.items,
         faturaNo: data.faturaNo,
-        faturaTarihi: data.faturaTarihi
+        faturaTarihi: data.faturaTarihi,
+        muhasebeKodu
       }).catch(err => console.warn('[AutoInvoiceFetcher] Otomatik stok hareketi uyarısı:', err.message));
     }
 

@@ -93,11 +93,51 @@ class StockSyncService {
   }
 
   /**
-   * Fatura için stok hareketlerini senkronize et (Alış -> GIRIS, Satış -> CIKIS)
+   * Hesap planı kodunun stok/ticari mal hesabı olup olmadığını kontrol eder.
+   * Tekdüzen Hesap Planı 15 Grubu:
+   * 150 - İlk Madde ve Malzeme
+   * 151 - Yarı Mamuller
+   * 152 - Mamuller
+   * 153 - Ticari Mallar
+   * 157 - Diğer Stoklar
    */
-  async syncInvoiceStockMovements(companyId, { faturaId, faturaTipi, items, faturaNo, faturaTarihi, depoId }) {
+  isStockAccount(muhasebeKodu) {
+    if (!muhasebeKodu) return false;
+    const clean = String(muhasebeKodu).trim();
+    return clean.startsWith('15');
+  }
+
+  /**
+   * Fatura için stok hareketlerini senkronize et (Alış -> GIRIS, Satış -> CIKIS)
+   * Yalnızca 150/153 gibi ticari mal/hammadde stok hesapları için alış stok hareketi üretilir.
+   */
+  async syncInvoiceStockMovements(companyId, { faturaId, faturaTipi, items, faturaNo, faturaTarihi, depoId, muhasebeKodu }) {
     if (!faturaId || !Array.isArray(items) || items.length === 0) {
       return { success: true, processedCount: 0, criticalAlerts: [] };
+    }
+
+    // Alış faturalarında SADECE 150 / 153 gibi stok hesapları için stok hareketi oluştur
+    if (faturaTipi === 'alis') {
+      let code = muhasebeKodu;
+      if (!code && faturaId) {
+        const fRs = await client.execute({
+          sql: 'SELECT muhasebe_kodu FROM alis_faturalari WHERE id = ? AND company_id = ? LIMIT 1',
+          args: [faturaId, companyId]
+        });
+        if (fRs.rows.length > 0) {
+          code = fRs.rows[0].muhasebe_kodu;
+        }
+      }
+
+      if (!this.isStockAccount(code)) {
+        // 150/153 gibi bir stok hesabı değilse (örn. 770 Genel Yönetim Gideri, 760, 255 veya tanımsız)
+        // varsa eski stok hareketlerini sil ve çık
+        await client.execute({
+          sql: 'DELETE FROM stok_hareketler WHERE bagli_fatura_id = ? AND company_id = ?',
+          args: [faturaId, companyId]
+        });
+        return { success: true, processedCount: 0, criticalAlerts: [] };
+      }
     }
 
     const tip = faturaTipi === 'satis' ? 'CIKIS' : 'GIRIS';
