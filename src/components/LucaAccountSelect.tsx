@@ -35,11 +35,14 @@ export function LucaAccountSelect({ value, onChange, placeholder = "Hesap seçin
   const [activeTab, setActiveTab] = React.useState<'list' | 'manual'>('list');
   const searchInputRef = React.useRef<HTMLInputElement>(null);
 
-  const { lucaAccounts = [] } = useApp();
+  const { lucaAccounts = [], fetchLucaAccounts } = useApp();
 
-  // Modal her açıldığında search ve manuel kodu sıfırla/hazırla
+  // Modal her açıldığında search ve manuel kodu sıfırla/hazırla ve gerekirse hesapları yükle
   React.useEffect(() => {
     if (open) {
+      if ((!lucaAccounts || lucaAccounts.length === 0) && fetchLucaAccounts) {
+        fetchLucaAccounts();
+      }
       setSearchTerm('');
       setManualCode(value || '');
       setActiveTab('list');
@@ -47,7 +50,7 @@ export function LucaAccountSelect({ value, onChange, placeholder = "Hesap seçin
         searchInputRef.current?.focus();
       }, 100);
     }
-  }, [open, value]);
+  }, [open, value, lucaAccounts, fetchLucaAccounts]);
 
   // Türkçe karakter duyarlı arama normalizasyonu
   const normalizeTr = (text: string) => {
