@@ -438,9 +438,13 @@ ${first.plate ? `🚗 *Plaka:* \`${first.plate}\`\n` : ''}${first.odemeSekli ? `
 
     console.log(`[TelegramBot][AI] Aktif Sağlayıcı: ${activeProvider.toUpperCase()} | Model: ${activeProvider === 'nvidia' ? nvidiaModel : geminiModel}`);
 
-    const prompt = `Sen uzman bir muhasebe fiş ve fatura okuma asistanısın. Görseldeki fiş veya faturayı analiz et ve SADECE aşağıdaki JSON formatında çıktı ver.
-KURAL: Eğer birden fazla KDV oranı varsa, her bir KDV oranını ayrı bir obje olarak diziye ekle.
-KURAL: Akaryakıt fişi ise plakayı 'plate' alanına yaz. Kredi kartı ile ödenmişse 'odeme_sekli': 'KREDI_KARTI' yap.
+    const prompt = `Sen Türkiye Cumhuriyeti Tekdüzen Hesap Planı'na ve KDV mevzuatına tam hâkim kıdemli bir Mali Müşavirsin (SMMM).
+Görseldeki fiş veya faturayı bir mali müşavir titizliğiyle analiz et ve SADECE aşağıdaki JSON formatında çıktı ver.
+
+KURALLAR:
+1. Tek fişte birden fazla KDV oranı varsa, her KDV oranını ayrı bir obje olarak diziye ekle.
+2. Akaryakıt fişlerinde araç plakasını 'plate' alanına yaz.
+3. Slipte kredi kartı ibaresi varsa 'odeme_sekli': 'KREDI_KARTI', nakit ise 'NAKIT' yap.
 
 Format:
 {

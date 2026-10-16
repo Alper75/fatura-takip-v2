@@ -545,18 +545,23 @@ export function AlisFaturaDrawer() {
     }
     const bankaHesaplari: any[] = bankaRes?.success ? bankaRes.data : [];
 
-    const prompt = `Bu dosyada BİRDEN FAZLA ayrı fiş veya fatura olabilir. Veya TEK BİR fişte/faturada BİRDEN FAZLA FARKLI KDV oranı (Örn: %1, %10, %20) olabilir.
+    const prompt = `Sen Türkiye Cumhuriyeti Tekdüzen Hesap Planı'na, KDV Kanunu'na ve Türk Vergi Mevzuatı'na tam hâkim uzman bir Mali Müşavirsin (SMMM).
+Görevin: Ekli görsel/belgedeki fatura ve perakende satış fişlerini bir mali müşavir denetiminde analiz edip sisteme işlenecek muhasebe verilerini çıkarmaktır.
+
+Bu dosyada BİRDEN FAZLA ayrı fiş veya fatura olabilir. Veya TEK BİR fişte/faturada BİRDEN FAZLA FARKLI KDV oranı (Örn: %1, %10, %20) olabilir.
 Lütfen bulduğun TÜM fiş/faturaları çıkar ve aşağıdaki JSON DİZİSİ formatında döndür. 
 
-ÖNEMLİ KURAL: Eğer tek bir fişte/faturada birden fazla KDV oranı varsa (Örn: bazı ürünler %1, bazıları %20), LÜTFEN her bir KDV oranının toplam tutarını (kdv dahil) ayrı birer JSON objesi (ayrı bir fatura kaydı) olarak diziye ekle! Fatura no, tarih ve satıcı adı aynı kalsın, sadece tutar, malHizmetAdi ("... %20 KDV'li Ürünler" vb.) ve kdv_orani farklı olsun.
-ÖNEMLİ KURAL 2: Eğer bu bir akaryakıt fişi/faturası ise, fatura üzerinde yazan ARAÇ PLAKASINI mutlaka "plate" alanına yaz.
-ÖNEMLİ KURAL 3: Yemek (Restoran/Lokanta), akaryakıt, konaklama, kırtasiye, ofis tüketim, market gibi şirket içi genel harcama fişleri KESİNLİKLE 7'li gider hesaplarına (Örn: 770 Genel Yönetim Giderleri) atılmalıdır. 153 Ticari Mallar hesabı SADECE satmak amacıyla alınan ürünler için kullanılır. Fişin türüne dikkat ederek en uygun hesabı seç.
-ÖNEMLİ KURAL 4: Fiş/fatura üzerindeki ödeme tipini analiz et. Eğer slip veya fiş üzerinde "**** 1104", "Kredi Kartı", "Banka Kartı" gibi kredi kartı ödemesine dair bir ibare varsa "odeme_sekli": "KREDI_KARTI" yap ve kartın son 4 hanesini "kredi_karti_son4" alanına yaz (örn: "1104"). Eğer nakit ödenmişse veya belli değilse "odeme_sekli": "NAKIT" yap.
+MALİ MÜŞAVİRLİK VE MUHASEBE KURALLARI:
+1. KDV AYRIŞTIRMA KURALI: Eğer tek bir fişte/faturada birden fazla KDV oranı varsa (Örn: bazı ürünler %1, bazıları %20), her bir KDV oranının toplam tutarını (KDV dahil) ayrı birer JSON objesi (ayrı bir fatura kaydı) olarak diziye ekle. Fatura no, tarih ve satıcı adı aynı kalsın, sadece tutar, malHizmetAdi ("... %20 KDV'li Ürünler" vb.) ve kdv_orani farklı olsun.
+2. GENEL GİDER - TİCARİ MAL AYRIMI: Şirket içi tüketim, yemek (restoran/lokanta), akaryakıt/yakıt, konaklama/otel, kırtasiye, ofis tüketim, market, temizlik, kargo gibi harcama fişleri KESİNLİKLE 7'li gider hesaplarına (Örn: 770 Genel Yönetim Giderleri) atılmalıdır. 153 Ticari Mallar hesabı SADECE işletmenin satmak amacıyla aldığı ürünler içindir. Fişin niteliğine göre en uygun gider kodunu seç.
+3. AKARYAKIT PLAKA KURALI: Eğer bu bir akaryakıt fişi/faturası ise, fiş üzerinde yazan ARAÇ PLAKASINI mutlaka "plate" alanına yaz (Örn: 34ABC123).
+4. ÖDEME ŞEKLİ: Fiş/fatura üzerindeki ödeme tipini analiz et. Eğer slip veya fiş üzerinde "**** 1104", "Kredi Kartı", "Banka Kartı" gibi kredi kartı ödemesine dair ibare varsa "odeme_sekli": "KREDI_KARTI" yap ve kartın son 4 hanesini "kredi_karti_son4" alanına yaz (örn: "1104"). Nakit ödenmişse "odeme_sekli": "NAKIT" yap. Açık hesap/vadeli ise "odeme_sekli": "CARI_HESAP" yap.
+5. TEVKİFAT VE STOPAJ: Varsa KDV tevkifat oranını (örn: "2/10", "5/10", "9/10") ve Stopaj oranını tespit et.
 
 Aşağıdaki LUCA HESAP PLANI listesinden bu faturanın açıklamasına/türüne en uygun "kod"u seçerek "muhasebe_kodu" alanına yaz:
 ${lucaAccounts.map(a => `${a.kod}: ${a.ad}`).join('\n')}
 
-SADECE JSON döndür:
+SADECE geçerli bir JSON döndür:
 {
   "faturalar": [
     {

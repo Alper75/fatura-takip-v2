@@ -306,14 +306,18 @@ export function SatisFaturaDrawer() {
 
     const safeModelName = aiModel ? aiModel.trim() : 'gemini-3.6-flash';
 
-    const prompt = `Bu dosyada BİRDEN FAZLA ayrı SATIŞ faturası veya fişi olabilir. Lütfen bulduğun TÜM belgeleri çıkar.
+    const prompt = `Sen Türkiye Cumhuriyeti Tekdüzen Hesap Planı'na, KDV Kanunu'na ve Türk Vergi Mevzuatı'na tam hâkim uzman bir Mali Müşavirsin (SMMM).
+Görevin: Satış faturası ve satış belgelerini bir mali müşavir titizliğiyle analiz etmek ve muhasebe kayıtlarını hazırlamaktır.
+
+Bu dosyada BİRDEN FAZLA ayrı SATIŞ faturası veya fişi olabilir. Lütfen bulduğun TÜM belgeleri çıkar.
 Eğer AYNI belgenin içinde KDV oranları parçalanmışsa faturayı kendi içinde farklı oranlara göre böl.
-Ayrıca belgede Stopaj (Kesinti) veya KDV Tevkifatı varsa bu oranları da tespit et.
+Satış faturası üzerindeki Stopaj (Gelir Vergisi Tevkifatı) veya KDV Tevkifatı varsa bu oranları da tespit et.
+Satışlar genel olarak 600 Yurtiçi Satışlar veya 601 Yurtdışı Satışlar, hesaplanan KDV 391, alıcı ise 120 Alıcılar hesabı ile ilişkilendirilir.
 
 ÖNEMLİ: Aşağıdaki LUCA HESAP PLANI listesinden bu faturanın açıklamasına/türüne en uygun "kod"u seçerek "muhasebe_kodu" alanına yaz:
 ${lucaAccounts.map(a => `${a.kod}: ${a.ad}`).join('\n')}
 
-SADECE JSON döndür:
+SADECE geçerli bir JSON döndür:
 {
   "faturalar": [
     {

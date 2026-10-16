@@ -617,8 +617,19 @@ export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploa
         tutar: s.row.tutar
       }));
 
-      const prompt = `Aşağıdaki banka hareketlerini analiz et ve her biri için en uygun Luca Muhasebe Kodunu ve İşlem Türünü belirle.
-Ayrıca eğer kayıtlı Cariler listesinde bir eşleşme bulursan (isimden de bakabilirsin), ilgili Cari Unvanını döndür.
+      const prompt = `Sen Türkiye Cumhuriyeti Tekdüzen Hesap Planı'na ve vergi mevzuatına üst düzeyde hâkim uzman ve kıdemli bir Mali Müşavirsin (SMMM).
+Görevin: Bir işletmenin banka ekstresi hareketlerini bir mali müşavir titizliğiyle analiz etmek, her işlem için en doğru Luca Muhasebe Kodunu ve İşlem Türünü belirlemektir.
+
+TEMEL MUHASEBE VE BANKA KAYIT KURALLARI:
+1. Müşteriden Tahsilat (Para Girişi / Alacak): Borç 102 Bankalar, Alacak 120 Alıcılar. İşlem Türü: "tahsilat"
+2. Tedarikçiye/Satıcıya Ödeme (Para Çıkışı / Borç): Borç 320 Satıcılar, Alacak 102 Bankalar. İşlem Türü: "odeme"
+3. Banka Masrafı, POS Komisyonu, EFT/Havale Ücreti, BSMV: Borç 770/780 Giderler, Alacak 102 Bankalar. İşlem Türü: "banka_masrafi"
+4. Maaş ve Personel Ödemeleri: Borç 335 Personele Borçlar, Alacak 102 Bankalar. İşlem Türü: "maas_odemesi"
+5. Vergi, Harç, SGK ve KDV Ödemeleri: Borç 360/361 Ödenecek Yükümlülükler, Alacak 102 Bankalar. İşlem Türü: "vergi_kdv"
+6. Kredi Kartı / Kredi Geri Ödemeleri: Borç 300/400 Banka Kredileri veya Kredi Kartı Hesabı, Alacak 102. İşlem Türü: "kredi_karti_odemesi"
+7. Diğer Şirket Genel Giderleri: Borç 770 Genel Yönetim Giderleri. İşlem Türü: "genel_gider"
+
+Eğer kayıtlı Cariler listesinde bir firma unvanı ile açıklamadaki unvan/isim/VKN eşleşiyorsa (kısmi isim benzerliklerini de gözet), ilgili Cari Unvanını döndür.
 
 LUCA HESAP PLANI:
 ${sampleAccounts}
@@ -629,20 +640,17 @@ ${sampleCariler}
 ANALİZ EDİLECEK HAREKETLER:
 ${JSON.stringify(transactionsToAnalyze)}
 
-SADECE JSON döndür. Beklenen format:
+SADECE geçerli bir JSON döndür. Beklenen format:
 {
   "sonuclar": [
     {
       "id": 0,
-      "muhasebeKodu": "600.01.001",
+      "muhasebeKodu": "Luca hesap planından seçilen en uygun kod (örn: 120.01.001 veya 320.01.001 veya 770.01.005)",
       "islemTuru": "tahsilat",
       "cariUnvan": "Eşleşen Cari Unvanı veya null"
     }
   ]
-}
-
-İşlem Türleri şunlardan biri olmalı: tahsilat, odeme, vergi_kdv, maas_odemesi, banka_masrafi, kredi_karti_odemesi, genel_gider. 
-Girişler (alacak) genellikle tahsilat, çıkışlar (borç) genellikle odeme veya giderdir.`;
+}`;
 
       const parsed = await executeAiAnalysis(prompt);
 
@@ -693,18 +701,23 @@ Girişler (alacak) genellikle tahsilat, çıkışlar (borç) genellikle odeme ve
     try {
       const sampleAccounts = lucaAccounts.map(a => `${a.kod}: ${a.ad}`).join('\n');
       
-      const prompt = `Bu banka hareketini analiz et: "${satir.aciklama}" (Tutar: ${satir.tutar}, Tip: ${satir.tip}).
-Aşağıdaki Luca Hesap Planından en uygun kodu seç ve işlem türünü belirle.
+      const prompt = `Sen Türkiye Tekdüzen Hesap Planı'na ve banka muhasebe kayıtlarına tam hâkim kıdemli bir Mali Müşavirsin (SMMM).
+Aşağıdaki banka hareketini bir mali müşavir titizliğiyle analiz et: "${satir.aciklama}" (Tutar: ${satir.tutar}, Tip: ${satir.tip}).
 
+TEMEL KURALLAR:
+- Para Girişi ise genelde müşteriden tahsilat (120 Alıcılar) veya POS tahsilatıdır.
+- Para Çıkışı ise tedarikçi ödemesi (320 Satıcılar), vergi/sgk (360/361), maaş (335), kredi kartı veya banka masrafıdır (770/780).
+- Verilen Luca Hesap Planından bu işleme en uygun alt hesap kodunu seç ve işlem türünü belirle.
+
+LUCA HESAP PLANI:
 ${sampleAccounts}
 
 SADECE JSON döndür:
 {
-  "muhasebeKodu": "kod",
-  "islemTuru": "tur",
-  "cariUnvan": "Tahmin edilen cari veya null"
-}
-İşlem Türleri: tahsilat, odeme, vergi_kdv, maas_odemesi, banka_masrafi, kredi_karti_odemesi, genel_gider.`;
+  "muhasebeKodu": "Luca listesinden en uygun kod",
+  "islemTuru": "tahsilat | odeme | vergi_kdv | maas_odemesi | banka_masrafi | kredi_karti_odemesi | genel_gider",
+  "cariUnvan": "Tahmin edilen cari unvanı veya null"
+}`;
 
       const res = await executeAiAnalysis(prompt);
 
