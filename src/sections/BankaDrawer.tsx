@@ -166,11 +166,14 @@ export function BankaDrawer() {
           </div>
 
           <div className="space-y-2">
-            <Label>Luca Muhasebe Kodu (Opsiyonel)</Label>
+            <Label className="flex items-center justify-between">
+              <span>Luca Muhasebe Kodu (Opsiyonel)</span>
+              <span className="text-[11px] font-normal text-slate-400">Listeden seçin veya elle yazın</span>
+            </Label>
             <LucaAccountSelect 
               value={formData.muhasebeKodu || ''} 
               onChange={code => setFormData({ ...formData, muhasebeKodu: code })} 
-              placeholder="Örn: 102.01.01"
+              placeholder="Örn: 102.01.01 (Listeden seçin veya kendiniz yazın)"
             />
           </div>
 

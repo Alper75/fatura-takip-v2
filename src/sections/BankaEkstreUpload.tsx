@@ -9,6 +9,7 @@ import * as XLSX from 'xlsx';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import type { IslemTuru } from '@/types';
+import { LucaAccountSelect } from '@/components/LucaAccountSelect';
 
 interface BankaEkstreUploadProps {
   bankaId: string;
@@ -917,18 +918,17 @@ SADECE JSON döndür:
                           </div>
                         </TableCell>
                         <TableCell>
-                          <div className="flex items-center gap-2">
-                            <input 
-                              type="text"
-                              value={s.muhasebeKodu || ''}
+                          <div className="flex items-center gap-2 min-w-[170px]">
+                            <LucaAccountSelect 
+                              value={s.muhasebeKodu || ''} 
+                              onChange={(code: string) => updateSatir(idx, { muhasebeKodu: code })}
                               placeholder="Koda eşle..."
-                              className="w-full h-8 text-[11px] bg-slate-50 border border-slate-200 rounded-md px-2 outline-none focus:border-indigo-500 transition-all font-mono"
-                              onChange={(e) => updateSatir(idx, { muhasebeKodu: e.target.value })}
+                              className="h-8 text-[11px]"
                             />
                              <Button 
                               variant="ghost" 
                               size="icon" 
-                              className="h-8 w-8 hover:bg-indigo-50 text-indigo-400"
+                              className="h-8 w-8 hover:bg-indigo-50 text-indigo-400 shrink-0"
                               onClick={() => analyzeRowWithAI(idx)}
                               disabled={isAiAnalyzing}
                               title="Yapay Zeka ile Analiz Et"
