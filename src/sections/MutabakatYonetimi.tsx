@@ -33,7 +33,7 @@ export function MutabakatYonetimi() {
   const [geminiModel, setGeminiModel] = useState('gemini-3.8-flash');
   const [isCustomGemini, setIsCustomGemini] = useState(false);
   const [nvidiaKey, setNvidiaKey] = useState('');
-  const [nvidiaModel, setNvidiaModel] = useState('meta/llama-3.2-11b-vision-instruct');
+  const [nvidiaModel, setNvidiaModel] = useState('stepfun-ai/step-5-preview');
   const [isCustomNvidia, setIsCustomNvidia] = useState(false);
   const [isSavingKey, setIsSavingKey] = useState(false);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
@@ -45,9 +45,9 @@ export function MutabakatYonetimi() {
   ];
 
   const PRESET_NVIDIA_MODELS = [
-    { value: 'meta/llama-3.2-11b-vision-instruct', label: 'Meta Llama 3.2 11B Vision (Çok Hızlı - Önerilen)' },
-    { value: 'meta/llama-3.2-90b-vision-instruct', label: 'Meta Llama 3.2 90B Vision (En Yüksek Hassasiyet)' },
-    { value: 'microsoft/phi-3-vision-128k-instruct', label: 'Microsoft Phi-3 Vision 128K (Hafif & Hızlı)' },
+    { value: 'stepfun-ai/step-5-preview', label: 'StepFun Step 5 Vision (🔥 En Hızlı & En Başarılı OCR - Önerilen)' },
+    { value: 'meta/llama-3.2-11b-vision-instruct', label: 'Meta Llama 3.2 11B Vision (Alternatif Görsel Model)' },
+    { value: 'meta/llama-3.2-90b-vision-instruct', label: 'Meta Llama 3.2 90B Vision (Büyük Model - Yavaş Yanıt)' },
   ];
   
   // Selection state
@@ -732,13 +732,13 @@ export function MutabakatYonetimi() {
                           <Label className="text-[11px] font-semibold text-emerald-900">Özel NVIDIA NIM Model Kodu (Adres / Path)</Label>
                           <Input 
                             type="text" 
-                            placeholder="Örn: meta/llama-3.2-11b-vision-instruct veya qwen/qwen2.5-vl-72b-instruct" 
+                            placeholder="Örn: stepfun-ai/step-5-preview veya meta/llama-3.2-11b-vision-instruct" 
                             value={nvidiaModel}
                             onChange={(e) => setNvidiaModel(e.target.value.trim())}
                             className="font-mono text-xs bg-white"
                           />
                           <p className="text-[10px] text-slate-500">
-                            <a href="https://build.nvidia.com/explore/discover" target="_blank" rel="noreferrer" className="text-emerald-600 underline font-medium">build.nvidia.com/explore/discover</a> sayfasındaki herhangi bir görsel (vision) modelin tam kimliğini buraya yapıştırabilirsiniz.
+                            <a href="https://build.nvidia.com/explore/discover" target="_blank" rel="noreferrer" className="text-emerald-600 underline font-medium">build.nvidia.com/explore/discover</a> sayfasındaki resim destekli (vision) sohbet modellerini yazabilirsiniz. (Not: <code>nvidia/nemotron-parse</code> gibi chat desteklemeyen salt parse modelleri veya kapanan kimi-k3/phi-3 modelleri çalışmaz).
                           </p>
                         </div>
                       )}

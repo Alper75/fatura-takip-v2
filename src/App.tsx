@@ -39,6 +39,7 @@ import AkilliOgrenme from './sections/AkilliOgrenme';
 import { MuhasebeFisInceleme } from './sections/MuhasebeFisInceleme';
 import NakitAkisiTakvimi from './sections/NakitAkisiTakvimi';
 import KullaniciYetkiYonetimi from './sections/KullaniciYetkiYonetimi';
+import { DijitalVergiDairesi } from './sections/DijitalVergiDairesi';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 const queryClient = new QueryClient({
@@ -144,6 +145,8 @@ function AppContent() {
             return <MuhasebeFisInceleme />;
           case 'kullanici-yonetimi':
             return <KullaniciYetkiYonetimi />;
+          case 'dijital-vergi-dairesi':
+            return <DijitalVergiDairesi />;
           default:
             return <Dashboard />; // Default to Dashboard if currentView is not recognized
         }

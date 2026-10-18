@@ -579,7 +579,8 @@ export type ViewType =
   | 'akilli-ogrenme'
   | 'muhasebe-fis-inceleme'
   | 'nakit-akisi'
-  | 'kullanici-yonetimi';
+  | 'kullanici-yonetimi'
+  | 'dijital-vergi-dairesi';
 
 // ==================== FATURA DURUMU ====================
 export type OdemeDurumu = 'odenmedi' | 'odendi' | 'bekliyor' | 'kismi_odendi';

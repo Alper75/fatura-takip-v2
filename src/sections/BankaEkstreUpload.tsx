@@ -476,7 +476,7 @@ export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploa
     let apiKey = import.meta.env.VITE_GEMINI_API_KEY || '';
     let aiModel = 'gemini-2.5-flash';
     let nvidiaApiKey = '';
-    let nvidiaModelName = 'meta/llama-3.2-11b-vision-instruct';
+    let nvidiaModelName = 'stepfun-ai/step-5-preview';
 
     try {
       const [provRes, keyRes, modelRes, nKeyRes, nModelRes] = await Promise.all([
@@ -513,7 +513,7 @@ export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploa
       apiKey: (apiKey || '').trim(),
       aiModel: (aiModel || 'gemini-2.5-flash').trim(),
       nvidiaApiKey: (nvidiaApiKey || '').trim(),
-      nvidiaModelName: (nvidiaModelName || 'meta/llama-3.2-11b-vision-instruct').trim()
+      nvidiaModelName: (nvidiaModelName || 'stepfun-ai/step-5-preview').trim()
     };
   };
 

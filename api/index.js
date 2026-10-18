@@ -5910,7 +5910,7 @@ app.post(['/api/ai/analyze-invoice', '/api/ai/analyze-text'], authMiddleware, as
 
     let activeProvider = requestedProvider || provVal || 'gemini';
     const nvidiaApiKey = bodyNvidiaKey || nKeyVal || process.env.NVIDIA_API_KEY || '';
-    const nvidiaModel = bodyNvidiaModel || nModelVal || 'meta/llama-3.2-11b-vision-instruct';
+    const nvidiaModel = bodyNvidiaModel || nModelVal || 'stepfun-ai/step-5-preview';
     const geminiApiKey = bodyGeminiKey || gKeyVal || process.env.VITE_GEMINI_API_KEY || process.env.GEMINI_API_KEY || '';
     const geminiModel = bodyGeminiModel || gModelVal || 'gemini-2.5-flash';
 
@@ -5973,29 +5973,33 @@ Temel Muhasebe İlkelerin ve Davranış Kuralların:
           })
         });
         const nvData = await nvRes.json();
-        if (nvData.error) throw new Error(nvData.error.message || 'NVIDIA API Hatası');
+        if (!nvRes.ok) {
+          const errMsg = nvData.message || nvData.detail || nvData.error?.message || `NVIDIA HTTP ${nvRes.status}`;
+          throw new Error(errMsg);
+        }
         const choice = nvData.choices?.[0];
         let txt = choice?.message?.content || '';
         if (!txt && choice?.message?.reasoning_content) txt = choice.message.reasoning_content;
         return txt;
       };
 
-      try {
-        const res = await callTarget(nvidiaModel);
-        if (res) return res;
-      } catch (err) {
-        console.warn(`[NVIDIA AI] ${nvidiaModel} çağrısında hata:`, err.message);
-      }
+      // Çalışmayan / devre dışı veya chat desteklemeyen modelleri filtrele
+      const candidateModels = Array.from(new Set([
+        nvidiaModel,
+        'stepfun-ai/step-5-preview',
+        'meta/llama-3.2-11b-vision-instruct',
+        'meta/llama-3.2-90b-vision-instruct'
+      ].filter(m => m && !m.includes('nemotron-parse') && !m.includes('phi-3-vision') && !m.includes('kimi-k3') && !m.includes('qwen2.5-vl-72b-instruct'))));
 
-      const fallbackModel = nvidiaModel.includes('kimi') 
-        ? 'meta/llama-3.2-11b-vision-instruct' 
-        : 'moonshotai/kimi-k3';
-      try {
-        return await callTarget(fallbackModel);
-      } catch (err) {
-        console.error('[NVIDIA AI] Fallback model de başarısız:', err.message);
-        return null;
+      for (const m of candidateModels) {
+        try {
+          const res = await callTarget(m);
+          if (res) return res;
+        } catch (err) {
+          console.warn(`[NVIDIA AI] ${m} çağrısında hata:`, err.message);
+        }
       }
+      return null;
     };
 
     const runGemini = async () => {
@@ -7126,13 +7130,138 @@ ${faturalarText}
   }
 });
 
+// ==========================================
+// --- GİB DİJİTAL VERGİ DAİRESİ ENDPOINTS ---
+// ==========================================
+import { dijitalGibClient } from './services/dijitalGibClient.js';
+
+// 1. Yeni Captcha al
+app.get('/api/gib/dijital/captcha', async (req, res) => {
+  try {
+    const data = await dijitalGibClient.fetchCaptcha();
+    res.json({ success: true, ...data });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// 2. Giriş yap (Manuel veya otomatik captcha ile)
+app.post('/api/gib/dijital/login', async (req, res) => {
+  try {
+    const { userid, password, captchaText, captchaCid, autoSolve, geminiApiKey } = req.body;
+    if (!userid || !password) {
+      return res.status(400).json({ success: false, message: 'Kullanıcı kodu ve şifre zorunludur.' });
+    }
+
+    if (autoSolve) {
+      const apiKey = geminiApiKey || process.env.VITE_GEMINI_API_KEY || process.env.GEMINI_API_KEY;
+      const result = await dijitalGibClient.autoLogin(userid, password, apiKey);
+      return res.json(result);
+    }
+
+    if (!captchaText || !captchaCid) {
+      return res.status(400).json({ success: false, message: 'Güvenlik kodu veya referansı eksik.' });
+    }
+
+    const result = await dijitalGibClient.login(userid, password, captchaText, captchaCid);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// 3. e-Tebligat listele
+app.post('/api/gib/dijital/tebligatlar', async (req, res) => {
+  try {
+    const { token, userid, password, pageNo, pageSize, arsivDurum, geminiApiKey } = req.body;
+    let authToken = token;
+
+    if (!authToken && userid && password) {
+      const apiKey = geminiApiKey || process.env.VITE_GEMINI_API_KEY || process.env.GEMINI_API_KEY;
+      const loginRes = await dijitalGibClient.autoLogin(userid, password, apiKey);
+      if (!loginRes.success) {
+        return res.status(401).json(loginRes);
+      }
+      authToken = loginRes.token;
+    }
+
+    if (!authToken) {
+      return res.status(401).json({ success: false, message: 'Geçerli bir GİB oturum token\'ı veya giriş bilgisi bulunamadı.' });
+    }
+
+    const data = await dijitalGibClient.listTebligatlar({
+      token: authToken,
+      pageNo: Number(pageNo) || 1,
+      pageSize: Number(pageSize) || 50,
+      arsivDurum: arsivDurum !== undefined ? arsivDurum : null
+    });
+
+    res.json({ success: true, token: authToken, data });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.response?.data?.messages?.[0]?.text || err.message });
+  }
+});
+
+// 4. Tebligat ekleri/belgeleri
+app.post('/api/gib/dijital/tebligat-belgeleri', async (req, res) => {
+  try {
+    const { token, tebligId, tebligSecureId } = req.body;
+    if (!token || !tebligId || !tebligSecureId) {
+      return res.status(400).json({ success: false, message: 'Eksik parametreler (token, tebligId, tebligSecureId).' });
+    }
+
+    const data = await dijitalGibClient.getTebligatBelgeleri({ token, tebligId, tebligSecureId });
+    res.json({ success: true, data });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// 5. Tebligat belgesini / ekini indir
+app.post('/api/gib/dijital/tebligat-indir', async (req, res) => {
+  try {
+    const { token, params, dosyaAdi } = req.body;
+    if (!token || !params) {
+      return res.status(400).json({ success: false, message: 'Eksik parametreler.' });
+    }
+
+    const linkData = await dijitalGibClient.getDocumentLink({ token, params });
+    const reportLink = linkData?.reportLink || linkData?.data?.reportLink;
+    if (!reportLink) {
+      return res.status(404).json({ success: false, message: 'İndirme bağlantısı üretilemedi.' });
+    }
+
+    const pdfBuffer = await dijitalGibClient.downloadDocumentBuffer({ token, reportLink });
+    const downloadName = (dosyaAdi || 'tebligat_belgesi').replace(/\.imz$/i, '') + '.pdf';
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${downloadName}"`);
+    res.send(pdfBuffer);
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 app.use('/uploads', express.static(uploadsDir));
 
-if (process.env.NODE_ENV !== 'production') {
-  const PORT = process.env.PORT || 5000;
-  app.listen(PORT, () => {
+// Frontend Production build dosyalarını sun (Google Cloud / Standalone için)
+const distDir = path.join(__dirname, '..', 'dist');
+if (fs.existsSync(distDir)) {
+  app.use(express.static(distDir));
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api/') || req.path.startsWith('/uploads/')) {
+      return next();
+    }
+    res.sendFile(path.join(distDir, 'index.html'));
+  });
+}
+
+// Vercel serverless ortamında dinlemez, Google Cloud / Local ortamda dinler
+const PORT = process.env.PORT || 5000;
+if (process.env.VERCEL !== '1') {
+  app.listen(PORT, '0.0.0.0', () => {
     console.log('--------------------------------------------------');
-    console.log(`🚀 LUCA & FATURA BACKEND ÇALIŞIYOR: http://localhost:${PORT}`);
+    console.log(`🚀 FATURA APP ÇALIŞIYOR: http://0.0.0.0:${PORT}`);
     console.log('--------------------------------------------------');
   });
 }

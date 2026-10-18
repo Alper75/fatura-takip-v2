@@ -432,7 +432,7 @@ ${first.plate ? `🚗 *Plaka:* \`${first.plate}\`\n` : ''}${first.odemeSekli ? `
 
     const activeProvider = provRs.rows?.[0]?.setting_value || 'gemini';
     const nvidiaApiKey = nKeyRs.rows?.[0]?.setting_value || process.env.NVIDIA_API_KEY || '';
-    const nvidiaModel = nModelRs.rows?.[0]?.setting_value || 'meta/llama-3.2-11b-vision-instruct';
+    const nvidiaModel = nModelRs.rows?.[0]?.setting_value || 'stepfun-ai/step-5-preview';
     const geminiApiKey = gKeyRs.rows?.[0]?.setting_value || process.env.VITE_GEMINI_API_KEY || process.env.GEMINI_API_KEY || '';
     const geminiModel = gModelRs.rows?.[0]?.setting_value || 'gemini-3.8-flash';
 
@@ -506,17 +506,20 @@ Eğer belge okunamıyorsa: {"hata": "Belge okunamadı"}`;
         }
       };
 
-      // 1. Kullanıcının seçtiği NVIDIA modelini dene
-      const safeNvidiaModel = nvidiaModel && nvidiaModel !== 'qwen/qwen2.5-vl-72b-instruct' 
-        ? nvidiaModel 
-        : 'meta/llama-3.2-11b-vision-instruct';
+      // Çalışan görsel/vision modelleri sırayla dene, geçersiz/kapanmış modelleri filtrele
+      const candidateNvidiaModels = Array.from(new Set([
+        nvidiaModel,
+        'stepfun-ai/step-5-preview',
+        'meta/llama-3.2-11b-vision-instruct',
+        'meta/llama-3.2-90b-vision-instruct'
+      ].filter(m => m && !m.includes('nemotron-parse') && !m.includes('phi-3-vision') && !m.includes('kimi-k3') && !m.includes('qwen2.5-vl-72b-instruct'))));
 
-      responseText = await callNvidia(safeNvidiaModel);
-
-      // 2. Eğer ilk model boş döndüyse veya hata verdiyse güvenilir Meta Llama 3.2 Vision'ı dene
-      if (!responseText && safeNvidiaModel !== 'meta/llama-3.2-11b-vision-instruct') {
-        console.warn(`[TelegramBot][NVIDIA] ${safeNvidiaModel} başarısız oldu, meta/llama-3.2-11b-vision-instruct deneniyor...`);
-        responseText = await callNvidia('meta/llama-3.2-11b-vision-instruct');
+      for (const targetModel of candidateNvidiaModels) {
+        responseText = await callNvidia(targetModel);
+        if (responseText) {
+          console.log(`[TelegramBot][NVIDIA] ${targetModel} başarıyla yanıt verdi.`);
+          break;
+        }
       }
     }
     

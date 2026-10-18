@@ -495,7 +495,7 @@ export function AlisFaturaDrawer() {
     let apiKey = import.meta.env.VITE_GEMINI_API_KEY || '';
     let aiModel = 'gemini-3.8-flash';
     let nvidiaApiKey = '';
-    let nvidiaModelName = 'meta/llama-3.2-11b-vision-instruct';
+    let nvidiaModelName = 'stepfun-ai/step-5-preview';
     
     try {
       const [provRes, keyRes, modelRes, nKeyRes, nModelRes] = await Promise.all([

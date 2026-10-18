@@ -256,6 +256,13 @@ export function Sidebar({ onItemClick }: SidebarProps) {
           onClick: () => setCurrentView('akilli-ogrenme' as any),
           view: 'akilli-ogrenme',
           permission: 'muhasebeLuca'
+        },
+        {
+          id: 'dijital-vergi-dairesi',
+          label: 'GİB e-Tebligat & Dijital VD',
+          icon: Building2,
+          onClick: () => setCurrentView('dijital-vergi-dairesi'),
+          view: 'dijital-vergi-dairesi'
         }
       ]
     },
