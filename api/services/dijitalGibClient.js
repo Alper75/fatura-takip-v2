@@ -370,12 +370,39 @@ class DijitalGibClient {
       meta: {
         pagination: { pageNo, pageSize },
         sortFieldName: 'id',
-        sortType: 'DESC',
+        sortType: 'ASC',
         filters
       }
     });
 
-    return resp.data;
+    const rawData = resp.data?.data || resp.data || {};
+    const rawList = rawData?.tebligatDtoList || rawData?.list || [];
+
+    // GİB DTO'sunu anlaşılır standart alanlara eşle
+    const items = rawList.map(dto => ({
+      id: dto.id || dto.tebligId,
+      tebligId: dto.tebligId,
+      tebligSecureId: dto.tebligSecureId,
+      tarafId: dto.tarafId,
+      tarafSecureId: dto.tarafSecureId,
+      gonderenBirimAdi: dto.kurumAciklama || 'Gelir İdaresi Başkanlığı',
+      altKurum: dto.altKurum || '',
+      belgeTuru: dto.belgeTuruAciklama || 'Resmi Tebligat',
+      konu: `${dto.belgeTuruAciklama || ''} ${dto.altKurum ? '(' + dto.altKurum + ')' : ''}`.trim() || 'Tebligat',
+      belgeNo: dto.belgeNo || '',
+      durum: dto.mukellefOkumaZamani ? 'Okunmuş' : 'Okunmamış',
+      tebligTarihi: dto.tebligZamani || dto.gonderimZamani || '',
+      gonderimTarihi: dto.gonderimZamani || '',
+      okunmaTarihi: dto.mukellefOkumaZamani || null,
+      arsivDurum: dto.arsivDurum,
+      rawDto: dto
+    }));
+
+    return {
+      items,
+      count: rawData?.count || items.length,
+      raw: resp.data
+    };
   }
 
   /**
@@ -387,7 +414,26 @@ class DijitalGibClient {
       tebligId,
       tebligSecureId
     });
-    return resp.data;
+
+    const d = resp.data?.data || resp.data || {};
+    const belgeler = [];
+    if (d.tebligBelge) {
+      belgeler.push({
+        ...d.tebligBelge,
+        dosyaAdi: d.tebligBelge.dosyaAdi || `Tebligat_${tebligId}.pdf`,
+        isAnaBelge: true
+      });
+    }
+    if (Array.isArray(d.ekler)) {
+      belgeler.push(...d.ekler);
+    } else if (Array.isArray(d.ekListesi)) {
+      belgeler.push(...d.ekListesi);
+    }
+
+    return {
+      belgeler,
+      raw: resp.data
+    };
   }
 
   /**

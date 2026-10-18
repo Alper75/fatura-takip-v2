@@ -170,8 +170,8 @@ export function DijitalVergiDairesi() {
 
       const data = await res.json();
       if (data.success) {
-        // GİB dönen liste formatı
-        const list = data.data?.data || data.data?.list || data.data || [];
+        // GİB dönen liste formatı (backend items veya doğrudan DTO listesi)
+        const list = data.data?.items || data.data?.tebligatDtoList || data.data?.data?.tebligatDtoList || data.data?.list || (Array.isArray(data.data) ? data.data : []);
         setTebligatlar(Array.isArray(list) ? list : []);
       } else {
         if (data.message?.includes('oturum') || data.message?.includes('token')) {
@@ -204,7 +204,7 @@ export function DijitalVergiDairesi() {
 
       const data = await res.json();
       if (data.success) {
-        const belgeler = data.data?.tebligBelge ? [data.data.tebligBelge] : [];
+        const belgeler = data.data?.belgeler || (data.data?.tebligBelge ? [data.data.tebligBelge] : []);
         if (Array.isArray(data.data?.ekler)) {
           belgeler.push(...data.data.ekler);
         }
