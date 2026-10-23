@@ -24,6 +24,7 @@ import { telegramBotService } from './services/telegramBot.js';
 import { autoInvoiceFetcher } from './services/autoInvoiceFetcher.js';
 import { stockSyncService } from './services/stockSyncService.js';
 import { saveBase64File, saveBufferFile, saveTextFile, getTextFileIfExists } from './services/fileStorage.js';
+import { runBase64DiskMigration } from './services/migrateBase64Files.js';
 
 import { client, initDb } from './db.js';
 import { 
@@ -3291,6 +3292,29 @@ app.get('/api/alis-faturalari/:id', authMiddleware, async (req, res) => {
     });
     if (rs.rows.length === 0) return res.status(404).json({ success: false, message: 'Fatura bulunamadı' });
     const r = rs.rows[0];
+
+    let cleanPdf = r.pdf_dosya;
+    if (cleanPdf && (cleanPdf.startsWith('data:') || (cleanPdf.length > 500 && !cleanPdf.startsWith('/uploads/') && !cleanPdf.startsWith('http')))) {
+      const isExpense = (r.muhasebe_kodu && String(r.muhasebe_kodu).trim().startsWith('7')) ||
+                        /whatsapp|image|jpeg|jpg|png|fis/i.test(r.pdf_dosya_adi || '') ||
+                        cleanPdf.startsWith('data:image/');
+      const folder = isExpense ? 'fisler' : 'faturalar';
+      const diskPath = saveBase64File(cleanPdf, r.pdf_dosya_adi || (isExpense ? `fis_${r.fatura_no || r.id}.jpg` : `fatura_${r.fatura_no || r.id}.pdf`), folder);
+      if (diskPath && diskPath.startsWith('/uploads/')) {
+        cleanPdf = diskPath;
+        client.execute({ sql: 'UPDATE alis_faturalari SET pdf_dosya = ? WHERE id = ?', args: [diskPath, r.id] }).catch(() => {});
+      }
+    }
+
+    let cleanDekont = r.odeme_dekontu;
+    if (cleanDekont && (cleanDekont.startsWith('data:') || (cleanDekont.length > 500 && !cleanDekont.startsWith('/uploads/') && !cleanDekont.startsWith('http')))) {
+      const diskPath = saveBase64File(cleanDekont, r.odeme_dekontu_adi || 'dekont.pdf', 'dekontlar');
+      if (diskPath && diskPath.startsWith('/uploads/')) {
+        cleanDekont = diskPath;
+        client.execute({ sql: 'UPDATE alis_faturalari SET odeme_dekontu = ? WHERE id = ?', args: [diskPath, r.id] }).catch(() => {});
+      }
+    }
+
     res.json({
       success: true,
       data: {
@@ -3300,8 +3324,8 @@ app.get('/api/alis-faturalari/:id', authMiddleware, async (req, res) => {
         tevkifatTutari: r.tevkifat_tutari, stopajOrani: r.stopaj_orani, stopajTutari: r.stopaj_tutari,
         kdv1: r.kdv1, kdv10: r.kdv10, kdv20: r.kdv20, oivTutari: r.oiv_tutari,
         muhasebeKodu: r.muhasebe_kodu, karsiHesapKodu: r.karsi_hesap_kodu,
-        pdfDosya: r.pdf_dosya, pdfDosyaAdi: r.pdf_dosya_adi,
-        odemeTarihi: r.odeme_tarihi, odemeDurumu: r.odeme_durumu, odemeDekontu: r.odeme_dekontu,
+        pdfDosya: cleanPdf, pdfDosyaAdi: r.pdf_dosya_adi,
+        odemeTarihi: r.odeme_tarihi, odemeDurumu: r.odeme_durumu, odemeDekontu: cleanDekont,
         odemeDekontuAdi: r.odeme_dekontu_adi, cariId: r.cari_id, vadeTarihi: r.vade_tarihi,
         aciklama: r.aciklama, olusturmaTarihi: r.olusturma_tarihi, urunId: r.urun_id, depoId: r.depo_id,
         vehiclePlate: r.vehicle_plate
@@ -3646,14 +3670,32 @@ app.get('/api/satis-faturalari', authMiddleware, async (req, res) => {
         ? parseFloat(r.kalan_tutar) 
         : (r.odeme_durumu === 'odendi' ? 0 : Math.max(0, totalAmount - odenen));
 
+      let cleanPdf = r.pdf_dosya;
+      if (cleanPdf && (cleanPdf.startsWith('data:') || (cleanPdf.length > 500 && !cleanPdf.startsWith('/uploads/') && !cleanPdf.startsWith('http')))) {
+        const diskPath = saveBase64File(cleanPdf, r.pdf_dosya_adi || `satis_${r.fatura_no || r.id}.pdf`, 'faturalar');
+        if (diskPath && diskPath.startsWith('/uploads/')) {
+          cleanPdf = diskPath;
+          client.execute({ sql: 'UPDATE satis_faturalari SET pdf_dosya = ? WHERE id = ?', args: [diskPath, r.id] }).catch(() => {});
+        }
+      }
+
+      let cleanDekont = r.odeme_dekontu;
+      if (cleanDekont && (cleanDekont.startsWith('data:') || (cleanDekont.length > 500 && !cleanDekont.startsWith('/uploads/') && !cleanDekont.startsWith('http')))) {
+        const diskPath = saveBase64File(cleanDekont, r.odeme_dekontu_adi || 'dekont.pdf', 'dekontlar');
+        if (diskPath && diskPath.startsWith('/uploads/')) {
+          cleanDekont = diskPath;
+          client.execute({ sql: 'UPDATE satis_faturalari SET odeme_dekontu = ? WHERE id = ?', args: [diskPath, r.id] }).catch(() => {});
+        }
+      }
+
       return { 
         id: r.id, faturaNo: r.fatura_no, tcVkn: r.tc_vkn, ad: r.ad, soyad: r.soyad, adres: r.adres, 
         kdvOrani: r.kdv_orani, alinanUcret: r.alinan_ucret, matrah: r.matrah, kdvTutari: r.kdv_tutari, 
         tevkifatOrani: r.tevkifat_orani, tevkifatTutari: r.tevkifat_tutari, tevkifatKodu: r.tevkifat_kodu, 
         stopajOrani: r.stopaj_orani, stopajTutari: r.stopaj_tutari, stopajKodu: r.stopaj_kodu, 
-        muhasebeKodu: r.muhasebe_kodu, pdfDosya: r.pdf_dosya, pdfDosyaAdi: r.pdf_dosya_adi, 
+        muhasebeKodu: r.muhasebe_kodu, pdfDosya: cleanPdf, pdfDosyaAdi: r.pdf_dosya_adi, 
         faturaTarihi: r.fatura_tarihi, odemeTarihi: r.odeme_tarihi, odemeDurumu: r.odeme_durumu, 
-        odemeDekontu: r.odeme_dekontu, odemeDekontuAdi: r.odeme_dekontu_adi, cariId: r.cari_id, 
+        odemeDekontu: cleanDekont, odemeDekontuAdi: r.odeme_dekontu_adi, cariId: r.cari_id, 
         vadeTarihi: r.vade_tarihi, aciklama: r.aciklama, olusturmaTarihi: r.olusturma_tarihi, 
         urunId: r.urun_id, depoId: r.depo_id,
         gibUuid: r.gib_uuid,
@@ -3791,14 +3833,36 @@ app.get('/api/alis-faturalari', authMiddleware, async (req, res) => {
         ? parseFloat(r.kalan_tutar) 
         : (r.odeme_durumu === 'odendi' ? 0 : Math.max(0, totalAmount - odenen));
 
+      let cleanPdf = r.pdf_dosya;
+      if (cleanPdf && (cleanPdf.startsWith('data:') || (cleanPdf.length > 500 && !cleanPdf.startsWith('/uploads/') && !cleanPdf.startsWith('http')))) {
+        const isExpense = (r.muhasebe_kodu && String(r.muhasebe_kodu).trim().startsWith('7')) ||
+                          /whatsapp|image|jpeg|jpg|png|fis/i.test(r.pdf_dosya_adi || '') ||
+                          cleanPdf.startsWith('data:image/');
+        const folder = isExpense ? 'fisler' : 'faturalar';
+        const diskPath = saveBase64File(cleanPdf, r.pdf_dosya_adi || (isExpense ? `fis_${r.fatura_no || r.id}.jpg` : `fatura_${r.fatura_no || r.id}.pdf`), folder);
+        if (diskPath && diskPath.startsWith('/uploads/')) {
+          cleanPdf = diskPath;
+          client.execute({ sql: 'UPDATE alis_faturalari SET pdf_dosya = ? WHERE id = ?', args: [diskPath, r.id] }).catch(() => {});
+        }
+      }
+
+      let cleanDekont = r.odeme_dekontu;
+      if (cleanDekont && (cleanDekont.startsWith('data:') || (cleanDekont.length > 500 && !cleanDekont.startsWith('/uploads/') && !cleanDekont.startsWith('http')))) {
+        const diskPath = saveBase64File(cleanDekont, r.odeme_dekontu_adi || 'dekont.pdf', 'dekontlar');
+        if (diskPath && diskPath.startsWith('/uploads/')) {
+          cleanDekont = diskPath;
+          client.execute({ sql: 'UPDATE alis_faturalari SET odeme_dekontu = ? WHERE id = ?', args: [diskPath, r.id] }).catch(() => {});
+        }
+      }
+
       return { 
         id: r.id, faturaNo: r.fatura_no, faturaTarihi: r.fatura_tarihi, tedarikciAdi: r.tedarikci_adi, 
         tedarikciVkn: r.tedarikci_vkn, malHizmetAdi: r.mal_hizmet_adi, toplamTutar: r.toplam_tutar, 
         kdvOrani: r.kdv_orani, kdvTutari: r.kdv_tutari, matrah: r.matrah, tevkifatOrani: r.tevkifat_orani, 
         tevkifatTutari: r.tevkifat_tutari, stopajOrani: r.stopaj_orani, stopajTutari: r.stopaj_tutari, 
         kdv1: r.kdv1, kdv10: r.kdv10, kdv20: r.kdv20, oivTutari: r.oiv_tutari,
-        muhasebeKodu: r.muhasebe_kodu, karsiHesapKodu: r.karsi_hesap_kodu, pdfDosya: r.pdf_dosya, pdfDosyaAdi: r.pdf_dosya_adi, 
-        odemeTarihi: r.odeme_tarihi, odemeDurumu: r.odeme_durumu, odemeDekontu: r.odeme_dekontu, 
+        muhasebeKodu: r.muhasebe_kodu, karsiHesapKodu: r.karsi_hesap_kodu, pdfDosya: cleanPdf, pdfDosyaAdi: r.pdf_dosya_adi, 
+        odemeTarihi: r.odeme_tarihi, odemeDurumu: r.odeme_durumu, odemeDekontu: cleanDekont, 
         odemeDekontuAdi: r.odeme_dekontu_adi, cariId: r.cari_id, vadeTarihi: r.vade_tarihi, 
         aciklama: r.aciklama, olusturmaTarihi: r.olusturma_tarihi, urunId: r.urun_id, depoId: r.depo_id,
         vehiclePlate: r.vehicle_plate,
@@ -7489,6 +7553,13 @@ if (process.env.VERCEL !== '1') {
         console.warn('[TelegramBot] Otomatik başlatma uyarısı:', err.message);
       }
     })();
+
+    // Sunucu ayağa kalktıktan 2 saniye sonra arka planda Base64 migration'ı çalıştır
+    setTimeout(() => {
+      runBase64DiskMigration({ logProgress: true }).catch(err => {
+        console.error('[Base64Migration] Otomatik taşıma hatası:', err.message);
+      });
+    }, 2000);
   });
 }
 

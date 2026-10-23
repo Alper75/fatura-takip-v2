@@ -1697,9 +1697,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const downloadFile = (faturalar: any[], faturaId: string, field: string, defaultName: string) => {
     const fatura = faturalar.find(f => f.id === faturaId);
     if (fatura?.[field]) {
+      const fileUrl = fatura[field];
       const link = document.createElement('a');
-      link.href = fatura[field];
+      link.href = fileUrl;
       link.download = fatura[`${field}Adi`] || defaultName;
+      if (fileUrl.startsWith('http') || fileUrl.startsWith('/uploads/')) {
+        link.target = '_blank';
+      }
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);

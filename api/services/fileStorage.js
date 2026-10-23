@@ -33,7 +33,7 @@ export function saveBase64File(dataUriOrBase64, originalName = 'belge.pdf', fold
     let base64Data = dataUriOrBase64;
     let ext = 'pdf';
 
-    const match = dataUriOrBase64.match(/^data:([a-zA-Z0-9\/+-]+);base64,(.+)$/s);
+    const match = dataUriOrBase64.match(/^data:([a-zA-Z0-9\/+-]+)(?:;[^,]*)?;base64,(.+)$/s);
     if (match) {
       const mime = match[1].toLowerCase();
       base64Data = match[2];
