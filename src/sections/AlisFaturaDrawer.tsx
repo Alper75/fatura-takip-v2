@@ -483,6 +483,72 @@ export function AlisFaturaDrawer() {
     }
   };
 
+  const consolidateInvoicesByKdv = (items: any[]): any[] => {
+    if (!Array.isArray(items) || items.length <= 1) return items || [];
+
+    const groups: { [key: string]: any } = {};
+
+    for (const item of items) {
+      if (!item) continue;
+      const rawKdv = String(item.kdv_orani || item.kdvOrani || item.kdv || '20').replace(/[^0-9]/g, '') || '20';
+      const faturaNo = (item.faturaNo || item.fatura_no || item.belgeNo || item.belge_no || '').trim().toLowerCase();
+      const vendor = (item.tedarikciVkn || item.tedarikci_vkn || item.tedarikciAdi || item.tedarikci_adi || '').trim().toLowerCase();
+      const date = (item.faturaTarihi || item.fatura_tarihi || item.tarih || '').trim();
+
+      const groupKey = faturaNo 
+        ? `no:${faturaNo}_kdv:${rawKdv}`
+        : `v:${vendor}_d:${date}_kdv:${rawKdv}`;
+
+      const numTutar = parseFloat(String(item.tutar || item.toplam_tutar || item.toplamTutar || item.amount || item.total || '0').replace(',', '.')) || 0;
+      const itemName = (item.malHizmetAdi || item.mal_hizmet_adi || item.urun_adi || item.urunAdi || item.aciklama || item.description || '').trim();
+
+      if (!groups[groupKey]) {
+        groups[groupKey] = {
+          ...item,
+          kdv_orani: rawKdv,
+          kdvOrani: rawKdv,
+          _numericTotal: numTutar,
+          _itemNames: itemName ? [itemName] : []
+        };
+      } else {
+        groups[groupKey]._numericTotal += numTutar;
+        if (itemName && !groups[groupKey]._itemNames.includes(itemName)) {
+          groups[groupKey]._itemNames.push(itemName);
+        }
+        if (!groups[groupKey].plate && (item.plate || item.plaka || item.vehicle_plate)) {
+          groups[groupKey].plate = item.plate || item.plaka || item.vehicle_plate;
+        }
+        if (!groups[groupKey].kredi_karti_son4 && item.kredi_karti_son4) {
+          groups[groupKey].kredi_karti_son4 = item.kredi_karti_son4;
+        }
+        if (!groups[groupKey].muhasebe_kodu && (item.muhasebe_kodu || item.muhasebeKodu)) {
+          groups[groupKey].muhasebe_kodu = item.muhasebe_kodu || item.muhasebeKodu;
+        }
+      }
+    }
+
+    return Object.values(groups).map((group: any) => {
+      const finalItem = { ...group };
+      finalItem.tutar = group._numericTotal.toFixed(2);
+      finalItem.toplamTutar = finalItem.tutar;
+      finalItem.toplam_tutar = finalItem.tutar;
+      
+      if (group._itemNames && group._itemNames.length > 0) {
+        if (group._itemNames.length === 1) {
+          finalItem.malHizmetAdi = group._itemNames[0];
+        } else {
+          const joined = group._itemNames.slice(0, 3).join(', ');
+          finalItem.malHizmetAdi = `${joined}${group._itemNames.length > 3 ? ' vb.' : ''} (%${group.kdv_orani} KDV Harcaması)`;
+        }
+        finalItem.urun_adi = finalItem.malHizmetAdi;
+        finalItem.urunAdi = finalItem.malHizmetAdi;
+      }
+      delete finalItem._numericTotal;
+      delete finalItem._itemNames;
+      return finalItem;
+    });
+  };
+
   const scanImage = async (filesToProcess?: UploadedFile[]) => {
     const targetFiles = filesToProcess && filesToProcess.length > 0 ? filesToProcess : uploadedFiles;
     if (targetFiles.length === 0) return;
@@ -564,7 +630,11 @@ Bu dosyada BİRDEN FAZLA ayrı fiş veya fatura olabilir. Veya TEK BİR fişte/f
 Lütfen bulduğun TÜM fiş/faturaları çıkar ve aşağıdaki JSON DİZİSİ formatında döndür. 
 
 MALİ MÜŞAVİRLİK VE MUHASEBE KURALLARI:
-1. KDV AYRIŞTIRMA KURALI: Eğer tek bir fişte/faturada birden fazla KDV oranı varsa (Örn: bazı ürünler %1, bazıları %20), her bir KDV oranının toplam tutarını (KDV dahil) ayrı birer JSON objesi (ayrı bir fatura kaydı) olarak diziye ekle. Fatura no, tarih ve satıcı adı aynı kalsın, sadece tutar, malHizmetAdi ("... %20 KDV'li Ürünler" vb.) ve kdv_orani farklı olsun.
+1. KDV BİRLEŞTİRME VE AYRIŞTIRMA KURALI (EN KRİTİK KURAL):
+   - Fiş veya fatura üzerindeki kalemleri KESİNLİKLE satır satır (ürün ürün) ayırma!
+   - Aynı fişte yer alan ve AYNI KDV ORANINA SAHİP tüm ürün/hizmet kalemlerinin KDV dahil tutarlarını TOPLAYARAK TEK BİR KAYIT haline getir.
+   - ÖRNEK: Bir fişte %10 KDV'li 4 farklı kalem varsa (Örn: Ekmek 10 TL, Peynir 50 TL, Süt 30 TL, Çikolata 20 TL), her biri için ayrı kayıt AÇMA! Bunları topla ve SADECE 1 ADET JSON objesi oluştur (tutar: "110.00", kdv_orani: "10", malHizmetAdi: "Gıda / Market Harcaması (%10 KDV)").
+   - BİRDEN FAZLA KAYIT YALNIZCA VE YALNIZCA fişte BİRDEN FAZLA FARKLI KDV ORANI VARSA (Örn: fişte hem %1 hem %10 hem %20'lik kalemler varsa) oluşturulur. Bu durumda her KDV oranı grubu için sadece 1'er adet toplam kayıt üretilmelidir. Bir fişte tüm kalemler aynı KDV oranındaysa KESİNLİKLE SADECE 1 ADET JSON objesi döndürülmelidir!
 2. GENEL GİDER - TİCARİ MAL AYRIMI: Şirket içi tüketim, yemek (restoran/lokanta), akaryakıt/yakıt, konaklama/otel, kırtasiye, ofis tüketim, market, temizlik, kargo gibi harcama fişleri KESİNLİKLE 7'li gider hesaplarına (Örn: 770 Genel Yönetim Giderleri) atılmalıdır. 153 Ticari Mallar hesabı SADECE işletmenin satmak amacıyla aldığı ürünler içindir. Fişin niteliğine göre en uygun gider kodunu seç.
 3. AKARYAKIT PLAKA KURALI: Eğer bu bir akaryakıt fişi/faturası ise, fiş üzerinde yazan ARAÇ PLAKASINI mutlaka "plate" alanına yaz (Örn: 34ABC123).
 4. ÖDEME ŞEKLİ: Fiş/fatura üzerindeki ödeme tipini analiz et. Eğer slip veya fiş üzerinde "**** 1104", "Kredi Kartı", "Banka Kartı" gibi kredi kartı ödemesine dair ibare varsa "odeme_sekli": "KREDI_KARTI" yap ve kartın son 4 hanesini "kredi_karti_son4" alanına yaz (örn: "1104"). Nakit ödenmişse "odeme_sekli": "NAKIT" yap. Açık hesap/vadeli ise "odeme_sekli": "CARI_HESAP" yap.
@@ -862,7 +932,8 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
         } else {
           // Başarılı ayrıştırma
           setUploadedFiles(prev => prev.map(f => f.name === file.name ? { ...f, status: 'success', errorMessage: undefined } : f));
-          const fList = parsed.faturalar ? parsed.faturalar : (Array.isArray(parsed) ? parsed : [parsed]);
+          const rawList = parsed.faturalar ? parsed.faturalar : (Array.isArray(parsed) ? parsed : [parsed]);
+          const fList = consolidateInvoicesByKdv(rawList);
           
           const newForms: FormEntry[] = fList.map((f: any, idx: number) => {
             const fTedarikciAdi = f.tedarikciAdi || f.tedarikci_adi || f.ad || f.isim || f.vendor || f.customer || '';

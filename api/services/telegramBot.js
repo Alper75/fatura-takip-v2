@@ -374,9 +374,10 @@ Ben *Fatura Takip v2* Akıllı Fiş ve Fatura Asistanıyım. 🧾⚡
         return;
       }
 
-      // Başarılı: Fişleri Veritabanına Kaydet
+      // Başarılı: Fişleri Veritabanına Kaydet (Aynı KDV'li kalemleri tek kalemde birleştir)
+      const consolidatedList = this._consolidateInvoicesByKdv(aiResult.faturalar);
       const savedList = [];
-      for (const item of aiResult.faturalar) {
+      for (const item of consolidatedList) {
         const saved = await this._saveInvoiceToDatabase(item, base64Data, fromUser);
         savedList.push(saved);
       }
@@ -454,9 +455,13 @@ ${first.plate ? `🚗 *Plaka:* \`${first.plate}\`\n` : ''}${first.odemeSekli ? `
 Görseldeki fiş veya faturayı bir mali müşavir titizliğiyle analiz et ve SADECE aşağıdaki JSON formatında çıktı ver.
 
 KURALLAR:
-1. Tek fişte birden fazla KDV oranı varsa, her KDV oranını ayrı bir obje olarak diziye ekle.
+1. KDV BİRLEŞTİRME VE AYRIŞTIRMA KURALI (EN KRİTİK KURAL):
+   - Fiş üzerindeki ürün veya hizmetleri KESİNLİKLE satır satır tek tek ayırma!
+   - Aynı fişte yer alan ve AYNI KDV ORANINA SAHİP tüm ürün/hizmet kalemlerinin tutarlarını TOPLAYARAK TEK BİR KAYIT haline getir.
+   - ÖRNEK: Fişte %10 KDV'li 4 farklı kalem varsa, 4 ayrı kayıt AÇMA! Bunları topla ve SADECE 1 ADET JSON objesi oluştur (tutar: toplam tutar, kdv_orani: "10").
+   - BİRDEN FAZLA KAYIT YALNIZCA VE YALNIZCA fişte BİRDEN FAZLA FARKLI KDV ORANI VARSA (Örn: fişte hem %10 hem %20 varsa) her KDV oranı için 1'er adet toplam kayıt olarak oluşturulmalıdır. Fişteki tüm kalemler aynı KDV oranındaysa KESİNLİKLE SADECE 1 ADET JSON objesi döndürülmelidir!
 2. Akaryakıt fişlerinde araç plakasını 'plate' alanına yaz.
-3. Slipte kredi kartı ibaresi varsa 'odeme_sekli': 'KREDI_KARTI', nakit ise 'NAKIT' yap.
+3. Slipte kredi kartı ibaresi veya son 4 hane varsa 'odeme_sekli': 'KREDI_KARTI' yap, nakit ise 'NAKIT' yap.
 
 Format:
 {
@@ -693,6 +698,67 @@ Eğer belge okunamıyorsa: {"hata": "Belge okunamadı"}`;
 
     console.error('[TelegramBot][AI Parse Error] Ham yanıt:', responseText);
     throw new Error('Yapay zeka yanıtı geçerli JSON formatında değil.');
+  }
+
+  _consolidateInvoicesByKdv(items) {
+    if (!Array.isArray(items) || items.length <= 1) return items || [];
+
+    const groups = {};
+
+    for (const item of items) {
+      if (!item) continue;
+      const rawKdv = String(item.kdv_orani || item.kdvOrani || item.kdv || '20').replace(/[^0-9]/g, '') || '20';
+      const faturaNo = (item.faturaNo || item.fatura_no || item.belgeNo || item.belge_no || '').trim().toLowerCase();
+      const vendor = (item.tedarikciVkn || item.tedarikci_vkn || item.tedarikciAdi || item.tedarikci_adi || '').trim().toLowerCase();
+      const date = (item.faturaTarihi || item.fatura_tarihi || item.tarih || '').trim();
+
+      const groupKey = faturaNo 
+        ? `no:${faturaNo}_kdv:${rawKdv}`
+        : `v:${vendor}_d:${date}_kdv:${rawKdv}`;
+
+      const numTutar = parseFloat(String(item.tutar || item.toplam_tutar || item.toplamTutar || item.amount || item.total || '0').replace(',', '.')) || 0;
+      const itemName = (item.malHizmetAdi || item.mal_hizmet_adi || item.urun_adi || item.urunAdi || item.aciklama || item.description || '').trim();
+
+      if (!groups[groupKey]) {
+        groups[groupKey] = {
+          ...item,
+          kdv_orani: rawKdv,
+          kdvOrani: rawKdv,
+          _numericTotal: numTutar,
+          _itemNames: itemName ? [itemName] : []
+        };
+      } else {
+        groups[groupKey]._numericTotal += numTutar;
+        if (itemName && !groups[groupKey]._itemNames.includes(itemName)) {
+          groups[groupKey]._itemNames.push(itemName);
+        }
+        if (!groups[groupKey].plate && (item.plate || item.plaka || item.vehicle_plate)) {
+          groups[groupKey].plate = item.plate || item.plaka || item.vehicle_plate;
+        }
+        if (!groups[groupKey].odeme_sekli && item.odeme_sekli) {
+          groups[groupKey].odeme_sekli = item.odeme_sekli;
+        }
+      }
+    }
+
+    return Object.values(groups).map((group) => {
+      const finalItem = { ...group };
+      finalItem.tutar = group._numericTotal.toFixed(2);
+      finalItem.toplamTutar = finalItem.tutar;
+      finalItem.toplam_tutar = finalItem.tutar;
+      
+      if (group._itemNames && group._itemNames.length > 0) {
+        if (group._itemNames.length === 1) {
+          finalItem.malHizmetAdi = group._itemNames[0];
+        } else {
+          const joined = group._itemNames.slice(0, 3).join(', ');
+          finalItem.malHizmetAdi = `${joined}${group._itemNames.length > 3 ? ' vb.' : ''} (%${group.kdv_orani} KDV Harcaması)`;
+        }
+      }
+      delete finalItem._numericTotal;
+      delete finalItem._itemNames;
+      return finalItem;
+    });
   }
 
   async _saveInvoiceToDatabase(item, base64Data, senderInfo) {
