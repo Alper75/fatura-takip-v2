@@ -270,7 +270,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [selectedBankaId, setSelectedBankaId] = useState<string | null>(null);
 
   // ==================== SUPER ADMIN STATE ====================
-  const [companies, setCompanies] = useState<Company[]>([]);
+  const [companies, setCompanies] = useState<Company[]>(() => {
+    try {
+      const saved = localStorage.getItem('companies');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
 
   // ==================== LUCA STATE ====================
   const [lucaAccounts, setLucaAccounts] = useState<{ kod: string; ad: string; tur?: string }[]>([]);
@@ -612,6 +619,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         localStorage.setItem('user', JSON.stringify(data.user));
         setIsAuthenticated(true);
         setUser(data.user);
+        if (data.company) {
+          const compList = [data.company];
+          setCompanies(compList);
+          try { localStorage.setItem('companies', JSON.stringify(compList)); } catch(e){}
+        }
         if (data.user.role === 'personnel') {
           setCurrentView('personel-dashboard');
           fetchMyPersonnel();
@@ -633,8 +645,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const logout = useCallback(() => {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
+    localStorage.removeItem('companies');
     setIsAuthenticated(false);
     setUser(null);
+    setCompanies([]);
     setPersonnel([]);
     setCurrentPersonnel(null);
     setCompanyUsers([]);
@@ -1029,10 +1043,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     try {
       if (user?.role === 'super_admin') {
         const data = await apiFetch('/api/super/companies');
-        if (data.success) setCompanies(data.data);
+        if (data.success && data.data) {
+          setCompanies(data.data);
+          try { localStorage.setItem('companies', JSON.stringify(data.data)); } catch(e){}
+        }
       } else if (user) {
         const data = await apiFetch('/api/my-company');
-        if (data.success && data.data) setCompanies([data.data]);
+        if (data.success && data.data) {
+          const compList = [data.data];
+          setCompanies(compList);
+          try { localStorage.setItem('companies', JSON.stringify(compList)); } catch(e){}
+        }
       }
     } catch (error) { console.error('Fetch companies error:', error); }
   }, [user]);
@@ -2006,8 +2027,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [isAuthenticated, user?.role, fetchPersonnel, fetchLeaves, fetchRequests, fetchPointages, fetchMyPersonnel, fetchCompanies, fetchLucaAccounts, fetchTeklifler, fetchSiparisler]);
 
   useEffect(() => {
-    if (isAuthenticated) loadAllData();
-  }, [isAuthenticated, loadAllData]);
+    if (isAuthenticated) {
+      // Şirket bilgilerini diğer ağır verileri beklemeden anında yükle
+      fetchCompanies();
+      loadAllData();
+    }
+  }, [isAuthenticated, fetchCompanies, loadAllData]);
 
   return (
     <AppContext.Provider

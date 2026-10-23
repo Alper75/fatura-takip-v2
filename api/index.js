@@ -2302,9 +2302,9 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(403).json({ success: false, message: 'Kullanıcı hesabınız devre dışı bırakılmıştır. Lütfen yöneticinizle iletişime geçin.' });
     }
 
-    // Check Company Status
+    // Check Company Status & Info
     const compRs = await client.execute({
-      sql: 'SELECT status FROM companies WHERE id = ?',
+      sql: 'SELECT id, name, tax_no, address, email, company_type, status FROM companies WHERE id = ?',
       args: [user.company_id || 1]
     });
     const company = compRs.rows[0];
@@ -2326,7 +2326,8 @@ app.post('/api/auth/login', async (req, res) => {
         companyId: user.company_id, 
         permissions,
         mustChangePassword: !!user.must_change_password 
-      } 
+      },
+      company: company || null
     });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -2343,6 +2344,18 @@ app.get('/api/auth/me', authMiddleware, async (req, res) => {
     const user = rs.rows[0];
     if (!user) return res.status(404).json({ success: false, message: 'Kullanıcı bulunamadı.' });
 
+    const [compRs, vRs] = await Promise.all([
+      client.execute({
+        sql: 'SELECT id, name, tax_no, address, email, company_type, status FROM companies WHERE id = ?',
+        args: [user.company_id || 1]
+      }),
+      client.execute({
+        sql: 'SELECT * FROM company_vehicles WHERE company_id = ?',
+        args: [user.company_id || 1]
+      })
+    ]);
+    const company = compRs.rows[0] ? { ...compRs.rows[0], vehicles: vRs.rows || [] } : null;
+
     const permissions = resolvePermissions(user.role, user.permissions);
     res.json({
       success: true,
@@ -2356,7 +2369,8 @@ app.get('/api/auth/me', authMiddleware, async (req, res) => {
         permissions,
         mustChangePassword: !!user.must_change_password,
         status: user.status || 'active'
-      }
+      },
+      company
     });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -2553,20 +2567,21 @@ app.get('/api/personnel/me', authMiddleware, async (req, res) => {
 // --- MY COMPANY (All Users) ---
 app.get('/api/my-company', authMiddleware, async (req, res) => {
   try {
-    const rs = await client.execute({
-      sql: 'SELECT id, name, tax_no, address, email, company_type, status FROM companies WHERE id = ?',
-      args: [req.user.companyId || 1]
-    });
+    const compId = req.user.companyId || 1;
+    const [rs, vRs] = await Promise.all([
+      client.execute({
+        sql: 'SELECT id, name, tax_no, address, email, company_type, status FROM companies WHERE id = ?',
+        args: [compId]
+      }),
+      client.execute({
+        sql: 'SELECT * FROM company_vehicles WHERE company_id = ?',
+        args: [compId]
+      })
+    ]);
     if (rs.rows.length === 0) return res.status(404).json({ success: false, message: 'Şirket bulunamadı.' });
     
-    // Araçları getir
-    const vRs = await client.execute({
-      sql: 'SELECT * FROM company_vehicles WHERE company_id = ?',
-      args: [req.user.companyId || 1]
-    });
-    
     const company = rs.rows[0];
-    company.vehicles = vRs.rows;
+    company.vehicles = vRs.rows || [];
 
     res.json({ success: true, data: company });
   } catch (error) {
