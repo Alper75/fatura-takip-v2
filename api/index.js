@@ -5878,6 +5878,8 @@ app.post(['/api/ai/analyze-invoice', '/api/ai/analyze-text'], authMiddleware, as
     provider: requestedProvider,
     openaiApiKey: bodyOpenaiKey,
     openaiModel: bodyOpenaiModel,
+    xaiApiKey: bodyXaiKey,
+    xaiModel: bodyXaiModel,
     nvidiaApiKey: bodyNvidiaKey,
     nvidiaModel: bodyNvidiaModel,
     geminiApiKey: bodyGeminiKey,
@@ -5902,10 +5904,12 @@ app.post(['/api/ai/analyze-invoice', '/api/ai/analyze-text'], authMiddleware, as
       return anyRs.rows?.[0]?.setting_value || '';
     };
 
-    const [provVal, oKeyVal, oModelVal, nKeyVal, nModelVal, gKeyVal, gModelVal] = await Promise.all([
+    const [provVal, oKeyVal, oModelVal, xKeyVal, xModelVal, nKeyVal, nModelVal, gKeyVal, gModelVal] = await Promise.all([
       getSettingWithFallback('ai_provider'),
       getSettingWithFallback('openai_api_key'),
       getSettingWithFallback('openai_model'),
+      getSettingWithFallback('xai_api_key'),
+      getSettingWithFallback('xai_model'),
       getSettingWithFallback('nvidia_api_key'),
       getSettingWithFallback('nvidia_model'),
       getSettingWithFallback('gemini_api_key'),
@@ -5915,20 +5919,29 @@ app.post(['/api/ai/analyze-invoice', '/api/ai/analyze-text'], authMiddleware, as
     let activeProvider = requestedProvider || provVal || 'openai';
     const openaiApiKey = bodyOpenaiKey || oKeyVal || process.env.OPENAI_API_KEY || '';
     const openaiModel = bodyOpenaiModel || oModelVal || 'gpt-4o-mini';
+    const xaiApiKey = bodyXaiKey || xKeyVal || process.env.XAI_API_KEY || '';
+    const xaiModel = bodyXaiModel || xModelVal || 'grok-2-vision-1212';
     const nvidiaApiKey = bodyNvidiaKey || nKeyVal || process.env.NVIDIA_API_KEY || '';
     const nvidiaModel = bodyNvidiaModel || nModelVal || 'stepfun-ai/step-5-preview';
     const geminiApiKey = bodyGeminiKey || gKeyVal || process.env.VITE_GEMINI_API_KEY || process.env.GEMINI_API_KEY || '';
     const geminiModel = bodyGeminiModel || gModelVal || 'gemini-2.5-flash';
 
-    // Provider fallback: Eğer seçili olan provider'ın key'i boşsa ve diğerinin key'i varsa diğerine geç
-    if (activeProvider === 'openai' && !openaiApiKey) {
-      if (geminiApiKey) activeProvider = 'gemini';
-      else if (nvidiaApiKey) activeProvider = 'nvidia';
-    } else if (activeProvider === 'nvidia' && !nvidiaApiKey) {
+    // Provider fallback
+    if ((activeProvider === 'grok' || activeProvider === 'xai') && !xaiApiKey) {
       if (openaiApiKey) activeProvider = 'openai';
       else if (geminiApiKey) activeProvider = 'gemini';
+      else if (nvidiaApiKey) activeProvider = 'nvidia';
+    } else if (activeProvider === 'openai' && !openaiApiKey) {
+      if (xaiApiKey) activeProvider = 'grok';
+      else if (geminiApiKey) activeProvider = 'gemini';
+      else if (nvidiaApiKey) activeProvider = 'nvidia';
+    } else if (activeProvider === 'nvidia' && !nvidiaApiKey) {
+      if (xaiApiKey) activeProvider = 'grok';
+      else if (openaiApiKey) activeProvider = 'openai';
+      else if (geminiApiKey) activeProvider = 'gemini';
     } else if (activeProvider === 'gemini' && !geminiApiKey) {
-      if (openaiApiKey) activeProvider = 'openai';
+      if (xaiApiKey) activeProvider = 'grok';
+      else if (openaiApiKey) activeProvider = 'openai';
       else if (nvidiaApiKey) activeProvider = 'nvidia';
     }
 
@@ -5956,6 +5969,59 @@ Temel Muhasebe İlkelerin ve Davranış Kuralların:
 4. Hesap Planı Uyumu:
    - Kullanıcının hesap planı (Luca Hesap Planı) sağlandığında, genel geçer ezbere kodlar vermek yerine işletmenin kendi hesap planındaki en uygun alt hesap kodunu (örn: 770.01.001, 102.01.002 vb.) seç.
    - Belirsiz veya yetersiz açıklamalarda mantıklı tahmin yap, gerekirse en uygun ana hesap grubunu öner.`;
+
+    const runGrok = async () => {
+      if (!xaiApiKey) return null;
+      const imageUrl = fileBase64 ? (fileBase64.startsWith('data:') ? fileBase64 : `data:${mimeType || 'image/jpeg'};base64,${fileBase64}`) : null;
+      const userContent = imageUrl 
+        ? [
+            { type: 'text', text: prompt + '\nÖNEMLİ: SADECE geçerli bir JSON formatında döndür. Açıklama metni veya ```json markdown bloğu ekleme.' },
+            { type: 'image_url', image_url: { url: imageUrl } }
+          ]
+        : prompt + '\nÖNEMLİ: SADECE geçerli bir JSON formatında döndür. Açıklama metni veya ```json markdown bloğu ekleme.';
+
+      const candidateModels = Array.from(new Set([
+        xaiModel,
+        'grok-2-vision-1212',
+        'grok-vision-beta',
+        'grok-2-1212',
+        'grok-beta'
+      ].filter(Boolean)));
+
+      for (const m of candidateModels) {
+        try {
+          const xRes = await fetch('https://api.x.ai/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${xaiApiKey}`
+            },
+            body: JSON.stringify({
+              model: m,
+              messages: [
+                { role: 'system', content: MALI_MUSAVIR_SYSTEM_PROMPT },
+                { role: 'user', content: userContent }
+              ],
+              max_tokens: 4096,
+              temperature: 0.1
+            })
+          });
+          const xData = await xRes.json();
+          if (!xRes.ok) {
+            const errMsg = xData.error?.message || `xAI/Grok HTTP ${xRes.status}`;
+            console.warn(`[Grok AI] ${m} hatası:`, errMsg);
+            continue;
+          }
+          const choice = xData.choices?.[0];
+          let txt = choice?.message?.content || '';
+          if (!txt && choice?.message?.reasoning_content) txt = choice.message.reasoning_content;
+          if (txt) return txt;
+        } catch (err) {
+          console.warn(`[Grok AI] ${m} çağrısında hata:`, err.message);
+        }
+      }
+      return null;
+    };
 
     const runNvidia = async () => {
       if (!nvidiaApiKey) return null;
@@ -5995,7 +6061,6 @@ Temel Muhasebe İlkelerin ve Davranış Kuralların:
         return txt;
       };
 
-      // Çalışmayan / devre dışı veya chat desteklemeyen modelleri filtrele
       const candidateModels = Array.from(new Set([
         nvidiaModel,
         'stepfun-ai/step-5-preview',
@@ -6129,8 +6194,30 @@ Temel Muhasebe İlkelerin ve Davranış Kuralların:
       return null;
     };
 
-    if (activeProvider === 'openai') {
+    if (activeProvider === 'grok' || activeProvider === 'xai') {
+      responseText = await runGrok();
+      if (!responseText && openaiApiKey) {
+        console.warn('[AI Proxy] Grok yanıt vermedi, OpenAI deneniyor...');
+        responseText = await runOpenAI();
+        if (responseText) usedProvider = 'openai';
+      }
+      if (!responseText && geminiApiKey) {
+        console.warn('[AI Proxy] Grok ve OpenAI yanıt vermedi, Gemini deneniyor...');
+        responseText = await runGemini();
+        if (responseText) usedProvider = 'gemini';
+      }
+      if (!responseText && nvidiaApiKey) {
+        console.warn('[AI Proxy] Grok, OpenAI ve Gemini yanıt vermedi, NVIDIA NIM deneniyor...');
+        responseText = await runNvidia();
+        if (responseText) usedProvider = 'nvidia';
+      }
+    } else if (activeProvider === 'openai') {
       responseText = await runOpenAI();
+      if (!responseText && xaiApiKey) {
+        console.warn('[AI Proxy] OpenAI yanıt vermedi, Grok deneniyor...');
+        responseText = await runGrok();
+        if (responseText) usedProvider = 'grok';
+      }
       if (!responseText && geminiApiKey) {
         console.warn('[AI Proxy] OpenAI yanıt vermedi, Gemini deneniyor...');
         responseText = await runGemini();
@@ -6143,6 +6230,11 @@ Temel Muhasebe İlkelerin ve Davranış Kuralların:
       }
     } else if (activeProvider === 'nvidia') {
       responseText = await runNvidia();
+      if (!responseText && xaiApiKey) {
+        console.warn('[AI Proxy] NVIDIA yanıt vermedi, Grok deneniyor...');
+        responseText = await runGrok();
+        if (responseText) usedProvider = 'grok';
+      }
       if (!responseText && openaiApiKey) {
         console.warn('[AI Proxy] NVIDIA yanıt vermedi, OpenAI deneniyor...');
         responseText = await runOpenAI();
@@ -6155,6 +6247,11 @@ Temel Muhasebe İlkelerin ve Davranış Kuralların:
       }
     } else {
       responseText = await runGemini();
+      if (!responseText && xaiApiKey) {
+        console.warn('[AI Proxy] Gemini yanıt vermedi, Grok deneniyor...');
+        responseText = await runGrok();
+        if (responseText) usedProvider = 'grok';
+      }
       if (!responseText && openaiApiKey) {
         console.warn('[AI Proxy] Gemini yanıt vermedi, OpenAI deneniyor...');
         responseText = await runOpenAI();
@@ -7348,6 +7445,35 @@ if (process.env.VERCEL !== '1') {
     console.log('--------------------------------------------------');
     console.log(`🚀 FATURA APP ÇALIŞIYOR: http://0.0.0.0:${PORT}`);
     console.log('--------------------------------------------------');
+
+    // Sunucu ayağa kalktığında aktif Telegram Bot'u otomatik başlat
+    (async () => {
+      try {
+        const rs = await client.execute({
+          sql: `SELECT company_id, setting_key, setting_value FROM company_settings 
+                WHERE setting_key IN ('telegram_bot_token', 'telegram_bot_enabled', 'telegram_allowed_chat_ids', 'telegram_target_mode') 
+                ORDER BY company_id DESC`
+        });
+        const compMap = {};
+        for (const row of rs.rows) {
+          if (!compMap[row.company_id]) compMap[row.company_id] = {};
+          compMap[row.company_id][row.setting_key] = row.setting_value;
+        }
+        for (const [compId, cfg] of Object.entries(compMap)) {
+          if (cfg.telegram_bot_enabled === 'true' && cfg.telegram_bot_token) {
+            const allowedArr = cfg.telegram_allowed_chat_ids ? cfg.telegram_allowed_chat_ids.split(',').map(s => s.trim()).filter(Boolean) : [];
+            await telegramBotService.start(Number(compId), cfg.telegram_bot_token, {
+              allowedChatIds: allowedArr,
+              targetMode: cfg.telegram_target_mode || 'alis_faturasi'
+            });
+            console.log(`[TelegramBot] Sunucu başlangıcında Bot otomatik başlatıldı (Company ID: ${compId})`);
+            break;
+          }
+        }
+      } catch (err) {
+        console.warn('[TelegramBot] Otomatik başlatma uyarısı:', err.message);
+      }
+    })();
   });
 }
 

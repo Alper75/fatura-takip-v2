@@ -28,7 +28,7 @@ export function MutabakatYonetimi() {
   const [isAnalyzing, setIsAnalyzing] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState('liste');
   const [selectedAnalysis, setSelectedAnalysis] = useState<any>(null);
-  const [aiProvider, setAiProvider] = useState<'gemini' | 'nvidia' | 'openai'>('openai');
+  const [aiProvider, setAiProvider] = useState<'gemini' | 'nvidia' | 'openai' | 'grok'>('openai');
   const [geminiKey, setGeminiKey] = useState('');
   const [geminiModel, setGeminiModel] = useState('gemini-3.8-flash');
   const [isCustomGemini, setIsCustomGemini] = useState(false);
@@ -38,8 +38,18 @@ export function MutabakatYonetimi() {
   const [openaiKey, setOpenaiKey] = useState('');
   const [openaiModel, setOpenaiModel] = useState('gpt-4o-mini');
   const [isCustomOpenai, setIsCustomOpenai] = useState(false);
+  const [xaiKey, setXaiKey] = useState('');
+  const [xaiModel, setXaiModel] = useState('grok-2-vision-1212');
+  const [isCustomXai, setIsCustomXai] = useState(false);
   const [isSavingKey, setIsSavingKey] = useState(false);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
+
+  const PRESET_XAI_MODELS = [
+    { value: 'grok-2-vision-1212', label: 'Grok 2 Vision (🔥 Çok Hızlı, Görsel & Fiş Analizi - Önerilen)' },
+    { value: 'grok-vision-beta', label: 'Grok Vision Beta (Gelişmiş Görsel Model)' },
+    { value: 'grok-2-1212', label: 'Grok 2 (Metin & Tablo Odaklı)' },
+    { value: 'grok-beta', label: 'Grok Beta' },
+  ];
 
   const PRESET_OPENAI_MODELS = [
     { value: 'gpt-4o-mini', label: 'GPT-4o Mini (🔥 Çok Hızlı, Ekonomik & Yüksek Doğruluk - Önerilen)' },
@@ -106,7 +116,7 @@ export function MutabakatYonetimi() {
 
   const fetchSettings = async () => {
     try {
-      const [resProvider, resKey, resModel, resNvidiaKey, resNvidiaModel, resOpenaiKey, resOpenaiModel] = await Promise.all([
+      const [resProvider, resKey, resModel, resNvidiaKey, resNvidiaModel, resOpenaiKey, resOpenaiModel, resXaiKey, resXaiModel] = await Promise.all([
         apiFetch('/api/settings/ai_provider').catch(() => null),
         apiFetch('/api/settings/gemini_api_key').catch(() => null),
         apiFetch('/api/settings/gemini_model').catch(() => null),
@@ -114,6 +124,8 @@ export function MutabakatYonetimi() {
         apiFetch('/api/settings/nvidia_model').catch(() => null),
         apiFetch('/api/settings/openai_api_key').catch(() => null),
         apiFetch('/api/settings/openai_model').catch(() => null),
+        apiFetch('/api/settings/xai_api_key').catch(() => null),
+        apiFetch('/api/settings/xai_model').catch(() => null),
       ]);
 
       if (resProvider?.success && resProvider.value) setAiProvider(resProvider.value as any);
@@ -138,6 +150,13 @@ export function MutabakatYonetimi() {
           setIsCustomOpenai(true);
         }
       }
+      if (resXaiKey?.success) setXaiKey(resXaiKey.value || '');
+      if (resXaiModel?.success && resXaiModel.value) {
+        setXaiModel(resXaiModel.value);
+        if (!PRESET_XAI_MODELS.some(m => m.value === resXaiModel.value)) {
+          setIsCustomXai(true);
+        }
+      }
     } catch (e) {}
   };
 
@@ -148,6 +167,8 @@ export function MutabakatYonetimi() {
         apiFetch('/api/settings/ai_provider', { method: 'POST', body: JSON.stringify({ value: aiProvider }) }),
         apiFetch('/api/settings/openai_api_key', { method: 'POST', body: JSON.stringify({ value: openaiKey }) }),
         apiFetch('/api/settings/openai_model', { method: 'POST', body: JSON.stringify({ value: openaiModel }) }),
+        apiFetch('/api/settings/xai_api_key', { method: 'POST', body: JSON.stringify({ value: xaiKey }) }),
+        apiFetch('/api/settings/xai_model', { method: 'POST', body: JSON.stringify({ value: xaiModel }) }),
         apiFetch('/api/settings/gemini_api_key', { method: 'POST', body: JSON.stringify({ value: geminiKey }) }),
         apiFetch('/api/settings/gemini_model', { method: 'POST', body: JSON.stringify({ value: geminiModel }) }),
         apiFetch('/api/settings/nvidia_api_key', { method: 'POST', body: JSON.stringify({ value: nvidiaKey }) }),
@@ -608,7 +629,7 @@ export function MutabakatYonetimi() {
                 {/* Sağlayıcı Seçimi */}
                 <div className="space-y-3">
                   <Label className="text-sm font-bold text-slate-900">Aktif Yapay Zeka Motoru</Label>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                     <button
                       type="button"
                       onClick={() => setAiProvider('openai')}
@@ -626,6 +647,25 @@ export function MutabakatYonetimi() {
                         {aiProvider === 'openai' && <span className="w-2.5 h-2.5 rounded-full bg-emerald-600" />}
                       </div>
                       <p className="text-[11px] text-slate-500">GPT-4o Mini & GPT-4o. Çok hızlı, yüksek doğruluk ve kesintisiz çalışır.</p>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setAiProvider('grok')}
+                      className={`p-3.5 rounded-xl border-2 text-left transition-all flex flex-col justify-between gap-2 ${
+                        aiProvider === 'grok' 
+                          ? 'border-violet-600 bg-violet-50/60 shadow-sm ring-2 ring-violet-600/20' 
+                          : 'border-slate-200 hover:border-slate-300 bg-white'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between w-full">
+                        <span className="font-bold text-sm text-slate-900 flex items-center gap-1.5">
+                          xAI (Grok)
+                          <span className="bg-violet-100 text-violet-800 text-[10px] font-bold px-1.5 py-0.5 rounded">Yeni</span>
+                        </span>
+                        {aiProvider === 'grok' && <span className="w-2.5 h-2.5 rounded-full bg-violet-600" />}
+                      </div>
+                      <p className="text-[11px] text-slate-500">Grok 2 Vision (xAI). Çok hızlı, güçlü görsel OCR ve harika algılama.</p>
                     </button>
 
                     <button
@@ -714,6 +754,63 @@ export function MutabakatYonetimi() {
                             placeholder="Örn: gpt-4o-mini veya gpt-4o" 
                             value={openaiModel}
                             onChange={(e) => setOpenaiModel(e.target.value.trim())}
+                            className="font-mono text-xs bg-white"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* XAI GROK AYARLARI */}
+                {aiProvider === 'grok' && (
+                  <div className="space-y-4 pt-3 border-t border-slate-100 animate-in fade-in">
+                    <div className="space-y-2">
+                      <Label className="text-xs font-semibold">xAI Grok API Key (xai-...)</Label>
+                      <Input 
+                        type="password" 
+                        placeholder="xai-..." 
+                        value={xaiKey}
+                        onChange={(e) => setXaiKey(e.target.value.trim())}
+                        className="font-mono text-xs"
+                      />
+                      <p className="text-[11px] text-slate-500">
+                        Grok API anahtarınızı <a href="https://console.x.ai/" target="_blank" rel="noreferrer" className="text-violet-600 hover:underline font-medium">console.x.ai</a> sayfasından alabilirsiniz.
+                      </p>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label className="text-xs font-semibold">xAI Grok Modeli</Label>
+                      <Select 
+                        value={isCustomXai ? 'custom' : xaiModel} 
+                        onValueChange={(val) => {
+                          if (val === 'custom') {
+                            setIsCustomXai(true);
+                          } else {
+                            setIsCustomXai(false);
+                            setXaiModel(val);
+                          }
+                        }}
+                      >
+                        <SelectTrigger className="w-full text-xs">
+                          <SelectValue placeholder="Model seçin" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {PRESET_XAI_MODELS.map(m => (
+                            <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
+                          ))}
+                          <SelectItem value="custom" className="font-semibold text-violet-600">✍️ Özel Model Adı Yaz...</SelectItem>
+                        </SelectContent>
+                      </Select>
+
+                      {isCustomXai && (
+                        <div className="space-y-1.5 pt-1.5 p-3 bg-violet-50/50 rounded-xl border border-violet-100 animate-in fade-in">
+                          <Label className="text-[11px] font-semibold text-violet-900">Özel Grok Model Kodu</Label>
+                          <Input 
+                            type="text" 
+                            placeholder="Örn: grok-2-vision-1212 veya grok-vision-beta" 
+                            value={xaiModel}
+                            onChange={(e) => setXaiModel(e.target.value.trim())}
                             className="font-mono text-xs bg-white"
                           />
                         </div>

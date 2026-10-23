@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useRef, useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -52,7 +52,8 @@ import {
   ShoppingCart,
   Scale,
   Building2,
-  Edit
+  Edit,
+  RefreshCw
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { toast } from 'sonner';
@@ -98,6 +99,26 @@ export function AlisFaturaListesi() {
     maxAmount: '',
     status: 'all',
   });
+  
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  useEffect(() => {
+    if (fetchAlisFaturalari) {
+      fetchAlisFaturalari();
+    }
+  }, [fetchAlisFaturalari]);
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      if (fetchAlisFaturalari) await fetchAlisFaturalari();
+      toast.success('Alış faturaları güncellendi.');
+    } catch (e: any) {
+      toast.error('Yenileme hatası: ' + e.message);
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
   
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const dekontInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
@@ -283,6 +304,17 @@ export function AlisFaturaListesi() {
               </p>
             </div>
             <div className="flex items-center gap-3">
+              <Button 
+                variant="outline" 
+                onClick={handleRefresh} 
+                disabled={isRefreshing}
+                className="gap-2 text-slate-700 border-slate-200 hover:bg-slate-50"
+                title="Listeyi sunucudan yenile"
+              >
+                <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+                <span className="hidden sm:inline">Yenile</span>
+              </Button>
+
               <Button 
                 variant="outline" 
                 onClick={downloadExcel} 

@@ -423,10 +423,12 @@ ${first.plate ? `🚗 *Plaka:* \`${first.plate}\`\n` : ''}${first.odemeSekli ? `
   async _analyzeReceiptWithAI(base64Data, mimeType) {
     const compId = this.companyId || 1;
     // Mutabakat Yönetimi veya Şirket AI ayarlarını veritabanından al
-    const [provRs, oKeyRs, oModelRs, nKeyRs, nModelRs, gKeyRs, gModelRs] = await Promise.all([
+    const [provRs, oKeyRs, oModelRs, xKeyRs, xModelRs, nKeyRs, nModelRs, gKeyRs, gModelRs] = await Promise.all([
       client.execute({ sql: 'SELECT setting_value FROM company_settings WHERE (company_id = ? OR company_id = 1) AND setting_key = ? ORDER BY company_id DESC LIMIT 1', args: [compId, 'ai_provider'] }).catch(() => ({ rows: [] })),
       client.execute({ sql: 'SELECT setting_value FROM company_settings WHERE (company_id = ? OR company_id = 1) AND setting_key = ? ORDER BY company_id DESC LIMIT 1', args: [compId, 'openai_api_key'] }).catch(() => ({ rows: [] })),
       client.execute({ sql: 'SELECT setting_value FROM company_settings WHERE (company_id = ? OR company_id = 1) AND setting_key = ? ORDER BY company_id DESC LIMIT 1', args: [compId, 'openai_model'] }).catch(() => ({ rows: [] })),
+      client.execute({ sql: 'SELECT setting_value FROM company_settings WHERE (company_id = ? OR company_id = 1) AND setting_key = ? ORDER BY company_id DESC LIMIT 1', args: [compId, 'xai_api_key'] }).catch(() => ({ rows: [] })),
+      client.execute({ sql: 'SELECT setting_value FROM company_settings WHERE (company_id = ? OR company_id = 1) AND setting_key = ? ORDER BY company_id DESC LIMIT 1', args: [compId, 'xai_model'] }).catch(() => ({ rows: [] })),
       client.execute({ sql: 'SELECT setting_value FROM company_settings WHERE (company_id = ? OR company_id = 1) AND setting_key = ? ORDER BY company_id DESC LIMIT 1', args: [compId, 'nvidia_api_key'] }).catch(() => ({ rows: [] })),
       client.execute({ sql: 'SELECT setting_value FROM company_settings WHERE (company_id = ? OR company_id = 1) AND setting_key = ? ORDER BY company_id DESC LIMIT 1', args: [compId, 'nvidia_model'] }).catch(() => ({ rows: [] })),
       client.execute({ sql: 'SELECT setting_value FROM company_settings WHERE (company_id = ? OR company_id = 1) AND setting_key = ? ORDER BY company_id DESC LIMIT 1', args: [compId, 'gemini_api_key'] }).catch(() => ({ rows: [] })),
@@ -436,20 +438,28 @@ ${first.plate ? `🚗 *Plaka:* \`${first.plate}\`\n` : ''}${first.odemeSekli ? `
     let activeProvider = provRs.rows?.[0]?.setting_value || 'openai';
     const openaiApiKey = oKeyRs.rows?.[0]?.setting_value || process.env.OPENAI_API_KEY || '';
     const openaiModel = oModelRs.rows?.[0]?.setting_value || 'gpt-4o-mini';
+    const xaiApiKey = xKeyRs.rows?.[0]?.setting_value || process.env.XAI_API_KEY || '';
+    const xaiModel = xModelRs.rows?.[0]?.setting_value || 'grok-2-vision-1212';
     const nvidiaApiKey = nKeyRs.rows?.[0]?.setting_value || process.env.NVIDIA_API_KEY || '';
     const nvidiaModel = nModelRs.rows?.[0]?.setting_value || 'stepfun-ai/step-5-preview';
     const geminiApiKey = gKeyRs.rows?.[0]?.setting_value || process.env.VITE_GEMINI_API_KEY || process.env.GEMINI_API_KEY || '';
     const geminiModel = gModelRs.rows?.[0]?.setting_value || 'gemini-3.8-flash';
 
-    if (activeProvider === 'openai' && !openaiApiKey) {
-      if (geminiApiKey) activeProvider = 'gemini';
+    if ((activeProvider === 'grok' || activeProvider === 'xai') && !xaiApiKey) {
+      if (openaiApiKey) activeProvider = 'openai';
+      else if (geminiApiKey) activeProvider = 'gemini';
+      else if (nvidiaApiKey) activeProvider = 'nvidia';
+    } else if (activeProvider === 'openai' && !openaiApiKey) {
+      if (xaiApiKey) activeProvider = 'grok';
+      else if (geminiApiKey) activeProvider = 'gemini';
       else if (nvidiaApiKey) activeProvider = 'nvidia';
     } else if (activeProvider === 'nvidia' && !nvidiaApiKey) {
-      if (openaiApiKey) activeProvider = 'openai';
+      if (xaiApiKey) activeProvider = 'grok';
+      else if (openaiApiKey) activeProvider = 'openai';
       else if (geminiApiKey) activeProvider = 'gemini';
     }
 
-    console.log(`[TelegramBot][AI] Aktif Sağlayıcı: ${activeProvider.toUpperCase()} | Model: ${activeProvider === 'openai' ? openaiModel : (activeProvider === 'nvidia' ? nvidiaModel : geminiModel)}`);
+    console.log(`[TelegramBot][AI] Aktif Sağlayıcı: ${activeProvider.toUpperCase()} | Model: ${activeProvider === 'grok' || activeProvider === 'xai' ? xaiModel : (activeProvider === 'openai' ? openaiModel : (activeProvider === 'nvidia' ? nvidiaModel : geminiModel))}`);
 
     const prompt = `Sen Türkiye Cumhuriyeti Tekdüzen Hesap Planı'na ve KDV mevzuatına tam hâkim kıdemli bir Mali Müşavirsin (SMMM).
 Görseldeki fiş veya faturayı bir mali müşavir titizliğiyle analiz et ve SADECE aşağıdaki JSON formatında çıktı ver.
@@ -483,7 +493,46 @@ Eğer belge okunamıyorsa: {"hata": "Belge okunamadı"}`;
 
     let responseText = '';
 
-    if (activeProvider === 'openai' && openaiApiKey) {
+    if ((activeProvider === 'grok' || activeProvider === 'xai') && xaiApiKey) {
+      const imageUrl = `data:${mimeType || 'image/jpeg'};base64,${base64Data}`;
+      const candidateModels = Array.from(new Set([xaiModel, 'grok-2-vision-1212', 'grok-vision-beta', 'grok-2-1212', 'grok-beta'].filter(Boolean)));
+      for (const m of candidateModels) {
+        try {
+          const xRes = await fetch('https://api.x.ai/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${xaiApiKey}`
+            },
+            body: JSON.stringify({
+              model: m,
+              messages: [{
+                role: 'user',
+                content: [
+                  { type: 'text', text: prompt },
+                  { type: 'image_url', image_url: { url: imageUrl } }
+                ]
+              }],
+              max_tokens: 4096,
+              temperature: 0.1
+            })
+          });
+          if (xRes.ok) {
+            const xData = await xRes.json();
+            const choice = xData.choices?.[0];
+            responseText = choice?.message?.content || '';
+            if (responseText) {
+              console.log(`[TelegramBot][Grok] ${m} başarıyla yanıt verdi.`);
+              break;
+            }
+          }
+        } catch (e) {
+          console.warn(`[TelegramBot][Grok] ${m} çağrı hatası:`, e.message);
+        }
+      }
+    }
+
+    if (!responseText && (activeProvider === 'openai' || (!responseText && activeProvider !== 'nvidia' && !responseText)) && openaiApiKey) {
       const imageUrl = `data:${mimeType || 'image/jpeg'};base64,${base64Data}`;
       const candidateModels = Array.from(new Set([openaiModel, 'gpt-4o-mini', 'gpt-4o'].filter(Boolean)));
       for (const m of candidateModels) {
@@ -522,7 +571,7 @@ Eğer belge okunamıyorsa: {"hata": "Belge okunamadı"}`;
       }
     }
 
-    if (!responseText && activeProvider === 'nvidia' && nvidiaApiKey) {
+    if (!responseText && nvidiaApiKey) {
       const imageUrl = `data:${mimeType || 'image/jpeg'};base64,${base64Data}`;
       
       const callNvidia = async (targetModel) => {

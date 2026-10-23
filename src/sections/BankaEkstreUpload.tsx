@@ -567,8 +567,11 @@ export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploa
     let openaiApiKey = '';
     let openaiModelName = 'gpt-4o-mini';
 
+    let xaiApiKey = '';
+    let xaiModelName = 'grok-2-vision-1212';
+
     try {
-      const [provRes, keyRes, modelRes, nKeyRes, nModelRes, oKeyRes, oModelRes] = await Promise.all([
+      const [provRes, keyRes, modelRes, nKeyRes, nModelRes, oKeyRes, oModelRes, xKeyRes, xModelRes] = await Promise.all([
         apiFetch('/api/settings/ai_provider').catch(() => null),
         apiFetch('/api/settings/gemini_api_key').catch(() => null),
         apiFetch('/api/settings/gemini_model').catch(() => null),
@@ -576,6 +579,8 @@ export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploa
         apiFetch('/api/settings/nvidia_model').catch(() => null),
         apiFetch('/api/settings/openai_api_key').catch(() => null),
         apiFetch('/api/settings/openai_model').catch(() => null),
+        apiFetch('/api/settings/xai_api_key').catch(() => null),
+        apiFetch('/api/settings/xai_model').catch(() => null),
       ]);
 
       if (provRes?.success && provRes.value) activeProvider = provRes.value;
@@ -585,6 +590,8 @@ export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploa
       if (nModelRes?.success && nModelRes.value) nvidiaModelName = nModelRes.value;
       if (oKeyRes?.success && oKeyRes.value) openaiApiKey = oKeyRes.value;
       if (oModelRes?.success && oModelRes.value) openaiModelName = oModelRes.value;
+      if (xKeyRes?.success && xKeyRes.value) xaiApiKey = xKeyRes.value;
+      if (xModelRes?.success && xModelRes.value) xaiModelName = xModelRes.value;
     } catch (err) {
       console.warn('AI ayarları alınamadı:', err);
     }
@@ -595,14 +602,21 @@ export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploa
     }
 
     // Mutabakattaki gibi aktif sağlayıcıyı kontrol et ve anahtar yoksa akıllıca fallback yap
-    if (activeProvider === 'openai' && !openaiApiKey) {
-      if (apiKey) activeProvider = 'gemini';
-      else if (nvidiaApiKey) activeProvider = 'nvidia';
-    } else if (activeProvider === 'nvidia' && !nvidiaApiKey) {
+    if ((activeProvider === 'grok' || activeProvider === 'xai') && !xaiApiKey) {
       if (openaiApiKey) activeProvider = 'openai';
       else if (apiKey) activeProvider = 'gemini';
+      else if (nvidiaApiKey) activeProvider = 'nvidia';
+    } else if (activeProvider === 'openai' && !openaiApiKey) {
+      if (xaiApiKey) activeProvider = 'grok';
+      else if (apiKey) activeProvider = 'gemini';
+      else if (nvidiaApiKey) activeProvider = 'nvidia';
+    } else if (activeProvider === 'nvidia' && !nvidiaApiKey) {
+      if (xaiApiKey) activeProvider = 'grok';
+      else if (openaiApiKey) activeProvider = 'openai';
+      else if (apiKey) activeProvider = 'gemini';
     } else if (activeProvider === 'gemini' && !apiKey) {
-      if (openaiApiKey) activeProvider = 'openai';
+      if (xaiApiKey) activeProvider = 'grok';
+      else if (openaiApiKey) activeProvider = 'openai';
       else if (nvidiaApiKey) activeProvider = 'nvidia';
     }
 
@@ -614,22 +628,26 @@ export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploa
       nvidiaModelName: (nvidiaModelName || 'stepfun-ai/step-5-preview').trim(),
       openaiApiKey: (openaiApiKey || '').trim(),
       openaiModelName: (openaiModelName || 'gpt-4o-mini').trim(),
+      xaiApiKey: (xaiApiKey || '').trim(),
+      xaiModelName: (xaiModelName || 'grok-2-vision-1212').trim(),
     };
   };
 
   const executeAiAnalysis = async (prompt: string) => {
     const config = await getAiConfig();
-    const hasKey = config.activeProvider === 'openai' 
-      ? !!config.openaiApiKey 
-      : (config.activeProvider === 'nvidia' ? !!config.nvidiaApiKey : !!config.apiKey);
+    const hasKey = (config.activeProvider === 'grok' || config.activeProvider === 'xai')
+      ? !!config.xaiApiKey
+      : (config.activeProvider === 'openai' 
+        ? !!config.openaiApiKey 
+        : (config.activeProvider === 'nvidia' ? !!config.nvidiaApiKey : !!config.apiKey));
 
     if (!hasKey) {
       throw new Error(
-        'Yapay zeka anahtarı bulunamadı. Lütfen Mutabakat Yönetimi -> Ayarlar sayfasından OpenAI veya diğer API anahtarınızı tanımlayın.'
+        'Yapay zeka anahtarı bulunamadı. Lütfen Mutabakat Yönetimi -> Ayarlar sayfasından API anahtarınızı tanımlayın.'
       );
     }
 
-    // 1. Mutabakat ve Fatura taramada kullanılan güvenilir sunucu proxy'sini çağır (CORS yok, OpenAI, NVIDIA ve Gemini destekli)
+    // 1. Mutabakat ve Fatura taramada kullanılan güvenilir sunucu proxy'sini çağır
     const proxyRes = await apiFetch('/api/ai/analyze-invoice', {
       method: 'POST',
       body: JSON.stringify({
@@ -637,6 +655,8 @@ export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploa
         provider: config.activeProvider,
         openaiApiKey: config.openaiApiKey,
         openaiModel: config.openaiModelName,
+        xaiApiKey: config.xaiApiKey,
+        xaiModel: config.xaiModelName,
         nvidiaApiKey: config.nvidiaApiKey,
         nvidiaModel: config.nvidiaModelName,
         geminiApiKey: config.apiKey,
