@@ -28,15 +28,24 @@ export function MutabakatYonetimi() {
   const [isAnalyzing, setIsAnalyzing] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState('liste');
   const [selectedAnalysis, setSelectedAnalysis] = useState<any>(null);
-  const [aiProvider, setAiProvider] = useState<'gemini' | 'nvidia'>('gemini');
+  const [aiProvider, setAiProvider] = useState<'gemini' | 'nvidia' | 'openai'>('openai');
   const [geminiKey, setGeminiKey] = useState('');
   const [geminiModel, setGeminiModel] = useState('gemini-3.8-flash');
   const [isCustomGemini, setIsCustomGemini] = useState(false);
   const [nvidiaKey, setNvidiaKey] = useState('');
   const [nvidiaModel, setNvidiaModel] = useState('stepfun-ai/step-5-preview');
   const [isCustomNvidia, setIsCustomNvidia] = useState(false);
+  const [openaiKey, setOpenaiKey] = useState('');
+  const [openaiModel, setOpenaiModel] = useState('gpt-4o-mini');
+  const [isCustomOpenai, setIsCustomOpenai] = useState(false);
   const [isSavingKey, setIsSavingKey] = useState(false);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
+
+  const PRESET_OPENAI_MODELS = [
+    { value: 'gpt-4o-mini', label: 'GPT-4o Mini (🔥 Çok Hızlı, Ekonomik & Yüksek Doğruluk - Önerilen)' },
+    { value: 'gpt-4o', label: 'GPT-4o (Omni - Üst Düzey Zeka & Detaylı Analiz)' },
+    { value: 'o3-mini', label: 'o3-mini (Akıl Yürütme Modeli)' },
+  ];
 
   const PRESET_GEMINI_MODELS = [
     { value: 'gemini-3.8-flash', label: 'Gemini 3.8 Flash (Önerilen - En Güncel & Hızlı)' },
@@ -97,12 +106,14 @@ export function MutabakatYonetimi() {
 
   const fetchSettings = async () => {
     try {
-      const [resProvider, resKey, resModel, resNvidiaKey, resNvidiaModel] = await Promise.all([
+      const [resProvider, resKey, resModel, resNvidiaKey, resNvidiaModel, resOpenaiKey, resOpenaiModel] = await Promise.all([
         apiFetch('/api/settings/ai_provider').catch(() => null),
         apiFetch('/api/settings/gemini_api_key').catch(() => null),
         apiFetch('/api/settings/gemini_model').catch(() => null),
         apiFetch('/api/settings/nvidia_api_key').catch(() => null),
         apiFetch('/api/settings/nvidia_model').catch(() => null),
+        apiFetch('/api/settings/openai_api_key').catch(() => null),
+        apiFetch('/api/settings/openai_model').catch(() => null),
       ]);
 
       if (resProvider?.success && resProvider.value) setAiProvider(resProvider.value as any);
@@ -120,6 +131,13 @@ export function MutabakatYonetimi() {
           setIsCustomNvidia(true);
         }
       }
+      if (resOpenaiKey?.success) setOpenaiKey(resOpenaiKey.value || '');
+      if (resOpenaiModel?.success && resOpenaiModel.value) {
+        setOpenaiModel(resOpenaiModel.value);
+        if (!PRESET_OPENAI_MODELS.some(m => m.value === resOpenaiModel.value)) {
+          setIsCustomOpenai(true);
+        }
+      }
     } catch (e) {}
   };
 
@@ -128,6 +146,8 @@ export function MutabakatYonetimi() {
     try {
       await Promise.all([
         apiFetch('/api/settings/ai_provider', { method: 'POST', body: JSON.stringify({ value: aiProvider }) }),
+        apiFetch('/api/settings/openai_api_key', { method: 'POST', body: JSON.stringify({ value: openaiKey }) }),
+        apiFetch('/api/settings/openai_model', { method: 'POST', body: JSON.stringify({ value: openaiModel }) }),
         apiFetch('/api/settings/gemini_api_key', { method: 'POST', body: JSON.stringify({ value: geminiKey }) }),
         apiFetch('/api/settings/gemini_model', { method: 'POST', body: JSON.stringify({ value: geminiModel }) }),
         apiFetch('/api/settings/nvidia_api_key', { method: 'POST', body: JSON.stringify({ value: nvidiaKey }) }),
@@ -588,7 +608,26 @@ export function MutabakatYonetimi() {
                 {/* Sağlayıcı Seçimi */}
                 <div className="space-y-3">
                   <Label className="text-sm font-bold text-slate-900">Aktif Yapay Zeka Motoru</Label>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setAiProvider('openai')}
+                      className={`p-3.5 rounded-xl border-2 text-left transition-all flex flex-col justify-between gap-2 ${
+                        aiProvider === 'openai' 
+                          ? 'border-emerald-600 bg-emerald-50/60 shadow-sm ring-2 ring-emerald-600/20' 
+                          : 'border-slate-200 hover:border-slate-300 bg-white'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between w-full">
+                        <span className="font-bold text-sm text-slate-900 flex items-center gap-1.5">
+                          OpenAI (ChatGPT)
+                          <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-1.5 py-0.5 rounded">Önerilen</span>
+                        </span>
+                        {aiProvider === 'openai' && <span className="w-2.5 h-2.5 rounded-full bg-emerald-600" />}
+                      </div>
+                      <p className="text-[11px] text-slate-500">GPT-4o Mini & GPT-4o. Çok hızlı, yüksek doğruluk ve kesintisiz çalışır.</p>
+                    </button>
+
                     <button
                       type="button"
                       onClick={() => setAiProvider('gemini')}
@@ -610,21 +649,78 @@ export function MutabakatYonetimi() {
                       onClick={() => setAiProvider('nvidia')}
                       className={`p-3.5 rounded-xl border-2 text-left transition-all flex flex-col justify-between gap-2 ${
                         aiProvider === 'nvidia' 
-                          ? 'border-emerald-600 bg-emerald-50/60 shadow-sm ring-2 ring-emerald-600/20' 
+                          ? 'border-teal-600 bg-teal-50/60 shadow-sm ring-2 ring-teal-600/20' 
                           : 'border-slate-200 hover:border-slate-300 bg-white'
                       }`}
                     >
                       <div className="flex items-center justify-between w-full">
                         <span className="font-bold text-sm text-slate-900 flex items-center gap-1.5">
-                          NVIDIA Build (NIM)
-                          <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-1.5 py-0.5 rounded">1.000 Kredi</span>
+                          NVIDIA Build
+                          <span className="bg-teal-100 text-teal-800 text-[10px] font-bold px-1.5 py-0.5 rounded">1.000 Kredi</span>
                         </span>
-                        {aiProvider === 'nvidia' && <span className="w-2.5 h-2.5 rounded-full bg-emerald-600" />}
+                        {aiProvider === 'nvidia' && <span className="w-2.5 h-2.5 rounded-full bg-teal-600" />}
                       </div>
-                      <p className="text-[11px] text-slate-500">Llama 3.2 Vision modelleri. Hızlı, dakikalık kota beklemesi yoktur.</p>
+                      <p className="text-[11px] text-slate-500">StepFun & Llama 3.2 Vision modelleri.</p>
                     </button>
                   </div>
                 </div>
+
+                {/* OPENAI (CHATGPT) AYARLARI */}
+                {aiProvider === 'openai' && (
+                  <div className="space-y-4 pt-3 border-t border-slate-100 animate-in fade-in">
+                    <div className="space-y-2">
+                      <Label className="text-xs font-semibold">OpenAI API Key (sk-proj-...)</Label>
+                      <Input 
+                        type="password" 
+                        placeholder="sk-proj-..." 
+                        value={openaiKey}
+                        onChange={(e) => setOpenaiKey(e.target.value.trim())}
+                        className="font-mono text-xs"
+                      />
+                      <p className="text-[11px] text-slate-500">
+                        API anahtarınızı <a href="https://platform.openai.com/api-keys" target="_blank" rel="noreferrer" className="text-emerald-600 hover:underline font-medium">platform.openai.com/api-keys</a> sayfasından alabilirsiniz. (5$ bakiye ile binlerce fiş/ekstre okunabilir).
+                      </p>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label className="text-xs font-semibold">OpenAI Modeli</Label>
+                      <Select 
+                        value={isCustomOpenai ? 'custom' : openaiModel} 
+                        onValueChange={(val) => {
+                          if (val === 'custom') {
+                            setIsCustomOpenai(true);
+                          } else {
+                            setIsCustomOpenai(false);
+                            setOpenaiModel(val);
+                          }
+                        }}
+                      >
+                        <SelectTrigger className="w-full text-xs">
+                          <SelectValue placeholder="Model seçin" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {PRESET_OPENAI_MODELS.map(m => (
+                            <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
+                          ))}
+                          <SelectItem value="custom" className="font-semibold text-emerald-600">✍️ Özel Model Adı Yaz...</SelectItem>
+                        </SelectContent>
+                      </Select>
+
+                      {isCustomOpenai && (
+                        <div className="space-y-1.5 pt-1.5 p-3 bg-emerald-50/50 rounded-xl border border-emerald-100 animate-in fade-in">
+                          <Label className="text-[11px] font-semibold text-emerald-900">Özel OpenAI Model Kodu</Label>
+                          <Input 
+                            type="text" 
+                            placeholder="Örn: gpt-4o-mini veya gpt-4o" 
+                            value={openaiModel}
+                            onChange={(e) => setOpenaiModel(e.target.value.trim())}
+                            className="font-mono text-xs bg-white"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
 
                 {/* GOOGLE GEMINI AYARLARI */}
                 {aiProvider === 'gemini' && (

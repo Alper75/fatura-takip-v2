@@ -5852,7 +5852,7 @@ app.get('/api/settings/:key', authMiddleware, async (req, res, next) => {
     let val = rs.rows.length > 0 ? rs.rows[0].setting_value : null;
 
     // AI ayarları için hiçbir şirkette tanımlı değilse herhangi bir şirketteki tanımlı ayara fallback yap
-    if (!val && ['ai_provider', 'gemini_api_key', 'gemini_model', 'nvidia_api_key', 'nvidia_model'].includes(req.params.key)) {
+    if (!val && ['ai_provider', 'gemini_api_key', 'gemini_model', 'nvidia_api_key', 'nvidia_model', 'openai_api_key', 'openai_model'].includes(req.params.key)) {
       const anyRs = await client.execute({
         sql: 'SELECT setting_value FROM company_settings WHERE setting_key = ? AND setting_value IS NOT NULL AND setting_value != "" ORDER BY id DESC LIMIT 1',
         args: [req.params.key]
@@ -5868,7 +5868,7 @@ app.get('/api/settings/:key', authMiddleware, async (req, res, next) => {
 
 
 // ============================================================
-// --- AI ANALYZE PROXY (NVIDIA NIM & GEMINI CORS FIX) ---
+// --- AI ANALYZE PROXY (OPENAI, NVIDIA NIM & GEMINI CORS FIX) ---
 // ============================================================
 app.post(['/api/ai/analyze-invoice', '/api/ai/analyze-text'], authMiddleware, async (req, res) => {
   const { 
@@ -5876,6 +5876,8 @@ app.post(['/api/ai/analyze-invoice', '/api/ai/analyze-text'], authMiddleware, as
     mimeType, 
     prompt, 
     provider: requestedProvider,
+    openaiApiKey: bodyOpenaiKey,
+    openaiModel: bodyOpenaiModel,
     nvidiaApiKey: bodyNvidiaKey,
     nvidiaModel: bodyNvidiaModel,
     geminiApiKey: bodyGeminiKey,
@@ -5900,25 +5902,34 @@ app.post(['/api/ai/analyze-invoice', '/api/ai/analyze-text'], authMiddleware, as
       return anyRs.rows?.[0]?.setting_value || '';
     };
 
-    const [provVal, nKeyVal, nModelVal, gKeyVal, gModelVal] = await Promise.all([
+    const [provVal, oKeyVal, oModelVal, nKeyVal, nModelVal, gKeyVal, gModelVal] = await Promise.all([
       getSettingWithFallback('ai_provider'),
+      getSettingWithFallback('openai_api_key'),
+      getSettingWithFallback('openai_model'),
       getSettingWithFallback('nvidia_api_key'),
       getSettingWithFallback('nvidia_model'),
       getSettingWithFallback('gemini_api_key'),
       getSettingWithFallback('gemini_model'),
     ]);
 
-    let activeProvider = requestedProvider || provVal || 'gemini';
+    let activeProvider = requestedProvider || provVal || 'openai';
+    const openaiApiKey = bodyOpenaiKey || oKeyVal || process.env.OPENAI_API_KEY || '';
+    const openaiModel = bodyOpenaiModel || oModelVal || 'gpt-4o-mini';
     const nvidiaApiKey = bodyNvidiaKey || nKeyVal || process.env.NVIDIA_API_KEY || '';
     const nvidiaModel = bodyNvidiaModel || nModelVal || 'stepfun-ai/step-5-preview';
     const geminiApiKey = bodyGeminiKey || gKeyVal || process.env.VITE_GEMINI_API_KEY || process.env.GEMINI_API_KEY || '';
     const geminiModel = bodyGeminiModel || gModelVal || 'gemini-2.5-flash';
 
     // Provider fallback: Eğer seçili olan provider'ın key'i boşsa ve diğerinin key'i varsa diğerine geç
-    if (activeProvider === 'nvidia' && !nvidiaApiKey && geminiApiKey) {
-      activeProvider = 'gemini';
-    } else if (activeProvider === 'gemini' && !geminiApiKey && nvidiaApiKey) {
-      activeProvider = 'nvidia';
+    if (activeProvider === 'openai' && !openaiApiKey) {
+      if (geminiApiKey) activeProvider = 'gemini';
+      else if (nvidiaApiKey) activeProvider = 'nvidia';
+    } else if (activeProvider === 'nvidia' && !nvidiaApiKey) {
+      if (openaiApiKey) activeProvider = 'openai';
+      else if (geminiApiKey) activeProvider = 'gemini';
+    } else if (activeProvider === 'gemini' && !geminiApiKey) {
+      if (openaiApiKey) activeProvider = 'openai';
+      else if (nvidiaApiKey) activeProvider = 'nvidia';
     }
 
     let responseText = '';
@@ -6066,24 +6077,97 @@ Temel Muhasebe İlkelerin ve Davranış Kuralların:
       return null;
     };
 
-    if (activeProvider === 'nvidia') {
-      responseText = await runNvidia();
+    const runOpenAI = async () => {
+      if (!openaiApiKey) return null;
+      const imageUrl = fileBase64 ? (fileBase64.startsWith('data:') ? fileBase64 : `data:${mimeType || 'image/jpeg'};base64,${fileBase64}`) : null;
+      const userContent = imageUrl 
+        ? [
+            { type: 'text', text: prompt + '\nÖNEMLİ: SADECE geçerli bir JSON formatında döndür. Açıklama metni veya ```json markdown bloğu ekleme.' },
+            { type: 'image_url', image_url: { url: imageUrl } }
+          ]
+        : prompt + '\nÖNEMLİ: SADECE geçerli bir JSON formatında döndür. Açıklama metni veya ```json markdown bloğu ekleme.';
+
+      const candidateModels = Array.from(new Set([
+        openaiModel,
+        'gpt-4o-mini',
+        'gpt-4o'
+      ].filter(Boolean)));
+
+      for (const m of candidateModels) {
+        try {
+          const oRes = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${openaiApiKey}`
+            },
+            body: JSON.stringify({
+              model: m,
+              messages: [
+                { role: 'system', content: MALI_MUSAVIR_SYSTEM_PROMPT },
+                { role: 'user', content: userContent }
+              ],
+              max_tokens: 4096,
+              temperature: 0.1
+            })
+          });
+          const oData = await oRes.json();
+          if (!oRes.ok) {
+            const errMsg = oData.error?.message || `OpenAI HTTP ${oRes.status}`;
+            console.warn(`[OpenAI AI] ${m} hatası:`, errMsg);
+            continue;
+          }
+          const choice = oData.choices?.[0];
+          let txt = choice?.message?.content || '';
+          if (!txt && choice?.message?.reasoning_content) txt = choice.message.reasoning_content;
+          if (txt) return txt;
+        } catch (err) {
+          console.warn(`[OpenAI AI] ${m} çağrısında hata:`, err.message);
+        }
+      }
+      return null;
+    };
+
+    if (activeProvider === 'openai') {
+      responseText = await runOpenAI();
       if (!responseText && geminiApiKey) {
-        console.warn('[AI Proxy] NVIDIA yanıt vermedi, Gemini deneniyor...');
+        console.warn('[AI Proxy] OpenAI yanıt vermedi, Gemini deneniyor...');
+        responseText = await runGemini();
+        if (responseText) usedProvider = 'gemini';
+      }
+      if (!responseText && nvidiaApiKey) {
+        console.warn('[AI Proxy] OpenAI ve Gemini yanıt vermedi, NVIDIA NIM deneniyor...');
+        responseText = await runNvidia();
+        if (responseText) usedProvider = 'nvidia';
+      }
+    } else if (activeProvider === 'nvidia') {
+      responseText = await runNvidia();
+      if (!responseText && openaiApiKey) {
+        console.warn('[AI Proxy] NVIDIA yanıt vermedi, OpenAI deneniyor...');
+        responseText = await runOpenAI();
+        if (responseText) usedProvider = 'openai';
+      }
+      if (!responseText && geminiApiKey) {
+        console.warn('[AI Proxy] NVIDIA ve OpenAI yanıt vermedi, Gemini deneniyor...');
         responseText = await runGemini();
         if (responseText) usedProvider = 'gemini';
       }
     } else {
       responseText = await runGemini();
+      if (!responseText && openaiApiKey) {
+        console.warn('[AI Proxy] Gemini yanıt vermedi, OpenAI deneniyor...');
+        responseText = await runOpenAI();
+        if (responseText) usedProvider = 'openai';
+      }
       if (!responseText && nvidiaApiKey) {
-        console.warn('[AI Proxy] Gemini yanıt vermedi veya engellendi, NVIDIA NIM deneniyor...');
+        console.warn('[AI Proxy] Gemini ve OpenAI yanıt vermedi, NVIDIA NIM deneniyor...');
         responseText = await runNvidia();
         if (responseText) usedProvider = 'nvidia';
       }
     }
 
     if (!responseText) {
-      if (!nvidiaApiKey && !geminiApiKey) {
+      if (!openaiApiKey && !nvidiaApiKey && !geminiApiKey) {
         return res.status(400).json({ success: false, message: 'Yapay zeka anahtarı bulunamadı. Lütfen Ayarlar sayfasından API anahtarınızı tanımlayın.' });
       }
       return res.status(500).json({ success: false, message: 'Yapay zekadan yanıt alınamadı. Tanımlı modeller veya API anahtarları yanıt vermiyor.' });

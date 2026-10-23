@@ -4,7 +4,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 // Select bileşenleri performans için native ama shadcn stiliyle giydirilmiştir.
 import { useApp } from '@/context/AppContext';
-import { Upload, FileSpreadsheet, CheckCircle2, AlertCircle, Search, Landmark, Sparkles, Loader2 } from 'lucide-react';
+import { Upload, FileSpreadsheet, CheckCircle2, AlertCircle, Search, Landmark, Sparkles, Loader2, ExternalLink } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -410,7 +410,22 @@ export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploa
     reader.readAsBinaryString(file);
   };
 
-  const handleConfirm = () => {
+  const formatDateForLuca = (dateStr: string) => {
+    if (!dateStr) return '';
+    if (dateStr.includes('.')) {
+      const [datePart] = dateStr.split(' ');
+      const [day, month, year] = datePart.split('.');
+      return `${day.padStart(2, '0')}/${month.padStart(2, '0')}/${year}`;
+    }
+    if (dateStr.includes('-')) {
+      const [year, month, day] = dateStr.split('-');
+      return `${day.padStart(2, '0')}/${month.padStart(2, '0')}/${year}`;
+    }
+    return dateStr;
+  };
+
+  const handleConfirm = (sendToLuca = false) => {
+    const payloadRows: any[] = [];
     satirlar.forEach(s => {
       const finalAciklama = s.önerilenTur === 'transfer' 
         ? `${s.aciklama} [${s.tip === 'alacak' ? 'GELEN' : 'GİDEN'} TRANSFER]`
@@ -429,8 +444,80 @@ export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploa
         dovizTutar: s.dovizTutar,
         dovizKuru: s.dovizKuru
       });
+
+      if (sendToLuca) {
+        const cari = cariler.find(c => c.id === s.eslesenCariId);
+        const isGiris = s.tip === 'alacak' || s.önerilenTur === 'tahsilat';
+        const formattedTarih = formatDateForLuca(s.tarih);
+        const cleanAciklama = (finalAciklama || '')
+          .replace(/[\r\n\t]/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim()
+          .substring(0, 50);
+
+        payloadRows.push(
+          {
+            tarih: formattedTarih,
+            evrakNo: '',
+            aciklama: cleanAciklama,
+            tutar: s.tutar,
+            tur: isGiris ? 'alacak' : 'borc',
+            islemTuru: s.önerilenTur,
+            banka: banka?.hesapAdi || '',
+            cari: cari?.unvan || '',
+            muhasebeKodu: s.muhasebeKodu || '',
+            dovizTuru: s.dovizTuru,
+            dovizTutar: s.dovizTutar,
+            dovizKuru: s.dovizKuru
+          },
+          {
+            tarih: formattedTarih,
+            evrakNo: '',
+            aciklama: cleanAciklama,
+            tutar: s.tutar,
+            tur: isGiris ? 'borc' : 'alacak',
+            islemTuru: s.önerilenTur,
+            banka: banka?.hesapAdi || '',
+            cari: cari?.unvan || '',
+            muhasebeKodu: banka?.muhasebeKodu || '',
+            dovizTuru: s.dovizTuru,
+            dovizTutar: s.dovizTutar,
+            dovizKuru: s.dovizKuru
+          }
+        );
+      }
     });
-    toast.success('Banka ekstresi başarıyla işlendi.');
+
+    if (sendToLuca && payloadRows.length > 0) {
+      const transferPayload = {
+        isIsletme: false,
+        bankTransactions: payloadRows,
+        mahsupRows: payloadRows,
+        count: satirlar.length
+      };
+
+      try {
+        localStorage.setItem('fatura_app_luca_banka', JSON.stringify(payloadRows));
+        localStorage.setItem('fatura_app_luca_mahsup', JSON.stringify(payloadRows));
+        localStorage.setItem('fatura_app_luca_data', JSON.stringify(transferPayload));
+        localStorage.setItem('transferData', JSON.stringify(transferPayload));
+      } catch (e) {
+        console.error('LocalStorage transfer error:', e);
+      }
+
+      window.dispatchEvent(new CustomEvent('FATURA_APP_LUCA_SEND_BANKA_HAREKETLERI', { detail: transferPayload }));
+      document.dispatchEvent(new CustomEvent('FATURA_APP_LUCA_SEND_BANKA_HAREKETLERI', { detail: transferPayload }));
+      window.dispatchEvent(new CustomEvent('FATURA_APP_LUCA_DATA', { detail: transferPayload }));
+      window.postMessage({ type: 'FATURA_APP_LUCA_SEND_BANKA_HAREKETLERI', detail: transferPayload, data: transferPayload }, '*');
+      window.postMessage({ type: 'FATURA_APP_LUCA_DATA', detail: transferPayload, data: transferPayload }, '*');
+
+      toast.success(`${satirlar.length} hareket kaydedildi ve Luca eklentisine gönderildi!`, {
+        description: 'Luca eklentisi açık ise Banka / Mahsup kuyruğundan aktarabilirsiniz.'
+      });
+    } else {
+      toast.success('Banka ekstresi başarıyla işlendi.');
+    }
+
     onClose();
     setSatirlar([]);
     setVisibleCount(50);
@@ -472,19 +559,23 @@ export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploa
   };
 
   const getAiConfig = async () => {
-    let activeProvider = 'gemini';
+    let activeProvider = 'openai';
     let apiKey = import.meta.env.VITE_GEMINI_API_KEY || '';
     let aiModel = 'gemini-2.5-flash';
     let nvidiaApiKey = '';
     let nvidiaModelName = 'stepfun-ai/step-5-preview';
+    let openaiApiKey = '';
+    let openaiModelName = 'gpt-4o-mini';
 
     try {
-      const [provRes, keyRes, modelRes, nKeyRes, nModelRes] = await Promise.all([
+      const [provRes, keyRes, modelRes, nKeyRes, nModelRes, oKeyRes, oModelRes] = await Promise.all([
         apiFetch('/api/settings/ai_provider').catch(() => null),
         apiFetch('/api/settings/gemini_api_key').catch(() => null),
         apiFetch('/api/settings/gemini_model').catch(() => null),
         apiFetch('/api/settings/nvidia_api_key').catch(() => null),
         apiFetch('/api/settings/nvidia_model').catch(() => null),
+        apiFetch('/api/settings/openai_api_key').catch(() => null),
+        apiFetch('/api/settings/openai_model').catch(() => null),
       ]);
 
       if (provRes?.success && provRes.value) activeProvider = provRes.value;
@@ -492,6 +583,8 @@ export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploa
       if (modelRes?.success && modelRes.value) aiModel = modelRes.value;
       if (nKeyRes?.success && nKeyRes.value) nvidiaApiKey = nKeyRes.value;
       if (nModelRes?.success && nModelRes.value) nvidiaModelName = nModelRes.value;
+      if (oKeyRes?.success && oKeyRes.value) openaiApiKey = oKeyRes.value;
+      if (oModelRes?.success && oModelRes.value) openaiModelName = oModelRes.value;
     } catch (err) {
       console.warn('AI ayarları alınamadı:', err);
     }
@@ -502,10 +595,15 @@ export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploa
     }
 
     // Mutabakattaki gibi aktif sağlayıcıyı kontrol et ve anahtar yoksa akıllıca fallback yap
-    if (activeProvider === 'nvidia' && !nvidiaApiKey && apiKey) {
-      activeProvider = 'gemini';
-    } else if ((activeProvider === 'gemini' || !apiKey) && nvidiaApiKey) {
-      activeProvider = 'nvidia';
+    if (activeProvider === 'openai' && !openaiApiKey) {
+      if (apiKey) activeProvider = 'gemini';
+      else if (nvidiaApiKey) activeProvider = 'nvidia';
+    } else if (activeProvider === 'nvidia' && !nvidiaApiKey) {
+      if (openaiApiKey) activeProvider = 'openai';
+      else if (apiKey) activeProvider = 'gemini';
+    } else if (activeProvider === 'gemini' && !apiKey) {
+      if (openaiApiKey) activeProvider = 'openai';
+      else if (nvidiaApiKey) activeProvider = 'nvidia';
     }
 
     return {
@@ -513,28 +611,32 @@ export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploa
       apiKey: (apiKey || '').trim(),
       aiModel: (aiModel || 'gemini-2.5-flash').trim(),
       nvidiaApiKey: (nvidiaApiKey || '').trim(),
-      nvidiaModelName: (nvidiaModelName || 'stepfun-ai/step-5-preview').trim()
+      nvidiaModelName: (nvidiaModelName || 'stepfun-ai/step-5-preview').trim(),
+      openaiApiKey: (openaiApiKey || '').trim(),
+      openaiModelName: (openaiModelName || 'gpt-4o-mini').trim(),
     };
   };
 
   const executeAiAnalysis = async (prompt: string) => {
     const config = await getAiConfig();
-    const hasKey = config.activeProvider === 'nvidia' ? !!config.nvidiaApiKey : !!config.apiKey;
+    const hasKey = config.activeProvider === 'openai' 
+      ? !!config.openaiApiKey 
+      : (config.activeProvider === 'nvidia' ? !!config.nvidiaApiKey : !!config.apiKey);
 
     if (!hasKey) {
       throw new Error(
-        config.activeProvider === 'nvidia'
-          ? 'NVIDIA API anahtarı bulunamadı. Lütfen Mutabakat Yönetimi -> Ayarlar sayfasından API anahtarınızı tanımlayın.'
-          : 'Gemini API anahtarı bulunamadı. Lütfen Mutabakat Yönetimi -> Ayarlar sayfasından API anahtarınızı tanımlayın.'
+        'Yapay zeka anahtarı bulunamadı. Lütfen Mutabakat Yönetimi -> Ayarlar sayfasından OpenAI veya diğer API anahtarınızı tanımlayın.'
       );
     }
 
-    // 1. Mutabakat ve Fatura taramada kullanılan güvenilir sunucu proxy'sini çağır (CORS yok, NVIDIA ve Gemini destekli)
+    // 1. Mutabakat ve Fatura taramada kullanılan güvenilir sunucu proxy'sini çağır (CORS yok, OpenAI, NVIDIA ve Gemini destekli)
     const proxyRes = await apiFetch('/api/ai/analyze-invoice', {
       method: 'POST',
       body: JSON.stringify({
         prompt,
         provider: config.activeProvider,
+        openaiApiKey: config.openaiApiKey,
+        openaiModel: config.openaiModelName,
         nvidiaApiKey: config.nvidiaApiKey,
         nvidiaModel: config.nvidiaModelName,
         geminiApiKey: config.apiKey,
@@ -795,8 +897,11 @@ SADECE JSON döndür:
                       TCMB Kurları Çek
                     </Button>
                   )}
-                  <Button size="sm" onClick={handleConfirm} className="bg-indigo-600 hover:bg-indigo-700 border-0 text-white" disabled={isProcessing || isAiAnalyzing}>
-                    <CheckCircle2 className="w-4 h-4 mr-2" /> Onayla ve Kaydet
+                  <Button size="sm" variant="outline" onClick={() => handleConfirm(false)} className="bg-white hover:bg-slate-50 border-slate-300 text-slate-700" disabled={isProcessing || isAiAnalyzing}>
+                    <CheckCircle2 className="w-4 h-4 mr-2 text-slate-500" /> Sadece Kaydet
+                  </Button>
+                  <Button size="sm" onClick={() => handleConfirm(true)} className="bg-indigo-600 hover:bg-indigo-700 border-0 text-white shadow-sm" disabled={isProcessing || isAiAnalyzing}>
+                    <ExternalLink className="w-4 h-4 mr-2" /> Kaydet ve Luca'ya Gönder
                   </Button>
                 </div>
               </div>

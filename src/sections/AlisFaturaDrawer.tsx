@@ -491,19 +491,23 @@ export function AlisFaturaDrawer() {
     let totalAdded = 0;
     const failedFiles: { name: string; reason: string }[] = [];
     
-    let activeProvider = 'gemini';
+    let activeProvider = 'openai';
     let apiKey = import.meta.env.VITE_GEMINI_API_KEY || '';
     let aiModel = 'gemini-3.8-flash';
     let nvidiaApiKey = '';
     let nvidiaModelName = 'stepfun-ai/step-5-preview';
+    let openaiApiKey = '';
+    let openaiModelName = 'gpt-4o-mini';
     
     try {
-      const [provRes, keyRes, modelRes, nKeyRes, nModelRes] = await Promise.all([
+      const [provRes, keyRes, modelRes, nKeyRes, nModelRes, oKeyRes, oModelRes] = await Promise.all([
         apiFetch('/api/settings/ai_provider').catch(() => null),
         apiFetch('/api/settings/gemini_api_key').catch(() => null),
         apiFetch('/api/settings/gemini_model').catch(() => null),
         apiFetch('/api/settings/nvidia_api_key').catch(() => null),
         apiFetch('/api/settings/nvidia_model').catch(() => null),
+        apiFetch('/api/settings/openai_api_key').catch(() => null),
+        apiFetch('/api/settings/openai_model').catch(() => null),
       ]);
 
       if (provRes?.success && provRes.value) activeProvider = provRes.value;
@@ -511,11 +515,19 @@ export function AlisFaturaDrawer() {
       if (modelRes?.success && modelRes.value) aiModel = modelRes.value;
       if (nKeyRes?.success && nKeyRes.value) nvidiaApiKey = nKeyRes.value;
       if (nModelRes?.success && nModelRes.value) nvidiaModelName = nModelRes.value;
+      if (oKeyRes?.success && oKeyRes.value) openaiApiKey = oKeyRes.value;
+      if (oModelRes?.success && oModelRes.value) openaiModelName = oModelRes.value;
     } catch (keyErr) {
       console.warn('Ayarlar alınamadı:', keyErr);
     }
 
-    if (activeProvider === 'nvidia') {
+    if (activeProvider === 'openai') {
+      if (!openaiApiKey) {
+        toast.error('OpenAI API Key bulunamadı. Lütfen Mutabakat Yönetimi -> Yapay Zeka Ayarları bölümünden tanımlayın.');
+        setIsScanning(false);
+        return;
+      }
+    } else if (activeProvider === 'nvidia') {
       if (!nvidiaApiKey) {
         toast.error('NVIDIA API Key bulunamadı. Lütfen Mutabakat Yönetimi -> Yapay Zeka Ayarları bölümünden tanımlayın.');
         setIsScanning(false);
@@ -600,24 +612,24 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
       try {
         let parsed: any = null;
 
-        if (activeProvider === 'nvidia') {
-          // ==================== NVIDIA BUILD (NIM) ÇAĞRISI ====================
-          // Tarayıcıdan doğrudan integrate.api.nvidia.com çağrıları CORS nedeniyle engellenir (Failed to fetch).
-          // Bu nedenle istek Node.js Express proxy uç noktasına (/api/ai/analyze-invoice) yönlendirilir.
+        if (activeProvider === 'openai' || activeProvider === 'nvidia') {
+          // ==================== OPENAI / NVIDIA PROXY ÇAĞRISI ====================
           const proxyRes = await apiFetch('/api/ai/analyze-invoice', {
             method: 'POST',
             body: JSON.stringify({
               fileBase64: file.base64,
               mimeType: file.mimeType,
               prompt: prompt,
-              provider: 'nvidia',
+              provider: activeProvider,
+              openaiApiKey: openaiApiKey,
+              openaiModel: openaiModelName,
               nvidiaApiKey: nvidiaApiKey,
               nvidiaModel: nvidiaModelName
             })
           });
 
           if (!proxyRes?.success || !proxyRes.data) {
-            throw new Error(proxyRes?.message || 'NVIDIA NIM analizi başarısız oldu.');
+            throw new Error(proxyRes?.message || `${activeProvider === 'openai' ? 'OpenAI (ChatGPT)' : 'NVIDIA NIM'} analizi başarısız oldu.`);
           }
 
           parsed = proxyRes.data;

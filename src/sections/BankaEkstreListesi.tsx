@@ -357,29 +357,47 @@ export function BankaEkstreListesi() {
         }
       ];
     });
+    if (selected.length === 0) {
+      toast.error('Lütfen aktarılacak en az bir banka hareketi seçin.');
+      return;
+    }
+
+    const transferPayload = {
+      isIsletme: false,
+      bankTransactions: payload,
+      mahsupRows: payload,
+      count: selected.length
+    };
+
     // A) LocalStorage kaydı (Eklenti ve diğer sekmeler için yedekli)
     try {
       localStorage.setItem('fatura_app_luca_banka', JSON.stringify(payload));
       localStorage.setItem('fatura_app_luca_mahsup', JSON.stringify(payload));
-      localStorage.setItem('transferData', JSON.stringify({ isIsletme: false, bankTransactions: payload, mahsupRows: payload }));
+      localStorage.setItem('fatura_app_luca_data', JSON.stringify(transferPayload));
+      localStorage.setItem('transferData', JSON.stringify(transferPayload));
     } catch (e) {
       console.error('LocalStorage banka transfer kaydı hatası:', e);
     }
 
     // B) Event ve PostMessage ile Eklentiye Gönderme
     window.dispatchEvent(new CustomEvent('FATURA_APP_LUCA_SEND_BANKA_HAREKETLERI', {
-      detail: { hareketler: payload }
+      detail: transferPayload
     }));
     document.dispatchEvent(new CustomEvent('FATURA_APP_LUCA_SEND_BANKA_HAREKETLERI', {
-      detail: { hareketler: payload }
+      detail: transferPayload
     }));
-    window.dispatchEvent(new CustomEvent('FATURA_APP_LUCA_SEND_MAHSUP', {
-      detail: payload
+    window.dispatchEvent(new CustomEvent('FATURA_APP_LUCA_DATA', {
+      detail: transferPayload
     }));
     window.postMessage({
       type: 'FATURA_APP_LUCA_SEND_BANKA_HAREKETLERI',
-      detail: { hareketler: payload },
-      data: payload
+      detail: transferPayload,
+      data: transferPayload
+    }, '*');
+    window.postMessage({
+      type: 'FATURA_APP_LUCA_DATA',
+      detail: transferPayload,
+      data: transferPayload
     }, '*');
 
     toast.success(`${selected.length} hareket (${payload.length} satır) Luca'ya gönderildi.`, {
