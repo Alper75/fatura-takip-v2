@@ -1575,10 +1575,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       stopajOrani: formData.stopajOrani || '0',
       stopajTutari: hesaplanan.stopajTutari || 0,
       muhasebeKodu: pre.muhasebeKodu || (f as any).muhasebeKodu || '',
+      karsiHesapKodu: pre.karsiHesapKodu || (f as any).karsiHesapKodu || '',
       aciklama: pre.aciklama || (f as any).aciklama || '',
       cariId: formData.cariId,
       vadeTarihi: formData.vadeTarihi || null,
       vehiclePlate: pre.vehiclePlate || (f as any).vehiclePlate || null,
+      pdfDosya: pre.pdfDosya !== undefined ? pre.pdfDosya : f.pdfDosya,
+      pdfDosyaAdi: pre.pdfDosyaAdi !== undefined ? pre.pdfDosyaAdi : f.pdfDosyaAdi,
       stokKalemleri: (formData as any).stokKalemleri || (f as any).stokKalemleri
     } : f));
 
@@ -1600,12 +1603,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           stopajOrani: formData.stopajOrani,
           stopajTutari: hesaplanan.stopajTutari,
           muhasebeKodu: pre.muhasebeKodu,
+          karsiHesapKodu: pre.karsiHesapKodu,
           aciklama: pre.aciklama,
           vadeTarihi: formData.vadeTarihi,
           vehiclePlate: pre.vehiclePlate,
           cariId: formData.cariId,
           urunId: formData.urunId,
           depoId: formData.depoId,
+          pdfDosya: pre.pdfDosya,
+          pdfDosyaAdi: pre.pdfDosyaAdi,
           stokKalemleri: (formData as any).stokKalemleri || []
         })
       });

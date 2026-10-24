@@ -15,6 +15,7 @@ import { useUrunler, useDepolar } from '../modules/stok/hooks/useStokQuery';
 import { UrunForm } from '../modules/stok/components/UrunForm';
 import { stokApi } from '../modules/stok/services/stokApi';
 import { LucaAccountSelect } from '@/components/LucaAccountSelect';
+import { getDraftData, setDraftData, removeDraftData } from '@/lib/draftStorage';
 
 const KDV_ORANLARI = ['0', '1', '8', '10', '18', '20'];
 const TEVKIFAT_ORANLARI = ['0', '2/10', '3/10', '4/10', '5/10', '7/10', '9/10', '10/10'];
@@ -169,26 +170,39 @@ export function AlisFaturaDrawer() {
   const [hasPendingDraft, setHasPendingDraft] = useState(false);
   const [previewImage, setPreviewImage] = useState<{ url: string; name: string } | null>(null);
 
-  // Çekmece açıldığında taslak var mı kontrol et
+  // Çekmece açıldığında taslak var mı kontrol et (IndexedDB + localStorage)
   useEffect(() => {
     if (isAlisDrawerOpen) {
-      try {
-        const raw = localStorage.getItem('alis_fatura_draft_forms_v2');
-        if (raw) {
-          const parsed = JSON.parse(raw);
-          if (Array.isArray(parsed) && parsed.length > 0) {
+      let isCancelled = false;
+      (async () => {
+        try {
+          const idbData = await getDraftData<any[]>('alis_fatura_draft_forms_v2');
+          if (!isCancelled && Array.isArray(idbData) && idbData.length > 0) {
             setHasPendingDraft(true);
+            return;
           }
-        }
-      } catch (e) {}
+          const raw = localStorage.getItem('alis_fatura_draft_forms_v2');
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            if (!isCancelled && Array.isArray(parsed) && parsed.length > 0) {
+              setHasPendingDraft(true);
+            }
+          }
+        } catch (e) {}
+      })();
+      return () => { isCancelled = true; };
     }
   }, [isAlisDrawerOpen]);
 
-  // Forms değiştikçe otomatik taslak kaydı
+  // Forms değiştikçe otomatik taslak kaydı (IndexedDB'ye görsellerle birlikte tam kaydeder)
   useEffect(() => {
     if (!isAlisDrawerOpen || isSaving) return;
-    const isMeaningful = forms.length > 1 || (forms.length === 1 && (forms[0]?.data?.faturaNo || forms[0]?.data?.tedarikciAdi || forms[0]?.data?.toplamTutar || forms[0]?.data?.malHizmetAdi));
+    const isMeaningful = forms.length > 1 || (forms.length === 1 && (forms[0]?.data?.faturaNo || forms[0]?.data?.tedarikciAdi || forms[0]?.data?.toplamTutar || forms[0]?.data?.malHizmetAdi || forms[0]?.data?.dosyaBase64));
     if (isMeaningful) {
+      // 1. IndexedDB: Tam form verisi (görseller / base64 dahil)
+      setDraftData('alis_fatura_draft_forms_v2', forms).catch(() => {});
+      
+      // 2. localStorage: Hızlı durum göstergesi
       try {
         const lightweightForms = forms.map(f => ({
           ...f,
@@ -202,8 +216,19 @@ export function AlisFaturaDrawer() {
     }
   }, [forms, isAlisDrawerOpen, isSaving]);
 
-  const loadDraft = () => {
+  const loadDraft = async () => {
     try {
+      // Önce IndexedDB'den tam veriyi (görselleriyle birlikte) almayı dene
+      const idbData = await getDraftData<any[]>('alis_fatura_draft_forms_v2');
+      if (Array.isArray(idbData) && idbData.length > 0) {
+        setForms(idbData);
+        setHasPendingDraft(false);
+        const withImgCount = idbData.filter(d => !!d.data?.dosyaBase64).length;
+        toast.success(`${idbData.length} adet taslak fiş görselleriyle birlikte geri yüklendi! (${withImgCount} görselli)`);
+        return;
+      }
+
+      // Fallback: localStorage
       const raw = localStorage.getItem('alis_fatura_draft_forms_v2');
       if (raw) {
         const parsed = JSON.parse(raw);
@@ -218,7 +243,8 @@ export function AlisFaturaDrawer() {
     }
   };
 
-  const clearDraft = () => {
+  const clearDraft = async () => {
+    await removeDraftData('alis_fatura_draft_forms_v2');
     localStorage.removeItem('alis_fatura_draft_forms_v2');
     setHasPendingDraft(false);
     toast.info('Taslak temizlendi.');
@@ -434,14 +460,17 @@ export function AlisFaturaDrawer() {
         setForms(prev => {
           const nextForms = prev.filter(item => item.id !== f.id);
           if (nextForms.length > 0) {
+            setDraftData('alis_fatura_draft_forms_v2', nextForms).catch(() => {});
             try { localStorage.setItem('alis_fatura_draft_forms_v2', JSON.stringify(nextForms)); } catch (e) {}
           } else {
+            removeDraftData('alis_fatura_draft_forms_v2').catch(() => {});
             localStorage.removeItem('alis_fatura_draft_forms_v2');
           }
           return nextForms;
         });
       }
 
+      await removeDraftData('alis_fatura_draft_forms_v2');
       localStorage.removeItem('alis_fatura_draft_forms_v2');
       toast.success(`${savedCount} adet alış faturası başarıyla sisteme kaydedildi.`);
       handleClose();

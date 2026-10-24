@@ -32,11 +32,17 @@ import {
   ExternalLink,
   Info,
   Car,
-  Tag
+  Tag,
+  Upload,
+  UploadCloud,
+  FileUp,
+  Image as ImageIcon,
+  Loader2
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import type { AlisFatura } from '@/types';
+import { MuhasebeTopluGorselEsleModal } from './MuhasebeTopluGorselEsleModal';
 
 export function MuhasebeFisInceleme() {
   const { 
@@ -53,15 +59,24 @@ export function MuhasebeFisInceleme() {
   const activeCompany = companies.find(c => c.id === (user?.companyId || 1));
 
   // Filtreler & Sıralama
-  const [filterType, setFilterType] = useState<'all' | 'with-doc' | 'missing-code' | 'vehicle'>('all');
+  const [filterType, setFilterType] = useState<'all' | 'with-doc' | 'without-doc' | 'missing-code' | 'vehicle'>('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
 
   // Görsel / Belge Durumu
   const [docLoading, setDocLoading] = useState(false);
+  const [uploadingDoc, setUploadingDoc] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const [batchModalOpen, setBatchModalOpen] = useState(false);
   const [currentDocBase64, setCurrentDocBase64] = useState<string | null>(null);
   const [zoomLevel, setZoomLevel] = useState(1);
   const [rotation, setRotation] = useState(0);
+  const docInputRef = useRef<HTMLInputElement>(null);
+
+  // Görseli eksik olan faturaların listesi
+  const missingDocInvoices = useMemo(() => {
+    return (alisFaturalari || []).filter(f => !f.pdfDosya && !f.pdfDosyaAdi);
+  }, [alisFaturalari]);
 
   // Düzenleme Modu
   const [editMuhasebeKodu, setEditMuhasebeKodu] = useState('');
@@ -85,6 +100,9 @@ export function MuhasebeFisInceleme() {
       // Tip Filtresi
       if (filterType === 'with-doc') {
         return !!(f.pdfDosya || f.pdfDosyaAdi);
+      }
+      if (filterType === 'without-doc') {
+        return !f.pdfDosya && !f.pdfDosyaAdi;
       }
       if (filterType === 'missing-code') {
         return !f.muhasebeKodu || f.muhasebeKodu.trim() === '';
@@ -147,6 +165,79 @@ export function MuhasebeFisInceleme() {
     } else {
       setCurrentDocBase64(null);
     }
+  }, [currentFatura?.id]);
+
+  // Tekil Görsel Yükleme (Dosya Seçildiğinde veya Sürüklenip Bırakıldığında)
+  const handleSingleFileUpload = async (file: File) => {
+    if (!currentFatura) {
+      toast.error('Görsel yüklenecek geçerli bir fiş bulunamadı.');
+      return;
+    }
+    setUploadingDoc(true);
+    try {
+      const reader = new FileReader();
+      reader.onload = async () => {
+        const base64Data = reader.result as string;
+        try {
+          // Backend'e kaydet
+          await apiFetch(`/api/alis-faturalari/${currentFatura.id}`, {
+            method: 'PUT',
+            body: JSON.stringify({
+              pdfDosya: base64Data,
+              pdfDosyaAdi: file.name
+            })
+          });
+
+          // Arayüz state'ini ve context'i anında güncelle
+          setCurrentDocBase64(base64Data);
+          updateAlisFatura(currentFatura.id, {
+            ...currentFatura,
+            pdfDosya: base64Data,
+            pdfDosyaAdi: file.name
+          } as any);
+
+          toast.success('Fiş görseli başarıyla yüklendi ve sunucuya kaydedildi!');
+        } catch (err: any) {
+          toast.error('Görsel sunucuya kaydedilemedi: ' + err.message);
+        } finally {
+          setUploadingDoc(false);
+        }
+      };
+      reader.onerror = () => {
+        toast.error('Dosya okunamadı.');
+        setUploadingDoc(false);
+      };
+      reader.readAsDataURL(file);
+    } catch (e: any) {
+      toast.error('Hata: ' + e.message);
+      setUploadingDoc(false);
+    }
+  };
+
+  // Panodan Görsel Yapıştırma (Ctrl + V) Desteği
+  useEffect(() => {
+    const handlePaste = (e: ClipboardEvent) => {
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement)?.tagName)) return;
+      if (!currentFatura) return;
+
+      const items = e.clipboardData?.items;
+      if (!items) return;
+
+      for (let i = 0; i < items.length; i++) {
+        if (items[i].type.startsWith('image/')) {
+          const file = items[i].getAsFile();
+          if (file) {
+            e.preventDefault();
+            const namedFile = new File([file], `yapistirilan_fis_${currentFatura.faturaNo || Date.now()}.jpg`, { type: file.type });
+            handleSingleFileUpload(namedFile);
+            break;
+          }
+        }
+      }
+    };
+
+    window.addEventListener('paste', handlePaste);
+    return () => window.removeEventListener('paste', handlePaste);
   }, [currentFatura?.id]);
 
   // Klavye ok tuşları ile önceki / sonraki fişe geçiş
@@ -429,16 +520,36 @@ export function MuhasebeFisInceleme() {
           />
 
           <Select value={filterType} onValueChange={(val: any) => setFilterType(val)}>
-            <SelectTrigger className="h-8 text-xs w-40">
+            <SelectTrigger className="h-8 text-xs w-44">
               <SelectValue placeholder="Filtrele" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">Tüm Fişler</SelectItem>
+              <SelectItem value="all">Tüm Fişler ({alisFaturalari?.length || 0})</SelectItem>
               <SelectItem value="with-doc">📷 Görselli Olanlar</SelectItem>
+              <SelectItem value="without-doc">
+                ⚠️ Görseli Eksikler ({missingDocInvoices.length})
+              </SelectItem>
               <SelectItem value="missing-code">⚠️ Hesabı Eksikler</SelectItem>
               <SelectItem value="vehicle">🚗 Araç / Akaryakıt</SelectItem>
             </SelectContent>
           </Select>
+
+          {/* Toplu Görsel Eşleme Sihirbazı Butonu */}
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={() => setBatchModalOpen(true)}
+            className="h-8 text-xs gap-1.5 border-indigo-200 bg-indigo-50/50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300 dark:border-indigo-800"
+            title="Görseli eksik fişlere topluca fotoğraf/PDF eşleştirin"
+          >
+            <UploadCloud className="w-3.5 h-3.5 text-indigo-600" />
+            <span className="hidden sm:inline">Toplu Görsel Eşle</span>
+            {missingDocInvoices.length > 0 && (
+              <Badge className="bg-amber-500 hover:bg-amber-600 text-white text-[10px] h-4.5 px-1.5 py-0 font-bold ml-0.5">
+                {missingDocInvoices.length} Eksik
+              </Badge>
+            )}
+          </Button>
 
           {/* Fiş Gezinme / Sayacı */}
           <div className="flex items-center bg-slate-100 dark:bg-slate-800 rounded-lg p-0.5 border border-slate-200 dark:border-slate-700">
@@ -504,76 +615,126 @@ export function MuhasebeFisInceleme() {
               <div className="flex items-center gap-2 min-w-0">
                 <span className="text-xs font-bold text-slate-800 dark:text-slate-100 truncate flex items-center gap-1.5">
                   <FileText className="w-4 h-4 text-indigo-600" />
-                  {currentFatura?.pdfDosyaAdi || 'Belge Görseli'}
+                  {currentFatura?.pdfDosyaAdi || (currentDocBase64 ? 'Belge Görseli' : 'Görsel Yüklenmedi')}
                 </span>
-                {currentDocBase64 && (
-                  <Badge variant="secondary" className="text-[10px] h-5 bg-emerald-100 text-emerald-800 border-emerald-200">
+                {currentDocBase64 ? (
+                  <Badge variant="secondary" className="text-[10px] h-5 bg-emerald-100 text-emerald-800 border-emerald-200 shrink-0">
                     Aktarıldı
+                  </Badge>
+                ) : (
+                  <Badge variant="secondary" className="text-[10px] h-5 bg-amber-100 text-amber-800 border-amber-200 shrink-0">
+                    Görsel Eksik
                   </Badge>
                 )}
               </div>
 
-              {/* Görsel Kontrolleri */}
+              {/* Görsel Kontrolleri & Yükleme Butonları */}
               <div className="flex items-center gap-1">
+                {/* Gizli Dosya Seçici */}
+                <input 
+                  ref={docInputRef} 
+                  type="file" 
+                  accept="image/*,application/pdf" 
+                  className="hidden" 
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) handleSingleFileUpload(f);
+                    e.target.value = '';
+                  }} 
+                />
+
                 <Button 
                   variant="ghost" 
-                  size="icon" 
-                  className="h-7 w-7 text-slate-600 hover:text-slate-900" 
-                  onClick={handleZoomOut} 
-                  title="Uzaklaştır"
+                  size="sm" 
+                  className="h-7 text-xs gap-1 text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 px-2" 
+                  onClick={() => docInputRef.current?.click()} 
+                  disabled={uploadingDoc}
+                  title="Bu fişe fotoğraf veya PDF yükleyin"
                 >
-                  <ZoomOut className="w-3.5 h-3.5" />
+                  {uploadingDoc ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Upload className="w-3.5 h-3.5" />
+                  )}
+                  <span className="hidden sm:inline">{currentDocBase64 ? 'Değiştir' : 'Görsel Yükle'}</span>
                 </Button>
-                <span className="text-[11px] font-mono font-medium text-slate-500 px-1">
-                  %{Math.round(zoomLevel * 100)}
-                </span>
-                <Button 
-                  variant="ghost" 
-                  size="icon" 
-                  className="h-7 w-7 text-slate-600 hover:text-slate-900" 
-                  onClick={handleZoomIn} 
-                  title="Yakınlaştır"
-                >
-                  <ZoomIn className="w-3.5 h-3.5" />
-                </Button>
-                <Button 
-                  variant="ghost" 
-                  size="icon" 
-                  className="h-7 w-7 text-slate-600 hover:text-slate-900" 
-                  onClick={handleRotate} 
-                  title="90° Döndür"
-                >
-                  <RotateCw className="w-3.5 h-3.5" />
-                </Button>
-                <Button 
-                  variant="ghost" 
-                  size="icon" 
-                  className="h-7 w-7 text-slate-600 hover:text-slate-900" 
-                  onClick={handleResetZoom} 
-                  title="Sıfırla"
-                >
-                  <RefreshCw className="w-3.5 h-3.5" />
-                </Button>
+
                 {currentDocBase64 && (
-                  <Button 
-                    variant="ghost" 
-                    size="icon" 
-                    className="h-7 w-7 text-indigo-600 hover:bg-indigo-50" 
-                    onClick={handleDownloadDoc} 
-                    title="İndir"
-                  >
-                    <Download className="w-3.5 h-3.5" />
-                  </Button>
+                  <>
+                    <Button 
+                      variant="ghost" 
+                      size="icon" 
+                      className="h-7 w-7 text-slate-600 hover:text-slate-900" 
+                      onClick={handleZoomOut} 
+                      title="Uzaklaştır"
+                    >
+                      <ZoomOut className="w-3.5 h-3.5" />
+                    </Button>
+                    <span className="text-[11px] font-mono font-medium text-slate-500 px-1">
+                      %{Math.round(zoomLevel * 100)}
+                    </span>
+                    <Button 
+                      variant="ghost" 
+                      size="icon" 
+                      className="h-7 w-7 text-slate-600 hover:text-slate-900" 
+                      onClick={handleZoomIn} 
+                      title="Yakınlaştır"
+                    >
+                      <ZoomIn className="w-3.5 h-3.5" />
+                    </Button>
+                    <Button 
+                      variant="ghost" 
+                      size="icon" 
+                      className="h-7 w-7 text-slate-600 hover:text-slate-900" 
+                      onClick={handleRotate} 
+                      title="90° Döndür"
+                    >
+                      <RotateCw className="w-3.5 h-3.5" />
+                    </Button>
+                    <Button 
+                      variant="ghost" 
+                      size="icon" 
+                      className="h-7 w-7 text-slate-600 hover:text-slate-900" 
+                      onClick={handleResetZoom} 
+                      title="Sıfırla"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5" />
+                    </Button>
+                    <Button 
+                      variant="ghost" 
+                      size="icon" 
+                      className="h-7 w-7 text-indigo-600 hover:bg-indigo-50" 
+                      onClick={handleDownloadDoc} 
+                      title="İndir"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                    </Button>
+                  </>
                 )}
               </div>
             </div>
 
             {/* Görsel / Belge Görüntüleyici Alanı */}
-            <div className="flex-1 bg-slate-950/5 dark:bg-slate-950/40 relative overflow-auto flex items-center justify-center p-3 select-none">
-              {docLoading ? (
+            <div 
+              className={cn(
+                "flex-1 bg-slate-950/5 dark:bg-slate-950/40 relative overflow-auto flex items-center justify-center p-3 select-none transition-colors",
+                isDragging && "bg-indigo-50/50 dark:bg-indigo-950/30"
+              )}
+              onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+              onDragLeave={() => setIsDragging(false)}
+              onDrop={(e) => {
+                e.preventDefault();
+                setIsDragging(false);
+                const file = e.dataTransfer.files?.[0];
+                if (file) handleSingleFileUpload(file);
+              }}
+            >
+              {docLoading || uploadingDoc ? (
                 <div className="flex flex-col items-center justify-center gap-2 text-slate-400">
                   <RefreshCw className="w-6 h-6 animate-spin text-indigo-500" />
-                  <span className="text-xs">Belge görseli yükleniyor...</span>
+                  <span className="text-xs font-medium">
+                    {uploadingDoc ? 'Görsel kaydediliyor...' : 'Belge görseli yükleniyor...'}
+                  </span>
                 </div>
               ) : currentDocBase64 ? (
                 isPdf ? (
@@ -598,14 +759,37 @@ export function MuhasebeFisInceleme() {
                   </div>
                 )
               ) : (
-                <div className="flex flex-col items-center justify-center p-6 text-center text-slate-400 max-w-xs">
-                  <div className="w-12 h-12 rounded-full bg-slate-200 dark:bg-slate-800 flex items-center justify-center mb-3 text-slate-500">
-                    <FileText className="w-6 h-6" />
+                /* GÖRSEL EKSİK DURUMU: ETKİLEŞİMLİ SÜRÜKLE-BIRAK VE YÜKLEME ALANI */
+                <div 
+                  className={cn(
+                    "flex flex-col items-center justify-center p-6 text-center rounded-2xl border-2 border-dashed transition-all w-full max-w-sm m-auto",
+                    isDragging 
+                      ? "border-indigo-500 bg-indigo-50/80 dark:bg-indigo-950/60 scale-102" 
+                      : "border-slate-300 dark:border-slate-700 bg-white/70 dark:bg-slate-900/60 shadow-sm hover:border-indigo-400"
+                  )}
+                >
+                  <div className="w-14 h-14 rounded-2xl bg-indigo-50 dark:bg-indigo-950/80 text-indigo-600 dark:text-indigo-400 flex items-center justify-center mb-3 shadow-sm border border-indigo-100 dark:border-indigo-900">
+                    <UploadCloud className="w-7 h-7" />
                   </div>
-                  <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-300">Yüklenmiş Görsel Yok</h4>
-                  <p className="text-xs text-slate-500 mt-1">
-                    Bu fiş manuel girilmiş veya görseli yüklenmemiş olabilir.
+                  <h4 className="text-sm font-bold text-slate-800 dark:text-slate-100">Bu Fişin Görseli Eksik</h4>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-xs leading-relaxed">
+                    Fiş taslaktan aktarıldığı için görseli eksik kalmış. Bilgisayarınızdaki görseli yükleyin:
                   </p>
+
+                  <div className="mt-4 flex flex-col items-center gap-2 w-full">
+                    <Button 
+                      size="sm" 
+                      onClick={() => docInputRef.current?.click()} 
+                      disabled={uploadingDoc}
+                      className="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-xs gap-1.5 shadow-sm"
+                    >
+                      <FileUp className="w-4 h-4" /> Görsel / Belge Seç
+                    </Button>
+
+                    <span className="text-[11px] text-slate-400">
+                      veya buraya bırakın / <kbd className="px-1.5 py-0.5 bg-slate-100 dark:bg-slate-800 border rounded font-mono text-[10px] text-slate-600 dark:text-slate-300">Ctrl + V</kbd> ile yapıştırın
+                    </span>
+                  </div>
                 </div>
               )}
             </div>
@@ -941,6 +1125,13 @@ export function MuhasebeFisInceleme() {
 
         </div>
       )}
+
+      {/* Toplu Görsel Eşleme Sihirbazı Modalı */}
+      <MuhasebeTopluGorselEsleModal 
+        open={batchModalOpen} 
+        onOpenChange={setBatchModalOpen} 
+        missingInvoices={missingDocInvoices} 
+      />
     </div>
   );
 }
