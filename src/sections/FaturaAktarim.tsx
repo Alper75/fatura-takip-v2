@@ -12,7 +12,7 @@ import { StopajKoduModal } from '@/components/StopajKoduModal';
 import { deduceStopajKodu } from '@/constants/lucaStopajKodlari';
 
 export function FaturaAktarim() {
-  const { apiFetch, cariler, isIsletmeDefteri, companies, user } = useApp();
+  const { apiFetch, cariler, isIsletmeDefteri, companies, user, lucaAccounts = [], giderKategorileri = [] } = useApp();
   const [loading, setLoading] = useState(false);
   const [invoices, setInvoices] = useState<any[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -62,6 +62,30 @@ export function FaturaAktarim() {
       return (f.tedarikciVkn || f.tedarikci_vkn || f.tcVkn || (cariler.find(c => c.id === f.cariId)?.vknTckn) || '').trim();
     }
     return (f.tcVkn || f.tc_vkn || f.vknTckn || (cariler.find(c => c.id === f.cariId)?.vknTckn) || '').trim();
+  };
+
+  const getHesapAdi = (inv: any): string => {
+    const kod = (inv.muhasebeKodu || '').trim();
+    if (!kod) return '';
+    
+    // 1. Luca Hesap Planında tam eşleşme
+    const lucaAcc = (lucaAccounts || []).find((a: any) => a.kod === kod || a.hesapKodu === kod);
+    if (lucaAcc && lucaAcc.ad) return `${kod} - ${lucaAcc.ad}`;
+
+    // 2. Gider Kategorilerinde ara
+    const giderKat = (giderKategorileri || []).find((g: any) => g.muhasebeKodu === kod || (inv.giderKategoriId && g.id === inv.giderKategoriId));
+    if (giderKat && giderKat.ad) return `${kod} - ${giderKat.ad}`;
+
+    // 3. Bilinen standart muhasebe kodları
+    if (kod.startsWith('770.03')) return `${kod} - Yeme / İçme & Gıda`;
+    if (kod.startsWith('770.02') || kod.startsWith('770.05')) return `${kod} - Ulaşım & Akaryakıt`;
+    if (kod.startsWith('770.01')) return `${kod} - Ofis & Kırtasiye`;
+    if (kod.startsWith('770')) return `${kod} - Genel Yönetim Gideri`;
+    if (kod.startsWith('760')) return `${kod} - Pazarlama & Satış`;
+    if (kod.startsWith('153')) return `${kod} - Ticari Mallar`;
+    if (kod.startsWith('600')) return `${kod} - Yurtiçi Satış`;
+
+    return kod;
   };
 
   const fetchInvoices = async () => {
@@ -1036,7 +1060,7 @@ export function FaturaAktarim() {
                   <TableHead>Tarih</TableHead>
                   <TableHead>Evrak No</TableHead>
                   <TableHead>Tür</TableHead>
-                  <TableHead>Firma / Muhatap</TableHead>
+                  <TableHead>Firma / Muhatap & Gider Hesabı</TableHead>
                   <TableHead className="text-right">Matrah</TableHead>
                   <TableHead className="text-center">KDV</TableHead>
                   <TableHead className="text-right">KDV Tutar</TableHead>
@@ -1069,6 +1093,7 @@ export function FaturaAktarim() {
 
                     const unvan = inv.ad || inv.unvan || inv.tedarikciAdi || 'Muhtelif Cari';
                     const vkn = inv.tcVkn || inv.tedarikciVkn || '';
+                    const hesapAdi = getHesapAdi(inv);
 
                     return (
                       <TableRow 
@@ -1103,8 +1128,22 @@ export function FaturaAktarim() {
                             {isAlis ? 'GİDER (ALIŞ)' : 'GELİR (SATIŞ)'}
                           </span>
                         </TableCell>
-                        <TableCell className="max-w-[200px] truncate text-xs font-medium" title={unvan}>
-                          {unvan}
+                        <TableCell className="max-w-[260px]">
+                          <div className="font-semibold text-xs text-slate-900 truncate" title={unvan}>
+                            {unvan}
+                          </div>
+                          {hesapAdi ? (
+                            <div className="text-[11px] text-indigo-600 font-medium truncate flex items-center gap-1 mt-0.5" title={hesapAdi}>
+                              <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 shrink-0"></span>
+                              {hesapAdi}
+                            </div>
+                          ) : (
+                            inv.malHizmetAdi && (
+                              <div className="text-[11px] text-slate-500 truncate mt-0.5" title={inv.malHizmetAdi}>
+                                {inv.malHizmetAdi}
+                              </div>
+                            )
+                          )}
                         </TableCell>
                         <TableCell className="text-right font-mono text-xs">
                           {matrah.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺
