@@ -1406,19 +1406,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     };
     setSatisFaturalari(prev => [yeniFatura, ...prev]);
 
-    // POST - PDF olmadan (büyk base64 body’yu şişirmez)
-    const { pdfDosya: _pdf, pdfDosyaAdi: _pdfAdi, ...yeniFaturaNoPdf } = yeniFatura as any;
-    const bodyToSend = { ...yeniFaturaNoPdf, stokKalemleri: pre.stokKalemleri || [], urunId: formData.urunId, depoId: formData.depoId };
+    // Fatura ve varsa PDF dosyasını tek seferde POST ile kaydet (backend diske yazıp URL'yi DB'ye koyar)
     try {
+      const bodyToSend = {
+        ...yeniFatura,
+        stokKalemleri: pre.stokKalemleri || [],
+        urunId: formData.urunId,
+        depoId: formData.depoId
+      };
       await apiFetch('/api/satis-faturalari', { method: 'POST', body: JSON.stringify(bodyToSend) });
-      // Eğer PDF varsa ayrı PUT ile kaydet
-      if (formData.dosyaBase64) {
-        await apiFetch(`/api/satis-faturalari/${yeniFatura.id}`, {
-          method: 'PUT',
-          body: JSON.stringify({ pdfDosya: formData.dosyaBase64, pdfDosyaAdi: formData.dosyaAdi }),
-        });
-      }
-    } catch (e) { console.error('Satış fatura eklenemedi:', e); }
+    } catch (e) {
+      console.error('Satış fatura eklenemedi:', e);
+    }
 
     if (formData.cariId) {
       const yeniHareket: CariHareket = {
@@ -1523,18 +1522,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     };
     setAlisFaturalari(prev => [yeniFatura, ...prev]);
 
-    // POST - PDF olmadan
-    const { pdfDosya: _pdf, pdfDosyaAdi: _pdfAdi, ...yeniFaturaNoPdf } = yeniFatura as any;
+    // Fatura ve varsa PDF görselini tek seferde POST ile kaydet (backend diske yazıp URL'yi DB'ye koyar)
     try {
-      await apiFetch('/api/alis-faturalari', { method: 'POST', body: JSON.stringify({ ...yeniFaturaNoPdf, muhasebeKodu: pre.muhasebeKodu, vehiclePlate: pre.vehiclePlate, aciklama: pre.aciklama, urunId: formData.urunId, depoId: formData.depoId }) });
-      // Eğer PDF varsa ayrı PUT ile kaydet
-      if (formData.dosyaBase64) {
-        await apiFetch(`/api/alis-faturalari/${yeniFatura.id}`, {
-          method: 'PUT',
-          body: JSON.stringify({ pdfDosya: formData.dosyaBase64, pdfDosyaAdi: formData.dosyaAdi }),
-        });
-      }
-    } catch (e) { console.error('Alış fatura eklenemedi:', e); }
+      await apiFetch('/api/alis-faturalari', {
+        method: 'POST',
+        body: JSON.stringify({
+          ...yeniFatura,
+          muhasebeKodu: pre.muhasebeKodu,
+          vehiclePlate: pre.vehiclePlate,
+          aciklama: pre.aciklama,
+          urunId: formData.urunId,
+          depoId: formData.depoId
+        })
+      });
+    } catch (e) {
+      console.error('Alış fatura eklenemedi:', e);
+    }
 
     if (formData.cariId) {
       const yeniHareket: CariHareket = {

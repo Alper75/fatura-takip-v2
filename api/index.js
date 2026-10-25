@@ -3748,8 +3748,45 @@ app.put('/api/satis-faturalari/:id', authMiddleware, async (req, res) => {
     const dekontPath = f.odemeDekontu !== undefined ? saveBase64File(f.odemeDekontu, f.odemeDekontuAdi || 'dekont.pdf', 'dekontlar') : undefined;
 
     await client.execute({
-      sql: 'UPDATE satis_faturalari SET fatura_no=?,odeme_tarihi=?,odeme_durumu=?,odeme_dekontu=COALESCE(?,odeme_dekontu),odeme_dekontu_adi=?,pdf_dosya=COALESCE(?,pdf_dosya),pdf_dosya_adi=?,muhasebe_kodu=?,tc_vkn=?,ad=?,soyad=?,adres=?,aciklama=?,urun_id=?,depo_id=?,gib_uuid=?,kdv_orani=COALESCE(?,kdv_orani),alinan_ucret=COALESCE(?,alinan_ucret),matrah=COALESCE(?,matrah),kdv_tutari=COALESCE(?,kdv_tutari),tevkifat_orani=COALESCE(?,tevkifat_orani),tevkifat_tutari=COALESCE(?,tevkifat_tutari),stopaj_orani=COALESCE(?,stopaj_orani),stopaj_tutari=COALESCE(?,stopaj_tutari),fatura_tarihi=COALESCE(?,fatura_tarihi),vade_tarihi=COALESCE(?,vade_tarihi),tevkifat_kodu=COALESCE(?,tevkifat_kodu),stopaj_kodu=COALESCE(?,stopaj_kodu) WHERE id=? AND company_id = ?',
-      args: [n(f.faturaNo),n(f.odemeTarihi),n(f.odemeDurumu),dekontPath,n(f.odemeDekontuAdi),pdfPath,n(f.pdfDosyaAdi),n(f.muhasebeKodu),n(f.tcVkn),n(f.ad),n(f.soyad),n(f.adres),n(f.aciklama),n(f.urunId),n(f.depoId),n(f.gibUuid),n(f.kdvOrani),n(f.alinanUcret),n(f.matrah),n(f.kdvTutari),n(f.tevkifatOrani),n(f.tevkifatTutari),n(f.stopajOrani),n(f.stopajTutari),n(f.faturaTarihi),n(f.vadeTarihi),n(f.tevkifatKodu),n(f.stopajKodu),req.params.id, req.user.companyId]
+      sql: `UPDATE satis_faturalari SET 
+        fatura_no=COALESCE(?,fatura_no),
+        odeme_tarihi=COALESCE(?,odeme_tarihi),
+        odeme_durumu=COALESCE(?,odeme_durumu),
+        odeme_dekontu=COALESCE(?,odeme_dekontu),
+        odeme_dekontu_adi=COALESCE(?,odeme_dekontu_adi),
+        pdf_dosya=COALESCE(?,pdf_dosya),
+        pdf_dosya_adi=COALESCE(?,pdf_dosya_adi),
+        muhasebe_kodu=COALESCE(?,muhasebe_kodu),
+        tc_vkn=COALESCE(?,tc_vkn),
+        ad=COALESCE(?,ad),
+        soyad=COALESCE(?,soyad),
+        adres=COALESCE(?,adres),
+        aciklama=COALESCE(?,aciklama),
+        urun_id=COALESCE(?,urun_id),
+        depo_id=COALESCE(?,depo_id),
+        gib_uuid=COALESCE(?,gib_uuid),
+        kdv_orani=COALESCE(?,kdv_orani),
+        alinan_ucret=COALESCE(?,alinan_ucret),
+        matrah=COALESCE(?,matrah),
+        kdv_tutari=COALESCE(?,kdv_tutari),
+        tevkifat_orani=COALESCE(?,tevkifat_orani),
+        tevkifat_tutari=COALESCE(?,tevkifat_tutari),
+        stopaj_orani=COALESCE(?,stopaj_orani),
+        stopaj_tutari=COALESCE(?,stopaj_tutari),
+        fatura_tarihi=COALESCE(?,fatura_tarihi),
+        vade_tarihi=COALESCE(?,vade_tarihi),
+        tevkifat_kodu=COALESCE(?,tevkifat_kodu),
+        stopaj_kodu=COALESCE(?,stopaj_kodu) 
+      WHERE id=? AND company_id = ?`,
+      args: [
+        n(f.faturaNo), n(f.odemeTarihi), n(f.odemeDurumu), n(dekontPath), n(f.odemeDekontuAdi),
+        n(pdfPath), n(f.pdfDosyaAdi), n(f.muhasebeKodu), n(f.tcVkn), n(f.ad),
+        n(f.soyad), n(f.adres), n(f.aciklama), n(f.urunId), n(f.depoId),
+        n(f.gibUuid), n(f.kdvOrani), n(f.alinanUcret), n(f.matrah), n(f.kdvTutari),
+        n(f.tevkifatOrani), n(f.tevkifatTutari), n(f.stopajOrani), n(f.stopajTutari),
+        n(f.faturaTarihi), n(f.vadeTarihi), n(f.tevkifatKodu), n(f.stopajKodu),
+        req.params.id, req.user.companyId
+      ]
     });
 
     const stokKalemleri = f.stokKalemleri || [];
@@ -3919,8 +3956,41 @@ app.put('/api/alis-faturalari/:id', authMiddleware, async (req, res) => {
     const dekontPath = f.odemeDekontu !== undefined ? saveBase64File(f.odemeDekontu, f.odemeDekontuAdi || 'dekont.pdf', 'dekontlar') : undefined;
 
     await client.execute({
-      sql: 'UPDATE alis_faturalari SET odeme_tarihi=?,odeme_durumu=?,odeme_dekontu=COALESCE(?,odeme_dekontu),odeme_dekontu_adi=COALESCE(?,odeme_dekontu_adi),pdf_dosya=COALESCE(?,pdf_dosya),pdf_dosya_adi=COALESCE(?,pdf_dosya_adi),vehicle_plate=?,fatura_no=COALESCE(?,fatura_no),fatura_tarihi=COALESCE(?,fatura_tarihi),tedarikci_adi=COALESCE(?,tedarikci_adi),tedarikci_vkn=COALESCE(?,tedarikci_vkn),mal_hizmet_adi=COALESCE(?,mal_hizmet_adi),toplam_tutar=COALESCE(?,toplam_tutar),kdv_orani=COALESCE(?,kdv_orani),kdv_tutari=COALESCE(?,kdv_tutari),matrah=COALESCE(?,matrah),tevkifat_orani=COALESCE(?,tevkifat_orani),tevkifat_tutari=COALESCE(?,tevkifat_tutari),stopaj_orani=COALESCE(?,stopaj_orani),stopaj_tutari=COALESCE(?,stopaj_tutari),muhasebe_kodu=COALESCE(?,muhasebe_kodu),karsi_hesap_kodu=COALESCE(?,karsi_hesap_kodu),aciklama=COALESCE(?,aciklama),vade_tarihi=COALESCE(?,vade_tarihi) WHERE id=? AND company_id = ?',
-      args: [n(f.odemeTarihi),n(f.odemeDurumu),dekontPath,n(f.odemeDekontuAdi),pdfPath,n(f.pdfDosyaAdi),n(f.vehiclePlate),n(f.faturaNo),n(f.faturaTarihi),n(f.tedarikciAdi),n(f.tedarikciVkn),n(f.malHizmetAdi),n(f.toplamTutar),n(f.kdvOrani),n(f.kdvTutari),n(f.matrah),n(f.tevkifatOrani),n(f.tevkifatTutari),n(f.stopajOrani),n(f.stopajTutari),n(f.muhasebeKodu),n(f.karsiHesapKodu),n(f.aciklama),n(f.vadeTarihi),req.params.id, req.user.companyId]
+      sql: `UPDATE alis_faturalari SET 
+        odeme_tarihi=COALESCE(?,odeme_tarihi),
+        odeme_durumu=COALESCE(?,odeme_durumu),
+        odeme_dekontu=COALESCE(?,odeme_dekontu),
+        odeme_dekontu_adi=COALESCE(?,odeme_dekontu_adi),
+        pdf_dosya=COALESCE(?,pdf_dosya),
+        pdf_dosya_adi=COALESCE(?,pdf_dosya_adi),
+        vehicle_plate=COALESCE(?,vehicle_plate),
+        fatura_no=COALESCE(?,fatura_no),
+        fatura_tarihi=COALESCE(?,fatura_tarihi),
+        tedarikci_adi=COALESCE(?,tedarikci_adi),
+        tedarikci_vkn=COALESCE(?,tedarikci_vkn),
+        mal_hizmet_adi=COALESCE(?,mal_hizmet_adi),
+        toplam_tutar=COALESCE(?,toplam_tutar),
+        kdv_orani=COALESCE(?,kdv_orani),
+        kdv_tutari=COALESCE(?,kdv_tutari),
+        matrah=COALESCE(?,matrah),
+        tevkifat_orani=COALESCE(?,tevkifat_orani),
+        tevkifat_tutari=COALESCE(?,tevkifat_tutari),
+        stopaj_orani=COALESCE(?,stopaj_orani),
+        stopaj_tutari=COALESCE(?,stopaj_tutari),
+        muhasebe_kodu=COALESCE(?,muhasebe_kodu),
+        karsi_hesap_kodu=COALESCE(?,karsi_hesap_kodu),
+        aciklama=COALESCE(?,aciklama),
+        vade_tarihi=COALESCE(?,vade_tarihi) 
+      WHERE id=? AND company_id = ?`,
+      args: [
+        n(f.odemeTarihi), n(f.odemeDurumu), n(dekontPath), n(f.odemeDekontuAdi),
+        n(pdfPath), n(f.pdfDosyaAdi), n(f.vehiclePlate), n(f.faturaNo),
+        n(f.faturaTarihi), n(f.tedarikciAdi), n(f.tedarikciVkn), n(f.malHizmetAdi),
+        n(f.toplamTutar), n(f.kdvOrani), n(f.kdvTutari), n(f.matrah),
+        n(f.tevkifatOrani), n(f.tevkifatTutari), n(f.stopajOrani), n(f.stopajTutari),
+        n(f.muhasebeKodu), n(f.karsiHesapKodu), n(f.aciklama), n(f.vadeTarihi),
+        req.params.id, req.user.companyId
+      ]
     });
 
     const stokKalemleriAlis = f.stokKalemleri || [];
