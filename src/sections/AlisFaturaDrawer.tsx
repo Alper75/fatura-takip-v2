@@ -709,18 +709,33 @@ MALİ MÜŞAVİRLİK VE KDV AYRIŞTIRMA KURALLARI:
    - Türkiye'de geçerli resmi KDV oranları yalnızca %1, %10 ve %20'dir (istisna/muaf hallerde %0).
    - KESİNLİKLE %18 veya %8 KDV KULLANMA! Temmuz 2023 mevzuat değişikliği ile eski %18 oranı %20, eski %8 oranı ise %10 olmuştur. Eski cihazlar veya yazar kasa yazılımları fiş üzerine '%8' veya '%18' bassa dahi sen bunları güncel oranlara (%8 -> %10, %18 -> %20) dönüştürerek yazmalısın.
 
-2. FİŞLERDE ÇOKLU KDV AYRIŞTIRMA KURALI (EN KRİTİK KURAL):
-   - Market, süpermarket, restoran, akaryakıt istasyonu vb. harcama fişlerinin ALT KISMINDA YER ALAN "KDV / MATRAH / KDV DÖKÜM TABLOSU" veya "TOPKDV" alanlarını mutlaka dikkatle oku.
-   - Perakende fişlerinde genellikle alt kısımda "%10 KDV: xx TL", "%20 KDV: xx TL" veya "KDV %10 MATRAH: ...", "KDV %20 MATRAH: ..." şeklinde KDV oranlarına göre ayrılmış bir döküm tablosu yer alır. Ayrıca ürün satırlarının yanında da KDV belirteçleri (*, **, %01, %10, %20 veya vergi harfleri A, B) bulunur.
-   - EĞER FİŞTE BİRDEN FAZLA FARKLI KDV ORANI VARSA (Örn: Fişte hem %10 Gıda hem %20 Temizlik/Kozmetik/Hizmet harcaması varsa):
-     - Fişi KESİNLİKLE tek bir KDV oranına (%20'ye) sıkıştırma!
-     - Her bir farklı KDV oranı grubu için AYRI BİR JSON OBJESİ OLUŞTUR.
-     - Örneğin: Fişin Genel Toplamı 500 TL olsun. Alt tabloda %10 KDV'li ürünlerin toplamı 180 TL, %20 KDV'li ürünlerin toplamı 320 TL ise:
-       * 1. Obje: tutar: "180.00", kdv_orani: "10", malHizmetAdi: "Gıda / Market Harcaması (%10 KDV)"
-       * 2. Obje: tutar: "320.00", kdv_orani: "20", malHizmetAdi: "Temizlik / Tüketim Harcaması (%20 KDV)"
-     - Bu objelerin "tutar" alanlarının toplamı, fişin üzerindeki GENEL TOPLAM tutarına kuruşu kuruşuna eşit olmalıdır (180 + 320 = 500)!
-   - EĞER FİŞTEKİ TÜM KALEMLER AYNI KDV ORANINDAYSA:
-     - Sadece 1 adet JSON objesi oluştur, genel toplamı ve o KDV oranını yaz. Satır satır ürünleri tek tek ayırma, KDV oranı bazında birleştirilmiş tek bir toplam obje oluştur.
+2. FİŞLERDE ÇOKLU KDV AYRIŞTIRMA VE HESAPLAMA (EN KRİTİK KURAL):
+   Türkiye'deki perakende fişlerinde KDV oranları 2 farklı biçimde yer alır. Her iki durumu da mutlaka analiz etmelisin:
+
+   A) KALEM / SATIR BAZINDA KDV YAZAN FİŞLER (ÇOK YAYGIN - ÖRN: KOÇTAŞ, BAUHAUS, METRO, MİGROS, TEKZEN VB.):
+      - Bu fişlerin alt tarafında KDV oranları ayrılmamış olabilir; alt toplamda sadece "TOPKDV *920,85" ve "TOPLAM *6.465,54" gibi tek bir KDV toplamı ve tek bir genel toplam yer alabilir.
+      - ANCAK fişin ürün satırlarını incelediğinde HER ÜRÜNÜN YANINDA AÇIKÇA KDV ORANI YAZAR!
+        Örnek (Koçtaş veya yapı market fişi):
+        * FANTOM MAGIC %20 *2.999,00
+        * STILERA AYAKKABILIK %10 *1.899,00
+        * X MODEL CAM OTO %20 *179,98
+        * Bez Çanta Dikey %10 *19,99
+        * MACROMAX Multi SPRE %10 *149,99
+        * ÇEK PAS 55 CM %20 *129,90 ... vb.
+      - BÖYLE BİR FİŞTE ALTTA DÖKÜM TABLOSU YOK DİYE KESİNLİKLE TÜM FİŞİ TEK BİR ORANA (%20'ye) YIĞMA!
+      - Tüm ürün satırlarını yukarıdan aşağıya tek tek incele:
+        * Yanında %10 yazan tüm ürünlerin tutarlarını topla -> %10 KDV Grubu Tutarı (Örn: 1.899,00 + 19,99 + 149,99 = 2.068,98 TL).
+        * Yanında %20 yazan tüm ürünlerin tutarlarını topla -> %20 KDV Grubu Tutarı (Örn: 2.999,00 + 179,98 + 139,98 + 129,90 + 159,90 + 197,90 + 589,90 = 4.396,56 TL).
+        * Varsa %1 yazan ürünlerin tutarlarını topla -> %1 KDV Grubu Tutarı.
+      - Her farklı KDV oranı grubu için 1 adet JSON objesi oluştur.
+
+   B) ALTINDA KDV / MATRAH DÖKÜM TABLOSU OLAN FİŞLER (ÖRN: BİM, A101, ŞOK, RESTORAN, BENZİNLİK VB.):
+      - Fişin alt kısmında "%10 KDV: xx TL", "%20 KDV: xx TL" veya "KDV %10 MATRAH: ...", "KDV %20 MATRAH: ..." şeklinde bir tablo varsa, bu tablodaki dökümü esas alarak KDV gruplarını ayır.
+
+   C) MATEMATİKSEL SAĞLAMA VE TUTAR KONTROLÜ (ZORUNLU):
+      - Fiş için oluşturduğun KDV grubu JSON objelerindeki "tutar" değerlerinin toplamı, fişin üzerindeki GENEL TOPLAM tutarına kuruşu kuruşuna EŞİT OLMALIDIR!
+        (Örn: 2.068,98 TL [%10] + 4.396,56 TL [%20] = 6.465,54 TL Genel Toplam).
+      - Bir fişte tüm ürünler tek bir KDV oranındaysa sadece 1 adet JSON objesi üret. Ancak fişte hem %10 hem %20 varsa MUTLAKA her KDV oranı için 1'er adet (toplam 2 adet) JSON objesi üret.
 
 3. GENEL GİDER - TİCARİ MAL AYRIMI: Şirket içi tüketim, yemek (restoran/lokanta), akaryakıt/yakıt, konaklama/otel, kırtasiye, ofis tüketim, market, temizlik, kargo gibi harcama fişleri KESİNLİKLE 7'li gider hesaplarına (Örn: 770 Genel Yönetim Giderleri) atılmalıdır. 153 Ticari Mallar hesabı SADECE işletmenin satmak amacıyla aldığı ürünler içindir. Fişin niteliğine göre en uygun gider kodunu seç.
 4. AKARYAKIT PLAKA KURALI: Eğer bu bir akaryakıt fişi/faturası ise, fiş üzerinde yazan ARAÇ PLAKASINI mutlaka "plate" alanına yaz (Örn: 34ABC123).

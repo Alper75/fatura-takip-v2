@@ -465,11 +465,14 @@ ${first.plate ? `🚗 *Plaka:* \`${first.plate}\`\n` : ''}${first.odemeSekli ? `
 Görseldeki fiş veya faturayı bir mali müşavir titizliğiyle analiz et ve SADECE aşağıdaki JSON formatında çıktı ver.
 
 KURALLAR:
-1. KDV BİRLEŞTİRME VE AYRIŞTIRMA KURALI (EN KRİTİK KURAL):
-   - Fiş üzerindeki ürün veya hizmetleri KESİNLİKLE satır satır tek tek ayırma!
-   - Aynı fişte yer alan ve AYNI KDV ORANINA SAHİP tüm ürün/hizmet kalemlerinin tutarlarını TOPLAYARAK TEK BİR KAYIT haline getir.
-   - ÖRNEK: Fişte %10 KDV'li 4 farklı kalem varsa, 4 ayrı kayıt AÇMA! Bunları topla ve SADECE 1 ADET JSON objesi oluştur (tutar: toplam tutar, kdv_orani: "10").
-   - BİRDEN FAZLA KAYIT YALNIZCA VE YALNIZCA fişte BİRDEN FAZLA FARKLI KDV ORANI VARSA (Örn: fişte hem %10 hem %20 varsa) her KDV oranı için 1'er adet toplam kayıt olarak oluşturulmalıdır. Fişteki tüm kalemler aynı KDV oranındaysa KESİNLİKLE SADECE 1 ADET JSON objesi döndürülmelidir!
+1. GÜNCEL KDV MEVZUATI VE ÇOKLU KDV AYRIŞTIRMA (EN KRİTİK KURAL):
+   - Geçerli resmi KDV oranları yalnızca %1, %10 ve %20'dir. %18 veya %8 görürsen güncel oranlara (%8 -> %10, %18 -> %20) dönüştür.
+   - BAZI FİŞLERDE (ÖRN: KOÇTAŞ, BAUHAUS, METRO VB.) ALTTA KDV DÖKÜMÜ YAZMAZ, SADECE TEK BİR 'TOPKDV' VE 'TOPLAM' YAZAR; ANCAK HER ÜRÜNÜN YANINDA AÇIKÇA %10 VEYA %20 YAZAR!
+   - Böyle fişlerde tüm fişi tek bir orana (%20) yığma! Ürün satırlarını tara:
+     * %10 yazan ürünlerin tutarlarını topla -> %10 KDV Grubu Tutarı
+     * %20 yazan ürünlerin tutarlarını topla -> %20 KDV Grubu Tutarı
+     * Varsa %1 yazanları topla -> %1 KDV Grubu Tutarı
+   - Her farklı KDV oranı için 1 adet JSON objesi oluştur. Tutarları toplamı fişin genel toplamına kuruşu kuruşuna eşit olmalıdır. Fişteki tüm kalemler aynı KDV oranındaysa sadece 1 adet JSON objesi üret.
 2. Akaryakıt fişlerinde araç plakasını 'plate' alanına yaz.
 3. Slipte kredi kartı ibaresi veya son 4 hane varsa 'odeme_sekli': 'KREDI_KARTI' yap, nakit ise 'NAKIT' yap.
 
