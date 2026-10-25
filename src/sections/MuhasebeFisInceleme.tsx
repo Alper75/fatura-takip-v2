@@ -3,6 +3,7 @@ import { useApp } from '@/context/AppContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { LucaAccountSelect } from '@/components/LucaAccountSelect';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -133,7 +134,7 @@ export function MuhasebeFisInceleme() {
     }
 
     setEditMuhasebeKodu(currentFatura.muhasebeKodu || '');
-    setEditKarsiHesapKodu(currentFatura.karsiHesapKodu || '100.01');
+    setEditKarsiHesapKodu(currentFatura.karsiHesapKodu || (currentFatura.cariId ? '320.01' : '100.01'));
     setEditAciklama(currentFatura.aciklama || `${currentFatura.tedarikciAdi} - ${currentFatura.faturaNo}`);
     setZoomLevel(1);
     setRotation(0);
@@ -276,12 +277,17 @@ export function MuhasebeFisInceleme() {
     if (found) return found.ad;
     // Varsayılan Muhasebe İsimleri
     if (code.startsWith('770')) return 'Genel Yönetim Giderleri';
+    if (code.startsWith('760')) return 'Pazarlama Satış Dağıtım Giderleri';
+    if (code.startsWith('740')) return 'Hizmet Üretim Maliyeti';
     if (code.startsWith('153')) return 'Ticari Mallar';
     if (code.startsWith('191')) return 'İndirilecek KDV';
     if (code.startsWith('100')) return 'Kasa Hesabı';
+    if (code.startsWith('102')) return 'Bankalar Hesabı';
     if (code.startsWith('108')) return 'Diğer Hazır Değerler (Kredi Kartı Slipleri)';
     if (code.startsWith('300') || code.startsWith('309')) return 'Kredi Kartı Borçları';
     if (code.startsWith('320')) return 'Satıcılar Cari Hesabı';
+    if (code.startsWith('329')) return 'Diğer Ticari Borçlar';
+    if (code.startsWith('331')) return 'Ortaklara Borçlar Hesabı';
     if (code.startsWith('689')) return 'Kanunen Kabul Edilmeyen Giderler (KKEG)';
     if (code.startsWith('360')) return 'Ödenecek Vergi ve Fonlar (Stopaj/Tevkifat)';
     return 'Tanımlı Hesap';
@@ -444,6 +450,7 @@ export function MuhasebeFisInceleme() {
     setIsUpdating(true);
     try {
       await updateAlisFatura(currentFatura.id, {
+        ...currentFatura,
         muhasebeKodu: editMuhasebeKodu,
         karsiHesapKodu: editKarsiHesapKodu,
         aciklama: editAciklama
@@ -846,57 +853,33 @@ export function MuhasebeFisInceleme() {
               </div>
 
               {/* Fiş Üst Açıklama Alanı */}
-              <div className="bg-slate-50 dark:bg-slate-800/40 border-b border-slate-200 dark:border-slate-800 p-2.5 px-3 grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
+              <div className="bg-slate-50 dark:bg-slate-800/40 border-b border-slate-200 dark:border-slate-800 p-2.5 px-3 grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs items-end">
                 <div>
-                  <span className="text-slate-500 font-medium block text-[10px] uppercase">Gider / Alış Hesabı</span>
-                  <div className="mt-1">
-                    <Select value={editMuhasebeKodu} onValueChange={setEditMuhasebeKodu}>
-                      <SelectTrigger className="h-7 text-xs bg-white dark:bg-slate-900">
-                        <SelectValue placeholder="Hesap Kodu Seçin" />
-                      </SelectTrigger>
-                      <SelectContent className="max-h-60">
-                        {lucaAccounts && lucaAccounts.length > 0 ? (
-                          lucaAccounts.map(acc => (
-                            <SelectItem key={acc.kod} value={acc.kod} className="text-xs">
-                              <b>{acc.kod}</b> - {acc.ad}
-                            </SelectItem>
-                          ))
-                        ) : (
-                          <>
-                            <SelectItem value="770.01.001">770.01.001 - Yemek ve Mutfak Gideri</SelectItem>
-                            <SelectItem value="770.02.001">770.02.001 - Taşıt ve Akaryakıt Gideri</SelectItem>
-                            <SelectItem value="770.03.001">770.03.001 - Kırtasiye ve Büro Gideri</SelectItem>
-                            <SelectItem value="153.01.001">153.01.001 - Ticari Mallar Alışı</SelectItem>
-                          </>
-                        )}
-                      </SelectContent>
-                    </Select>
-                  </div>
+                  <span className="text-slate-500 font-medium block text-[10px] uppercase mb-1">Gider / Alış Hesabı</span>
+                  <LucaAccountSelect 
+                    value={editMuhasebeKodu} 
+                    onChange={setEditMuhasebeKodu} 
+                    placeholder="Gider hesabı seçin..."
+                    className="h-8 text-xs bg-white dark:bg-slate-900"
+                  />
                 </div>
 
                 <div>
-                  <span className="text-slate-500 font-medium block text-[10px] uppercase">Karşı Hesap (Ödeme / Cari)</span>
-                  <div className="mt-1">
-                    <Select value={editKarsiHesapKodu} onValueChange={setEditKarsiHesapKodu}>
-                      <SelectTrigger className="h-7 text-xs bg-white dark:bg-slate-900">
-                        <SelectValue placeholder="Karşı Hesap Seçin" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="100.01">100.01 - Merkez Kasa (Nakit)</SelectItem>
-                        <SelectItem value="108.01">108.01 - Kredi Kartı Slipleri</SelectItem>
-                        <SelectItem value="300.01">300.01 - Şirket Kredi Kartı Hesabı</SelectItem>
-                        <SelectItem value="320.01">320.01 - Satıcı Cari Hesabı</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
+                  <span className="text-slate-500 font-medium block text-[10px] uppercase mb-1">Karşı Hesap (Ödeme / Cari / 331)</span>
+                  <LucaAccountSelect 
+                    value={editKarsiHesapKodu} 
+                    onChange={setEditKarsiHesapKodu} 
+                    placeholder="Karşı hesap seçin (100, 331, 320, 102...)"
+                    className="h-8 text-xs bg-white dark:bg-slate-900 border-amber-200 focus-visible:ring-amber-500"
+                  />
                 </div>
 
                 <div>
-                  <span className="text-slate-500 font-medium block text-[10px] uppercase">Fiş Açıklaması</span>
+                  <span className="text-slate-500 font-medium block text-[10px] uppercase mb-1">Fiş Açıklaması</span>
                   <Input 
                     value={editAciklama} 
                     onChange={(e) => setEditAciklama(e.target.value)}
-                    className="h-7 text-xs mt-1 bg-white dark:bg-slate-900"
+                    className="h-8 text-xs bg-white dark:bg-slate-900"
                     placeholder="Yevmiye fiş açıklaması"
                   />
                 </div>

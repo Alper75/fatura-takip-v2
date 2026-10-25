@@ -236,10 +236,14 @@ export function AlisFaturaListesi() {
       tevkifatOrani: fatura.tevkifatOrani || '0',
       stopajOrani: fatura.stopajOrani || '0',
       muhasebeKodu: (fatura as any).muhasebeKodu || '',
+      karsiHesapKodu: (fatura as any).karsiHesapKodu || '',
       aciklama: (fatura as any).aciklama || '',
       cariId: fatura.cariId,
       vadeTarihi: fatura.vadeTarihi || '',
       vehiclePlate: (fatura as any).vehiclePlate || '',
+      dosyaBase64: (fatura as any).pdfDosya || '',
+      dosyaAdi: (fatura as any).pdfDosyaAdi || '',
+      tutarTuru: (fatura as any).tutarTuru || 'dahil',
       stokKalemleri: (fatura as any).stokKalemleri
     };
     openAlisDrawer(initialData as any);

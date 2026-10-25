@@ -1515,6 +1515,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       kdv1: pre.kdv1 || 0, kdv10: pre.kdv10 || 0, kdv20: pre.kdv20 || 0,
       tevkifatOrani: formData.tevkifatOrani || '0', tevkifatTutari: hesaplanan.tevkifatTutari || 0,
       stopajOrani: formData.stopajOrani || '0', stopajTutari: hesaplanan.stopajTutari || 0,
+      muhasebeKodu: pre.muhasebeKodu || '',
+      karsiHesapKodu: pre.karsiHesapKodu || '',
+      aciklama: pre.aciklama || '',
+      vehiclePlate: pre.vehiclePlate || null,
       pdfDosya: formData.dosyaBase64 || null, pdfDosyaAdi: formData.dosyaAdi || undefined,
       cariId: formData.cariId, vadeTarihi: formData.vadeTarihi || null,
       odemeTarihi: null, odemeDurumu: 'odenmedi',
@@ -1528,7 +1532,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         method: 'POST',
         body: JSON.stringify({
           ...yeniFatura,
-          muhasebeKodu: pre.muhasebeKodu,
+          muhasebeKodu: pre.muhasebeKodu || '',
+          karsiHesapKodu: pre.karsiHesapKodu || '',
           vehiclePlate: pre.vehiclePlate,
           aciklama: pre.aciklama,
           urunId: formData.urunId,
@@ -1556,72 +1561,61 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const updateAlisFatura = useCallback(async (id: string, formData: AlisFaturaFormData) => {
     const pre = formData as any;
+    const existing = alisFaturalari.find(f => f.id === id);
+
     const hesaplanan = (pre.matrah !== undefined && pre.matrah !== null && pre.matrah > 0)
       ? { matrah: pre.matrah, kdvTutari: pre.kdvTutari, tevkifatTutari: pre.tevkifatTutari, stopajTutari: pre.stopajTutari }
-      : calculateAlisFatura(formData);
+      : (formData.toplamTutar !== undefined ? calculateAlisFatura(formData) : {
+          matrah: existing?.matrah || 0,
+          kdvTutari: existing?.kdvTutari || 0,
+          tevkifatTutari: existing?.tevkifatTutari || 0,
+          stopajTutari: existing?.stopajTutari || 0
+        });
 
-    const toplamTutarFinal = pre.toplamTutarNet > 0 ? pre.toplamTutarNet : (parseFloat(formData.toplamTutar) || 0);
+    const toplamTutarFinal = pre.toplamTutarNet > 0 
+      ? pre.toplamTutarNet 
+      : (formData.toplamTutar !== undefined ? (parseFloat(formData.toplamTutar) || 0) : (existing?.toplamTutar || 0));
 
-    setAlisFaturalari(prev => prev.map(f => f.id === id ? {
-      ...f,
-      faturaNo: formData.faturaNo,
-      faturaTarihi: formData.faturaTarihi,
-      tedarikciAdi: formData.tedarikciAdi,
-      tedarikciVkn: formData.tedarikciVkn,
-      malHizmetAdi: formData.malHizmetAdi,
+    const mergedFatura = {
+      faturaNo: formData.faturaNo !== undefined ? formData.faturaNo : (existing?.faturaNo || ''),
+      faturaTarihi: formData.faturaTarihi !== undefined ? formData.faturaTarihi : (existing?.faturaTarihi || ''),
+      tedarikciAdi: formData.tedarikciAdi !== undefined ? formData.tedarikciAdi : (existing?.tedarikciAdi || ''),
+      tedarikciVkn: formData.tedarikciVkn !== undefined ? formData.tedarikciVkn : (existing?.tedarikciVkn || ''),
+      malHizmetAdi: formData.malHizmetAdi !== undefined ? formData.malHizmetAdi : (existing?.malHizmetAdi || ''),
       toplamTutar: Math.round(toplamTutarFinal * 100) / 100,
-      kdvOrani: parseFloat(formData.kdvOrani) || 0,
+      kdvOrani: formData.kdvOrani !== undefined ? (parseFloat(formData.kdvOrani) || 0) : (existing?.kdvOrani || 0),
       kdvTutari: hesaplanan.kdvTutari || 0,
       matrah: hesaplanan.matrah || 0,
-      tevkifatOrani: formData.tevkifatOrani || '0',
+      tevkifatOrani: formData.tevkifatOrani !== undefined ? formData.tevkifatOrani : (existing?.tevkifatOrani || '0'),
       tevkifatTutari: hesaplanan.tevkifatTutari || 0,
-      stopajOrani: formData.stopajOrani || '0',
+      stopajOrani: formData.stopajOrani !== undefined ? formData.stopajOrani : (existing?.stopajOrani || '0'),
       stopajTutari: hesaplanan.stopajTutari || 0,
-      muhasebeKodu: pre.muhasebeKodu || (f as any).muhasebeKodu || '',
-      karsiHesapKodu: pre.karsiHesapKodu || (f as any).karsiHesapKodu || '',
-      aciklama: pre.aciklama || (f as any).aciklama || '',
-      cariId: formData.cariId,
-      vadeTarihi: formData.vadeTarihi || null,
-      vehiclePlate: pre.vehiclePlate || (f as any).vehiclePlate || null,
-      pdfDosya: pre.pdfDosya !== undefined ? pre.pdfDosya : f.pdfDosya,
-      pdfDosyaAdi: pre.pdfDosyaAdi !== undefined ? pre.pdfDosyaAdi : f.pdfDosyaAdi,
-      stokKalemleri: (formData as any).stokKalemleri || (f as any).stokKalemleri
-    } : f));
+      muhasebeKodu: pre.muhasebeKodu !== undefined ? pre.muhasebeKodu : ((existing as any)?.muhasebeKodu || ''),
+      karsiHesapKodu: pre.karsiHesapKodu !== undefined ? pre.karsiHesapKodu : ((existing as any)?.karsiHesapKodu || ''),
+      aciklama: pre.aciklama !== undefined ? pre.aciklama : ((existing as any)?.aciklama || ''),
+      cariId: formData.cariId !== undefined ? formData.cariId : existing?.cariId,
+      vadeTarihi: formData.vadeTarihi !== undefined ? formData.vadeTarihi : (existing?.vadeTarihi || null),
+      vehiclePlate: pre.vehiclePlate !== undefined ? pre.vehiclePlate : ((existing as any)?.vehiclePlate || null),
+      pdfDosya: pre.pdfDosya !== undefined ? pre.pdfDosya : existing?.pdfDosya,
+      pdfDosyaAdi: pre.pdfDosyaAdi !== undefined ? pre.pdfDosyaAdi : existing?.pdfDosyaAdi,
+      stokKalemleri: (formData as any).stokKalemleri || (existing as any)?.stokKalemleri || []
+    };
+
+    setAlisFaturalari(prev => prev.map(f => f.id === id ? { ...f, ...mergedFatura } : f));
 
     try {
       await apiFetch(`/api/alis-faturalari/${id}`, {
         method: 'PUT',
         body: JSON.stringify({
-          faturaNo: formData.faturaNo,
-          faturaTarihi: formData.faturaTarihi,
-          tedarikciAdi: formData.tedarikciAdi,
-          tedarikciVkn: formData.tedarikciVkn,
-          malHizmetAdi: formData.malHizmetAdi,
-          toplamTutar: Math.round(toplamTutarFinal * 100) / 100,
-          kdvOrani: parseFloat(formData.kdvOrani),
-          kdvTutari: hesaplanan.kdvTutari,
-          matrah: hesaplanan.matrah,
-          tevkifatOrani: formData.tevkifatOrani,
-          tevkifatTutari: hesaplanan.tevkifatTutari,
-          stopajOrani: formData.stopajOrani,
-          stopajTutari: hesaplanan.stopajTutari,
-          muhasebeKodu: pre.muhasebeKodu,
-          karsiHesapKodu: pre.karsiHesapKodu,
-          aciklama: pre.aciklama,
-          vadeTarihi: formData.vadeTarihi,
-          vehiclePlate: pre.vehiclePlate,
-          cariId: formData.cariId,
+          ...mergedFatura,
           urunId: formData.urunId,
-          depoId: formData.depoId,
-          pdfDosya: pre.pdfDosya,
-          pdfDosyaAdi: pre.pdfDosyaAdi,
-          stokKalemleri: (formData as any).stokKalemleri || []
+          depoId: formData.depoId
         })
       });
     } catch (e) {
       console.error('Alış fatura güncellenemedi:', e);
     }
-  }, []);
+  }, [alisFaturalari]);
 
   const updateAlisFaturaOdeme = useCallback(async (id: string, odemeTarihi: string, odemeDurumu: 'odenmedi' | 'odendi' | 'bekliyor') => {
     setAlisFaturalari(prev => prev.map(f => f.id === id ? { ...f, odemeTarihi, odemeDurumu } : f));

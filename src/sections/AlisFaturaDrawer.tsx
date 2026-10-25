@@ -125,24 +125,41 @@ export function AlisFaturaDrawer() {
       .catch(console.error);
   }, []);
 
-  // Initialize with one form if open and empty
+  // Form başlatma ve güncelleme (Düzenleme veya yeni giriş)
   useEffect(() => {
-    if (isAlisDrawerOpen && forms.length === 0) {
-      if (alisInitialData) {
-        let aiKodu = alisInitialData.muhasebeKodu;
-        if (!aiKodu && kurallar.length > 0) {
-           const text = `${alisInitialData.tedarikciAdi || ''} ${alisInitialData.malHizmetAdi || ''}`.toLowerCase();
-           for (const rule of kurallar) {
-             if (text.includes(rule.anahtar_kelime.toLowerCase())) {
-               aiKodu = rule.muhasebe_kodu;
-               break;
-             }
-           }
+    if (!isAlisDrawerOpen) {
+      // Çekmece kapandığında formu ve yüklenen dosyaları temizle
+      setForms([]);
+      setUploadedFiles([]);
+      setScanProgress(null);
+      setAiAddedCount(0);
+      setIsScanning(false);
+      setPreviewImage(null);
+      setFormFilter('all');
+      return;
+    }
+
+    if (alisInitialData) {
+      // Düzenleme veya aktarım modu: Her seferinde gelen veriyle formu doldur
+      let aiKodu = alisInitialData.muhasebeKodu;
+      if (!aiKodu && kurallar.length > 0) {
+        const text = `${alisInitialData.tedarikciAdi || ''} ${alisInitialData.malHizmetAdi || ''}`.toLowerCase();
+        for (const rule of kurallar) {
+          if (text.includes(rule.anahtar_kelime.toLowerCase())) {
+            aiKodu = rule.muhasebe_kodu;
+            break;
+          }
         }
-        setForms([{ id: Date.now(), data: { ...INITIAL_FORM, ...alisInitialData, muhasebeKodu: aiKodu }, tutarTuru: 'dahil', errors: {} }]);
-      } else {
-        setForms([{ id: Date.now(), data: INITIAL_FORM, tutarTuru: 'dahil', errors: {} }]);
       }
+      setForms([{
+        id: Date.now(),
+        data: { ...INITIAL_FORM, ...alisInitialData, muhasebeKodu: aiKodu },
+        tutarTuru: (alisInitialData as any).tutarTuru || 'dahil',
+        errors: {}
+      }]);
+    } else {
+      // Yeni alış faturası/fişi ekleme modu: Eğer form boşsa tek boş formla başlat
+      setForms(prev => (prev.length === 0 ? [{ id: Date.now(), data: INITIAL_FORM, tutarTuru: 'dahil', errors: {} }] : prev));
     }
   }, [isAlisDrawerOpen, alisInitialData, kurallar]);
 
@@ -170,33 +187,42 @@ export function AlisFaturaDrawer() {
   const [hasPendingDraft, setHasPendingDraft] = useState(false);
   const [previewImage, setPreviewImage] = useState<{ url: string; name: string } | null>(null);
 
-  // Çekmece açıldığında taslak var mı kontrol et (IndexedDB + localStorage)
+  // Çekmece açıldığında taslak var mı kontrol et (IndexedDB + localStorage) - Düzenleme modunda taslak aranmaz
   useEffect(() => {
-    if (isAlisDrawerOpen) {
+    if (isAlisDrawerOpen && !alisInitialData) {
       let isCancelled = false;
       (async () => {
         try {
           const idbData = await getDraftData<any[]>('alis_fatura_draft_forms_v2');
-          if (!isCancelled && Array.isArray(idbData) && idbData.length > 0) {
+          const cleanIdb = Array.isArray(idbData) ? idbData.filter(d => !d?.data?.id) : [];
+          if (!isCancelled && cleanIdb.length > 0) {
             setHasPendingDraft(true);
             return;
           }
           const raw = localStorage.getItem('alis_fatura_draft_forms_v2');
           if (raw) {
             const parsed = JSON.parse(raw);
-            if (!isCancelled && Array.isArray(parsed) && parsed.length > 0) {
+            const cleanLocal = Array.isArray(parsed) ? parsed.filter((d: any) => !d?.data?.id) : [];
+            if (!isCancelled && cleanLocal.length > 0) {
               setHasPendingDraft(true);
             }
           }
         } catch (e) {}
       })();
       return () => { isCancelled = true; };
+    } else {
+      setHasPendingDraft(false);
     }
-  }, [isAlisDrawerOpen]);
+  }, [isAlisDrawerOpen, alisInitialData]);
 
-  // Forms değiştikçe otomatik taslak kaydı (IndexedDB'ye görsellerle birlikte tam kaydeder)
+  // Forms değiştikçe otomatik taslak kaydı (Düzenleme modunda KESİNLİKLE taslak kaydetmez)
   useEffect(() => {
     if (!isAlisDrawerOpen || isSaving) return;
+
+    // Düzenleme modunda olan (id'si olan) veya alisInitialData olan faturaları taslak olarak kaydetme!
+    const isEditMode = Boolean(alisInitialData || forms.some(f => Boolean((f.data as any)?.id)));
+    if (isEditMode) return;
+
     const isMeaningful = forms.length > 1 || (forms.length === 1 && (forms[0]?.data?.faturaNo || forms[0]?.data?.tedarikciAdi || forms[0]?.data?.toplamTutar || forms[0]?.data?.malHizmetAdi || forms[0]?.data?.dosyaBase64));
     if (isMeaningful) {
       // 1. IndexedDB: Tam form verisi (görseller / base64 dahil)
@@ -214,17 +240,18 @@ export function AlisFaturaDrawer() {
         localStorage.setItem('alis_fatura_draft_forms_v2', JSON.stringify(lightweightForms));
       } catch (e) {}
     }
-  }, [forms, isAlisDrawerOpen, isSaving]);
+  }, [forms, isAlisDrawerOpen, isSaving, alisInitialData]);
 
   const loadDraft = async () => {
     try {
       // Önce IndexedDB'den tam veriyi (görselleriyle birlikte) almayı dene
       const idbData = await getDraftData<any[]>('alis_fatura_draft_forms_v2');
-      if (Array.isArray(idbData) && idbData.length > 0) {
-        setForms(idbData);
+      const cleanIdb = Array.isArray(idbData) ? idbData.filter(d => !d?.data?.id) : [];
+      if (cleanIdb.length > 0) {
+        setForms(cleanIdb);
         setHasPendingDraft(false);
-        const withImgCount = idbData.filter(d => !!d.data?.dosyaBase64).length;
-        toast.success(`${idbData.length} adet taslak fiş görselleriyle birlikte geri yüklendi! (${withImgCount} görselli)`);
+        const withImgCount = cleanIdb.filter(d => !!d.data?.dosyaBase64).length;
+        toast.success(`${cleanIdb.length} adet taslak fiş görselleriyle birlikte geri yüklendi! (${withImgCount} görselli)`);
         return;
       }
 
@@ -232,10 +259,11 @@ export function AlisFaturaDrawer() {
       const raw = localStorage.getItem('alis_fatura_draft_forms_v2');
       if (raw) {
         const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          setForms(parsed);
+        const cleanLocal = Array.isArray(parsed) ? parsed.filter((d: any) => !d?.data?.id) : [];
+        if (cleanLocal.length > 0) {
+          setForms(cleanLocal);
           setHasPendingDraft(false);
-          toast.success(`${parsed.length} adet taslak fiş geri yüklendi!`);
+          toast.success(`${cleanLocal.length} adet taslak fiş geri yüklendi!`);
         }
       }
     } catch (e) {
@@ -344,7 +372,7 @@ export function AlisFaturaDrawer() {
   };
 
   const handleClose = () => {
-    setForms([{ id: Date.now(), data: INITIAL_FORM, tutarTuru: 'dahil', errors: {} }]);
+    setForms([]);
     setUploadedFiles([]);
     setScanProgress(null);
     setAiAddedCount(0);
@@ -430,6 +458,7 @@ export function AlisFaturaDrawer() {
           tevkifatTutari: hes.tevkifatTutari,
           stopajTutari: hes.stopajTutari,
           muhasebeKodu: f.data.muhasebeKodu,
+          karsiHesapKodu: f.data.karsiHesapKodu,
           dosyaBase64: f.data.dosyaBase64 || '',
           dosyaAdi: f.data.dosyaAdi || ''
         } as any;
@@ -519,7 +548,12 @@ export function AlisFaturaDrawer() {
 
     for (const item of items) {
       if (!item) continue;
-      const rawKdv = String(item.kdv_orani || item.kdvOrani || item.kdv || '20').replace(/[^0-9]/g, '') || '20';
+      let rawKdv = String(item.kdv_orani || item.kdvOrani || item.kdv || '20').replace(/[^0-9]/g, '') || '20';
+      if (rawKdv === '8') rawKdv = '10';
+      if (rawKdv === '18') rawKdv = '20';
+      if (!['1', '10', '20', '0'].includes(rawKdv)) {
+        rawKdv = '20';
+      }
       const faturaNo = (item.faturaNo || item.fatura_no || item.belgeNo || item.belge_no || '').trim().toLowerCase();
       const vendor = (item.tedarikciVkn || item.tedarikci_vkn || item.tedarikciAdi || item.tedarikci_adi || '').trim().toLowerCase();
       const date = (item.faturaTarihi || item.fatura_tarihi || item.tarih || '').trim();
@@ -670,16 +704,28 @@ Görevin: Ekli görsel/belgedeki fatura ve perakende satış fişlerini bir mali
 Bu dosyada BİRDEN FAZLA ayrı fiş veya fatura olabilir. Veya TEK BİR fişte/faturada BİRDEN FAZLA FARKLI KDV oranı (Örn: %1, %10, %20) olabilir.
 Lütfen bulduğun TÜM fiş/faturaları çıkar ve aşağıdaki JSON DİZİSİ formatında döndür. 
 
-MALİ MÜŞAVİRLİK VE MUHASEBE KURALLARI:
-1. KDV BİRLEŞTİRME VE AYRIŞTIRMA KURALI (EN KRİTİK KURAL):
-   - Fiş veya fatura üzerindeki kalemleri KESİNLİKLE satır satır (ürün ürün) ayırma!
-   - Aynı fişte yer alan ve AYNI KDV ORANINA SAHİP tüm ürün/hizmet kalemlerinin KDV dahil tutarlarını TOPLAYARAK TEK BİR KAYIT haline getir.
-   - ÖRNEK: Bir fişte %10 KDV'li 4 farklı kalem varsa (Örn: Ekmek 10 TL, Peynir 50 TL, Süt 30 TL, Çikolata 20 TL), her biri için ayrı kayıt AÇMA! Bunları topla ve SADECE 1 ADET JSON objesi oluştur (tutar: "110.00", kdv_orani: "10", malHizmetAdi: "Gıda / Market Harcaması (%10 KDV)").
-   - BİRDEN FAZLA KAYIT YALNIZCA VE YALNIZCA fişte BİRDEN FAZLA FARKLI KDV ORANI VARSA (Örn: fişte hem %1 hem %10 hem %20'lik kalemler varsa) oluşturulur. Bu durumda her KDV oranı grubu için sadece 1'er adet toplam kayıt üretilmelidir. Bir fişte tüm kalemler aynı KDV oranındaysa KESİNLİKLE SADECE 1 ADET JSON objesi döndürülmelidir!
-2. GENEL GİDER - TİCARİ MAL AYRIMI: Şirket içi tüketim, yemek (restoran/lokanta), akaryakıt/yakıt, konaklama/otel, kırtasiye, ofis tüketim, market, temizlik, kargo gibi harcama fişleri KESİNLİKLE 7'li gider hesaplarına (Örn: 770 Genel Yönetim Giderleri) atılmalıdır. 153 Ticari Mallar hesabı SADECE işletmenin satmak amacıyla aldığı ürünler içindir. Fişin niteliğine göre en uygun gider kodunu seç.
-3. AKARYAKIT PLAKA KURALI: Eğer bu bir akaryakıt fişi/faturası ise, fiş üzerinde yazan ARAÇ PLAKASINI mutlaka "plate" alanına yaz (Örn: 34ABC123).
-4. ÖDEME ŞEKLİ: Fiş/fatura üzerindeki ödeme tipini analiz et. Eğer slip veya fiş üzerinde "**** 1104", "Kredi Kartı", "Banka Kartı" gibi kredi kartı ödemesine dair ibare varsa "odeme_sekli": "KREDI_KARTI" yap ve kartın son 4 hanesini "kredi_karti_son4" alanına yaz (örn: "1104"). Nakit ödenmişse "odeme_sekli": "NAKIT" yap. Açık hesap/vadeli ise "odeme_sekli": "CARI_HESAP" yap.
-5. TEVKİFAT VE STOPAJ: Varsa KDV tevkifat oranını (örn: "2/10", "5/10", "9/10") ve Stopaj oranını tespit et.
+MALİ MÜŞAVİRLİK VE KDV AYRIŞTIRMA KURALLARI:
+1. GÜNCEL KDV MEVZUATI VE KDV ORANLARI (ÇOK KRİTİK):
+   - Türkiye'de geçerli resmi KDV oranları yalnızca %1, %10 ve %20'dir (istisna/muaf hallerde %0).
+   - KESİNLİKLE %18 veya %8 KDV KULLANMA! Temmuz 2023 mevzuat değişikliği ile eski %18 oranı %20, eski %8 oranı ise %10 olmuştur. Eski cihazlar veya yazar kasa yazılımları fiş üzerine '%8' veya '%18' bassa dahi sen bunları güncel oranlara (%8 -> %10, %18 -> %20) dönüştürerek yazmalısın.
+
+2. FİŞLERDE ÇOKLU KDV AYRIŞTIRMA KURALI (EN KRİTİK KURAL):
+   - Market, süpermarket, restoran, akaryakıt istasyonu vb. harcama fişlerinin ALT KISMINDA YER ALAN "KDV / MATRAH / KDV DÖKÜM TABLOSU" veya "TOPKDV" alanlarını mutlaka dikkatle oku.
+   - Perakende fişlerinde genellikle alt kısımda "%10 KDV: xx TL", "%20 KDV: xx TL" veya "KDV %10 MATRAH: ...", "KDV %20 MATRAH: ..." şeklinde KDV oranlarına göre ayrılmış bir döküm tablosu yer alır. Ayrıca ürün satırlarının yanında da KDV belirteçleri (*, **, %01, %10, %20 veya vergi harfleri A, B) bulunur.
+   - EĞER FİŞTE BİRDEN FAZLA FARKLI KDV ORANI VARSA (Örn: Fişte hem %10 Gıda hem %20 Temizlik/Kozmetik/Hizmet harcaması varsa):
+     - Fişi KESİNLİKLE tek bir KDV oranına (%20'ye) sıkıştırma!
+     - Her bir farklı KDV oranı grubu için AYRI BİR JSON OBJESİ OLUŞTUR.
+     - Örneğin: Fişin Genel Toplamı 500 TL olsun. Alt tabloda %10 KDV'li ürünlerin toplamı 180 TL, %20 KDV'li ürünlerin toplamı 320 TL ise:
+       * 1. Obje: tutar: "180.00", kdv_orani: "10", malHizmetAdi: "Gıda / Market Harcaması (%10 KDV)"
+       * 2. Obje: tutar: "320.00", kdv_orani: "20", malHizmetAdi: "Temizlik / Tüketim Harcaması (%20 KDV)"
+     - Bu objelerin "tutar" alanlarının toplamı, fişin üzerindeki GENEL TOPLAM tutarına kuruşu kuruşuna eşit olmalıdır (180 + 320 = 500)!
+   - EĞER FİŞTEKİ TÜM KALEMLER AYNI KDV ORANINDAYSA:
+     - Sadece 1 adet JSON objesi oluştur, genel toplamı ve o KDV oranını yaz. Satır satır ürünleri tek tek ayırma, KDV oranı bazında birleştirilmiş tek bir toplam obje oluştur.
+
+3. GENEL GİDER - TİCARİ MAL AYRIMI: Şirket içi tüketim, yemek (restoran/lokanta), akaryakıt/yakıt, konaklama/otel, kırtasiye, ofis tüketim, market, temizlik, kargo gibi harcama fişleri KESİNLİKLE 7'li gider hesaplarına (Örn: 770 Genel Yönetim Giderleri) atılmalıdır. 153 Ticari Mallar hesabı SADECE işletmenin satmak amacıyla aldığı ürünler içindir. Fişin niteliğine göre en uygun gider kodunu seç.
+4. AKARYAKIT PLAKA KURALI: Eğer bu bir akaryakıt fişi/faturası ise, fiş üzerinde yazan ARAÇ PLAKASINI mutlaka "plate" alanına yaz (Örn: 34ABC123).
+5. ÖDEME ŞEKLİ: Fiş/fatura üzerindeki ödeme tipini analiz et. Eğer slip veya fiş üzerinde "**** 1104", "Kredi Kartı", "Banka Kartı" gibi kredi kartı ödemesine dair ibare varsa "odeme_sekli": "KREDI_KARTI" yap ve kartın son 4 hanesini "kredi_karti_son4" alanına yaz (örn: "1104"). Nakit ödenmişse "odeme_sekli": "NAKIT" yap. Açık hesap/vadeli ise "odeme_sekli": "CARI_HESAP" yap.
+6. TEVKİFAT VE STOPAJ: Varsa KDV tevkifat oranını (örn: "2/10", "5/10", "9/10") ve Stopaj oranını tespit et.
 
 Aşağıdaki LUCA HESAP PLANI listesinden bu faturanın açıklamasına/türüne en uygun "kod"u seçerek "muhasebe_kodu" alanına yaz:
 ${lucaAccounts.map(a => `${a.kod}: ${a.ad}`).join('\n')}
@@ -695,7 +741,7 @@ SADECE geçerli bir JSON döndür:
       "faturaTarihi": "YYYY-MM-DD",
       "tutar": "120.50",
       "tutar_tur": "dahil",
-      "kdv_orani": "18",
+      "kdv_orani": "20",
       "tevkifat_orani": "0",
       "stopaj_orani": "0",
       "aciklama": "",
@@ -987,7 +1033,11 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
             const fFaturaTarihi = f.faturaTarihi || f.fatura_tarihi || f.tarih || f.date || INITIAL_FORM.faturaTarihi;
             const fTutar = f.tutar || f.toplam_tutar || f.toplamTutar || f.amount || f.total || '';
             const fTutarTur = f.tutar_tur || f.tutarTuru || f.tutar_type || 'dahil';
-            const fKdvOrani = f.kdv_orani || f.kdvOrani || f.kdv || '20';
+            let fKdvOrani = String(f.kdv_orani || f.kdvOrani || f.kdv || '20').replace(/[^0-9]/g, '') || '20';
+            if (fKdvOrani === '8') fKdvOrani = '10';
+            if (fKdvOrani === '18') fKdvOrani = '20';
+            if (!['1', '10', '20', '0'].includes(fKdvOrani)) fKdvOrani = '20';
+
             const fTevkifatOrani = f.tevkifat_orani || f.tevkifatOrani || f.tevkifat || '0';
             const fStopajOrani = f.stopaj_orani || f.stopajOrani || f.stopaj || '0';
             const fAciklama = f.aciklama || f.note || f.not || '';
@@ -1030,7 +1080,7 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
                 faturaTarihi: fFaturaTarihi,
                 vadeTarihi: '',
                 toplamTutar: fTutar?.toString() || '',
-                kdvOrani: fKdvOrani ? fKdvOrani.toString() : '20',
+                kdvOrani: fKdvOrani,
                 tevkifatOrani: fTevkifatOrani?.toString() || '0',
                 stopajOrani: fStopajOrani?.toString() || '0',
                 aciklama: fAciklama,
