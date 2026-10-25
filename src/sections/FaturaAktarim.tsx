@@ -48,6 +48,21 @@ export function FaturaAktarim() {
     }
   };
 
+  const getFaturaUnvan = (f: any): string => {
+    if (f._type === 'ALIS') {
+      return (f.tedarikciAdi || f.tedarikci_adi || f.ad || (cariler.find(c => c.id === f.cariId)?.unvan) || '').trim();
+    }
+    const adSoyad = [f.ad, f.soyad].filter(Boolean).join(' ').trim();
+    return (adSoyad || f.unvan || f.tedarikciAdi || (cariler.find(c => c.id === f.cariId)?.unvan) || '').trim();
+  };
+
+  const getFaturaVkn = (f: any): string => {
+    if (f._type === 'ALIS') {
+      return (f.tedarikciVkn || f.tedarikci_vkn || f.tcVkn || (cariler.find(c => c.id === f.cariId)?.vknTckn) || '').trim();
+    }
+    return (f.tcVkn || f.tc_vkn || f.vknTckn || (cariler.find(c => c.id === f.cariId)?.vknTckn) || '').trim();
+  };
+
   const fetchInvoices = async () => {
     setLoading(true);
     try {
@@ -56,10 +71,20 @@ export function FaturaAktarim() {
       
       let allInvoices: any[] = [];
       if (alisRes.success) {
-        allInvoices = [...allInvoices, ...alisRes.data.map((f: any) => ({ ...f, _type: 'ALIS' }))];
+        allInvoices = [...allInvoices, ...alisRes.data.map((f: any) => {
+          const invObj = { ...f, _type: 'ALIS' };
+          const unvan = getFaturaUnvan(invObj) || 'Muhtelif Tedarikçi';
+          const tcVkn = getFaturaVkn(invObj);
+          return { ...invObj, ad: unvan, unvan, tcVkn };
+        })];
       }
       if (satisRes.success) {
-        allInvoices = [...allInvoices, ...satisRes.data.map((f: any) => ({ ...f, _type: 'SATIS' }))];
+        allInvoices = [...allInvoices, ...satisRes.data.map((f: any) => {
+          const invObj = { ...f, _type: 'SATIS' };
+          const unvan = getFaturaUnvan(invObj) || 'Muhtelif Müşteri';
+          const tcVkn = getFaturaVkn(invObj);
+          return { ...invObj, ad: unvan, unvan, tcVkn };
+        })];
       }
 
       // Filter by Date
@@ -734,13 +759,16 @@ export function FaturaAktarim() {
         }
       }
 
+      const unvan = inv.ad || inv.unvan || inv.tedarikciAdi || (cariler.find(c => c.id === inv.cariId)?.unvan) || 'Muhtelif Cari';
+      const tcVkn = inv.tcVkn || inv.tedarikciVkn || (cariler.find(c => c.id === inv.cariId)?.vknTckn) || '';
+
       return {
         id: inv.id,
         faturaNo: inv.faturaNo || '',
         faturaTarihi: inv.faturaTarihi,
-        unvan: inv.ad || (cariler.find(c => c.id === inv.cariId)?.unvan) || '',
-        ad: inv.ad || '',
-        tcVkn: inv.tcVkn || (cariler.find(c => c.id === inv.cariId)?.vknTckn) || '',
+        unvan,
+        ad: unvan,
+        tcVkn,
         matrah: parseFloat(inv.matrah) || 0,
         kdvOrani: inv.kdvOrani || '20',
         kdvTutari: parseFloat(inv.kdvTutari) || 0,
@@ -788,7 +816,7 @@ export function FaturaAktarim() {
     window.postMessage({ type: 'FATURA_APP_LUCA_SEND_ISLETME', detail: hizliFisItems, data: hizliFisItems, payload }, '*');
     window.postMessage({ type: 'FATURA_APP_LUCA_DATA', detail: payload, data: payload }, '*');
 
-    toast.success(`${selectedInvoices.length} fatura Luca Hızlı Fiş (İşletme) formatında hazırlandı ve eklentiye iletildi!`);
+    toast.success(`${selectedInvoices.length} fatura Luca Hızlı Fiş için hazırlandı! Luca sekmesine geçip eklenti ikonuna tıklayarak "Faturaları Aktar" diyebilirsiniz.`, { duration: 6000 });
   };
 
   // BİLANÇO ESASI LUCA EKLENTİSİNE GÖNDERME
@@ -834,7 +862,7 @@ export function FaturaAktarim() {
     window.postMessage({ type: 'FATURA_APP_LUCA_SEND_MAHSUP', detail: exportData, data: exportData }, '*');
     window.postMessage({ type: 'FATURA_APP_LUCA_DATA', detail: payload, data: payload }, '*');
 
-    toast.success(`${selectedInvoices.length} fatura Mahsup Fişi olarak Luca Eklentisine gönderildi!`);
+    toast.success(`${selectedInvoices.length} fatura (${exportData.length} yevmiye satırı) eklentiye gönderildi! Luca sekmesinde eklenti ikonuna tıklayıp "Mahsup Fişini Aktar" diyebilirsiniz.`, { duration: 6000 });
   };
 
   // Buton Tetikleyicileri (Stopaj Kontrollü)
@@ -1038,14 +1066,17 @@ export function FaturaAktarim() {
                       ? (stopajKodMap[inv.id] || inv.stopajKodu || deduceStopajKodu(inv) || '022-20')
                       : '';
 
+                    const unvan = inv.ad || inv.unvan || inv.tedarikciAdi || 'Muhtelif Cari';
+                    const vkn = inv.tcVkn || inv.tedarikciVkn || '';
+
                     return (
                       <TableRow 
                         key={inv.id} 
                         className={selectedIds.includes(inv.id) ? 'bg-indigo-50/40' : ''}
                         data-luca-no={inv.faturaNo || ''}
                         data-luca-tarih={inv.faturaTarihi}
-                        data-luca-unvan={inv.ad || ''}
-                        data-luca-vkn={inv.tcVkn || ''}
+                        data-luca-unvan={unvan}
+                        data-luca-vkn={vkn}
                         data-luca-matrah={matrah}
                         data-luca-kdv={kdvTutar}
                         data-luca-kdv-oran={inv.kdvOrani || '20'}
@@ -1071,8 +1102,8 @@ export function FaturaAktarim() {
                             {isAlis ? 'GİDER (ALIŞ)' : 'GELİR (SATIŞ)'}
                           </span>
                         </TableCell>
-                        <TableCell className="max-w-[200px] truncate text-xs font-medium" title={inv.ad}>
-                          {inv.ad || 'İsimsiz'}
+                        <TableCell className="max-w-[200px] truncate text-xs font-medium" title={unvan}>
+                          {unvan}
                         </TableCell>
                         <TableCell className="text-right font-mono text-xs">
                           {matrah.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺
