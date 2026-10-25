@@ -33,6 +33,7 @@ export function FaturaAktarim() {
 
   useEffect(() => {
     fetchSettings();
+    fetchInvoices();
   }, []);
 
   const fetchSettings = async () => {
