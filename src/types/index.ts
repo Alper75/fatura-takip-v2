@@ -167,6 +167,9 @@ export interface AlisFaturaFormData {
   urunId?: string;
   depoId?: string;
   vehiclePlate?: string;
+  kdvHesapKodu?: string;
+  mahsupSatirlari?: any[];
+  hasKkeg?: boolean;
 }
 
 // ==================== CARİ HAREKET (Bakiye / Ekstre İşlemleri) ====================

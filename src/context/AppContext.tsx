@@ -1592,6 +1592,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       stopajTutari: hesaplanan.stopajTutari || 0,
       muhasebeKodu: pre.muhasebeKodu !== undefined ? pre.muhasebeKodu : ((existing as any)?.muhasebeKodu || ''),
       karsiHesapKodu: pre.karsiHesapKodu !== undefined ? pre.karsiHesapKodu : ((existing as any)?.karsiHesapKodu || ''),
+      kdvHesapKodu: pre.kdvHesapKodu !== undefined ? pre.kdvHesapKodu : ((existing as any)?.kdvHesapKodu || ''),
+      mahsupSatirlari: pre.mahsupSatirlari !== undefined ? pre.mahsupSatirlari : ((existing as any)?.mahsupSatirlari || null),
+      hasKkeg: pre.hasKkeg !== undefined ? pre.hasKkeg : ((existing as any)?.hasKkeg || false),
       aciklama: pre.aciklama !== undefined ? pre.aciklama : ((existing as any)?.aciklama || ''),
       cariId: formData.cariId !== undefined ? formData.cariId : existing?.cariId,
       vadeTarihi: formData.vadeTarihi !== undefined ? formData.vadeTarihi : (existing?.vadeTarihi || null),
@@ -1604,16 +1607,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setAlisFaturalari(prev => prev.map(f => f.id === id ? { ...f, ...mergedFatura } : f));
 
     try {
-      await apiFetch(`/api/alis-faturalari/${id}`, {
+      const res = await apiFetch(`/api/alis-faturalari/${id}`, {
         method: 'PUT',
         body: JSON.stringify({
           ...mergedFatura,
+          mahsupSatirlari: mergedFatura.mahsupSatirlari,
+          hasKkeg: mergedFatura.hasKkeg,
+          kdvHesapKodu: mergedFatura.kdvHesapKodu,
           urunId: formData.urunId,
           depoId: formData.depoId
         })
       });
+      if (res && res.success === false) {
+        throw new Error(res.message || 'Fatura güncellenirken sunucu hatası oluştu');
+      }
     } catch (e) {
       console.error('Alış fatura güncellenemedi:', e);
+      throw e;
     }
   }, [alisFaturalari]);
 
