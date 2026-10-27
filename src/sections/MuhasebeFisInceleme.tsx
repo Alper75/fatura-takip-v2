@@ -38,12 +38,24 @@ import {
   UploadCloud,
   FileUp,
   Image as ImageIcon,
-  Loader2
+  Loader2,
+  Plus,
+  Scissors
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import type { AlisFatura } from '@/types';
 import { MuhasebeTopluGorselEsleModal } from './MuhasebeTopluGorselEsleModal';
+
+export interface MahsupSatir {
+  id: string;
+  maddeNo: number;
+  kod: string;
+  ad: string;
+  borc: number;
+  alacak: number;
+  aciklama: string;
+}
 
 export function MuhasebeFisInceleme() {
   const { 
@@ -84,6 +96,162 @@ export function MuhasebeFisInceleme() {
   const [editKarsiHesapKodu, setEditKarsiHesapKodu] = useState('');
   const [editAciklama, setEditAciklama] = useState('');
   const [isUpdating, setIsUpdating] = useState(false);
+  const [mahsupSatirlari, setMahsupSatirlari] = useState<MahsupSatir[]>([]);
+
+  // Hesap Planı İsim Yardımcısı
+  const getAccountName = (code: string) => {
+    if (!code) return 'Hesap Seçilmedi';
+    const found = (lucaAccounts || []).find(a => a.kod === code);
+    if (found) return found.ad;
+    // Varsayılan Muhasebe İsimleri
+    if (code.startsWith('770')) return 'Genel Yönetim Giderleri';
+    if (code.startsWith('760')) return 'Pazarlama Satış Dağıtım Giderleri';
+    if (code.startsWith('740')) return 'Hizmet Üretim Maliyeti';
+    if (code.startsWith('153')) return 'Ticari Mallar';
+    if (code.startsWith('191')) return 'İndirilecek KDV';
+    if (code.startsWith('100')) return 'Kasa Hesabı';
+    if (code.startsWith('102')) return 'Bankalar Hesabı';
+    if (code.startsWith('108')) return 'Diğer Hazır Değerler (Kredi Kartı Slipleri)';
+    if (code.startsWith('300') || code.startsWith('309')) return 'Kredi Kartı Borçları';
+    if (code.startsWith('320')) return 'Satıcılar Cari Hesabı';
+    if (code.startsWith('329')) return 'Diğer Ticari Borçlar';
+    if (code.startsWith('331')) return 'Ortaklara Borçlar Hesabı';
+    if (code.startsWith('689')) return 'Kanunen Kabul Edilmeyen Giderler (KKEG)';
+    if (code.startsWith('360')) return 'Ödenecek Vergi ve Fonlar (Stopaj/Tevkifat)';
+    return 'Tanımlı Hesap';
+  };
+
+  // KDV Oranına göre 191 alt hesabı belirleme
+  const getKdvAccountCode = (rate: number | string) => {
+    const r = String(rate);
+    if (r === '1') return '191.01';
+    if (r === '8' || r === '10') return '191.10';
+    if (r === '18' || r === '20') return '191.20';
+    return '191.20';
+  };
+
+  // Varsayılan Mahsup Fişi Maddelerini Hesaplama Fonksiyonu
+  const generateDefaultMahsupRows = (fatura: AlisFatura, giderKoduParam?: string, karsiKoduParam?: string): MahsupSatir[] => {
+    const toplamTutar = parseFloat(String(fatura.toplamTutar || 0)) || 0;
+    const kdvOrani = parseFloat(String(fatura.kdvOrani || 20)) || 0;
+    const matrah = parseFloat(String(fatura.matrah || 0)) || Math.round((toplamTutar / (1 + kdvOrani / 100)) * 100) / 100;
+    const kdvTutari = parseFloat(String(fatura.kdvTutari || 0)) || Math.round((toplamTutar - matrah) * 100) / 100;
+    const stopajTutari = parseFloat(String(fatura.stopajTutari || 0)) || 0;
+    const tevkifatTutari = parseFloat(String(fatura.tevkifatTutari || 0)) || 0;
+
+    const isVehicleExpense = !!fatura.vehiclePlate || 
+      /akaryakıt|yakıt|benzin|motorin|bakım|onarım/i.test(fatura.malHizmetAdi || '') ||
+      (fatura.aciklama || '').includes('%70 Gider') ||
+      !!fatura.hasKkeg;
+
+    const giderKodu = giderKoduParam || fatura.muhasebeKodu || (isVehicleExpense ? '770.02.001' : '770.01.001');
+    const kdvKodu = getKdvAccountCode(kdvOrani);
+    const karsiKodu = karsiKoduParam || fatura.karsiHesapKodu || (fatura.cariId ? '320.01' : '100.01');
+
+    const rows: MahsupSatir[] = [];
+    let mNo = 1;
+
+    if (isVehicleExpense) {
+      const giderMatrah = Math.round(matrah * 0.7 * 100) / 100;
+      rows.push({
+        id: `row_${Date.now()}_${mNo}`,
+        maddeNo: mNo++,
+        kod: giderKodu,
+        ad: getAccountName(giderKodu),
+        borc: giderMatrah,
+        alacak: 0,
+        aciklama: `${fatura.malHizmetAdi || 'Mal/Hizmet'} (%70 Gider Payı)`
+      });
+
+      const giderKdv = Math.round(kdvTutari * 0.7 * 100) / 100;
+      if (giderKdv > 0) {
+        rows.push({
+          id: `row_${Date.now()}_${mNo}`,
+          maddeNo: mNo++,
+          kod: kdvKodu,
+          ad: `${getAccountName(kdvKodu)} (%${kdvOrani})`,
+          borc: giderKdv,
+          alacak: 0,
+          aciklama: `İndirilecek KDV %${kdvOrani} (%70 Pay)`
+        });
+      }
+
+      const kkegMatrah = Math.round(matrah * 0.3 * 100) / 100;
+      const kkegKdv = Math.round(kdvTutari * 0.3 * 100) / 100;
+      const toplamKkeg = Math.round((kkegMatrah + kkegKdv) * 100) / 100;
+
+      if (toplamKkeg > 0) {
+        rows.push({
+          id: `row_${Date.now()}_${mNo}`,
+          maddeNo: mNo++,
+          kod: '689.01.001',
+          ad: 'Kanunen Kabul Edilmeyen Giderler (KKEG)',
+          borc: toplamKkeg,
+          alacak: 0,
+          aciklama: `Binek Araç Kısıtı (%30 KKEG: Matrah ${kkegMatrah} TL + KDV ${kkegKdv} TL)`
+        });
+      }
+    } else {
+      rows.push({
+        id: `row_${Date.now()}_${mNo}`,
+        maddeNo: mNo++,
+        kod: giderKodu,
+        ad: getAccountName(giderKodu),
+        borc: matrah,
+        alacak: 0,
+        aciklama: fatura.malHizmetAdi || 'Mal ve Hizmet Alımı'
+      });
+
+      if (kdvTutari > 0) {
+        rows.push({
+          id: `row_${Date.now()}_${mNo}`,
+          maddeNo: mNo++,
+          kod: kdvKodu,
+          ad: `${getAccountName(kdvKodu)} (%${kdvOrani})`,
+          borc: kdvTutari,
+          alacak: 0,
+          aciklama: `İndirilecek KDV %${kdvOrani}`
+        });
+      }
+    }
+
+    if (tevkifatTutari > 0) {
+      rows.push({
+        id: `row_${Date.now()}_${mNo}`,
+        maddeNo: mNo++,
+        kod: '360.01.001',
+        ad: 'Tevkifat KDV Kesintisi',
+        borc: 0,
+        alacak: tevkifatTutari,
+        aciklama: `KDV Tevkifatı (${fatura.tevkifatOrani})`
+      });
+    }
+
+    if (stopajTutari > 0) {
+      rows.push({
+        id: `row_${Date.now()}_${mNo}`,
+        maddeNo: mNo++,
+        kod: '360.02.001',
+        ad: 'Ödenecek Stopaj Vergisi',
+        borc: 0,
+        alacak: stopajTutari,
+        aciklama: `Stopaj Kesintisi (%${fatura.stopajOrani})`
+      });
+    }
+
+    const netKarsiAlacak = Math.round((toplamTutar - stopajTutari - tevkifatTutari) * 100) / 100;
+    rows.push({
+      id: `row_${Date.now()}_${mNo}`,
+      maddeNo: mNo++,
+      kod: karsiKodu,
+      ad: getAccountName(karsiKodu),
+      borc: 0,
+      alacak: netKarsiAlacak,
+      aciklama: `${fatura.tedarikciAdi} - Belge No: ${fatura.faturaNo}`
+    });
+
+    return rows;
+  };
 
   // Filtrelenmiş Faturalar
   const filteredFaturalar = useMemo(() => {
@@ -130,12 +298,30 @@ export function MuhasebeFisInceleme() {
   useEffect(() => {
     if (!currentFatura) {
       setCurrentDocBase64(null);
+      setMahsupSatirlari([]);
       return;
     }
 
     setEditMuhasebeKodu(currentFatura.muhasebeKodu || '');
     setEditKarsiHesapKodu(currentFatura.karsiHesapKodu || (currentFatura.cariId ? '320.01' : '100.01'));
     setEditAciklama(currentFatura.aciklama || `${currentFatura.tedarikciAdi} - ${currentFatura.faturaNo}`);
+    setZoomLevel(1);
+    setRotation(0);
+
+    // Mahsup Satırlarını Yükle (Varsa kaydedilmiş özel kalemler, yoksa otomatik hesapla)
+    if (currentFatura.mahsupSatirlari && Array.isArray(currentFatura.mahsupSatirlari) && currentFatura.mahsupSatirlari.length > 0) {
+      setMahsupSatirlari(currentFatura.mahsupSatirlari.map((m: any, idx: number) => ({
+        id: m.id || `row_${idx + 1}_${Date.now()}`,
+        maddeNo: m.maddeNo || (idx + 1),
+        kod: m.kod || '',
+        ad: m.ad || getAccountName(m.kod || ''),
+        borc: typeof m.borc === 'number' ? m.borc : (parseFloat(m.borc) || 0),
+        alacak: typeof m.alacak === 'number' ? m.alacak : (parseFloat(m.alacak) || 0),
+        aciklama: m.aciklama || ''
+      })));
+    } else {
+      setMahsupSatirlari(generateDefaultMahsupRows(currentFatura, currentFatura.muhasebeKodu, currentFatura.karsiHesapKodu));
+    }
     setZoomLevel(1);
     setRotation(0);
 
@@ -270,39 +456,7 @@ export function MuhasebeFisInceleme() {
     }
   };
 
-  // Hesap Planı İsim Yardımcısı
-  const getAccountName = (code: string) => {
-    if (!code) return 'Hesap Seçilmedi';
-    const found = (lucaAccounts || []).find(a => a.kod === code);
-    if (found) return found.ad;
-    // Varsayılan Muhasebe İsimleri
-    if (code.startsWith('770')) return 'Genel Yönetim Giderleri';
-    if (code.startsWith('760')) return 'Pazarlama Satış Dağıtım Giderleri';
-    if (code.startsWith('740')) return 'Hizmet Üretim Maliyeti';
-    if (code.startsWith('153')) return 'Ticari Mallar';
-    if (code.startsWith('191')) return 'İndirilecek KDV';
-    if (code.startsWith('100')) return 'Kasa Hesabı';
-    if (code.startsWith('102')) return 'Bankalar Hesabı';
-    if (code.startsWith('108')) return 'Diğer Hazır Değerler (Kredi Kartı Slipleri)';
-    if (code.startsWith('300') || code.startsWith('309')) return 'Kredi Kartı Borçları';
-    if (code.startsWith('320')) return 'Satıcılar Cari Hesabı';
-    if (code.startsWith('329')) return 'Diğer Ticari Borçlar';
-    if (code.startsWith('331')) return 'Ortaklara Borçlar Hesabı';
-    if (code.startsWith('689')) return 'Kanunen Kabul Edilmeyen Giderler (KKEG)';
-    if (code.startsWith('360')) return 'Ödenecek Vergi ve Fonlar (Stopaj/Tevkifat)';
-    return 'Tanımlı Hesap';
-  };
-
-  // KDV Oranına göre 191 alt hesabı belirleme
-  const getKdvAccountCode = (rate: number | string) => {
-    const r = String(rate);
-    if (r === '1') return '191.01';
-    if (r === '8' || r === '10') return '191.10';
-    if (r === '18' || r === '20') return '191.20';
-    return '191.20';
-  };
-
-  // Fatura & Mahsup Fişi Hesaplamaları
+  // Mahsup Fişi Dip Toplam & Denklik Hesaplamaları (Dinamik Satırlardan)
   const mahsupDetay = useMemo(() => {
     if (!currentFatura) return null;
 
@@ -313,120 +467,11 @@ export function MuhasebeFisInceleme() {
     const stopajTutari = parseFloat(String(currentFatura.stopajTutari || 0)) || 0;
     const tevkifatTutari = parseFloat(String(currentFatura.tevkifatTutari || 0)) || 0;
 
-    // Araç / Gider Kısıtlaması Kontrolü (%70 Gider / %30 KKEG)
-    const isVehicleExpense = !!currentFatura.vehiclePlate || 
-      /akaryakıt|yakıt|benzin|motorin|bakım|onarım/i.test(currentFatura.malHizmetAdi || '') ||
-      (currentFatura.aciklama || '').includes('%70 Gider');
-
-    const hasKkeg = isVehicleExpense;
-
-    let borcSatirlari: { maddeNo: number; kod: string; ad: string; borc: number; alacak: number; aciklama: string }[] = [];
-    let alacakSatirlari: { maddeNo: number; kod: string; ad: string; borc: number; alacak: number; aciklama: string }[] = [];
-    let maddeSayaci = 1;
-
-    const giderKodu = editMuhasebeKodu || currentFatura.muhasebeKodu || '770.01.001';
-    const kdvKodu = getKdvAccountCode(kdvOrani);
-    const karsiKodu = editKarsiHesapKodu || currentFatura.karsiHesapKodu || (currentFatura.cariId ? '320.01' : '100.01');
-
-    if (hasKkeg) {
-      // %70 Gider Payı (Matrah)
-      const giderMatrah = Math.round(matrah * 0.7 * 100) / 100;
-      borcSatirlari.push({
-        maddeNo: maddeSayaci++,
-        kod: giderKodu,
-        ad: getAccountName(giderKodu),
-        borc: giderMatrah,
-        alacak: 0,
-        aciklama: `${currentFatura.malHizmetAdi || 'Mal/Hizmet'} (%70 Gider Payı)`
-      });
-
-      // %70 KDV Payı
-      const giderKdv = Math.round(kdvTutari * 0.7 * 100) / 100;
-      borcSatirlari.push({
-        maddeNo: maddeSayaci++,
-        kod: kdvKodu,
-        ad: `${getAccountName(kdvKodu)} (%${kdvOrani})`,
-        borc: giderKdv,
-        alacak: 0,
-        aciklama: `İndirilecek KDV %${kdvOrani} (%70 Pay)`
-      });
-
-      // %30 KKEG (Matrahın %30'u + KDV'nin %30'u)
-      const kkegMatrah = Math.round(matrah * 0.3 * 100) / 100;
-      const kkegKdv = Math.round(kdvTutari * 0.3 * 100) / 100;
-      const toplamKkeg = Math.round((kkegMatrah + kkegKdv) * 100) / 100;
-
-      borcSatirlari.push({
-        maddeNo: maddeSayaci++,
-        kod: '689.01.001',
-        ad: 'Kanunen Kabul Edilmeyen Giderler (KKEG)',
-        borc: toplamKkeg,
-        alacak: 0,
-        aciklama: `Binek Araç Kısıtı (%30 KKEG: Matrah ${kkegMatrah} TL + KDV ${kkegKdv} TL)`
-      });
-    } else {
-      // Normal Belge: Tam Matrah
-      borcSatirlari.push({
-        maddeNo: maddeSayaci++,
-        kod: giderKodu,
-        ad: getAccountName(giderKodu),
-        borc: matrah,
-        alacak: 0,
-        aciklama: currentFatura.malHizmetAdi || 'Mal ve Hizmet Alımı'
-      });
-
-      // Tam KDV
-      if (kdvTutari > 0) {
-        borcSatirlari.push({
-          maddeNo: maddeSayaci++,
-          kod: kdvKodu,
-          ad: `${getAccountName(kdvKodu)} (%${kdvOrani})`,
-          borc: kdvTutari,
-          alacak: 0,
-          aciklama: `İndirilecek KDV %${kdvOrani}`
-        });
-      }
-    }
-
-    // Varsa Tevkifat / Stopaj Kesintileri (Alacak Tarafı)
-    if (tevkifatTutari > 0) {
-      alacakSatirlari.push({
-        maddeNo: maddeSayaci++,
-        kod: '360.01.001',
-        ad: 'Tevkifat KDV Kesintisi',
-        borc: 0,
-        alacak: tevkifatTutari,
-        aciklama: `KDV Tevkifatı (${currentFatura.tevkifatOrani})`
-      });
-    }
-
-    if (stopajTutari > 0) {
-      alacakSatirlari.push({
-        maddeNo: maddeSayaci++,
-        kod: '360.02.001',
-        ad: 'Ödenecek Stopaj Vergisi',
-        borc: 0,
-        alacak: stopajTutari,
-        aciklama: `Stopaj Kesintisi (%${currentFatura.stopajOrani})`
-      });
-    }
-
-    // Karşı Hesap (Kasa / Kredi Kartı / Tedarikçi)
-    const netKarsiAlacak = Math.round((toplamTutar - stopajTutari - tevkifatTutari) * 100) / 100;
-    alacakSatirlari.push({
-      maddeNo: maddeSayaci++,
-      kod: karsiKodu,
-      ad: getAccountName(karsiKodu),
-      borc: 0,
-      alacak: netKarsiAlacak,
-      aciklama: `${currentFatura.tedarikciAdi} - Belge No: ${currentFatura.faturaNo}`
-    });
-
-    const tumMaddeler = [...borcSatirlari, ...alacakSatirlari];
-    const toplamBorc = Math.round(tumMaddeler.reduce((acc, m) => acc + m.borc, 0) * 100) / 100;
-    const toplamAlacak = Math.round(tumMaddeler.reduce((acc, m) => acc + m.alacak, 0) * 100) / 100;
+    const toplamBorc = Math.round(mahsupSatirlari.reduce((acc, m) => acc + (Number(m.borc) || 0), 0) * 100) / 100;
+    const toplamAlacak = Math.round(mahsupSatirlari.reduce((acc, m) => acc + (Number(m.alacak) || 0), 0) * 100) / 100;
     const fark = Math.round((toplamBorc - toplamAlacak) * 100) / 100;
     const isDengeli = Math.abs(fark) < 0.05;
+    const hasKkeg = mahsupSatirlari.some(r => (r.kod || '').startsWith('689'));
 
     return {
       toplamTutar,
@@ -436,27 +481,222 @@ export function MuhasebeFisInceleme() {
       stopajTutari,
       tevkifatTutari,
       hasKkeg,
-      maddeler: tumMaddeler,
+      maddeler: mahsupSatirlari,
       toplamBorc,
       toplamAlacak,
       fark,
       isDengeli
     };
-  }, [currentFatura, editMuhasebeKodu, editKarsiHesapKodu, lucaAccounts]);
+  }, [currentFatura, mahsupSatirlari]);
+
+  // %70 GİDER / %30 KKEG AYIRMA BUTONU
+  const handleKkegAyir = () => {
+    if (!currentFatura) return;
+    const toplamTutar = parseFloat(String(currentFatura.toplamTutar || 0)) || 0;
+    const kdvOrani = parseFloat(String(currentFatura.kdvOrani || 20)) || 0;
+    const matrah = parseFloat(String(currentFatura.matrah || 0)) || Math.round((toplamTutar / (1 + kdvOrani / 100)) * 100) / 100;
+    const kdvTutari = parseFloat(String(currentFatura.kdvTutari || 0)) || Math.round((toplamTutar - matrah) * 100) / 100;
+
+    const giderMatrah = Math.round(matrah * 0.7 * 100) / 100;
+    const giderKdv = Math.round(kdvTutari * 0.7 * 100) / 100;
+    const kkegMatrah = Math.round(matrah * 0.3 * 100) / 100;
+    const kkegKdv = Math.round(kdvTutari * 0.3 * 100) / 100;
+    const toplamKkeg = Math.round((kkegMatrah + kkegKdv) * 100) / 100;
+
+    const giderKodu = editMuhasebeKodu || currentFatura.muhasebeKodu || '770.02.001';
+    const kdvKodu = getKdvAccountCode(kdvOrani);
+    const karsiKodu = editKarsiHesapKodu || currentFatura.karsiHesapKodu || (currentFatura.cariId ? '320.01' : '100.01');
+
+    const splitRows: MahsupSatir[] = [
+      {
+        id: 'row_' + Date.now() + '_1',
+        maddeNo: 1,
+        kod: giderKodu,
+        ad: getAccountName(giderKodu),
+        borc: giderMatrah,
+        alacak: 0,
+        aciklama: `${currentFatura.malHizmetAdi || 'Mal/Hizmet'} (%70 Gider Payı)`
+      },
+      {
+        id: 'row_' + Date.now() + '_2',
+        maddeNo: 2,
+        kod: kdvKodu,
+        ad: `${getAccountName(kdvKodu)} (%${kdvOrani})`,
+        borc: giderKdv,
+        alacak: 0,
+        aciklama: `İndirilecek KDV %${kdvOrani} (%70 Pay)`
+      },
+      {
+        id: 'row_' + Date.now() + '_3',
+        maddeNo: 3,
+        kod: '689.01.001',
+        ad: 'Kanunen Kabul Edilmeyen Giderler (KKEG)',
+        borc: toplamKkeg,
+        alacak: 0,
+        aciklama: `Binek Araç Kısıtı (%30 KKEG: Matrah ${kkegMatrah} TL + KDV ${kkegKdv} TL)`
+      },
+      {
+        id: 'row_' + Date.now() + '_4',
+        maddeNo: 4,
+        kod: karsiKodu,
+        ad: getAccountName(karsiKodu),
+        borc: 0,
+        alacak: toplamTutar,
+        aciklama: `${currentFatura.tedarikciAdi} - Belge No: ${currentFatura.faturaNo}`
+      }
+    ];
+
+    setMahsupSatirlari(splitRows);
+    if (!editAciklama.includes('%70 Gider') && !editAciklama.includes('KKEG')) {
+      setEditAciklama(prev => prev ? `${prev} [Binek Araç %70 Gider / %30 KKEG]` : '[Binek Araç %70 Gider / %30 KKEG]');
+    }
+    toast.success('Fiş tutarları %70 Gider ve %30 KKEG olarak ayrıldı!');
+  };
+
+  // YENİ BORÇ / GİDER SATIRI EKLE
+  const handleAddBorcRow = () => {
+    const newId = 'row_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4);
+    const nextMaddeNo = mahsupSatirlari.length + 1;
+    const defaultKod = editMuhasebeKodu || '770.01.001';
+
+    const currentBorc = mahsupSatirlari.reduce((acc, m) => acc + (Number(m.borc) || 0), 0);
+    const currentAlacak = mahsupSatirlari.reduce((acc, m) => acc + (Number(m.alacak) || 0), 0);
+    const rem = Math.max(0, Math.round((currentAlacak - currentBorc) * 100) / 100);
+
+    const newRow: MahsupSatir = {
+      id: newId,
+      maddeNo: nextMaddeNo,
+      kod: defaultKod,
+      ad: getAccountName(defaultKod),
+      borc: rem,
+      alacak: 0,
+      aciklama: currentFatura ? `${currentFatura.malHizmetAdi || 'Ek Gider Kalemi'}` : 'Gider Kalemi'
+    };
+    setMahsupSatirlari(prev => [...prev, newRow]);
+    toast.success('Yeni Gider / Borç satırı eklendi.');
+  };
+
+  // YENİ ALACAK / KARŞI HESAP (ÖDEME) SATIRI EKLE
+  const handleAddAlacakRow = () => {
+    const newId = 'row_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4);
+    const nextMaddeNo = mahsupSatirlari.length + 1;
+    const defaultKod = editKarsiHesapKodu || '108.01';
+
+    const currentBorc = mahsupSatirlari.reduce((acc, m) => acc + (Number(m.borc) || 0), 0);
+    const currentAlacak = mahsupSatirlari.reduce((acc, m) => acc + (Number(m.alacak) || 0), 0);
+    const rem = Math.max(0, Math.round((currentBorc - currentAlacak) * 100) / 100);
+
+    const newRow: MahsupSatir = {
+      id: newId,
+      maddeNo: nextMaddeNo,
+      kod: defaultKod,
+      ad: getAccountName(defaultKod),
+      borc: 0,
+      alacak: rem,
+      aciklama: 'Kredi Kartı / Ortak / Kasa Ödemesi'
+    };
+    setMahsupSatirlari(prev => [...prev, newRow]);
+    toast.success('Yeni Karşı Hesap / Alacak satırı eklendi.');
+  };
+
+  // SATIR DÜZENLEME
+  const handleUpdateRow = (id: string, updates: Partial<MahsupSatir>) => {
+    setMahsupSatirlari(prev => prev.map(r => r.id === id ? { ...r, ...updates } : r));
+  };
+
+  // SATIR SİLME
+  const handleDeleteRow = (id: string) => {
+    if (mahsupSatirlari.length <= 1) {
+      toast.error('Fişte en az bir satır bulunmalıdır.');
+      return;
+    }
+    setMahsupSatirlari(prev => {
+      const filtered = prev.filter(r => r.id !== id);
+      return filtered.map((r, idx) => ({ ...r, maddeNo: idx + 1 }));
+    });
+    toast.info('Satır silindi.');
+  };
+
+  // VARSAYILANA DÖN
+  const handleResetToDefault = () => {
+    if (!currentFatura) return;
+    const defaultRows = generateDefaultMahsupRows(currentFatura, editMuhasebeKodu, editKarsiHesapKodu);
+    setMahsupSatirlari(defaultRows);
+    toast.info('Fiş satırları orijinal değerlerine sıfırlandı.');
+  };
+
+  // FARK EŞİTLEME (DENKLİK SAĞLAMA)
+  const handleBalanceDifference = () => {
+    if (!mahsupSatirlari.length) return;
+    const currentBorc = Math.round(mahsupSatirlari.reduce((acc, m) => acc + (Number(m.borc) || 0), 0) * 100) / 100;
+    const currentAlacak = Math.round(mahsupSatirlari.reduce((acc, m) => acc + (Number(m.alacak) || 0), 0) * 100) / 100;
+    const diff = Math.round((currentBorc - currentAlacak) * 100) / 100;
+
+    if (Math.abs(diff) < 0.01) {
+      toast.success('Fiş zaten dengede!');
+      return;
+    }
+
+    if (diff > 0) {
+      // Borç fazla -> Son Alacak satırına farkı ekle
+      const lastAlacakIdx = mahsupSatirlari.map(r => r.alacak > 0).lastIndexOf(true);
+      if (lastAlacakIdx >= 0) {
+        setMahsupSatirlari(prev => prev.map((r, i) => i === lastAlacakIdx ? { ...r, alacak: Math.round((r.alacak + diff) * 100) / 100 } : r));
+      } else {
+        handleAddAlacakRow();
+      }
+    } else {
+      // Alacak fazla -> İlk Borç satırına farkı ekle
+      const firstBorcIdx = mahsupSatirlari.findIndex(r => r.borc > 0 && !r.kod.startsWith('191'));
+      if (firstBorcIdx >= 0) {
+        setMahsupSatirlari(prev => prev.map((r, i) => i === firstBorcIdx ? { ...r, borc: Math.round((r.borc + Math.abs(diff)) * 100) / 100 } : r));
+      } else {
+        handleAddBorcRow();
+      }
+    }
+    toast.success('Fark eşitlendi ve fiş dengelendi.');
+  };
+
+  // Üst Başlıktaki Gider Kodu değişirse ilk gider satırını güncelle
+  const handleMainGiderCodeChange = (newKod: string) => {
+    setEditMuhasebeKodu(newKod);
+    setMahsupSatirlari(prev => {
+      const firstBorcIdx = prev.findIndex(r => r.borc > 0 && !r.kod.startsWith('191') && !r.kod.startsWith('689'));
+      if (firstBorcIdx >= 0) {
+        return prev.map((r, i) => i === firstBorcIdx ? { ...r, kod: newKod, ad: getAccountName(newKod) } : r);
+      }
+      return prev;
+    });
+  };
+
+  // Üst Başlıktaki Karşı Hesap değişirse ilk karşı satırını güncelle
+  const handleMainKarsiCodeChange = (newKod: string) => {
+    setEditKarsiHesapKodu(newKod);
+    setMahsupSatirlari(prev => {
+      const firstAlacakIdx = prev.findIndex(r => r.alacak > 0 && !r.kod.startsWith('360'));
+      if (firstAlacakIdx >= 0) {
+        return prev.map((r, i) => i === firstAlacakIdx ? { ...r, kod: newKod, ad: getAccountName(newKod) } : r);
+      }
+      return prev;
+    });
+  };
 
   // Mahsup Fişi Güncellemelerini Kaydet
   const handleSaveAccounting = async () => {
     if (!currentFatura) return;
     setIsUpdating(true);
     try {
+      const hasKkeg = mahsupSatirlari.some(r => (r.kod || '').startsWith('689'));
       await updateAlisFatura(currentFatura.id, {
         ...currentFatura,
         muhasebeKodu: editMuhasebeKodu,
         karsiHesapKodu: editKarsiHesapKodu,
-        aciklama: editAciklama
+        aciklama: editAciklama,
+        mahsupSatirlari,
+        hasKkeg
       } as any);
 
-      toast.success('Muhasebe mahsup fişi bilgileri başarıyla güncellendi!');
+      toast.success('Muhasebe mahsup fişi ve kalemleri başarıyla kaydedildi!');
     } catch (e: any) {
       toast.error('Güncelleme hatası: ' + e.message);
     } finally {
@@ -855,20 +1095,20 @@ export function MuhasebeFisInceleme() {
               {/* Fiş Üst Açıklama Alanı */}
               <div className="bg-slate-50 dark:bg-slate-800/40 border-b border-slate-200 dark:border-slate-800 p-2.5 px-3 grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs items-end">
                 <div>
-                  <span className="text-slate-500 font-medium block text-[10px] uppercase mb-1">Gider / Alış Hesabı</span>
+                  <span className="text-slate-500 font-medium block text-[10px] uppercase mb-1">Varsayılan Gider Hesabı</span>
                   <LucaAccountSelect 
                     value={editMuhasebeKodu} 
-                    onChange={setEditMuhasebeKodu} 
+                    onChange={handleMainGiderCodeChange} 
                     placeholder="Gider hesabı seçin..."
                     className="h-8 text-xs bg-white dark:bg-slate-900"
                   />
                 </div>
 
                 <div>
-                  <span className="text-slate-500 font-medium block text-[10px] uppercase mb-1">Karşı Hesap (Ödeme / Cari / 331)</span>
+                  <span className="text-slate-500 font-medium block text-[10px] uppercase mb-1">Varsayılan Karşı Hesap (Ödeme / 331)</span>
                   <LucaAccountSelect 
                     value={editKarsiHesapKodu} 
-                    onChange={setEditKarsiHesapKodu} 
+                    onChange={handleMainKarsiCodeChange} 
                     placeholder="Karşı hesap seçin (100, 331, 320, 102...)"
                     className="h-8 text-xs bg-white dark:bg-slate-900 border-amber-200 focus-visible:ring-amber-500"
                   />
@@ -885,50 +1125,163 @@ export function MuhasebeFisInceleme() {
                 </div>
               </div>
 
-              {/* Mahsup Fişi Maddeleri Tablosu */}
-              <div className="overflow-x-auto">
+              {/* Dinamik Satır Ekleme & KKEG Ayırma Araç Çubuğu */}
+              <div className="flex flex-wrap items-center justify-between gap-2 p-2 px-3 bg-indigo-50/30 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-800">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {/* %70 GİDER / %30 KKEG AYIR BUTONU */}
+                  <Button 
+                    type="button" 
+                    size="sm" 
+                    variant="outline"
+                    onClick={handleKkegAyir}
+                    className="h-7 text-xs font-semibold gap-1.5 text-amber-800 bg-amber-50 hover:bg-amber-100 border-amber-300 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800 shadow-sm"
+                    title="Matrah ve KDV'yi %70 Gider ve %30 KKEG (Kanunen Kabul Edilmeyen Gider) olarak ayırır"
+                  >
+                    <Scissors className="w-3.5 h-3.5 text-amber-600" />
+                    ✂️ %70 Gider / %30 KKEG Ayır
+                  </Button>
+
+                  {/* GİDER (BORÇ) SATIRI EKLE */}
+                  <Button 
+                    type="button" 
+                    size="sm" 
+                    variant="outline"
+                    onClick={handleAddBorcRow}
+                    className="h-7 text-xs font-semibold gap-1 text-indigo-700 bg-indigo-50/80 hover:bg-indigo-100 border-indigo-200 dark:bg-indigo-950/40 dark:text-indigo-300 dark:border-indigo-800"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    + Gider Satırı Ekle
+                  </Button>
+
+                  {/* KARŞI HESAP (ALACAK) SATIRI EKLE */}
+                  <Button 
+                    type="button" 
+                    size="sm" 
+                    variant="outline"
+                    onClick={handleAddAlacakRow}
+                    className="h-7 text-xs font-semibold gap-1 text-emerald-700 bg-emerald-50/80 hover:bg-emerald-100 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    + Karşı Hesap (Ödeme) Ekle
+                  </Button>
+
+                  {/* SIFIRLA */}
+                  <Button 
+                    type="button" 
+                    size="sm" 
+                    variant="ghost"
+                    onClick={handleResetToDefault}
+                    className="h-7 text-xs text-slate-500 hover:text-slate-800 dark:text-slate-400 gap-1"
+                    title="Fiş satırlarını orijinal değerlere döndür"
+                  >
+                    <RotateCcw className="w-3 h-3" />
+                    Sıfırla
+                  </Button>
+                </div>
+
+                {/* DENKLİK GÖSTERGESİ */}
+                <div className="flex items-center gap-2">
+                  {mahsupDetay?.isDengeli ? (
+                    <Badge className="bg-emerald-100 text-emerald-800 border-emerald-300 text-[11px] gap-1 font-semibold dark:bg-emerald-950/50 dark:text-emerald-300">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> Fiş Dengeli
+                    </Badge>
+                  ) : (
+                    <div className="flex items-center gap-1.5">
+                      <Badge variant="destructive" className="text-[11px] gap-1 font-semibold">
+                        <AlertTriangle className="w-3.5 h-3.5" /> Fark: {mahsupDetay?.fark && mahsupDetay.fark > 0 ? `+${mahsupDetay.fark.toFixed(2)}` : (mahsupDetay?.fark || 0).toFixed(2)} TL
+                      </Badge>
+                      <Button 
+                        type="button" 
+                        size="sm" 
+                        variant="outline" 
+                        onClick={handleBalanceDifference}
+                        className="h-6 text-[10px] text-amber-800 bg-amber-50 border-amber-300 hover:bg-amber-100 font-semibold px-2"
+                        title="Farkı otomatik olarak dengeye getirir"
+                      >
+                        Farkı Eşitle
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Mahsup Fişi Maddeleri Tablosu (Dinamik ve Düzenlenebilir) */}
+              <div className="overflow-x-auto max-h-[380px] overflow-y-auto">
                 <table className="w-full text-left text-xs border-collapse">
-                  <thead>
+                  <thead className="sticky top-0 z-10">
                     <tr className="bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-b font-semibold">
-                      <th className="py-2 px-3 w-12 text-center">M.No</th>
-                      <th className="py-2 px-3 w-32">Hesap Kodu</th>
-                      <th className="py-2 px-3">Hesap Adı & Açıklama</th>
-                      <th className="py-2 px-3 w-28 text-right">Borç (TL)</th>
-                      <th className="py-2 px-3 w-28 text-right">Alacak (TL)</th>
+                      <th className="py-2 px-2 w-10 text-center">M.No</th>
+                      <th className="py-2 px-2 w-64">Hesap Kodu & Adı</th>
+                      <th className="py-2 px-2">Satır Açıklaması</th>
+                      <th className="py-2 px-2 w-28 text-right">Borç (TL)</th>
+                      <th className="py-2 px-2 w-28 text-right">Alacak (TL)</th>
+                      <th className="py-2 px-1 w-10 text-center">İşlem</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-mono">
-                    {mahsupDetay?.maddeler.map((m, idx) => (
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                    {mahsupSatirlari.map((m) => (
                       <tr 
-                        key={idx} 
+                        key={m.id} 
                         className={cn(
                           "hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors",
                           m.borc > 0 ? "bg-white dark:bg-slate-900" : "bg-slate-50/50 dark:bg-slate-900/60"
                         )}
                       >
-                        <td className="py-2 px-3 text-center text-slate-400 font-normal">
+                        <td className="py-1.5 px-2 text-center text-slate-400 font-mono text-xs">
                           {m.maddeNo}
                         </td>
-                        <td className="py-2 px-3 font-bold text-slate-900 dark:text-white">
-                          <span className={cn(
-                            "px-1.5 py-0.5 rounded text-[11px]",
-                            m.kod.startsWith('770') || m.kod.startsWith('153') ? "bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-200" :
-                            m.kod.startsWith('191') ? "bg-blue-100 text-blue-900 dark:bg-blue-900/40 dark:text-blue-200" :
-                            m.kod.startsWith('689') ? "bg-red-100 text-red-900 dark:bg-red-900/40 dark:text-red-200" :
-                            "bg-emerald-100 text-emerald-900 dark:bg-emerald-900/40 dark:text-emerald-200"
-                          )}>
-                            {m.kod}
-                          </span>
+                        <td className="py-1.5 px-2">
+                          <div className="space-y-1">
+                            <LucaAccountSelect 
+                              value={m.kod} 
+                              onChange={(newKod) => handleUpdateRow(m.id, { kod: newKod, ad: getAccountName(newKod) })} 
+                              placeholder="Hesap kodu..."
+                              className="h-7 text-xs bg-white dark:bg-slate-900"
+                            />
+                            <div className="text-[10px] text-slate-500 font-medium truncate px-1" title={m.ad}>
+                              {m.ad}
+                            </div>
+                          </div>
                         </td>
-                        <td className="py-2 px-3 font-sans">
-                          <div className="font-semibold text-slate-800 dark:text-slate-200">{m.ad}</div>
-                          <div className="text-[11px] text-slate-500 font-normal">{m.aciklama}</div>
+                        <td className="py-1.5 px-2">
+                          <Input 
+                            value={m.aciklama} 
+                            onChange={(e) => handleUpdateRow(m.id, { aciklama: e.target.value })} 
+                            placeholder="Madde açıklaması..."
+                            className="h-7 text-xs bg-white dark:bg-slate-900"
+                          />
                         </td>
-                        <td className="py-2 px-3 text-right font-bold text-slate-900 dark:text-white">
-                          {m.borc > 0 ? m.borc.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}
+                        <td className="py-1.5 px-2">
+                          <Input 
+                            type="number" 
+                            step="0.01" 
+                            value={m.borc === 0 ? '' : m.borc} 
+                            onChange={(e) => handleUpdateRow(m.id, { borc: parseFloat(e.target.value) || 0 })} 
+                            placeholder="0.00"
+                            className="h-7 text-xs text-right font-mono font-semibold bg-white dark:bg-slate-900"
+                          />
                         </td>
-                        <td className="py-2 px-3 text-right font-bold text-slate-900 dark:text-white">
-                          {m.alacak > 0 ? m.alacak.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}
+                        <td className="py-1.5 px-2">
+                          <Input 
+                            type="number" 
+                            step="0.01" 
+                            value={m.alacak === 0 ? '' : m.alacak} 
+                            onChange={(e) => handleUpdateRow(m.id, { alacak: parseFloat(e.target.value) || 0 })} 
+                            placeholder="0.00"
+                            className="h-7 text-xs text-right font-mono font-semibold bg-white dark:bg-slate-900"
+                          />
+                        </td>
+                        <td className="py-1.5 px-1 text-center">
+                          <Button 
+                            type="button" 
+                            variant="ghost" 
+                            size="icon" 
+                            onClick={() => handleDeleteRow(m.id)}
+                            className="h-7 w-7 text-rose-500 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/30"
+                            title="Bu satırı sil"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </Button>
                         </td>
                       </tr>
                     ))}
@@ -939,12 +1292,13 @@ export function MuhasebeFisInceleme() {
                       <td colSpan={3} className="py-2.5 px-3 text-right uppercase font-sans text-xs">
                         Toplam Yevmiye Tutarı:
                       </td>
-                      <td className="py-2.5 px-3 text-right text-indigo-700 dark:text-indigo-400 font-mono text-sm">
-                        {mahsupDetay?.toplamBorc.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} TL
+                      <td className="py-2.5 px-2 text-right text-indigo-700 dark:text-indigo-400 font-mono text-sm">
+                        {(mahsupDetay?.toplamBorc || 0).toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} TL
                       </td>
-                      <td className="py-2.5 px-3 text-right text-indigo-700 dark:text-indigo-400 font-mono text-sm">
-                        {mahsupDetay?.toplamAlacak.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} TL
+                      <td className="py-2.5 px-2 text-right text-indigo-700 dark:text-indigo-400 font-mono text-sm">
+                        {(mahsupDetay?.toplamAlacak || 0).toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} TL
                       </td>
+                      <td></td>
                     </tr>
                   </tfoot>
                 </table>

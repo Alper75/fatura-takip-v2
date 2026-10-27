@@ -88,6 +88,24 @@ export function FaturaAktarim() {
     return kod;
   };
 
+  // Otomatik Araç / KKEG Kontrolü (%70 Gider / %30 KKEG)
+  const isInvoiceKkegOrArac = (inv: any): boolean => {
+    if (!inv) return false;
+    if (aracGideriIds.includes(inv.id)) return true;
+    if (inv.vehiclePlate || inv.plaka) return true;
+    if (inv.hasKkeg || inv.has_kkeg || inv.isAracGideri) return true;
+    const aciklama = String(inv.aciklama || '').toLowerCase();
+    if (aciklama.includes('%70') || aciklama.includes('kkeg') || aciklama.includes('binek araç') || aciklama.includes('binek arac')) return true;
+    const malHizmet = String(inv.malHizmetAdi || '').toLowerCase();
+    if (/akaryakıt|yakıt|benzin|motorin|otogaz|lpg|shell|petrol|opet|bp|total|aytemiz/i.test(malHizmet)) return true;
+    const unvan = String(inv.ad || inv.unvan || inv.tedarikciAdi || '').toLowerCase();
+    if (/petrol|akaryakıt|benzin|shell|opet|bp|total/i.test(unvan)) return true;
+    if (inv.mahsupSatirlari && Array.isArray(inv.mahsupSatirlari)) {
+      if (inv.mahsupSatirlari.some((r: any) => String(r.kod || '').startsWith('689'))) return true;
+    }
+    return false;
+  };
+
   const fetchInvoices = async () => {
     setLoading(true);
     try {
@@ -124,6 +142,11 @@ export function FaturaAktarim() {
       allInvoices.sort((a, b) => new Date(a.faturaTarihi).getTime() - new Date(b.faturaTarihi).getTime());
       
       setInvoices(allInvoices);
+      
+      // KKEG / Araç giderlerini otomatik tespit edip işaretle
+      const autoAracIds = allInvoices.filter(inv => isInvoiceKkegOrArac(inv)).map(inv => inv.id);
+      setAracGideriIds(autoAracIds);
+
       setSelectedIds([]);
     } catch (e: any) {
       toast.error('Faturalar yüklenirken hata oluştu: ' + e.message);
@@ -160,7 +183,8 @@ export function FaturaAktarim() {
   };
 
   // İŞLETME DEFTERİ İÇİN SATIR FORMATI (HESAP KODSUZ GELİR / GİDER LİSTESİ)
-  const getIsletmeDefteriSatiri = (fatura: any, isAracGideri: boolean = false) => {
+  const getIsletmeDefteriSatiri = (fatura: any, isAracGideriParam: boolean = false) => {
+    const isAracGideri = isAracGideriParam || isInvoiceKkegOrArac(fatura);
     const isAlis = fatura._type === 'ALIS';
     const isIade = isAlis ? (parseFloat(fatura.toplamTutar || 0) < 0 || (fatura.malHizmetAdi && String(fatura.malHizmetAdi).toLowerCase().includes('iade'))) : (parseFloat(fatura.alinanUcret || 0) < 0 || (fatura.aciklama && String(fatura.aciklama).toLowerCase().includes('iade')));
     const kdvOrani = (fatura.kdvOrani || 20).toString();
@@ -224,7 +248,7 @@ export function FaturaAktarim() {
       const stopajTutar = typeof inv.stopajTutari === 'number'
         ? inv.stopajTutari
         : (parseFloat(String(inv.stopajTutari || inv.stopaj_tutari || inv.stopajTutar || '0').replace(',', '.')) || 0);
-      const isArac = aracGideriIds.includes(inv.id);
+      const isArac = isInvoiceKkegOrArac(inv);
       const kdvOranNum = parseFloat(inv.kdvOrani || 20);
       const matrahHesap = isArac ? Math.round(matrah * 0.7 * 100) / 100 : matrah;
       const kdvHesap = isArac ? Math.round(kdvTutar * 0.7 * 100) / 100 : kdvTutar;
@@ -365,7 +389,27 @@ export function FaturaAktarim() {
   };
 
   // BİLANÇO ESASI İÇİN YEVMİYE MAHSUP SATIRLARI (HESAP PLANLI ÇİFT TARAFLI)
-  const getMuhasebeSatirlari = (fatura: any, isAracGideri: boolean = false) => {
+  const getMuhasebeSatirlari = (fatura: any, isAracGideriParam: boolean = false) => {
+    // 1. ÖZEL MAHSUP SATIRLARI KONTROLÜ
+    // Fiş denetimi ve mahsup kontrolünde kullanıcı satırları bölmüş/özelleştirmişse direkt o satırları kullan!
+    let customRows = fatura.mahsupSatirlari;
+    if (typeof customRows === 'string') {
+      try { customRows = JSON.parse(customRows); } catch (e) {}
+    }
+    if (Array.isArray(customRows) && customRows.length > 0) {
+      return customRows.map((m: any) => ({
+        'Evrak Tarihi': formatTarih(fatura.faturaTarihi),
+        'Evrak No': fatura.faturaNo || '',
+        'Belge Türü': 'FT',
+        'Hesap Kodu': m.kod,
+        'Borç': Math.round((Number(m.borc) || 0) * 100) / 100,
+        'Alacak': Math.round((Number(m.alacak) || 0) * 100) / 100,
+        'Detay Açıklama': m.aciklama || fatura.aciklama || `${fatura.ad || ''}`,
+        'KDV Oranı': (fatura.kdvOrani || 20).toString()
+      }));
+    }
+
+    const isAracGideri = isAracGideriParam || isInvoiceKkegOrArac(fatura);
     const satirListesi: any[] = [];
     const isAlis = fatura._type === 'ALIS';
     const isIade = isAlis ? (parseFloat(fatura.toplamTutar || 0) < 0 || (fatura.malHizmetAdi && String(fatura.malHizmetAdi).toLowerCase().includes('iade'))) : (parseFloat(fatura.alinanUcret || 0) < 0 || (fatura.aciklama && String(fatura.aciklama).toLowerCase().includes('iade')));
@@ -507,7 +551,7 @@ export function FaturaAktarim() {
 
     if (isIsletmeDefteri) {
       // İŞLETME DEFTERİ EXCEL ÇIKTISI
-      const exportData = selectedInvoices.map(inv => getIsletmeDefteriSatiri(inv, aracGideriIds.includes(inv.id)));
+      const exportData = selectedInvoices.map(inv => getIsletmeDefteriSatiri(inv, isInvoiceKkegOrArac(inv)));
       const ws = XLSX.utils.json_to_sheet(exportData);
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, 'Isletme_Defteri');
@@ -518,7 +562,7 @@ export function FaturaAktarim() {
       if (!settings) return toast.error('KDV Ayarları bulunamadı. Lütfen ayarları yapın.');
       let exportData: any[] = [];
       selectedInvoices.forEach(inv => {
-        exportData = [...exportData, ...getMuhasebeSatirlari(inv, aracGideriIds.includes(inv.id))];
+        exportData = [...exportData, ...getMuhasebeSatirlari(inv, isInvoiceKkegOrArac(inv))];
       });
 
       const ws = XLSX.utils.json_to_sheet(exportData);
@@ -814,7 +858,7 @@ export function FaturaAktarim() {
         tur: inv._type === 'ALIS' ? 'gider' : 'gelir',
         tip: inv._type === 'ALIS' ? 'ALIS' : 'SATIS',
         defterTuru: 'ISLETME',
-        isAracGideri: aracGideriIds.includes(inv.id)
+        isAracGideri: isInvoiceKkegOrArac(inv)
       };
     });
 
@@ -857,7 +901,7 @@ export function FaturaAktarim() {
     if (!settings) return toast.error('KDV Ayarları bulunamadı. Lütfen ayarları yapın.');
     let exportData: any[] = [];
     selectedInvoices.forEach(inv => {
-      const excelRows = getMuhasebeSatirlari(inv, aracGideriIds.includes(inv.id));
+      const excelRows = getMuhasebeSatirlari(inv, isInvoiceKkegOrArac(inv));
       const extRows = excelRows.map(row => ({
         tarih: row['Evrak Tarihi'],
         evrakNo: row['Evrak No'],
@@ -1090,7 +1134,7 @@ export function FaturaAktarim() {
                     const kdvTutar = parseFloat(inv.kdvTutari) || 0;
                     const kdvDahil = Math.round((matrah + kdvTutar) * 100) / 100;
                     const toplam = (matrah > 0 || kdvTutar > 0) ? kdvDahil : (isAlis ? (parseFloat(inv.toplamTutar) || 0) : (parseFloat(inv.alinanUcret) || 0));
-                    const isArac = aracGideriIds.includes(inv.id);
+                    const isArac = isInvoiceKkegOrArac(inv);
                     const stopajTutar = typeof inv.stopajTutari === 'number'
                       ? inv.stopajTutari
                       : (parseFloat(String(inv.stopajTutari || inv.stopaj_tutari || inv.stopajTutar || '0').replace(',', '.')) || 0);
@@ -1102,6 +1146,7 @@ export function FaturaAktarim() {
                     const unvan = inv.ad || inv.unvan || inv.tedarikciAdi || 'Muhtelif Cari';
                     const vkn = inv.tcVkn || inv.tedarikciVkn || '';
                     const hesapAdi = getHesapAdi(inv);
+                    const hasCustomMahsup = inv.mahsupSatirlari && Array.isArray(inv.mahsupSatirlari) && inv.mahsupSatirlari.length > 0;
 
                     return (
                       <TableRow 
@@ -1159,6 +1204,11 @@ export function FaturaAktarim() {
                                 Karşı: {inv.karsiHesapKodu}
                               </span>
                             )}
+                            {hasCustomMahsup && (
+                              <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-indigo-50 text-indigo-700 border border-indigo-200 font-semibold" title="Fiş denetiminde özel olarak bölündü">
+                                Özel Mahsup ({inv.mahsupSatirlari.length} Kalem)
+                              </span>
+                            )}
                           </div>
                         </TableCell>
                         <TableCell className="text-right font-mono text-xs">
@@ -1173,12 +1223,19 @@ export function FaturaAktarim() {
                         </TableCell>
                         <TableCell className="text-center">
                           {isAlis && (
-                            <Checkbox 
-                              checked={isArac} 
-                              onCheckedChange={(checked) => {
-                                setAracGideriIds(prev => checked ? [...prev, inv.id] : prev.filter(i => i !== inv.id));
-                              }} 
-                            />
+                            <div className="flex flex-col items-center gap-1">
+                              <Checkbox 
+                                checked={isArac} 
+                                onCheckedChange={(checked) => {
+                                  setAracGideriIds(prev => checked ? [...prev, inv.id] : prev.filter(i => i !== inv.id));
+                                }} 
+                              />
+                              {isArac && (
+                                <span className="text-[9px] font-bold text-amber-700 bg-amber-50 px-1 py-0.2 rounded border border-amber-200 whitespace-nowrap">
+                                  %70 KKEG
+                                </span>
+                              )}
+                            </div>
                           )}
                         </TableCell>
                       </TableRow>

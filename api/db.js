@@ -388,6 +388,12 @@ export async function initDb() {
             if (!info.rows.some(col => col.name === 'gib_uuid')) {
               await client.execute(`ALTER TABLE alis_faturalari ADD COLUMN gib_uuid TEXT`);
             }
+            if (!info.rows.some(col => col.name === 'mahsup_satirlari')) {
+              await client.execute(`ALTER TABLE alis_faturalari ADD COLUMN mahsup_satirlari TEXT`);
+            }
+            if (!info.rows.some(col => col.name === 'has_kkeg')) {
+              await client.execute(`ALTER TABLE alis_faturalari ADD COLUMN has_kkeg INTEGER DEFAULT 0`);
+            }
           }
         } catch (e) {}
     }

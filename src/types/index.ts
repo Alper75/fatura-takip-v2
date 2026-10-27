@@ -134,6 +134,8 @@ export interface AlisFatura {
   urunId?: string;
   depoId?: string;
   vehiclePlate?: string;
+  mahsupSatirlari?: any[];
+  hasKkeg?: boolean;
 }
 
 export interface AlisFaturaFormData {
