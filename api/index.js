@@ -4084,9 +4084,31 @@ app.get('/api/stok/kritik-seviyedekiler', authMiddleware, async (req, res) => {
 
 app.delete('/api/alis-faturalari/:id', authMiddleware, async (req, res) => {
   try {
+    // 1. Faturayı bul ve diskteki dosyaları temizle
+    const rs = await client.execute({
+      sql: 'SELECT pdf_dosya, odeme_dekontu FROM alis_faturalari WHERE id = ? AND company_id = ?',
+      args: [req.params.id, req.user.companyId]
+    });
+    if (rs.rows.length > 0) {
+      const f = rs.rows[0];
+      [f.pdf_dosya, f.odeme_dekontu].forEach(filePath => {
+        if (filePath && typeof filePath === 'string' && filePath.startsWith('/uploads/')) {
+          try {
+            const diskFull = path.join(uploadsDir, filePath.replace(/^\/uploads\//, ''));
+            if (fs.existsSync(diskFull)) fs.unlinkSync(diskFull);
+          } catch (err) {}
+        }
+      });
+    }
+
+    // 2. Stok, Cari ve Alış faturası kayıtlarını her yerden sil
     await client.batch([
       {
         sql: 'DELETE FROM stok_hareketler WHERE bagli_fatura_id = ? AND company_id = ?',
+        args: [req.params.id, req.user.companyId]
+      },
+      {
+        sql: 'DELETE FROM cari_hareketler WHERE bagli_fatura_id = ? AND company_id = ?',
         args: [req.params.id, req.user.companyId]
       },
       {

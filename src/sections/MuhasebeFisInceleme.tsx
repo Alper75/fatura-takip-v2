@@ -612,6 +612,29 @@ export function MuhasebeFisInceleme() {
     toast.success('Yeni Gider / Borç satırı eklendi.');
   };
 
+  // YENİ KDV (191 / 391) SATIRI EKLE
+  const handleAddKdvRow = () => {
+    const newId = 'row_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4);
+    const nextMaddeNo = mahsupSatirlari.length + 1;
+    const defaultKod = editKdvHesapKodu || getKdvAccountCode(currentFatura?.kdvOrani || 20);
+
+    const currentBorc = mahsupSatirlari.reduce((acc, m) => acc + (Number(m.borc) || 0), 0);
+    const currentAlacak = mahsupSatirlari.reduce((acc, m) => acc + (Number(m.alacak) || 0), 0);
+    const rem = Math.max(0, Math.round((currentAlacak - currentBorc) * 100) / 100);
+
+    const newRow: MahsupSatir = {
+      id: newId,
+      maddeNo: nextMaddeNo,
+      kod: defaultKod,
+      ad: `${getAccountName(defaultKod)} (%${currentFatura?.kdvOrani || 20})`,
+      borc: rem,
+      alacak: 0,
+      aciklama: `İndirilecek KDV Kalemi`
+    };
+    setMahsupSatirlari(prev => [...prev, newRow]);
+    toast.success('Yeni KDV satırı eklendi.');
+  };
+
   // YENİ ALACAK / KARŞI HESAP (ÖDEME) SATIRI EKLE
   const handleAddAlacakRow = () => {
     const newId = 'row_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4);
@@ -750,6 +773,29 @@ export function MuhasebeFisInceleme() {
       toast.success('Muhasebe mahsup fişi ve kalemleri başarıyla kaydedildi!');
     } catch (e: any) {
       toast.error('Güncelleme hatası: ' + e.message);
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  // Fişi ve Bağlı Tüm Kayıtları Tamamen Sil (Her Yerden)
+  const handleDeleteFatura = async () => {
+    if (!currentFatura) return;
+    const unvan = currentFatura.tedarikciAdi || 'Fatura';
+    const no = currentFatura.faturaNo || currentFatura.id;
+    if (!window.confirm(`"${unvan}" (${no}) fişini tamamen silmek istediğinizden emin misiniz?\n\n⚠️ Bu işlem fişi, görselini, varsa stok ve cari hareketlerini kalıcı olarak HER YERDEN silecektir.`)) {
+      return;
+    }
+
+    setIsUpdating(true);
+    try {
+      await deleteAlisFatura(currentFatura.id);
+      toast.success('Fiş ve bağlı tüm kayıtlar her yerden kalıcı olarak silindi.');
+      if (selectedIndex >= filteredFaturalar.length - 1 && selectedIndex > 0) {
+        setSelectedIndex(prev => prev - 1);
+      }
+    } catch (e: any) {
+      toast.error('Fiş silinemedi: ' + e.message);
     } finally {
       setIsUpdating(false);
     }
@@ -1140,6 +1186,18 @@ export function MuhasebeFisInceleme() {
                     <Save className="w-3.5 h-3.5 mr-1" />
                     {isUpdating ? 'Kaydediliyor...' : 'Kaydet'}
                   </Button>
+
+                  <Button 
+                    size="sm" 
+                    variant="destructive"
+                    onClick={handleDeleteFatura}
+                    disabled={isUpdating}
+                    className="h-7 text-xs font-semibold px-2.5 shadow gap-1 bg-rose-600 hover:bg-rose-700 text-white border-rose-700"
+                    title="Bu fişi ve bağlı tüm kayıtları (stok, cari ve dosya) her yerden kalıcı olarak siler"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    Fişi Sil
+                  </Button>
                 </div>
               </div>
 
@@ -1215,6 +1273,19 @@ export function MuhasebeFisInceleme() {
                   >
                     <Plus className="w-3.5 h-3.5" />
                     + Gider Satırı Ekle
+                  </Button>
+
+                  {/* KDV (BORÇ) SATIRI EKLE */}
+                  <Button 
+                    type="button" 
+                    size="sm" 
+                    variant="outline"
+                    onClick={handleAddKdvRow}
+                    className="h-7 text-xs font-semibold gap-1 text-purple-700 bg-purple-50/80 hover:bg-purple-100 border-purple-200 dark:bg-purple-950/40 dark:text-purple-300 dark:border-purple-800"
+                    title="Çoklu KDV oranları veya ek KDV kalemi eklemek için KDV satırı açar"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    + KDV Satırı Ekle
                   </Button>
 
                   {/* KARŞI HESAP (ALACAK) SATIRI EKLE */}
