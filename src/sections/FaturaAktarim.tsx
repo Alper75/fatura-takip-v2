@@ -370,13 +370,21 @@ export function FaturaAktarim() {
     const isAlis = fatura._type === 'ALIS';
     const isIade = isAlis ? (parseFloat(fatura.toplamTutar || 0) < 0 || (fatura.malHizmetAdi && String(fatura.malHizmetAdi).toLowerCase().includes('iade'))) : (parseFloat(fatura.alinanUcret || 0) < 0 || (fatura.aciklama && String(fatura.aciklama).toLowerCase().includes('iade')));
     
-    // Cari Kod Belirleme
-    let cariKod = isAlis ? '320' : '120';
-    if (fatura.cariId) {
+    // Karşı Hesap (Cari / Kasa / Banka / Ortaklar 331) Belirleme:
+    // 1. Faturada tanımlanmış veya Mahsup Kontrolü'nde seçilmiş Karşı Hesap Kodu EN ÖNCELİKLİDİR (Örn: 331, 331.01, 100.01, 102.01)
+    let cariKod = (fatura.karsiHesapKodu || fatura.karsi_hesap_kodu || '').trim();
+    
+    // 2. Faturada özel karşı hesap seçilmemişse, bağlı carinin hesap kodunu kullan
+    if (!cariKod && fatura.cariId) {
       const matchedCari = cariler.find(c => c.id === fatura.cariId);
       if (matchedCari && matchedCari.muhasebeKodu) {
-        cariKod = matchedCari.muhasebeKodu;
+        cariKod = matchedCari.muhasebeKodu.trim();
       }
+    }
+
+    // 3. Hiçbiri yoksa varsayılan cari kodu
+    if (!cariKod) {
+      cariKod = isAlis ? '320.01' : '120.01';
     }
     
     const kdvOrani = (fatura.kdvOrani || 20).toString();
@@ -1117,6 +1125,7 @@ export function FaturaAktarim() {
                         data-luca-stopaj-oran={hasStopaj ? (inv.stopajOrani || '') : ''}
                         data-luca-stopaj-tutar={hasStopaj ? stopajTutar : 0}
                         data-luca-muhasebe-kodu={inv.muhasebeKodu || ''}
+                        data-luca-karsi-hesap-kodu={inv.karsiHesapKodu || ''}
                       >
                         <TableCell className="text-center">
                           <Checkbox checked={selectedIds.includes(inv.id)} onCheckedChange={() => toggleSelection(inv.id)} />
@@ -1132,18 +1141,25 @@ export function FaturaAktarim() {
                           <div className="font-semibold text-xs text-slate-900 truncate" title={unvan}>
                             {unvan}
                           </div>
-                          {hesapAdi ? (
-                            <div className="text-[11px] text-indigo-600 font-medium truncate flex items-center gap-1 mt-0.5" title={hesapAdi}>
-                              <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 shrink-0"></span>
-                              {hesapAdi}
-                            </div>
-                          ) : (
-                            inv.malHizmetAdi && (
-                              <div className="text-[11px] text-slate-500 truncate mt-0.5" title={inv.malHizmetAdi}>
-                                {inv.malHizmetAdi}
+                          <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
+                            {hesapAdi ? (
+                              <div className="text-[11px] text-indigo-600 font-medium truncate flex items-center gap-1" title={hesapAdi}>
+                                <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 shrink-0"></span>
+                                {hesapAdi}
                               </div>
-                            )
-                          )}
+                            ) : (
+                              inv.malHizmetAdi && (
+                                <div className="text-[11px] text-slate-500 truncate" title={inv.malHizmetAdi}>
+                                  {inv.malHizmetAdi}
+                                </div>
+                              )
+                            )}
+                            {inv.karsiHesapKodu && (
+                              <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-amber-50 text-amber-800 border border-amber-200" title="Karşı / Ödeme Hesabı">
+                                Karşı: {inv.karsiHesapKodu}
+                              </span>
+                            )}
+                          </div>
                         </TableCell>
                         <TableCell className="text-right font-mono text-xs">
                           {matrah.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺
