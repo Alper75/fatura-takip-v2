@@ -3836,7 +3836,7 @@ app.delete('/api/satis-faturalari/:id', authMiddleware, async (req, res) => {
 app.get('/api/alis-faturalari', authMiddleware, async (req, res) => {
   try {
     const rs = await client.execute({
-      sql: 'SELECT id, fatura_no, fatura_tarihi, tedarikci_adi, tedarikci_vkn, mal_hizmet_adi, toplam_tutar, kdv_orani, kdv_tutari, matrah, tevkifat_orani, tevkifat_tutari, stopaj_orani, stopaj_tutari, kdv1, kdv10, kdv20, oiv_tutari, muhasebe_kodu, karsi_hesap_kodu, pdf_dosya, pdf_dosya_adi, odeme_tarihi, odeme_durumu, odeme_dekontu, odeme_dekontu_adi, cari_id, vade_tarihi, aciklama, olusturma_tarihi, urun_id, depo_id, vehicle_plate, gib_uuid, mahsup_satirlari, has_kkeg, COALESCE(odenen_tutar, 0) as odenen_tutar, kalan_tutar FROM alis_faturalari WHERE company_id = ? ORDER BY olusturma_tarihi DESC',
+      sql: 'SELECT id, fatura_no, fatura_tarihi, tedarikci_adi, tedarikci_vkn, mal_hizmet_adi, toplam_tutar, kdv_orani, kdv_tutari, matrah, tevkifat_orani, tevkifat_tutari, stopaj_orani, stopaj_tutari, kdv1, kdv10, kdv20, oiv_tutari, muhasebe_kodu, karsi_hesap_kodu, kdv_hesap_kodu, pdf_dosya, pdf_dosya_adi, odeme_tarihi, odeme_durumu, odeme_dekontu, odeme_dekontu_adi, cari_id, vade_tarihi, aciklama, olusturma_tarihi, urun_id, depo_id, vehicle_plate, gib_uuid, mahsup_satirlari, has_kkeg, COALESCE(odenen_tutar, 0) as odenen_tutar, kalan_tutar FROM alis_faturalari WHERE company_id = ? ORDER BY olusturma_tarihi DESC',
       args: [req.user.companyId]
     });
     
@@ -3905,7 +3905,7 @@ app.get('/api/alis-faturalari', authMiddleware, async (req, res) => {
         kdvOrani: r.kdv_orani, kdvTutari: r.kdv_tutari, matrah: r.matrah, tevkifatOrani: r.tevkifat_orani, 
         tevkifatTutari: r.tevkifat_tutari, stopajOrani: r.stopaj_orani, stopajTutari: r.stopaj_tutari, 
         kdv1: r.kdv1, kdv10: r.kdv10, kdv20: r.kdv20, oivTutari: r.oiv_tutari,
-        muhasebeKodu: r.muhasebe_kodu, karsiHesapKodu: r.karsi_hesap_kodu, pdfDosya: cleanPdf, pdfDosyaAdi: r.pdf_dosya_adi, 
+        muhasebeKodu: r.muhasebe_kodu, karsiHesapKodu: r.karsi_hesap_kodu, kdvHesapKodu: r.kdv_hesap_kodu, pdfDosya: cleanPdf, pdfDosyaAdi: r.pdf_dosya_adi, 
         odemeTarihi: r.odeme_tarihi, odemeDurumu: r.odeme_durumu, odemeDekontu: cleanDekont, 
         odemeDekontuAdi: r.odeme_dekontu_adi, cariId: r.cari_id, vadeTarihi: r.vade_tarihi, 
         aciklama: r.aciklama, olusturmaTarihi: r.olusturma_tarihi, urunId: r.urun_id, depoId: r.depo_id,
@@ -3943,7 +3943,7 @@ app.get('/api/alis-faturalari/:id', authMiddleware, async (req, res) => {
       kdvOrani: r.kdv_orani, kdvTutari: r.kdv_tutari, matrah: r.matrah, tevkifatOrani: r.tevkifat_orani, 
       tevkifatTutari: r.tevkifat_tutari, stopajOrani: r.stopaj_orani, stopajTutari: r.stopaj_tutari, 
       kdv1: r.kdv1, kdv10: r.kdv10, kdv20: r.kdv20, oivTutari: r.oiv_tutari,
-      muhasebeKodu: r.muhasebe_kodu, karsiHesapKodu: r.karsi_hesap_kodu, pdfDosya: r.pdf_dosya, pdfDosyaAdi: r.pdf_dosya_adi, 
+      muhasebeKodu: r.muhasebe_kodu, karsiHesapKodu: r.karsi_hesap_kodu, kdvHesapKodu: r.kdv_hesap_kodu, pdfDosya: r.pdf_dosya, pdfDosyaAdi: r.pdf_dosya_adi, 
       odemeTarihi: r.odeme_tarihi, odemeDurumu: r.odeme_durumu, odemeDekontu: r.odeme_dekontu, 
       odemeDekontuAdi: r.odeme_dekontu_adi, cariId: r.cari_id, vadeTarihi: r.vade_tarihi, 
       aciklama: r.aciklama, olusturmaTarihi: r.olusturma_tarihi, urunId: r.urun_id, depoId: r.depo_id,
@@ -3968,8 +3968,8 @@ app.post('/api/alis-faturalari', authMiddleware, async (req, res) => {
     const hasKkegVal = f.hasKkeg ? 1 : 0;
 
     await client.execute({
-      sql: 'INSERT INTO alis_faturalari (id,fatura_no,fatura_tarihi,tedarikci_adi,tedarikci_vkn,mal_hizmet_adi,toplam_tutar,kdv_orani,kdv_tutari,matrah,tevkifat_orani,tevkifat_tutari,stopaj_orani,stopaj_tutari,muhasebe_kodu,karsi_hesap_kodu,pdf_dosya,pdf_dosya_adi,odeme_tarihi,odeme_durumu,odeme_dekontu,odeme_dekontu_adi,cari_id,vade_tarihi,aciklama,olusturma_tarihi,company_id,urun_id,depo_id,vehicle_plate,kdv1,kdv10,kdv20,oiv_tutari,mahsup_satirlari,has_kkeg) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
-      args: [n(f.id),n(f.faturaNo),n(f.faturaTarihi),n(f.tedarikciAdi),n(f.tedarikciVkn),n(f.malHizmetAdi),n(f.toplamTutar),n(f.kdvOrani),n(f.kdvTutari),n(f.matrah),n(f.tevkifatOrani),n(f.tevkifatTutari),n(f.stopajOrani),n(f.stopajTutari),n(f.muhasebeKodu),n(f.karsiHesapKodu),pdfPath,n(f.pdfDosyaAdi),n(f.odemeTarihi),n(f.odemeDurumu||'odenmedi'),dekontPath,n(f.odemeDekontuAdi),n(f.cariId),n(f.vadeTarihi),n(f.aciklama),n(f.olusturmaTarihi),req.user.companyId,n(f.urunId),n(f.depoId),n(f.vehiclePlate),n(f.kdv1),n(f.kdv10),n(f.kdv20),n(f.oivTutari),mahsupJson,hasKkegVal]
+      sql: 'INSERT INTO alis_faturalari (id,fatura_no,fatura_tarihi,tedarikci_adi,tedarikci_vkn,mal_hizmet_adi,toplam_tutar,kdv_orani,kdv_tutari,matrah,tevkifat_orani,tevkifat_tutari,stopaj_orani,stopaj_tutari,muhasebe_kodu,karsi_hesap_kodu,kdv_hesap_kodu,pdf_dosya,pdf_dosya_adi,odeme_tarihi,odeme_durumu,odeme_dekontu,odeme_dekontu_adi,cari_id,vade_tarihi,aciklama,olusturma_tarihi,company_id,urun_id,depo_id,vehicle_plate,kdv1,kdv10,kdv20,oiv_tutari,mahsup_satirlari,has_kkeg) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+      args: [n(f.id),n(f.faturaNo),n(f.faturaTarihi),n(f.tedarikciAdi),n(f.tedarikciVkn),n(f.malHizmetAdi),n(f.toplamTutar),n(f.kdvOrani),n(f.kdvTutari),n(f.matrah),n(f.tevkifatOrani),n(f.tevkifatTutari),n(f.stopajOrani),n(f.stopajTutari),n(f.muhasebeKodu),n(f.karsiHesapKodu),n(f.kdvHesapKodu),pdfPath,n(f.pdfDosyaAdi),n(f.odemeTarihi),n(f.odemeDurumu||'odenmedi'),dekontPath,n(f.odemeDekontuAdi),n(f.cariId),n(f.vadeTarihi),n(f.aciklama),n(f.olusturmaTarihi),req.user.companyId,n(f.urunId),n(f.depoId),n(f.vehiclePlate),n(f.kdv1),n(f.kdv10),n(f.kdv20),n(f.oivTutari),mahsupJson,hasKkegVal]
     });
     
     // Çoklu stok hareketleri oluştur (GIRIS - alış = stoğa giriş)
@@ -4028,6 +4028,7 @@ app.put('/api/alis-faturalari/:id', authMiddleware, async (req, res) => {
         stopaj_tutari=COALESCE(?,stopaj_tutari),
         muhasebe_kodu=COALESCE(?,muhasebe_kodu),
         karsi_hesap_kodu=COALESCE(?,karsi_hesap_kodu),
+        kdv_hesap_kodu=COALESCE(?,kdv_hesap_kodu),
         aciklama=COALESCE(?,aciklama),
         vade_tarihi=COALESCE(?,vade_tarihi),
         mahsup_satirlari=COALESCE(?,mahsup_satirlari),
@@ -4039,7 +4040,7 @@ app.put('/api/alis-faturalari/:id', authMiddleware, async (req, res) => {
         n(f.faturaTarihi), n(f.tedarikciAdi), n(f.tedarikciVkn), n(f.malHizmetAdi),
         n(f.toplamTutar), n(f.kdvOrani), n(f.kdvTutari), n(f.matrah),
         n(f.tevkifatOrani), n(f.tevkifatTutari), n(f.stopajOrani), n(f.stopajTutari),
-        n(f.muhasebeKodu), n(f.karsiHesapKodu), n(f.aciklama), n(f.vadeTarihi),
+        n(f.muhasebeKodu), n(f.karsiHesapKodu), n(f.kdvHesapKodu), n(f.aciklama), n(f.vadeTarihi),
         mahsupJson !== undefined ? n(mahsupJson) : null,
         hasKkegVal !== undefined ? n(hasKkegVal) : null,
         req.params.id, req.user.companyId

@@ -116,6 +116,7 @@ export interface AlisFatura {
   kdv20?: number;
   muhasebeKodu?: string;
   karsiHesapKodu?: string;
+  kdvHesapKodu?: string;
   // PDF
   pdfDosya?: string | null;
   pdfDosyaAdi?: string;

@@ -394,6 +394,9 @@ export async function initDb() {
             if (!info.rows.some(col => col.name === 'has_kkeg')) {
               await client.execute(`ALTER TABLE alis_faturalari ADD COLUMN has_kkeg INTEGER DEFAULT 0`);
             }
+            if (!info.rows.some(col => col.name === 'kdv_hesap_kodu')) {
+              await client.execute(`ALTER TABLE alis_faturalari ADD COLUMN kdv_hesap_kodu TEXT`);
+            }
           }
         } catch (e) {}
     }

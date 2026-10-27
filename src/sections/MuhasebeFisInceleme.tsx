@@ -94,9 +94,24 @@ export function MuhasebeFisInceleme() {
   // Düzenleme Modu
   const [editMuhasebeKodu, setEditMuhasebeKodu] = useState('');
   const [editKarsiHesapKodu, setEditKarsiHesapKodu] = useState('');
+  const [editKdvHesapKodu, setEditKdvHesapKodu] = useState('');
   const [editAciklama, setEditAciklama] = useState('');
   const [isUpdating, setIsUpdating] = useState(false);
   const [mahsupSatirlari, setMahsupSatirlari] = useState<MahsupSatir[]>([]);
+  const [kdvSettings, setKdvSettings] = useState<any>(null);
+
+  // Fatura KDV ve Muhasebe Bağlantıları Ayarlarını Yükle
+  useEffect(() => {
+    apiFetch('/api/settings/luca_kdv_ayarlari')
+      .then(res => {
+        if (res?.success && res.value) {
+          try {
+            setKdvSettings(JSON.parse(res.value));
+          } catch (e) {}
+        }
+      })
+      .catch(err => console.warn('KDV ayarları çekilemedi:', err));
+  }, []);
 
   // Hesap Planı İsim Yardımcısı
   const getAccountName = (code: string) => {
@@ -109,6 +124,7 @@ export function MuhasebeFisInceleme() {
     if (code.startsWith('740')) return 'Hizmet Üretim Maliyeti';
     if (code.startsWith('153')) return 'Ticari Mallar';
     if (code.startsWith('191')) return 'İndirilecek KDV';
+    if (code.startsWith('391')) return 'Hesaplanan KDV';
     if (code.startsWith('100')) return 'Kasa Hesabı';
     if (code.startsWith('102')) return 'Bankalar Hesabı';
     if (code.startsWith('108')) return 'Diğer Hazır Değerler (Kredi Kartı Slipleri)';
@@ -121,9 +137,15 @@ export function MuhasebeFisInceleme() {
     return 'Tanımlı Hesap';
   };
 
-  // KDV Oranına göre 191 alt hesabı belirleme
+  // KDV Oranına göre 191/391 alt hesabı belirleme (Öncelik: Fatura KDV ve Muhasebe Bağlantıları)
   const getKdvAccountCode = (rate: number | string) => {
-    const r = String(rate);
+    const r = String(rate).replace(/[^0-9]/g, '');
+    if (kdvSettings?.alis?.[r]) {
+      return kdvSettings.alis[r];
+    }
+    if (r === '8' && kdvSettings?.alis?.['10']) return kdvSettings.alis['10'];
+    if (r === '18' && kdvSettings?.alis?.['20']) return kdvSettings.alis['20'];
+
     if (r === '1') return '191.01';
     if (r === '8' || r === '10') return '191.10';
     if (r === '18' || r === '20') return '191.20';
@@ -131,7 +153,7 @@ export function MuhasebeFisInceleme() {
   };
 
   // Varsayılan Mahsup Fişi Maddelerini Hesaplama Fonksiyonu
-  const generateDefaultMahsupRows = (fatura: AlisFatura, giderKoduParam?: string, karsiKoduParam?: string): MahsupSatir[] => {
+  const generateDefaultMahsupRows = (fatura: AlisFatura, giderKoduParam?: string, karsiKoduParam?: string, kdvKoduParam?: string): MahsupSatir[] => {
     const toplamTutar = parseFloat(String(fatura.toplamTutar || 0)) || 0;
     const kdvOrani = parseFloat(String(fatura.kdvOrani || 20)) || 0;
     const matrah = parseFloat(String(fatura.matrah || 0)) || Math.round((toplamTutar / (1 + kdvOrani / 100)) * 100) / 100;
@@ -145,8 +167,9 @@ export function MuhasebeFisInceleme() {
       !!fatura.hasKkeg;
 
     const giderKodu = giderKoduParam || fatura.muhasebeKodu || (isVehicleExpense ? '770.02.001' : '770.01.001');
-    const kdvKodu = getKdvAccountCode(kdvOrani);
+    const kdvKodu = kdvKoduParam || fatura.kdvHesapKodu || getKdvAccountCode(kdvOrani);
     const karsiKodu = karsiKoduParam || fatura.karsiHesapKodu || (fatura.cariId ? '320.01' : '100.01');
+    const kkegKodu = kdvSettings?.aracGiderKkegKodu || '689.01.001';
 
     const rows: MahsupSatir[] = [];
     let mNo = 1;
@@ -184,8 +207,8 @@ export function MuhasebeFisInceleme() {
         rows.push({
           id: `row_${Date.now()}_${mNo}`,
           maddeNo: mNo++,
-          kod: '689.01.001',
-          ad: 'Kanunen Kabul Edilmeyen Giderler (KKEG)',
+          kod: kkegKodu,
+          ad: getAccountName(kkegKodu) || 'Kanunen Kabul Edilmeyen Giderler (KKEG)',
           borc: toplamKkeg,
           alacak: 0,
           aciklama: `Binek Araç Kısıtı (%30 KKEG: Matrah ${kkegMatrah} TL + KDV ${kkegKdv} TL)`
@@ -305,6 +328,18 @@ export function MuhasebeFisInceleme() {
     setEditMuhasebeKodu(currentFatura.muhasebeKodu || '');
     setEditKarsiHesapKodu(currentFatura.karsiHesapKodu || (currentFatura.cariId ? '320.01' : '100.01'));
     setEditAciklama(currentFatura.aciklama || `${currentFatura.tedarikciAdi} - ${currentFatura.faturaNo}`);
+
+    // KDV Kodunu belirle (Öncelik: faturada kayıtlı -> satırlardaki -> Fatura KDV ve Muhasebe Bağlantıları)
+    let initialKdv = currentFatura.kdvHesapKodu || '';
+    if (!initialKdv && currentFatura.mahsupSatirlari && Array.isArray(currentFatura.mahsupSatirlari)) {
+      const kdvRow = currentFatura.mahsupSatirlari.find((r: any) => (r.kod || '').startsWith('191') || (r.kod || '').startsWith('391'));
+      if (kdvRow) initialKdv = kdvRow.kod;
+    }
+    if (!initialKdv) {
+      initialKdv = getKdvAccountCode(currentFatura.kdvOrani || 20);
+    }
+    setEditKdvHesapKodu(initialKdv);
+
     setZoomLevel(1);
     setRotation(0);
 
@@ -320,7 +355,7 @@ export function MuhasebeFisInceleme() {
         aciklama: m.aciklama || ''
       })));
     } else {
-      setMahsupSatirlari(generateDefaultMahsupRows(currentFatura, currentFatura.muhasebeKodu, currentFatura.karsiHesapKodu));
+      setMahsupSatirlari(generateDefaultMahsupRows(currentFatura, currentFatura.muhasebeKodu, currentFatura.karsiHesapKodu, initialKdv));
     }
     setZoomLevel(1);
     setRotation(0);
@@ -504,8 +539,9 @@ export function MuhasebeFisInceleme() {
     const toplamKkeg = Math.round((kkegMatrah + kkegKdv) * 100) / 100;
 
     const giderKodu = editMuhasebeKodu || currentFatura.muhasebeKodu || '770.02.001';
-    const kdvKodu = getKdvAccountCode(kdvOrani);
+    const kdvKodu = editKdvHesapKodu || currentFatura.kdvHesapKodu || getKdvAccountCode(kdvOrani);
     const karsiKodu = editKarsiHesapKodu || currentFatura.karsiHesapKodu || (currentFatura.cariId ? '320.01' : '100.01');
+    const kkegKodu = kdvSettings?.aracGiderKkegKodu || '689.01.001';
 
     const splitRows: MahsupSatir[] = [
       {
@@ -529,8 +565,8 @@ export function MuhasebeFisInceleme() {
       {
         id: 'row_' + Date.now() + '_3',
         maddeNo: 3,
-        kod: '689.01.001',
-        ad: 'Kanunen Kabul Edilmeyen Giderler (KKEG)',
+        kod: kkegKodu,
+        ad: getAccountName(kkegKodu) || 'Kanunen Kabul Edilmeyen Giderler (KKEG)',
         borc: toplamKkeg,
         alacak: 0,
         aciklama: `Binek Araç Kısıtı (%30 KKEG: Matrah ${kkegMatrah} TL + KDV ${kkegKdv} TL)`
@@ -620,7 +656,7 @@ export function MuhasebeFisInceleme() {
   // VARSAYILANA DÖN
   const handleResetToDefault = () => {
     if (!currentFatura) return;
-    const defaultRows = generateDefaultMahsupRows(currentFatura, editMuhasebeKodu, editKarsiHesapKodu);
+    const defaultRows = generateDefaultMahsupRows(currentFatura, editMuhasebeKodu, editKarsiHesapKodu, editKdvHesapKodu);
     setMahsupSatirlari(defaultRows);
     toast.info('Fiş satırları orijinal değerlerine sıfırlandı.');
   };
@@ -669,6 +705,20 @@ export function MuhasebeFisInceleme() {
     });
   };
 
+  // Üst Başlıktaki KDV Kodu (191 / 391) değişirse KDV satırlarını güncelle
+  const handleMainKdvCodeChange = (newKod: string) => {
+    setEditKdvHesapKodu(newKod);
+    setMahsupSatirlari(prev => {
+      const kdvIndices = prev
+        .map((r, i) => (r.kod.startsWith('191') || r.kod.startsWith('391')) ? i : -1)
+        .filter(i => i >= 0);
+      if (kdvIndices.length > 0) {
+        return prev.map((r, i) => kdvIndices.includes(i) ? { ...r, kod: newKod, ad: `${getAccountName(newKod)} (%${currentFatura?.kdvOrani || 20})` } : r);
+      }
+      return prev;
+    });
+  };
+
   // Üst Başlıktaki Karşı Hesap değişirse ilk karşı satırını güncelle
   const handleMainKarsiCodeChange = (newKod: string) => {
     setEditKarsiHesapKodu(newKod);
@@ -691,6 +741,7 @@ export function MuhasebeFisInceleme() {
         ...currentFatura,
         muhasebeKodu: editMuhasebeKodu,
         karsiHesapKodu: editKarsiHesapKodu,
+        kdvHesapKodu: editKdvHesapKodu,
         aciklama: editAciklama,
         mahsupSatirlari,
         hasKkeg
@@ -1092,8 +1143,8 @@ export function MuhasebeFisInceleme() {
                 </div>
               </div>
 
-              {/* Fiş Üst Açıklama Alanı */}
-              <div className="bg-slate-50 dark:bg-slate-800/40 border-b border-slate-200 dark:border-slate-800 p-2.5 px-3 grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs items-end">
+              {/* Fiş Üst Açıklama Alanı (4 Kolon: Gider, KDV, Karşı Hesap, Açıklama) */}
+              <div className="bg-slate-50 dark:bg-slate-800/40 border-b border-slate-200 dark:border-slate-800 p-2.5 px-3 grid grid-cols-1 sm:grid-cols-4 gap-2.5 text-xs items-end">
                 <div>
                   <span className="text-slate-500 font-medium block text-[10px] uppercase mb-1">Varsayılan Gider Hesabı</span>
                   <LucaAccountSelect 
@@ -1105,11 +1156,24 @@ export function MuhasebeFisInceleme() {
                 </div>
 
                 <div>
-                  <span className="text-slate-500 font-medium block text-[10px] uppercase mb-1">Varsayılan Karşı Hesap (Ödeme / 331)</span>
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-slate-500 font-medium text-[10px] uppercase">KDV Hesabı (191/391)</span>
+                    <span className="text-[9px] text-indigo-600 dark:text-indigo-400 font-medium">Ayarlardan Bağlı</span>
+                  </div>
+                  <LucaAccountSelect 
+                    value={editKdvHesapKodu} 
+                    onChange={handleMainKdvCodeChange} 
+                    placeholder="KDV hesabı (191/391)..."
+                    className="h-8 text-xs bg-white dark:bg-slate-900 border-indigo-200 focus-visible:ring-indigo-500"
+                  />
+                </div>
+
+                <div>
+                  <span className="text-slate-500 font-medium block text-[10px] uppercase mb-1">Varsayılan Karşı Hesap</span>
                   <LucaAccountSelect 
                     value={editKarsiHesapKodu} 
                     onChange={handleMainKarsiCodeChange} 
-                    placeholder="Karşı hesap seçin (100, 331, 320, 102...)"
+                    placeholder="Karşı hesap (100, 331, 320, 102...)"
                     className="h-8 text-xs bg-white dark:bg-slate-900 border-amber-200 focus-visible:ring-amber-500"
                   />
                 </div>

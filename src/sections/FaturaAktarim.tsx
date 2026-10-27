@@ -460,7 +460,9 @@ export function FaturaAktarim() {
     
     // KDV Hesabı
     let kdvKodu = '';
-    if (settings) {
+    if (fatura.kdvHesapKodu) {
+      kdvKodu = fatura.kdvHesapKodu;
+    } else if (settings) {
       if (isAlis) {
         kdvKodu = isIade ? settings.alis_iade?.[kdvOrani] : settings.alis?.[kdvOrani];
       } else {
@@ -1147,6 +1149,7 @@ export function FaturaAktarim() {
                     const vkn = inv.tcVkn || inv.tedarikciVkn || '';
                     const hesapAdi = getHesapAdi(inv);
                     const hasCustomMahsup = inv.mahsupSatirlari && Array.isArray(inv.mahsupSatirlari) && inv.mahsupSatirlari.length > 0;
+                    const resolvedKdvKod = inv.kdvHesapKodu || (isAlis ? (settings?.alis?.[String(inv.kdvOrani || 20)] || '191.20') : (settings?.satis?.[String(inv.kdvOrani || 20)] || '391.20'));
 
                     return (
                       <TableRow 
@@ -1171,6 +1174,7 @@ export function FaturaAktarim() {
                         data-luca-stopaj-tutar={hasStopaj ? stopajTutar : 0}
                         data-luca-muhasebe-kodu={inv.muhasebeKodu || ''}
                         data-luca-karsi-hesap-kodu={inv.karsiHesapKodu || ''}
+                        data-luca-kdv-hesap-kodu={resolvedKdvKod}
                       >
                         <TableCell className="text-center">
                           <Checkbox checked={selectedIds.includes(inv.id)} onCheckedChange={() => toggleSelection(inv.id)} />
@@ -1214,7 +1218,12 @@ export function FaturaAktarim() {
                         <TableCell className="text-right font-mono text-xs">
                           {matrah.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺
                         </TableCell>
-                        <TableCell className="text-center font-mono text-xs">%{inv.kdvOrani || 20}</TableCell>
+                        <TableCell className="text-center font-mono text-xs">
+                          <div>%{inv.kdvOrani || 20}</div>
+                          <div className="text-[10px] text-indigo-600 font-mono mt-0.5" title="KDV Hesabı (191/391)">
+                            {resolvedKdvKod}
+                          </div>
+                        </TableCell>
                         <TableCell className="text-right font-mono text-xs text-indigo-600 font-medium">
                           {kdvTutar.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺
                         </TableCell>
