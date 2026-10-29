@@ -495,7 +495,7 @@ class AutoInvoiceFetcherService {
     // Geçmiş alış faturalarından muhasebe kodu öğren
     if (!muhasebeKodu && data.tedarikciVkn) {
       const pastAlis = await client.execute({
-        sql: 'SELECT muhasebe_kodu FROM alis_faturalari WHERE company_id = ? AND tedarikci_vkn = ? AND muhasebe_kodu IS NOT NULL AND muhasebe_kodu != "" ORDER BY id DESC LIMIT 1',
+        sql: "SELECT muhasebe_kodu FROM alis_faturalari WHERE company_id = ? AND tedarikci_vkn = ? AND muhasebe_kodu IS NOT NULL AND muhasebe_kodu != '' ORDER BY id DESC LIMIT 1",
         args: [companyId, data.tedarikciVkn]
       });
       if (pastAlis.rows && pastAlis.rows.length > 0) {

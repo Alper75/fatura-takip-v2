@@ -1966,7 +1966,7 @@ app.post('/api/invoices/import-from-logo', authMiddleware, async (req, res) => {
 
     if (!finalMuhasebeKodu && senderVkn) {
       const pastAlis = await client.execute({
-        sql: 'SELECT muhasebe_kodu FROM alis_faturalari WHERE company_id = ? AND tedarikci_vkn = ? AND muhasebe_kodu IS NOT NULL AND muhasebe_kodu != "" ORDER BY id DESC LIMIT 1',
+        sql: "SELECT muhasebe_kodu FROM alis_faturalari WHERE company_id = ? AND tedarikci_vkn = ? AND muhasebe_kodu IS NOT NULL AND muhasebe_kodu != '' ORDER BY id DESC LIMIT 1",
         args: [req.user.companyId, senderVkn]
       });
       if (pastAlis.rows && pastAlis.rows.length > 0) {
@@ -3197,7 +3197,7 @@ app.get('/api/admin/pointage', authMiddleware, adminMiddleware, async (req, res)
 
 app.get('/api/admin/pointage/template', authMiddleware, adminMiddleware, async (req, res) => {
   const rs = await client.execute({
-    sql: 'SELECT id, first_name, last_name FROM personnel WHERE status = "Active" AND company_id = ?',
+    sql: "SELECT id, first_name, last_name FROM personnel WHERE status = 'Active' AND company_id = ?",
     args: [req.user.companyId]
   });
   const data = rs.rows.map(p => ({
@@ -6079,7 +6079,7 @@ app.get('/api/settings/:key', authMiddleware, async (req, res, next) => {
     // AI ayarları için hiçbir şirkette tanımlı değilse herhangi bir şirketteki tanımlı ayara fallback yap
     if (!val && ['ai_provider', 'gemini_api_key', 'gemini_model', 'nvidia_api_key', 'nvidia_model', 'openai_api_key', 'openai_model'].includes(req.params.key)) {
       const anyRs = await client.execute({
-        sql: 'SELECT setting_value FROM company_settings WHERE setting_key = ? AND setting_value IS NOT NULL AND setting_value != "" ORDER BY id DESC LIMIT 1',
+        sql: "SELECT setting_value FROM company_settings WHERE setting_key = ? AND setting_value IS NOT NULL AND setting_value != '' ORDER BY id DESC LIMIT 1",
         args: [req.params.key]
       });
       if (anyRs.rows.length > 0) {
@@ -6123,7 +6123,7 @@ app.post(['/api/ai/analyze-invoice', '/api/ai/analyze-text'], authMiddleware, as
       }).catch(() => ({ rows: [] }));
       if (rs.rows.length > 0 && rs.rows[0].setting_value) return rs.rows[0].setting_value;
       const anyRs = await client.execute({
-        sql: 'SELECT setting_value FROM company_settings WHERE setting_key = ? AND setting_value IS NOT NULL AND setting_value != "" ORDER BY id DESC LIMIT 1',
+        sql: "SELECT setting_value FROM company_settings WHERE setting_key = ? AND setting_value IS NOT NULL AND setting_value != '' ORDER BY id DESC LIMIT 1",
         args: [key]
       }).catch(() => ({ rows: [] }));
       return anyRs.rows?.[0]?.setting_value || '';
