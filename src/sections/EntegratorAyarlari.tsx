@@ -67,6 +67,7 @@ export default function EntegratorAyarlari() {
   // Auto-Sync States
   const [autoSyncEnabled, setAutoSyncEnabled] = useState(false);
   const [autoSyncProvider, setAutoSyncProvider] = useState<'elogo' | 'uyumsoft' | 'gib'>('elogo');
+  const [autoSyncDirection, setAutoSyncDirection] = useState<'both' | 'incoming' | 'outgoing'>('both');
   const [autoSyncIntervalMins, setAutoSyncIntervalMins] = useState('60');
   const [autoSyncNotifyTelegram, setAutoSyncNotifyTelegram] = useState(true);
   const [autoSyncLastRun, setAutoSyncLastRun] = useState<string | null>(null);
@@ -148,6 +149,7 @@ export default function EntegratorAyarlari() {
       if (data.success && data.settings) {
         setAutoSyncEnabled(data.settings.auto_sync_enabled === 'true');
         setAutoSyncProvider(data.settings.auto_sync_provider || 'elogo');
+        setAutoSyncDirection(data.settings.auto_sync_direction || 'both');
         setAutoSyncIntervalMins(data.settings.auto_sync_interval_mins || '60');
         setAutoSyncNotifyTelegram(data.settings.auto_sync_notify_telegram !== 'false');
         setAutoSyncLastRun(data.settings.auto_sync_last_run || null);
@@ -176,6 +178,7 @@ export default function EntegratorAyarlari() {
         body: JSON.stringify({
           auto_sync_enabled: autoSyncEnabled ? 'true' : 'false',
           auto_sync_provider: autoSyncProvider,
+          auto_sync_direction: autoSyncDirection,
           auto_sync_interval_mins: autoSyncIntervalMins,
           auto_sync_notify_telegram: autoSyncNotifyTelegram ? 'true' : 'false',
           gib_username: gibUsername,
@@ -208,9 +211,12 @@ export default function EntegratorAyarlari() {
       const data = await res.json();
       if (data.success) {
         if (data.newCount > 0) {
-          toast.success(`🎉 ${data.newCount} adet yeni alış faturası sisteme aktarıldı!`, { id: 'manual-scan' });
+          const detailMsg = (data.incomingCount > 0 || data.outgoingCount > 0)
+            ? ` (${data.incomingCount || 0} Alış/Gider, ${data.outgoingCount || 0} Satış/Gelir)`
+            : '';
+          toast.success(`🎉 ${data.newCount} adet yeni fatura sisteme aktarıldı!${detailMsg}`, { id: 'manual-scan' });
         } else {
-          toast.info(data.message || 'Kontrol edildi, yeni gelen fatura bulunmuyor.', { id: 'manual-scan' });
+          toast.info(data.message || 'Kontrol edildi, yeni fatura bulunmuyor.', { id: 'manual-scan' });
         }
         await loadAutoSyncData();
       } else {
@@ -963,7 +969,62 @@ export default function EntegratorAyarlari() {
                   </div>
                 )}
 
-                {/* 3. Tarama Sıklığı & Telegram Bildirimi */}
+                {/* 3. Fatura Yönü ve Kapsamı (Alış / Satış / Her İkisi) */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs font-semibold text-slate-700">Taranacak Fatura Türü & Kapsamı</Label>
+                    <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200 text-[10px] font-semibold">
+                      İşletme Defteri + Bilanço Uyumlu
+                    </Badge>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    {[
+                      {
+                        id: 'both',
+                        title: '🔄 Hem Alış Hem Satış',
+                        sub: 'Önerilen',
+                        desc: 'Gelen faturalar Alış/Gider, kesilen faturalar Satış/Gelir olarak ayrıştırılıp eklenir.'
+                      },
+                      {
+                        id: 'incoming',
+                        title: '📥 Yalnızca Alış Faturaları',
+                        sub: 'Gelen Giderler',
+                        desc: 'Yalnızca tedarikçilerden adınıza düzenlenen gelen alış faturalarını tarar.'
+                      },
+                      {
+                        id: 'outgoing',
+                        title: '📤 Yalnızca Satış Faturaları',
+                        sub: 'Kesilen Gelirler',
+                        desc: 'Yalnızca müşterilerinize kestiğiniz satış ve serbest meslek makbuzlarını tarar.'
+                      }
+                    ].map(d => (
+                      <div
+                        key={d.id}
+                        onClick={() => setAutoSyncDirection(d.id as any)}
+                        className={`p-3.5 rounded-xl border-2 cursor-pointer transition-all ${autoSyncDirection === d.id ? 'border-emerald-600 bg-emerald-50/60 shadow-xs' : 'border-slate-200 hover:border-slate-300 bg-white'}`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="font-semibold text-xs text-slate-900">{d.title}</span>
+                          {d.sub === 'Önerilen' && (
+                            <span className="text-[9px] bg-emerald-600 text-white px-1.5 py-0.5 rounded font-bold">Önerilen</span>
+                          )}
+                        </div>
+                        <div className="text-[11px] text-slate-500 mt-1 leading-snug">{d.desc}</div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* İşletme Defteri Bilgilendirme Kutusu */}
+                  <div className="p-3 bg-gradient-to-r from-teal-50 to-emerald-50 border border-teal-200/80 rounded-xl flex items-start gap-2.5">
+                    <Sparkles className="w-4 h-4 text-teal-600 shrink-0 mt-0.5" />
+                    <div className="text-[11px] text-teal-900 leading-relaxed">
+                      <strong>İşletme Defteri Otomasyonu:</strong> Firma türünüz <em>İşletme Defteri</em> olduğunda, çekilen alış faturaları doğrudan <strong>İşletme Gideri</strong>, satış faturaları ise <strong>İşletme Geliri</strong> olarak işlenir. Luca eklentisiyle <strong>Hızlı Fiş (İşletme)</strong> veya <strong>Mahsup Fişi (Bilanço)</strong> modunda tek tıkla aktarabilirsiniz.
+                    </div>
+                  </div>
+                </div>
+
+                {/* 4. Tarama Sıklığı & Telegram Bildirimi */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label className="text-xs font-semibold text-slate-700">Tarama Sıklığı</Label>

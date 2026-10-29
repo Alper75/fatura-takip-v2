@@ -19,6 +19,7 @@ class AutoInvoiceFetcherService {
     const keys = [
       'auto_sync_enabled',
       'auto_sync_provider',
+      'auto_sync_direction', // 'both' | 'incoming' | 'outgoing'
       'auto_sync_interval_mins',
       'auto_sync_notify_telegram',
       'auto_sync_last_run',
@@ -41,6 +42,7 @@ class AutoInvoiceFetcherService {
     const settings = {
       auto_sync_enabled: 'false',
       auto_sync_provider: 'elogo',
+      auto_sync_direction: 'both',
       auto_sync_interval_mins: '60',
       auto_sync_notify_telegram: 'true',
       auto_sync_last_run: null,
@@ -100,7 +102,8 @@ class AutoInvoiceFetcherService {
   }
 
   /**
-   * Bir firmanın gelen faturalarını sağlayıcı üzerinden tara ve yeni olanları içeri aktar
+   * Bir firmanın gelen (Alış) ve giden (Satış) faturalarını sağlayıcı üzerinden tara ve yeni olanları içeri aktar.
+   * İşletme Defteri ve Bilanço firmaları ile tam uyumlu çalışır.
    */
   async scanCompany(companyId, trigger = 'manual') {
     if (this.isScanning.get(companyId)) {
@@ -112,7 +115,20 @@ class AutoInvoiceFetcherService {
     const provider = settings.auto_sync_provider || 'elogo';
     const nowIso = new Date().toISOString();
 
-    console.log(`[AutoInvoiceFetcher] Tarama başlatıldı: Company ${companyId}, Provider: ${provider}, Tetikleyici: ${trigger}`);
+    // Şirket defter türü tespiti (Bilanço mu İşletme Defteri mi?)
+    let isIsletme = false;
+    try {
+      const compRs = await client.execute({
+        sql: 'SELECT company_type FROM companies WHERE id = ?',
+        args: [companyId]
+      });
+      const cType = (compRs.rows[0]?.company_type || '').toUpperCase();
+      isIsletme = cType.includes('İŞLETME') || cType.includes('ISLETME');
+    } catch (e) {}
+
+    settings.isIsletme = isIsletme;
+
+    console.log(`[AutoInvoiceFetcher] Tarama başlatıldı: Company ${companyId} (${isIsletme ? 'İşletme Defteri' : 'Bilanço'}), Provider: ${provider}, Yön: ${settings.auto_sync_direction}, Tetikleyici: ${trigger}`);
 
     try {
       let result;
@@ -131,22 +147,33 @@ class AutoInvoiceFetcherService {
         auto_sync_last_status: 'success'
       });
 
-      const details = result.newInvoices && result.newInvoices.length > 0
-        ? `${result.newInvoices.length} yeni fatura sisteme kaydedildi: ` + result.newInvoices.map(i => `${i.faturaNo} (${i.tedarikciAdi})`).join(', ')
-        : (result.totalFound ? `${result.totalFound} fatura kontrol edildi, yeni fatura yok.` : 'Yeni fatura bulunamadı.');
+      const newInvs = result.newInvoices || [];
+      const alisCount = newInvs.filter(i => i.tip !== 'satis').length;
+      const satisCount = newInvs.filter(i => i.tip === 'satis').length;
 
-      await this.addLog(companyId, provider, 'success', result.newInvoices?.length || 0, details);
+      let details = '';
+      if (newInvs.length > 0) {
+        details = `${newInvs.length} yeni fatura sisteme aktarıldı (Alış/Gider: ${alisCount}, Satış/Gelir: ${satisCount}): ` +
+          newInvs.slice(0, 5).map(i => `${i.faturaNo} (${i.tip === 'satis' ? i.aliciAdi : i.tedarikciAdi})`).join(', ');
+        if (newInvs.length > 5) details += ` ve ${newInvs.length - 5} fatura daha.`;
+      } else {
+        details = result.totalFound ? `${result.totalFound} fatura kontrol edildi, yeni fatura yok.` : 'Yeni fatura bulunamadı.';
+      }
+
+      await this.addLog(companyId, provider, 'success', newInvs.length, details);
 
       // Telegram Bildirimi Gönder
-      if (result.newInvoices && result.newInvoices.length > 0 && settings.auto_sync_notify_telegram === 'true') {
-        await this._sendTelegramNotification(companyId, result.newInvoices, provider);
+      if (newInvs.length > 0 && settings.auto_sync_notify_telegram === 'true') {
+        await this._sendTelegramNotification(companyId, newInvs, provider, isIsletme);
       }
 
       return {
         success: true,
         provider,
-        newCount: result.newInvoices?.length || 0,
-        newInvoices: result.newInvoices || [],
+        newCount: newInvs.length,
+        alisCount,
+        satisCount,
+        newInvoices: newInvs,
         message: details
       };
     } catch (error) {
@@ -166,7 +193,7 @@ class AutoInvoiceFetcherService {
     }
   }
 
-  // --- 1. eLogo Tarama ---
+  // --- 1. eLogo Tarama (Alış & Satış) ---
   async _scanElogo(companyId, settings) {
     if (!settings.elogo_username || !settings.elogo_password) {
       throw new Error('eLogo kullanıcı adı ve şifresi tanımlı değil.');
@@ -178,59 +205,108 @@ class AutoInvoiceFetcherService {
     beginDateObj.setDate(beginDateObj.getDate() - 15); // Son 15 gün
     const beginDate = beginDateObj.toISOString();
 
-    const response = await elogo.getDocumentList('EINVOICE', beginDate, endDate, 2, 1);
-    if (!response.success) {
-      throw new Error(response.message || 'eLogo fatura listesi alınamadı.');
-    }
-
-    const docListRaw = response.data?.docList?.Document || response.data?.docList?.document || response.data?.GetDocumentListResult?.document || [];
-    const documents = Array.isArray(docListRaw) ? docListRaw : (docListRaw ? [docListRaw] : []);
+    const direction = settings.auto_sync_direction || 'both';
+    const scanIncoming = direction === 'both' || direction === 'incoming';
+    const scanOutgoing = direction === 'both' || direction === 'outgoing';
+    const isIsletme = !!settings.isIsletme;
 
     const newInvoices = [];
+    let totalFound = 0;
     const ublParser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_', removeNSPrefix: true, parseTagValue: false });
 
-    for (const doc of documents) {
-      const uuid = doc.documentUuid || doc.uuid;
-      const docNo = doc.documentId || '';
+    // 1.1 GELEN (ALIŞ) FATURALARI
+    if (scanIncoming) {
+      try {
+        const response = await elogo.getDocumentList('EINVOICE', beginDate, endDate, 2, 1);
+        if (response.success) {
+          const docListRaw = response.data?.docList?.Document || response.data?.docList?.document || response.data?.GetDocumentListResult?.document || [];
+          const documents = Array.isArray(docListRaw) ? docListRaw : (docListRaw ? [docListRaw] : []);
+          totalFound += documents.length;
 
-      // Fatura zaten kayıtlı mı?
-      const exists = await this._isInvoiceExists(companyId, uuid, docNo);
-      if (exists) continue;
+          for (const doc of documents) {
+            const uuid = doc.documentUuid || doc.uuid;
+            const docNo = doc.documentId || '';
+            const exists = await this._isInvoiceExists(companyId, uuid, docNo, 'alis');
+            if (exists || !uuid) continue;
 
-      // XML verisini çek
-      if (!uuid) continue;
-      const docDataRes = await elogo.getDocumentData(uuid);
-      if (!docDataRes.success || !docDataRes.data?.document?.binaryData?.Value) continue;
+            const docDataRes = await elogo.getDocumentData(uuid);
+            if (!docDataRes.success || !docDataRes.data?.document?.binaryData?.Value) continue;
 
-      const base64Data = docDataRes.data.document.binaryData.Value;
-      const buffer = Buffer.from(base64Data, 'base64');
-      let xmlString = '';
+            const buffer = Buffer.from(docDataRes.data.document.binaryData.Value, 'base64');
+            let xmlString = '';
+            if (buffer[0] === 0x50 && buffer[1] === 0x4B) { // ZIP
+              const zip = new AdmZip(buffer);
+              const zipEntries = zip.getEntries();
+              if (zipEntries.length > 0) xmlString = zipEntries[0].getData().toString('utf8');
+            } else {
+              xmlString = buffer.toString('utf8');
+            }
+            if (!xmlString) continue;
 
-      if (buffer[0] === 0x50 && buffer[1] === 0x4B) { // ZIP
-        const zip = new AdmZip(buffer);
-        const zipEntries = zip.getEntries();
-        if (zipEntries.length > 0) xmlString = zipEntries[0].getData().toString('utf8');
-      } else {
-        xmlString = buffer.toString('utf8');
-      }
+            const parsed = ublParser.parse(xmlString);
+            const inv = parsed.Invoice;
+            if (!inv) continue;
 
-      if (!xmlString) continue;
-
-      const parsed = ublParser.parse(xmlString);
-      const inv = parsed.Invoice;
-      if (!inv) continue;
-
-      const invoiceData = this._extractUblInvoice(inv, uuid, docNo, xmlString);
-      const saved = await this._saveIncomingInvoice(companyId, invoiceData);
-      if (saved) {
-        newInvoices.push(saved);
+            const invoiceData = this._extractUblInvoice(inv, uuid, docNo, xmlString, 'incoming');
+            const saved = await this._saveIncomingInvoice(companyId, invoiceData, isIsletme);
+            if (saved) newInvoices.push(saved);
+          }
+        }
+      } catch (err) {
+        console.warn('[AutoInvoiceFetcher] eLogo Alış tarama hatası:', err.message);
       }
     }
 
-    return { totalFound: documents.length, newInvoices };
+    // 1.2 GİDEN (SATIŞ) FATURALARI (e-Fatura & e-Arşiv)
+    if (scanOutgoing) {
+      const outDocTypes = ['EINVOICE', 'EARCHIVE'];
+      for (const dType of outDocTypes) {
+        try {
+          const response = await elogo.getDocumentList(dType, beginDate, endDate, 1, 1);
+          if (response.success) {
+            const docListRaw = response.data?.docList?.Document || response.data?.docList?.document || response.data?.GetDocumentListResult?.document || [];
+            const documents = Array.isArray(docListRaw) ? docListRaw : (docListRaw ? [docListRaw] : []);
+            totalFound += documents.length;
+
+            for (const doc of documents) {
+              const uuid = doc.documentUuid || doc.uuid;
+              const docNo = doc.documentId || '';
+              const exists = await this._isInvoiceExists(companyId, uuid, docNo, 'satis');
+              if (exists || !uuid) continue;
+
+              const docDataRes = await elogo.getDocumentData(uuid);
+              if (!docDataRes.success || !docDataRes.data?.document?.binaryData?.Value) continue;
+
+              const buffer = Buffer.from(docDataRes.data.document.binaryData.Value, 'base64');
+              let xmlString = '';
+              if (buffer[0] === 0x50 && buffer[1] === 0x4B) {
+                const zip = new AdmZip(buffer);
+                const zipEntries = zip.getEntries();
+                if (zipEntries.length > 0) xmlString = zipEntries[0].getData().toString('utf8');
+              } else {
+                xmlString = buffer.toString('utf8');
+              }
+              if (!xmlString) continue;
+
+              const parsed = ublParser.parse(xmlString);
+              const inv = parsed.Invoice;
+              if (!inv) continue;
+
+              const invoiceData = this._extractUblInvoice(inv, uuid, docNo, xmlString, 'outgoing');
+              const saved = await this._saveOutgoingInvoice(companyId, invoiceData, isIsletme);
+              if (saved) newInvoices.push(saved);
+            }
+          }
+        } catch (err) {
+          console.warn(`[AutoInvoiceFetcher] eLogo Satış (${dType}) tarama hatası:`, err.message);
+        }
+      }
+    }
+
+    return { totalFound, newInvoices };
   }
 
-  // --- 2. Uyumsoft Tarama ---
+  // --- 2. Uyumsoft Tarama (Alış & Satış & e-SMM) ---
   async _scanUyumsoft(companyId, settings) {
     if (!settings.uyumsoft_username || !settings.uyumsoft_password) {
       throw new Error('Uyumsoft kullanıcı adı ve şifresi tanımlı değil.');
@@ -242,57 +318,108 @@ class AutoInvoiceFetcherService {
     beginDateObj.setDate(beginDateObj.getDate() - 15);
     const beginDate = beginDateObj.toISOString();
 
-    const response = await uyumsoft.getDocumentList('EINVOICE', beginDate, endDate, 2, 1);
-    if (!response.success) {
-      throw new Error(response.message || 'Uyumsoft fatura listesi alınamadı.');
-    }
-
-    const docListRaw = response.data?.docList?.Document || response.data?.docList?.document || response.data?.GetDocumentListResult?.document || [];
-    const documents = Array.isArray(docListRaw) ? docListRaw : (docListRaw ? [docListRaw] : []);
+    const direction = settings.auto_sync_direction || 'both';
+    const scanIncoming = direction === 'both' || direction === 'incoming';
+    const scanOutgoing = direction === 'both' || direction === 'outgoing';
+    const isIsletme = !!settings.isIsletme;
 
     const newInvoices = [];
+    let totalFound = 0;
     const ublParser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_', removeNSPrefix: true, parseTagValue: false });
 
-    for (const doc of documents) {
-      const uuid = doc.documentUuid || doc.uuid;
-      const docNo = doc.documentId || '';
+    // 2.1 GELEN (ALIŞ) FATURALARI
+    if (scanIncoming) {
+      try {
+        const response = await uyumsoft.getDocumentList('EINVOICE', beginDate, endDate, 2, 1);
+        if (response.success) {
+          const docListRaw = response.data?.docList?.Document || response.data?.docList?.document || response.data?.GetDocumentListResult?.document || [];
+          const documents = Array.isArray(docListRaw) ? docListRaw : (docListRaw ? [docListRaw] : []);
+          totalFound += documents.length;
 
-      const exists = await this._isInvoiceExists(companyId, uuid, docNo);
-      if (exists) continue;
+          for (const doc of documents) {
+            const uuid = doc.documentUuid || doc.uuid;
+            const docNo = doc.documentId || '';
+            const exists = await this._isInvoiceExists(companyId, uuid, docNo, 'alis');
+            if (exists || !uuid) continue;
 
-      if (!uuid) continue;
-      const docDataRes = await uyumsoft.getDocumentData(uuid);
-      if (!docDataRes.success || !docDataRes.data?.document?.binaryData?.Value) continue;
+            const docDataRes = await uyumsoft.getDocumentData(uuid);
+            if (!docDataRes.success || !docDataRes.data?.document?.binaryData?.Value) continue;
 
-      const base64Data = docDataRes.data.document.binaryData.Value;
-      const buffer = Buffer.from(base64Data, 'base64');
-      let xmlString = '';
+            const buffer = Buffer.from(docDataRes.data.document.binaryData.Value, 'base64');
+            let xmlString = '';
+            if (buffer[0] === 0x50 && buffer[1] === 0x4B) {
+              const zip = new AdmZip(buffer);
+              const zipEntries = zip.getEntries();
+              if (zipEntries.length > 0) xmlString = zipEntries[0].getData().toString('utf8');
+            } else {
+              xmlString = buffer.toString('utf8');
+            }
+            if (!xmlString) continue;
 
-      if (buffer[0] === 0x50 && buffer[1] === 0x4B) {
-        const zip = new AdmZip(buffer);
-        const zipEntries = zip.getEntries();
-        if (zipEntries.length > 0) xmlString = zipEntries[0].getData().toString('utf8');
-      } else {
-        xmlString = buffer.toString('utf8');
-      }
+            const parsed = ublParser.parse(xmlString);
+            const inv = parsed.Invoice;
+            if (!inv) continue;
 
-      if (!xmlString) continue;
-
-      const parsed = ublParser.parse(xmlString);
-      const inv = parsed.Invoice;
-      if (!inv) continue;
-
-      const invoiceData = this._extractUblInvoice(inv, uuid, docNo, xmlString);
-      const saved = await this._saveIncomingInvoice(companyId, invoiceData);
-      if (saved) {
-        newInvoices.push(saved);
+            const invoiceData = this._extractUblInvoice(inv, uuid, docNo, xmlString, 'incoming');
+            const saved = await this._saveIncomingInvoice(companyId, invoiceData, isIsletme);
+            if (saved) newInvoices.push(saved);
+          }
+        }
+      } catch (err) {
+        console.warn('[AutoInvoiceFetcher] Uyumsoft Alış tarama hatası:', err.message);
       }
     }
 
-    return { totalFound: documents.length, newInvoices };
+    // 2.2 GİDEN (SATIŞ) FATURALARI
+    if (scanOutgoing) {
+      const outTypes = ['EINVOICE', 'EARCHIVE'];
+      for (const dType of outTypes) {
+        try {
+          const response = await uyumsoft.getDocumentList(dType, beginDate, endDate, 1, 1);
+          if (response.success) {
+            const docListRaw = response.data?.docList?.Document || response.data?.docList?.document || response.data?.GetDocumentListResult?.document || [];
+            const documents = Array.isArray(docListRaw) ? docListRaw : (docListRaw ? [docListRaw] : []);
+            totalFound += documents.length;
+
+            for (const doc of documents) {
+              const uuid = doc.documentUuid || doc.uuid;
+              const docNo = doc.documentId || '';
+              const exists = await this._isInvoiceExists(companyId, uuid, docNo, 'satis');
+              if (exists || !uuid) continue;
+
+              const docDataRes = await uyumsoft.getDocumentData(uuid);
+              if (!docDataRes.success || !docDataRes.data?.document?.binaryData?.Value) continue;
+
+              const buffer = Buffer.from(docDataRes.data.document.binaryData.Value, 'base64');
+              let xmlString = '';
+              if (buffer[0] === 0x50 && buffer[1] === 0x4B) {
+                const zip = new AdmZip(buffer);
+                const zipEntries = zip.getEntries();
+                if (zipEntries.length > 0) xmlString = zipEntries[0].getData().toString('utf8');
+              } else {
+                xmlString = buffer.toString('utf8');
+              }
+              if (!xmlString) continue;
+
+              const parsed = ublParser.parse(xmlString);
+              const inv = parsed.Invoice;
+              if (!inv) continue;
+
+              const invoiceData = this._extractUblInvoice(inv, uuid, docNo, xmlString, 'outgoing');
+              const saved = await this._saveOutgoingInvoice(companyId, invoiceData, isIsletme);
+              if (saved) newInvoices.push(saved);
+            }
+          }
+        } catch (err) {
+          console.warn(`[AutoInvoiceFetcher] Uyumsoft Satış (${dType}) hatası:`, err.message);
+        }
+      }
+    }
+
+    return { totalFound, newInvoices };
   }
 
-  // --- 3. GİB Portal Tarama ---
+  // --- 3. GİB Portal Tarama (Alış & Satış) ---
   async _scanGib(companyId, settings) {
     if (!settings.gib_username || !settings.gib_password) {
       throw new Error('GİB kullanıcı kodu ve şifresi tanımlı değil.');
@@ -313,53 +440,109 @@ class AutoInvoiceFetcherService {
     const past15 = new Date();
     past15.setDate(today.getDate() - 15);
 
-    const invoices = await clientGib.getAllInvoicesByDateRange(token, {
-      startDate: toGibDate(past15),
-      endDate: toGibDate(today)
-    });
+    const direction = settings.auto_sync_direction || 'both';
+    const scanIncoming = direction === 'both' || direction === 'incoming';
+    const scanOutgoing = direction === 'both' || direction === 'outgoing';
+    const isIsletme = !!settings.isIsletme;
 
     const newInvoices = [];
-    const list = Array.isArray(invoices) ? invoices : [];
+    let totalFound = 0;
 
-    for (const inv of list) {
-      const uuid = inv.ettn || inv.uuid || inv.faturaUuid;
-      const docNo = inv.belgeNumarasi || inv.faturaNo;
+    // 3.1 GİDEN (SATIŞ) FATURALARI
+    if (scanOutgoing) {
+      try {
+        const outList = await clientGib.getAllInvoicesByDateRange(token, {
+          startDate: toGibDate(past15),
+          endDate: toGibDate(today)
+        });
+        const list = Array.isArray(outList) ? outList : [];
+        totalFound += list.length;
 
-      const exists = await this._isInvoiceExists(companyId, uuid, docNo);
-      if (exists) continue;
+        for (const inv of list) {
+          const uuid = inv.ettn || inv.uuid || inv.faturaUuid;
+          const docNo = inv.belgeNumarasi || inv.faturaNo;
+          const exists = await this._isInvoiceExists(companyId, uuid, docNo, 'satis');
+          if (exists) continue;
 
-      const issueDate = inv.tarih ? inv.tarih.split('/').reverse().join('-') : new Date().toISOString().split('T')[0];
-      const senderName = inv.aliciUnvanAdSoyad || inv.unvan || 'GİB Fatura';
-      const senderVkn = inv.aliciVergiNo || inv.vknTckn || '';
-      const totalAmount = parseFloat(inv.odenecek || inv.toplamTutar || inv.vergilerDahilToplamTutar || 0);
+          const issueDate = inv.tarih ? inv.tarih.split('/').reverse().join('-') : new Date().toISOString().split('T')[0];
+          const recipientName = inv.aliciUnvanAdSoyad || inv.unvan || 'GİB Müşteri';
+          const recipientVkn = inv.aliciVergiNo || inv.vknTckn || '';
+          const totalAmount = parseFloat(inv.odenecek || inv.toplamTutar || inv.vergilerDahilToplamTutar || 0);
 
-      const invoiceData = {
-        uuid,
-        faturaNo: docNo || `GIB${Date.now()}`,
-        faturaTarihi: issueDate,
-        tedarikciAdi: senderName,
-        tedarikciVkn: senderVkn,
-        toplamTutar: totalAmount,
-        kdvOrani: 20,
-        kdvTutari: 0,
-        matrah: totalAmount,
-        faturaAciklama: 'GİB e-Arşiv / e-Fatura Otomatik Tarama'
-      };
+          const invoiceData = {
+            uuid,
+            faturaNo: docNo || `GIB${Date.now()}`,
+            faturaTarihi: issueDate,
+            aliciAdi: recipientName,
+            aliciVkn: recipientVkn,
+            toplamTutar: totalAmount,
+            kdvOrani: 20,
+            kdvTutari: 0,
+            matrah: totalAmount,
+            faturaAciklama: isIsletme ? 'GİB İşletme Geliri (Satış Faturası)' : 'GİB e-Arşiv Satış Faturası'
+          };
 
-      const saved = await this._saveIncomingInvoice(companyId, invoiceData);
-      if (saved) {
-        newInvoices.push(saved);
+          const saved = await this._saveOutgoingInvoice(companyId, invoiceData, isIsletme);
+          if (saved) newInvoices.push(saved);
+        }
+      } catch (err) {
+        console.warn('[AutoInvoiceFetcher] GİB Satış faturaları tarama hatası:', err.message);
       }
     }
 
-    return { totalFound: list.length, newInvoices };
+    // 3.2 GELEN (ALIŞ) FATURALARI (Adınıza Düzenlenenler)
+    if (scanIncoming) {
+      try {
+        if (typeof clientGib.getAllInvoicesIssuedToMeByDateRange === 'function') {
+          const inList = await clientGib.getAllInvoicesIssuedToMeByDateRange(token, {
+            startDate: toGibDate(past15),
+            endDate: toGibDate(today)
+          });
+          const list = Array.isArray(inList) ? inList : [];
+          totalFound += list.length;
+
+          for (const inv of list) {
+            const uuid = inv.ettn || inv.uuid || inv.faturaUuid;
+            const docNo = inv.belgeNumarasi || inv.faturaNo;
+            const exists = await this._isInvoiceExists(companyId, uuid, docNo, 'alis');
+            if (exists) continue;
+
+            const issueDate = inv.tarih ? inv.tarih.split('/').reverse().join('-') : new Date().toISOString().split('T')[0];
+            const senderName = inv.saticiUnvan || inv.aliciUnvanAdSoyad || inv.unvan || 'GİB Alış Fatura';
+            const senderVkn = inv.saticiVergiNo || inv.aliciVergiNo || inv.vknTckn || '';
+            const totalAmount = parseFloat(inv.odenecek || inv.toplamTutar || inv.vergilerDahilToplamTutar || 0);
+
+            const invoiceData = {
+              uuid,
+              faturaNo: docNo || `GIB${Date.now()}`,
+              faturaTarihi: issueDate,
+              tedarikciAdi: senderName,
+              tedarikciVkn: senderVkn,
+              toplamTutar: totalAmount,
+              kdvOrani: 20,
+              kdvTutari: 0,
+              matrah: totalAmount,
+              faturaAciklama: isIsletme ? 'GİB İşletme Gideri (Alış Faturası)' : 'GİB e-Arşiv Alış Faturası'
+            };
+
+            const saved = await this._saveIncomingInvoice(companyId, invoiceData, isIsletme);
+            if (saved) newInvoices.push(saved);
+          }
+        }
+      } catch (err) {
+        console.warn('[AutoInvoiceFetcher] GİB Gelen faturalar tarama hatası:', err.message);
+      }
+    }
+
+    return { totalFound, newInvoices };
   }
 
   // --- Yardımcı: Faturanın Veritabanında Varlığını Kontrol Et ---
-  async _isInvoiceExists(companyId, uuid, faturaNo) {
+  async _isInvoiceExists(companyId, uuid, faturaNo, type = 'alis') {
+    const table = type === 'satis' ? 'satis_faturalari' : 'alis_faturalari';
     if (uuid) {
       const rs = await client.execute({
-        sql: 'SELECT id FROM alis_faturalari WHERE company_id = ? AND gib_uuid = ? LIMIT 1',
+        sql: `SELECT id FROM ${table} WHERE company_id = ? AND gib_uuid = ? LIMIT 1`,
         args: [companyId, uuid]
       });
       if (rs.rows.length > 0) return true;
@@ -367,7 +550,7 @@ class AutoInvoiceFetcherService {
 
     if (faturaNo) {
       const rs = await client.execute({
-        sql: 'SELECT id FROM alis_faturalari WHERE company_id = ? AND fatura_no = ? LIMIT 1',
+        sql: `SELECT id FROM ${table} WHERE company_id = ? AND fatura_no = ? LIMIT 1`,
         args: [companyId, faturaNo]
       });
       if (rs.rows.length > 0) return true;
@@ -376,26 +559,30 @@ class AutoInvoiceFetcherService {
     return false;
   }
 
-  // --- Yardımcı: UBL Invoice Ayrıştırma ---
-  _extractUblInvoice(inv, uuid, defaultDocNo, xmlString) {
+  // --- Yardımcı: UBL Invoice Ayrıştırma (Gelen Alış veya Giden Satış) ---
+  _extractUblInvoice(inv, uuid, defaultDocNo, xmlString, direction = 'incoming') {
     const getText = (node) => (typeof node === 'object' && node !== null) ? (node['#text'] || '') : (node || '');
-    const supplierParty = inv['AccountingSupplierParty']?.['Party'];
+    
+    // Alışta tedarikçi (Supplier), Satışta müşteri (Customer) karşı taraftır
+    const partyNode = direction === 'outgoing'
+      ? (inv['AccountingCustomerParty']?.['Party'] || inv['AccountingCustomerParty'])
+      : (inv['AccountingSupplierParty']?.['Party'] || inv['AccountingSupplierParty']);
 
-    let senderName = 'Bilinmiyor';
-    let senderVkn = '';
+    let partyName = 'Bilinmiyor';
+    let partyVkn = '';
 
-    if (supplierParty) {
-      const partyName = Array.isArray(supplierParty['PartyName']) ? supplierParty['PartyName'][0] : supplierParty['PartyName'];
-      senderName = getText(partyName?.['Name']) || getText(supplierParty['PartyLegalEntity']?.['RegistrationName']) || (getText(supplierParty['Person']?.['FirstName']) + ' ' + getText(supplierParty['Person']?.['FamilyName'])).trim();
+    if (partyNode) {
+      const partyNameEl = Array.isArray(partyNode['PartyName']) ? partyNode['PartyName'][0] : partyNode['PartyName'];
+      partyName = getText(partyNameEl?.['Name']) || getText(partyNode['PartyLegalEntity']?.['RegistrationName']) || (getText(partyNode['Person']?.['FirstName']) + ' ' + getText(partyNode['Person']?.['FamilyName'])).trim();
       
-      const idNode = supplierParty['PartyIdentification'];
+      const idNode = partyNode['PartyIdentification'];
       const idArray = Array.isArray(idNode) ? idNode : (idNode ? [idNode] : []);
       for (const ident of idArray) {
         const id = ident['ID'];
         if (!id) continue;
         const val = id['#text'] || id;
         if (val) {
-          senderVkn = String(val).replace('.0', '');
+          partyVkn = String(val).replace('.0', '');
           break;
         }
       }
@@ -432,6 +619,7 @@ class AutoInvoiceFetcherService {
              getText(l?.['Item']?.['BuyersItemIdentification']?.['ID']) ||
              '';
     }).filter(Boolean).join(', ');
+
     const rawItems = lineArr.map(l => {
       const q = parseFloat(getText(l?.['InvoicedQuantity'])) || 1;
       const p = parseFloat(getText(l?.['Price']?.['PriceAmount'])) || (parseFloat(getText(l?.['LineExtensionAmount'])) / q) || 0;
@@ -455,23 +643,26 @@ class AutoInvoiceFetcherService {
       uuid,
       faturaNo,
       faturaTarihi: issueDate,
-      tedarikciAdi: senderName || 'Bilinmeyen Tedarikçi',
-      tedarikciVkn: senderVkn || '-',
+      tedarikciAdi: partyName || 'Bilinmeyen Tedarikçi',
+      tedarikciVkn: partyVkn || '-',
+      aliciAdi: partyName || 'Bilinmeyen Müşteri',
+      aliciVkn: partyVkn || '-',
       toplamTutar: totalAmount,
       matrah,
       kdvOrani,
       kdvTutari,
-      faturaAciklama: itemsText || 'Otomatik e-Fatura İçe Aktarımı',
-      items: rawItems
+      faturaAciklama: itemsText || (direction === 'outgoing' ? 'Otomatik Satış Faturası' : 'Otomatik Alış Faturası'),
+      items: rawItems,
+      direction
     };
   }
 
-  // --- Yardımcı: Alış Faturasını Veritabanına ve Cari Hesaba Kaydet ---
-  async _saveIncomingInvoice(companyId, data) {
+  // --- Yardımcı: Alış (Gider) Faturasını Kaydet ---
+  async _saveIncomingInvoice(companyId, data, isIsletme = false) {
     const id = uuidv4();
     const payable = Number(data.toplamTutar) || 0;
 
-    // Cari Hesabı Çözümle veya Yeni Cari Oluştur
+    // Tedarikçi Cari Kartını Bul veya Oluştur
     let cariId = null;
     let muhasebeKodu = null;
     if (data.tedarikciVkn && data.tedarikciVkn !== '-') {
@@ -492,8 +683,8 @@ class AutoInvoiceFetcherService {
       }
     }
 
-    // Geçmiş alış faturalarından muhasebe kodu öğren
-    if (!muhasebeKodu && data.tedarikciVkn) {
+    // Bilanço firması ise geçmiş alış faturalarından muhasebe kodu öğren
+    if (!isIsletme && !muhasebeKodu && data.tedarikciVkn) {
       const pastAlis = await client.execute({
         sql: "SELECT muhasebe_kodu FROM alis_faturalari WHERE company_id = ? AND tedarikci_vkn = ? AND muhasebe_kodu IS NOT NULL AND muhasebe_kodu != '' ORDER BY id DESC LIMIT 1",
         args: [companyId, data.tedarikciVkn]
@@ -503,15 +694,18 @@ class AutoInvoiceFetcherService {
       }
     }
 
-    // Masraf / Gider anahtar kelimelerinden tespit et (Örn: Elektrik, Otel, Yemek, Akaryakıt -> 770)
-    if (!muhasebeKodu) {
+    if (!isIsletme && !muhasebeKodu) {
       const textToSearch = `${data.tedarikciAdi || ''} ${data.faturaAciklama || ''}`.toUpperCase();
       if (/ELEKTRİK|ENERJİ|OTEL|KONAKLAMA|YEMEK|LOKANTA|RESTORAN|PETROL|AKARYAKIT|KOMİSYON|TELEKOM|TURKCELL|VODAFONE|KIRTASİYE/.test(textToSearch)) {
         muhasebeKodu = '770.03.001';
       }
     }
 
-    // Faturayı Alış Faturalarına Ekle
+    const desc = isIsletme 
+      ? `İşletme Gideri (${data.faturaNo}) - ${data.faturaAciklama || 'Alış'}` 
+      : `Otomatik Alış Faturası (${data.faturaNo})`;
+
+    // Alış Faturalarına Ekle
     await client.execute({
       sql: `INSERT INTO alis_faturalari 
         (id, fatura_no, fatura_tarihi, tedarikci_adi, tedarikci_vkn, mal_hizmet_adi, 
@@ -532,9 +726,9 @@ class AutoInvoiceFetcherService {
         data.kdvTutari || 0,
         data.matrah || (payable - (data.kdvTutari || 0)),
         muhasebeKodu,
-        payable, // kalan_tutar
+        payable,
         cariId,
-        `Otomatik İçe Aktarıldı (${data.faturaNo})`,
+        desc,
         new Date().toISOString().split('T')[0],
         companyId,
         data.uuid
@@ -553,15 +747,15 @@ class AutoInvoiceFetcherService {
           cariId,
           data.faturaTarihi,
           payable,
-          `${data.faturaNo} nolu gelen e-Fatura`,
+          `${data.faturaNo} nolu ${isIsletme ? 'işletme gider' : 'alış'} faturası`,
           id,
           new Date().toISOString().split('T')[0]
         ]
       }).catch(err => console.warn('Cari hareket eklenemedi:', err.message));
     }
 
-    // Otomatik Stok Girişi Senkronizasyonu (SADECE 150/153 GİBİ STOK HESAPLARI İÇİN)
-    if (stockSyncService.isStockAccount(muhasebeKodu) && data.items && data.items.length > 0) {
+    // Stok Hareketi (Bilanço Stok Hesapları İçin)
+    if (!isIsletme && stockSyncService.isStockAccount(muhasebeKodu) && data.items && data.items.length > 0) {
       await stockSyncService.syncInvoiceStockMovements(companyId, {
         faturaId: id,
         faturaTipi: 'alis',
@@ -576,39 +770,142 @@ class AutoInvoiceFetcherService {
       id,
       faturaNo: data.faturaNo,
       tedarikciAdi: data.tedarikciAdi,
-      tedarikciVkn: data.tedarikciVkn,
       tutar: payable,
-      tarih: data.faturaTarihi
+      tarih: data.faturaTarihi,
+      tip: 'alis',
+      isIsletme
+    };
+  }
+
+  // --- Yardımcı: Satış (Gelir) Faturasını Kaydet ---
+  async _saveOutgoingInvoice(companyId, data, isIsletme = false) {
+    const id = uuidv4();
+    const payable = Number(data.toplamTutar) || 0;
+
+    // Müşteri Cari Kartını Bul veya Oluştur
+    let cariId = null;
+    let muhasebeKodu = null;
+    if (data.aliciVkn && data.aliciVkn !== '-') {
+      const cariRs = await client.execute({
+        sql: 'SELECT id, muhasebe_kodu FROM cariler WHERE company_id = ? AND vkn_tckn = ? LIMIT 1',
+        args: [companyId, data.aliciVkn]
+      });
+      if (cariRs.rows.length > 0) {
+        cariId = cariRs.rows[0].id;
+        if (cariRs.rows[0].muhasebe_kodu) muhasebeKodu = cariRs.rows[0].muhasebe_kodu;
+      } else {
+        cariId = uuidv4();
+        await client.execute({
+          sql: `INSERT INTO cariler (id, unvan, vkn_tckn, tip, bakiye, olusturma_tarihi, company_id) 
+                VALUES (?, ?, ?, 'musteri', 0, ?, ?)`,
+          args: [cariId, data.aliciAdi, data.aliciVkn, new Date().toISOString().split('T')[0], companyId]
+        }).catch(err => console.warn('Müşteri cari oluşturulamadı:', err.message));
+      }
+    }
+
+    if (!isIsletme && !muhasebeKodu) {
+      muhasebeKodu = '600.01.020';
+    }
+
+    const desc = isIsletme
+      ? `İşletme Geliri (${data.faturaNo}) - ${data.faturaAciklama || 'Satış'}`
+      : `Otomatik Satış Faturası (${data.faturaNo})`;
+
+    // Satış Faturalarına Ekle
+    await client.execute({
+      sql: `INSERT INTO satis_faturalari 
+        (id, fatura_no, fatura_tarihi, ad, tc_vkn, 
+         alinan_ucret, kdv_orani, kdv_tutari, matrah, tevkifat_orani, tevkifat_tutari, 
+         stopaj_orani, stopaj_tutari, muhasebe_kodu, pdf_dosya, pdf_dosya_adi, 
+         odeme_tarihi, odeme_durumu, odenen_tutar, kalan_tutar, cari_id, vade_tarihi, 
+         aciklama, olusturma_tarihi, company_id, gib_uuid) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, 0, ?, null, null, null, 'odenmedi', 0, ?, ?, null, ?, ?, ?, ?)`,
+      args: [
+        id,
+        data.faturaNo,
+        data.faturaTarihi,
+        data.aliciAdi,
+        data.aliciVkn,
+        payable,
+        data.kdvOrani || 20,
+        data.kdvTutari || 0,
+        data.matrah || (payable - (data.kdvTutari || 0)),
+        muhasebeKodu,
+        payable,
+        cariId,
+        desc,
+        new Date().toISOString(),
+        companyId,
+        data.uuid
+      ]
+    });
+
+    // Cari Deftere Ekle (Satış Faturası Borç/Alacak Hareketi)
+    if (cariId) {
+      const chId = 'ch_' + Date.now().toString() + Math.random().toString(36).substr(2, 4);
+      await client.execute({
+        sql: `INSERT INTO cari_hareketler (id, company_id, cari_id, tarih, islem_turu, tutar, aciklama, bagli_fatura_id, olusturma_tarihi)
+              VALUES (?, ?, ?, ?, 'satis_faturasi', ?, ?, ?, ?)`,
+        args: [
+          chId,
+          companyId,
+          cariId,
+          data.faturaTarihi,
+          payable,
+          `${data.faturaNo} nolu ${isIsletme ? 'işletme gelir' : 'satış'} faturası`,
+          id,
+          new Date().toISOString().split('T')[0]
+        ]
+      }).catch(err => console.warn('Cari hareket eklenemedi:', err.message));
+    }
+
+    return {
+      id,
+      faturaNo: data.faturaNo,
+      aliciAdi: data.aliciAdi,
+      tutar: payable,
+      tarih: data.faturaTarihi,
+      tip: 'satis',
+      isIsletme
     };
   }
 
   // --- Telegram Bildirimi Hazırla ve Gönder ---
-  async _sendTelegramNotification(companyId, newInvoices, provider) {
+  async _sendTelegramNotification(companyId, newInvoices, provider, isIsletme = false) {
     try {
-      // Şirket adını al
       const compRs = await client.execute({
         sql: 'SELECT name FROM companies WHERE id = ?',
         args: [companyId]
       });
       const compName = compRs.rows[0]?.name || 'Şirketiniz';
 
-      let msg = `🔔 *Yeni Gelen e-Fatura Bildirimi!*\n`;
-      msg += `🏢 *Firma:* ${compName}\n`;
-      msg += `🔌 *Entegratör:* ${provider.toUpperCase()}\n`;
-      msg += `📥 *${newInvoices.length} adet yeni alış faturası sisteme kaydedildi:*\n\n`;
+      const alisList = newInvoices.filter(i => i.tip !== 'satis');
+      const satisList = newInvoices.filter(i => i.tip === 'satis');
 
-      newInvoices.slice(0, 5).forEach((inv, index) => {
-        msg += `*${index + 1}. ${inv.tedarikciAdi}*\n`;
+      let msg = `🔔 *Yeni e-Fatura Entegrasyon Bildirimi!*\n`;
+      msg += `🏢 *Firma:* ${compName} _(${isIsletme ? 'İşletme Defteri' : 'Bilanço'})_\n`;
+      msg += `🔌 *Entegratör:* ${provider.toUpperCase()}\n`;
+      msg += `📥 *Toplam:* ${newInvoices.length} yeni fatura aktarıldı\n`;
+      if (alisList.length > 0) msg += `   🔹 Alış / Gider: ${alisList.length} adet\n`;
+      if (satisList.length > 0) msg += `   🔸 Satış / Gelir: ${satisList.length} adet\n\n`;
+
+      newInvoices.slice(0, 6).forEach((inv, index) => {
+        const isSatis = inv.tip === 'satis';
+        const partner = isSatis ? inv.aliciAdi : inv.tedarikciAdi;
+        const icon = isSatis ? '📤 [Satış/Gelir]' : '📥 [Alış/Gider]';
+        msg += `*${index + 1}. ${icon} ${partner}*\n`;
         msg += `   📄 No: \`${inv.faturaNo}\`\n`;
         msg += `   💰 Tutar: *${Number(inv.tutar).toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺*\n`;
         msg += `   📅 Tarih: ${inv.tarih}\n\n`;
       });
 
-      if (newInvoices.length > 5) {
-        msg += `_...ve ${newInvoices.length - 5} adet daha fatura._\n\n`;
+      if (newInvoices.length > 6) {
+        msg += `_...ve ${newInvoices.length - 6} adet daha belge._\n\n`;
       }
 
-      msg += `✅ Faturalar Alış Faturaları listenize otomatik eklenmiş ve carilerine işlenmiştir.`;
+      msg += isIsletme 
+        ? `✅ Faturalar İşletme Defteri Gelir & Gider listelerine eklenmiş, Luca Hızlı Fiş için hazır hale getirilmiştir.`
+        : `✅ Faturalar Alış ve Satış listelerinize eklenmiş ve carilerine işlenmiştir.`;
 
       await telegramBotService.broadcast(msg);
     } catch (e) {
@@ -623,7 +920,6 @@ class AutoInvoiceFetcherService {
 
     this.schedulerTimer = setInterval(async () => {
       try {
-        // Otomatik tarama aktif olan firmaları bul
         const rs = await client.execute(`
           SELECT company_id, setting_value 
           FROM company_settings 
@@ -637,7 +933,6 @@ class AutoInvoiceFetcherService {
           const lastRun = settings.auto_sync_last_run ? new Date(settings.auto_sync_last_run).getTime() : 0;
           const now = Date.now();
 
-          // Süre doldu mu?
           if (now - lastRun >= intervalMins * 60 * 1000) {
             console.log(`[AutoInvoiceFetcher] Zamanlanmış tarama tetikleniyor: Company ${companyId}`);
             this.scanCompany(companyId, 'scheduler').catch(err => {
@@ -648,7 +943,7 @@ class AutoInvoiceFetcherService {
       } catch (err) {
         console.warn('[AutoInvoiceFetcher] Scheduler döngü hatası:', err.message);
       }
-    }, 60 * 1000); // Her 60 saniyede bir kontrol et
+    }, 60 * 1000);
   }
 
   stopScheduler() {

@@ -488,6 +488,27 @@ export class FaturaClient {
         return result.data;
     }
 
+    async getAllInvoicesIssuedToMeByDateRange(token, { startDate, endDate }) {
+        const norm = (d) => {
+            if (!d) return "";
+            const s = String(d).trim();
+            if (s.includes("-")) {
+                const p = s.split("T")[0].split("-");
+                if (p.length === 3 && p[0].length === 4) return `${p[2]}/${p[1]}/${p[0]}`;
+            }
+            return s;
+        };
+        const sDate = norm(startDate);
+        const eDate = norm(endDate);
+        const result = await this.runCommand(token, ...COMMANDS.getAllInvoicesIssuedToMeByDateRange, { 
+            baslangic: sDate, 
+            bitis: eDate, 
+            hangiTip: "5000/30000", 
+            table: [] 
+        });
+        return result.data;
+    }
+
     async getInvoiceHTML(token, uuid, { signed }) {
         const result = await this.runCommand(token, ...COMMANDS.getInvoiceHTML, {
             ettn: uuid,
