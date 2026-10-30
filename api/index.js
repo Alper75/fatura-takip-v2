@@ -6438,72 +6438,21 @@ Temel Muhasebe İlkelerin ve Davranış Kuralların:
     const runEvren = async () => {
       if (!evrenApiKey) return null;
       try {
-        console.log(`[AI Proxy][EVREN] OCR çağrılıyor... Model: ${evrenModel || 'dots-ocr'}`);
-        const ocrResult = await evrenClient.performOcr({
+        console.log(`[AI Proxy][EVREN] Analiz çağrılıyor... Model: ${evrenModel || 'dots-ocr'}`);
+        const result = await evrenClient.analyzeDocument({
           imageBase64: fileBase64,
           mimeType: mimeType || 'image/jpeg',
           apiKey: evrenApiKey,
-          model: evrenModel || 'dots-ocr'
+          model: evrenModel || 'dots-ocr',
+          prompt: prompt,
+          systemPrompt: MALI_MUSAVIR_SYSTEM_PROMPT
         });
 
-        const rawText = ocrResult?.rawText || '';
-        console.log(`[AI Proxy][EVREN] OCR tamamlandı. Metin uzunluğu: ${rawText.length}`);
-
-        if (!rawText) return null;
-
-        let structuredResult = null;
-        if (openaiApiKey) {
-          try {
-            const oRes = await fetch('https://api.openai.com/v1/chat/completions', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${openaiApiKey}`
-              },
-              body: JSON.stringify({
-                model: 'gpt-4o-mini',
-                messages: [
-                  { role: 'system', content: MALI_MUSAVIR_SYSTEM_PROMPT },
-                  { role: 'user', content: `${prompt}\n\nAŞAĞIDAKİ METİN EVREN OCR MOTORU (${evrenModel}) TARAFINDAN OKUNMUŞTUR. BU METİNDEKİ VERİLERİ ANALİZ EDİP SADECE GEÇERLİ JSON OLARAK DÖNDÜR:\n\n${rawText}` }
-                ],
-                temperature: 0.1
-              })
-            });
-            if (oRes.ok) {
-              const oData = await oRes.json();
-              structuredResult = oData.choices?.[0]?.message?.content || null;
-            }
-          } catch (e) {
-            console.warn('[AI Proxy][EVREN] OpenAI metin ayrıştırma hatası:', e.message);
-          }
-        } else if (geminiApiKey) {
-          try {
-            const gRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiApiKey}`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                contents: [{ parts: [{ text: `${MALI_MUSAVIR_SYSTEM_PROMPT}\n\n${prompt}\n\nEVREN OCR METNİ:\n${rawText}` }] }]
-              })
-            });
-            if (gRes.ok) {
-              const gData = await gRes.json();
-              structuredResult = gData.candidates?.[0]?.content?.parts?.[0]?.text || null;
-            }
-          } catch (e) {
-            console.warn('[AI Proxy][EVREN] Gemini metin ayrıştırma hatası:', e.message);
-          }
-        }
-
-        if (!structuredResult) {
-          const parsed = evrenClient.extractInvoiceRuleBased(rawText);
-          structuredResult = JSON.stringify({ faturalar: [parsed] });
-        }
-
-        return structuredResult;
+        if (result) return result;
       } catch (err) {
-        console.warn('[AI Proxy][EVREN] OCR hatası:', err.message);
-        return null;
+        console.warn('[AI Proxy][EVREN] Hata:', err.message);
       }
+      return null;
     };
 
     if (activeProvider === 'evren') {

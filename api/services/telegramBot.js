@@ -517,44 +517,16 @@ Eğer belge okunamıyorsa: {"hata": "Belge okunamadı"}`;
     const callEvrenOcr = async () => {
       if (!evrenApiKey) return '';
       try {
-        console.log(`[TelegramBot][EVREN] OCR çağrılıyor... Model: ${evrenModel || 'dots-ocr'}`);
-        const ocrRes = await evrenClient.performOcr({
+        console.log(`[TelegramBot][EVREN] Analiz çağrılıyor... Model: ${evrenModel || 'dots-ocr'}`);
+        return await evrenClient.analyzeDocument({
           imageBase64: base64Data,
           mimeType: mimeType || 'image/jpeg',
           apiKey: evrenApiKey,
-          model: evrenModel || 'dots-ocr'
+          model: evrenModel || 'dots-ocr',
+          prompt: prompt
         });
-        const rawText = ocrRes?.rawText || '';
-        if (!rawText) return '';
-
-        if (openaiApiKey) {
-          try {
-            const oRes = await fetch('https://api.openai.com/v1/chat/completions', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${openaiApiKey}`
-              },
-              body: JSON.stringify({
-                model: 'gpt-4o-mini',
-                messages: [
-                  { role: 'user', content: `${prompt}\n\nAŞAĞIDAKİ METİN EVREN OCR MOTORU (${evrenModel}) TARAFINDAN OKUNMUŞTUR:\n\n${rawText}` }
-                ],
-                temperature: 0.1
-              })
-            });
-            if (oRes.ok) {
-              const oData = await oRes.json();
-              const txt = oData.choices?.[0]?.message?.content;
-              if (txt) return txt;
-            }
-          } catch (e) {}
-        }
-
-        const parsed = evrenClient.extractInvoiceRuleBased(rawText);
-        return JSON.stringify({ faturalar: [parsed] });
       } catch (err) {
-        console.warn('[TelegramBot][EVREN] OCR hatası:', err.message);
+        console.warn('[TelegramBot][EVREN] Analiz hatası:', err.message);
         return '';
       }
     };

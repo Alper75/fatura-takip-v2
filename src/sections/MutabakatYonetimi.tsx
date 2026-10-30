@@ -47,8 +47,12 @@ export function MutabakatYonetimi() {
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
 
   const PRESET_EVREN_MODELS = [
-    { value: 'dots-ocr', label: 'dots-ocr (🇹🇷 Savunma Sanayii / SAYZEK - Fiş, Belge & Tablo OCR - Önerilen)' },
-    { value: 'deepseek-ocr-2', label: 'deepseek-ocr-2 (Gelişmiş Belge & Metin Tanıma)' },
+    { value: 'dots-ocr', label: 'dots-ocr (🇹🇷 Adanmış OCR - Fiş, Fatura, Termal Kağıt & Tablo Ayrıştırma - Önerilen)' },
+    { value: 'deepseek-ocr-2', label: 'deepseek-ocr-2 (Adanmış OCR - Gelişmiş Belge & Metin Okuma)' },
+    { value: 'qwen3-vl-30b', label: 'qwen3-vl-30b (🔥 30B Çok Modlu Görsel & Belge Anlama Modeli)' },
+    { value: 'deepseek-v4-flash', label: 'deepseek-v4-flash (⚡ Çok Hızlı Akıl Yürütme & Veri Çıkarımı)' },
+    { value: 'glm-5.3', label: 'glm-5.3 (Kapsamlı Mantık & Türkçe Muhasebe Analizi)' },
+    { value: 'qwen3.8-flash-next', label: 'qwen3.8-flash-next (Yeni Nesil Hızlı Dil Modeli)' },
   ];
 
   const PRESET_XAI_MODELS = [
