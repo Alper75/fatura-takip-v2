@@ -568,6 +568,7 @@ export function AlisFaturaDrawer() {
       if (!groups[groupKey]) {
         groups[groupKey] = {
           ...item,
+          _receiptKey: faturaNo ? `no:${faturaNo}` : `v:${vendor}_d:${date}`,
           kdv_orani: rawKdv,
           kdvOrani: rawKdv,
           _numericTotal: numTutar,
@@ -590,6 +591,69 @@ export function AlisFaturaDrawer() {
       }
     }
 
+    // ==================== ÇOKLU KDV VE TOPKDV OTOMATİK DÜZELTME MOTORU ====================
+    // Fişlerde %10 doğru okunup %20'ye fişteki TOPLAM KDV'nin yazılması hatasını matematiksel olarak onarır.
+    const receiptGroups: { [key: string]: any[] } = {};
+    for (const g of Object.values(groups)) {
+      const rKey = g._receiptKey || 'default';
+      if (!receiptGroups[rKey]) receiptGroups[rKey] = [];
+      receiptGroups[rKey].push(g);
+    }
+
+    for (const rKey of Object.keys(receiptGroups)) {
+      const subItems = receiptGroups[rKey];
+      if (subItems.length <= 1) continue; // Tek KDV oranlı fişlerde gerek yok
+
+      // Fişin genel toplamı ve toplam KDV değerini yakala
+      let genelToplam = 0;
+      let topKdv = 0;
+      for (const it of subItems) {
+        const gt = parseFloat(String(it.genel_toplam || it.genelToplam || it.grandTotal || it.toplamTutarGenel || '0').replace(',', '.')) || 0;
+        if (gt > genelToplam) genelToplam = gt;
+
+        const tk = parseFloat(String(it.toplam_kdv || it.topkdv || it.toplamKdv || it.kdv_toplam || '0').replace(',', '.')) || 0;
+        if (tk > topKdv) topKdv = tk;
+      }
+
+      const item20 = subItems.find(x => x.kdv_orani === '20');
+      const otherItems = subItems.filter(x => x.kdv_orani !== '20');
+      const sumOtherTutars = otherItems.reduce((acc, x) => acc + (x._numericTotal || 0), 0);
+
+      if (item20 && otherItems.length > 0) {
+        const currentTutar20 = item20._numericTotal || 0;
+        const totalOfAllSubgroups = sumOtherTutars + currentTutar20;
+
+        // Durum A: Genel Toplam biliniyor ve alt grupların toplamı Genel Toplam'dan küçük kalıyor
+        // Veya %20 grubunun tutarı doğrudan TOPKDV'ye eşit atanmışsa
+        const isAssignedTopKdvDirectly = topKdv > 0 && Math.abs(currentTutar20 - topKdv) <= 0.5;
+        const isSumMismatch = genelToplam > 0 && Math.abs(totalOfAllSubgroups - genelToplam) > 0.5 && totalOfAllSubgroups < genelToplam;
+
+        if (genelToplam > 0 && (isAssignedTopKdvDirectly || isSumMismatch)) {
+          const correctedTutar20 = Math.max(0, genelToplam - sumOtherTutars);
+          if (correctedTutar20 > 0) {
+            console.log(`[Multi-KDV AutoFix] %20 grubuna TOPKDV atanması düzeltildi: ${currentTutar20} TL -> ${correctedTutar20.toFixed(2)} TL (Genel Toplam: ${genelToplam} TL)`);
+            item20._numericTotal = Math.round(correctedTutar20 * 100) / 100;
+          }
+        } else if (topKdv > 0 && isAssignedTopKdvDirectly) {
+          // Genel Toplam açıkça gelmediyse ama TOPKDV varsa:
+          // %10 (ve varsa %1) KDV'lerini hesapla, TOPKDV'den çıkar -> gerçek %20 KDV'sini ve dahil tutarını bul
+          let otherKdvSum = 0;
+          for (const oi of otherItems) {
+            const rate = parseFloat(oi.kdv_orani) || 10;
+            const mat = oi._numericTotal / (1 + rate / 100);
+            otherKdvSum += (oi._numericTotal - mat);
+          }
+          const realKdv20 = Math.max(0, topKdv - otherKdvSum);
+          // Dahil Tutar = Matrah + KDV = (realKdv20 / 0.20) * 1.20 = realKdv20 * 6
+          const realTutar20 = Math.round(realKdv20 * 6 * 100) / 100;
+          if (realTutar20 > 0) {
+            console.log(`[Multi-KDV AutoFix] TOPKDV üzerinden %20 tutarı türetildi: ${currentTutar20} TL -> ${realTutar20.toFixed(2)} TL (Gerçek %20 KDV: ${realKdv20.toFixed(2)} TL)`);
+            item20._numericTotal = realTutar20;
+          }
+        }
+      }
+    }
+
     return Object.values(groups).map((group: any) => {
       const finalItem = { ...group };
       finalItem.tutar = group._numericTotal.toFixed(2);
@@ -606,6 +670,7 @@ export function AlisFaturaDrawer() {
         finalItem.urun_adi = finalItem.malHizmetAdi;
         finalItem.urunAdi = finalItem.malHizmetAdi;
       }
+      delete finalItem._receiptKey;
       delete finalItem._numericTotal;
       delete finalItem._itemNames;
       return finalItem;
@@ -749,6 +814,17 @@ MALİ MÜŞAVİRLİK VE KDV AYRIŞTIRMA KURALLARI:
         (Örn: 2.068,98 TL [%10] + 4.396,56 TL [%20] = 6.465,54 TL Genel Toplam).
       - Bir fişte tüm ürünler tek bir KDV oranındaysa sadece 1 adet JSON objesi üret. Ancak fişte hem %10 hem %20 varsa MUTLAKA her KDV oranı için 1'er adet (toplam 2 adet) JSON objesi üret.
 
+   D) KRİTİK UYARI - "TOPKDV" (TOPLAM KDV) TUZAĞI VE %20 HESAPLAMA KURALI (EN YAYGIN HATA):
+      - Perakende fişlerinin alt tarafında yazan "TOPKDV", "TOPLAM KDV" veya "T.KDV" tutarı, fişteki TÜM KDV oranlarının (%10 + %20) GENEL TOPLAM KDV'SİDİR!
+      - KESİNLİKLE %20 grubunun "tutar"ına veya KDV'sine bu "TOPKDV" tutarını yazma!
+      - Fişte %10 dökümü ve hemen altında TOPKDV yer alıyorsa:
+        * %10 KDV Grubu Tutarı = Fişteki %10'lu ürünlerin toplam tutarı (KDV dahil).
+        * %20 KDV Grubu Tutarı = FİŞ GENEL TOPLAMI - %10 Grubu Tutarı (KDV dahil).
+        * Örneğin: Genel Toplam = 300.00 TL, %10 Grubu Dahil Tutarı = 100.00 TL, TOPKDV = 42.42 TL ise:
+          -> %20 Grubu Dahil Tutarı MUTLAKA 200.00 TL (300.00 - 100.00) olmalıdır!
+          -> %20 Grubu Tutarına KESİNLİKLE 42.42 TL (TOPKDV) yazma!
+        * SAĞLAMA: (%10 Tutarı) + (%20 Tutarı) == Fişin Genel Toplamına TAM EŞİT OLMALIDIR.
+
 3. GENEL GİDER - TİCARİ MAL AYRIMI: Şirket içi tüketim, yemek (restoran/lokanta), akaryakıt/yakıt, konaklama/otel, kırtasiye, ofis tüketim, market, temizlik, kargo gibi harcama fişleri KESİNLİKLE 7'li gider hesaplarına (Örn: 770 Genel Yönetim Giderleri) atılmalıdır. 153 Ticari Mallar hesabı SADECE işletmenin satmak amacıyla aldığı ürünler içindir. Fişin niteliğine göre en uygun gider kodunu seç.
 4. AKARYAKIT PLAKA KURALI: Eğer bu bir akaryakıt fişi/faturası ise, fiş üzerinde yazan ARAÇ PLAKASINI mutlaka "plate" alanına yaz (Örn: 34ABC123).
 5. ÖDEME ŞEKLİ: Fiş/fatura üzerindeki ödeme tipini analiz et. Eğer slip veya fiş üzerinde "**** 1104", "Kredi Kartı", "Banka Kartı" gibi kredi kartı ödemesine dair ibare varsa "odeme_sekli": "KREDI_KARTI" yap ve kartın son 4 hanesini "kredi_karti_son4" alanına yaz (örn: "1104"). Nakit ödenmişse "odeme_sekli": "NAKIT" yap. Açık hesap/vadeli ise "odeme_sekli": "CARI_HESAP" yap.
@@ -766,9 +842,12 @@ SADECE geçerli bir JSON döndür:
       "faturaNo": "belge no",
       "malHizmetAdi": "ürün özeti veya ... %KDV'li Ürünler",
       "faturaTarihi": "YYYY-MM-DD",
+      "genel_toplam": "Fişin en altında yazan Genel Toplam tutarı (Örn: 300.00)",
+      "toplam_kdv": "Fişte yazan TOPKDV tutarı (Örn: 42.42)",
       "tutar": "120.50",
       "tutar_tur": "dahil",
       "kdv_orani": "20",
+      "kdv_tutari": "Bu grubun kendi KDV tutarı (Örn: 20.08)",
       "tevkifat_orani": "0",
       "stopaj_orani": "0",
       "aciklama": "",

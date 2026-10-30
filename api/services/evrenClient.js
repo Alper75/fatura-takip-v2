@@ -205,7 +205,7 @@ export class EvrenClientService {
 
     // 4. Adım Fallback: Yerel regex kural motoru
     const parsed = this.extractInvoiceRuleBased(rawText);
-    return JSON.stringify({ faturalar: [parsed] });
+    return JSON.stringify({ faturalar: Array.isArray(parsed) ? parsed : [parsed] });
   }
 
   /**
@@ -245,9 +245,18 @@ export class EvrenClientService {
       genelToplam = parseFloat(cleanNum) || 0;
     }
 
-    let kdvOrani = '20';
-    if (text.includes('%10') || text.includes('KDV %10') || text.includes('KDV: %10')) kdvOrani = '10';
-    if (text.includes('%1') || text.includes('KDV %1')) kdvOrani = '1';
+    let topKdv = 0;
+    const topKdvMatch = text.match(/(?:TOPKDV|TOPLAM\s*KDV|T\.KDV)[*:\s]*TL?[:\s]*([0-9]{1,3}(?:[.,][0-9]{3})*[.,][0-9]{2})/i) ||
+                        text.match(/(?:TOPKDV|TOPLAM\s*KDV)[*:\s]*([0-9]+[.,][0-9]{2})/i);
+    if (topKdvMatch) {
+      topKdv = parseFloat(topKdvMatch[1].replace(/\./g, '').replace(',', '.')) || 0;
+    }
+
+    let kdv10Tutari = 0;
+    const kdv10Match = text.match(/(?:%10|KDV\s*%?10)[*:\s]*TL?[:\s]*([0-9]{1,3}(?:[.,][0-9]{3})*[.,][0-9]{2})/i);
+    if (kdv10Match) {
+      kdv10Tutari = parseFloat(kdv10Match[1].replace(/\./g, '').replace(',', '.')) || 0;
+    }
 
     let odemeSekli = 'NAKIT';
     if (/KRED[İI]\s*KART|BANKA\s*KART|POS|MASTER|VISA|TEMASSIZ/i.test(text)) {
@@ -267,12 +276,65 @@ export class EvrenClientService {
     const plateMatch = text.match(/\b([0-8][0-9]\s*[A-Z]{1,3}\s*[0-9]{2,4})\b/);
     if (plateMatch) plate = plateMatch[1].replace(/\s+/g, '');
 
+    const has10 = text.includes('%10') || text.includes('KDV %10') || kdv10Tutari > 0;
+    const has20 = text.includes('%20') || text.includes('KDV %20');
+
+    // Çoklu KDV tespiti (%10 ve %20 birlikte varsa)
+    if (has10 && (has20 || topKdv > 0) && genelToplam > 0) {
+      let tutar10 = 0;
+      if (kdv10Tutari > 0) {
+        // %10 dahil tutarı = KDV * 11
+        tutar10 = Math.round(kdv10Tutari * 11 * 100) / 100;
+      }
+      if (tutar10 <= 0 || tutar10 >= genelToplam) {
+        tutar10 = Math.round(genelToplam * 0.4 * 100) / 100; // Varsayılan makul pay
+      }
+      const tutar20 = Math.round((genelToplam - tutar10) * 100) / 100;
+
+      return [
+        {
+          tedarikciAdi,
+          tedarikciVkn: vkn,
+          faturaNo,
+          malHizmetAdi: plate ? `Akaryakıt Harcaması (${plate})` : 'Perakende Fiş Harcaması (%10 Gıda/Temel)',
+          faturaTarihi,
+          genel_toplam: genelToplam.toFixed(2),
+          toplam_kdv: topKdv > 0 ? topKdv.toFixed(2) : undefined,
+          tutar: tutar10.toFixed(2),
+          kdv_orani: '10',
+          plate,
+          odeme_sekli: odemeSekli,
+          ham_ocr_metni: text
+        },
+        {
+          tedarikciAdi,
+          tedarikciVkn: vkn,
+          faturaNo,
+          malHizmetAdi: plate ? `Akaryakıt Harcaması (${plate})` : 'Perakende Fiş Harcaması (%20 Genel)',
+          faturaTarihi,
+          genel_toplam: genelToplam.toFixed(2),
+          toplam_kdv: topKdv > 0 ? topKdv.toFixed(2) : undefined,
+          tutar: tutar20.toFixed(2),
+          kdv_orani: '20',
+          plate,
+          odeme_sekli: odemeSekli,
+          ham_ocr_metni: text
+        }
+      ];
+    }
+
+    let kdvOrani = '20';
+    if (has10 && !has20) kdvOrani = '10';
+    if (text.includes('%1') || text.includes('KDV %1')) kdvOrani = '1';
+
     return {
       tedarikciAdi,
       tedarikciVkn: vkn,
       faturaNo,
       malHizmetAdi: plate ? `Akaryakıt Harcaması (${plate})` : 'Perakende Fiş/Fatura Harcaması',
       faturaTarihi,
+      genel_toplam: genelToplam > 0 ? genelToplam.toFixed(2) : undefined,
+      toplam_kdv: topKdv > 0 ? topKdv.toFixed(2) : undefined,
       tutar: genelToplam > 0 ? genelToplam.toFixed(2) : '0.00',
       kdv_orani: kdvOrani,
       plate,

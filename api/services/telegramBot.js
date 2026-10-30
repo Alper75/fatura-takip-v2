@@ -485,14 +485,24 @@ Görseldeki fiş veya faturayı bir mali müşavir titizliğiyle analiz et ve SA
 KURALLAR:
 1. GÜNCEL KDV MEVZUATI VE ÇOKLU KDV AYRIŞTIRMA (EN KRİTİK KURAL):
    - Geçerli resmi KDV oranları yalnızca %1, %10 ve %20'dir. %18 veya %8 görürsen güncel oranlara (%8 -> %10, %18 -> %20) dönüştür.
-   - BAZI FİŞLERDE (ÖRN: KOÇTAŞ, BAUHAUS, METRO VB.) ALTTA KDV DÖKÜMÜ YAZMAZ, SADECE TEK BİR 'TOPKDV' VE 'TOPLAM' YAZAR; ANCAK HER ÜRÜNÜN YANINDA AÇIKÇA %10 VEYA %20 YAZAR!
+   - BAZI FİŞLERDE (ÖRN: KOÇTAŞ, BAUHAUS, METRO, MİGROS VB.) ALTTA KDV DÖKÜMÜ YAZMAZ, SADECE TEK BİR 'TOPKDV' VE 'TOPLAM' YAZAR; ANCAK HER ÜRÜNÜN YANINDA AÇIKÇA %10 VEYA %20 YAZAR!
    - Böyle fişlerde tüm fişi tek bir orana (%20) yığma! Ürün satırlarını tara:
      * %10 yazan ürünlerin tutarlarını topla -> %10 KDV Grubu Tutarı
      * %20 yazan ürünlerin tutarlarını topla -> %20 KDV Grubu Tutarı
      * Varsa %1 yazanları topla -> %1 KDV Grubu Tutarı
    - Her farklı KDV oranı için 1 adet JSON objesi oluştur. Tutarları toplamı fişin genel toplamına kuruşu kuruşuna eşit olmalıdır. Fişteki tüm kalemler aynı KDV oranındaysa sadece 1 adet JSON objesi üret.
-2. Akaryakıt fişlerinde araç plakasını 'plate' alanına yaz.
-3. Slipte kredi kartı ibaresi veya son 4 hane varsa 'odeme_sekli': 'KREDI_KARTI' yap, nakit ise 'NAKIT' yap.
+
+2. KRİTİK UYARI - "TOPKDV" (TOPLAM KDV) TUZAĞI (EN YAYGIN HATA):
+   - Fişlerin alt tarafında yazan 'TOPKDV' veya 'TOPLAM KDV' tutarı, fişteki TÜM KDV'LERİN (%10 + %20) toplamıdır!
+   - KESİNLİKLE %20 grubunun tutarına veya KDV'sine bu TOPKDV tutarını yazma!
+   - Fişte %10 KDV dökümü ve hemen altında TOPKDV varsa:
+     * %20 grubunun dahil tutarı = Fiş Genel Toplamı - %10 Grubu Tutarı'dır!
+     * Örneğin: Genel Toplam = 300 TL, %10 Grubu Dahil = 100 TL, TOPKDV = 42.42 TL ise:
+       -> %20 Grubu Dahil Tutarı 200 TL'dir (300 - 100). Asla %20'ye 42.42 TL yazma!
+     * Sağlama: (%10 Tutar) + (%20 Tutar) == Fiş Genel Toplamı olmalıdır.
+
+3. Akaryakıt fişlerinde araç plakasını 'plate' alanına yaz.
+4. Slipte kredi kartı ibaresi veya son 4 hane varsa 'odeme_sekli': 'KREDI_KARTI' yap, nakit ise 'NAKIT' yap.
 
 Format:
 {
@@ -503,6 +513,8 @@ Format:
       "faturaNo": "fiş/belge no",
       "malHizmetAdi": "harcama açıklaması (market, akaryakıt vb.)",
       "faturaTarihi": "YYYY-MM-DD",
+      "genel_toplam": "300.00",
+      "toplam_kdv": "42.42",
       "tutar": "150.00",
       "kdv_orani": "20",
       "plate": "",
@@ -818,6 +830,7 @@ Eğer belge okunamıyorsa: {"hata": "Belge okunamadı"}`;
       if (!groups[groupKey]) {
         groups[groupKey] = {
           ...item,
+          _receiptKey: faturaNo ? `no:${faturaNo}` : `v:${vendor}_d:${date}`,
           kdv_orani: rawKdv,
           kdvOrani: rawKdv,
           _numericTotal: numTutar,
@@ -837,6 +850,61 @@ Eğer belge okunamıyorsa: {"hata": "Belge okunamadı"}`;
       }
     }
 
+    // ==================== ÇOKLU KDV VE TOPKDV OTOMATİK DÜZELTME MOTORU ====================
+    const receiptGroups = {};
+    for (const g of Object.values(groups)) {
+      const rKey = g._receiptKey || 'default';
+      if (!receiptGroups[rKey]) receiptGroups[rKey] = [];
+      receiptGroups[rKey].push(g);
+    }
+
+    for (const rKey of Object.keys(receiptGroups)) {
+      const subItems = receiptGroups[rKey];
+      if (subItems.length <= 1) continue;
+
+      let genelToplam = 0;
+      let topKdv = 0;
+      for (const it of subItems) {
+        const gt = parseFloat(String(it.genel_toplam || it.genelToplam || it.grandTotal || '0').replace(',', '.')) || 0;
+        if (gt > genelToplam) genelToplam = gt;
+
+        const tk = parseFloat(String(it.toplam_kdv || it.topkdv || it.toplamKdv || it.kdv_toplam || '0').replace(',', '.')) || 0;
+        if (tk > topKdv) topKdv = tk;
+      }
+
+      const item20 = subItems.find(x => x.kdv_orani === '20');
+      const otherItems = subItems.filter(x => x.kdv_orani !== '20');
+      const sumOtherTutars = otherItems.reduce((acc, x) => acc + (x._numericTotal || 0), 0);
+
+      if (item20 && otherItems.length > 0) {
+        const currentTutar20 = item20._numericTotal || 0;
+        const totalOfAllSubgroups = sumOtherTutars + currentTutar20;
+        const isAssignedTopKdvDirectly = topKdv > 0 && Math.abs(currentTutar20 - topKdv) <= 0.5;
+        const isSumMismatch = genelToplam > 0 && Math.abs(totalOfAllSubgroups - genelToplam) > 0.5 && totalOfAllSubgroups < genelToplam;
+
+        if (genelToplam > 0 && (isAssignedTopKdvDirectly || isSumMismatch)) {
+          const correctedTutar20 = Math.max(0, genelToplam - sumOtherTutars);
+          if (correctedTutar20 > 0) {
+            console.log(`[TelegramBot][Multi-KDV AutoFix] %20 grubuna TOPKDV atanması düzeltildi: ${currentTutar20} TL -> ${correctedTutar20.toFixed(2)} TL (Genel Toplam: ${genelToplam} TL)`);
+            item20._numericTotal = Math.round(correctedTutar20 * 100) / 100;
+          }
+        } else if (topKdv > 0 && isAssignedTopKdvDirectly) {
+          let otherKdvSum = 0;
+          for (const oi of otherItems) {
+            const rate = parseFloat(oi.kdv_orani) || 10;
+            const mat = oi._numericTotal / (1 + rate / 100);
+            otherKdvSum += (oi._numericTotal - mat);
+          }
+          const realKdv20 = Math.max(0, topKdv - otherKdvSum);
+          const realTutar20 = Math.round(realKdv20 * 6 * 100) / 100;
+          if (realTutar20 > 0) {
+            console.log(`[TelegramBot][Multi-KDV AutoFix] TOPKDV üzerinden %20 tutarı türetildi: ${currentTutar20} TL -> ${realTutar20.toFixed(2)} TL`);
+            item20._numericTotal = realTutar20;
+          }
+        }
+      }
+    }
+
     return Object.values(groups).map((group) => {
       const finalItem = { ...group };
       finalItem.tutar = group._numericTotal.toFixed(2);
@@ -851,6 +919,7 @@ Eğer belge okunamıyorsa: {"hata": "Belge okunamadı"}`;
           finalItem.malHizmetAdi = `${joined}${group._itemNames.length > 3 ? ' vb.' : ''} (%${group.kdv_orani} KDV Harcaması)`;
         }
       }
+      delete finalItem._receiptKey;
       delete finalItem._numericTotal;
       delete finalItem._itemNames;
       return finalItem;
