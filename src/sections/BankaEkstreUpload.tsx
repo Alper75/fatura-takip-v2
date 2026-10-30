@@ -569,9 +569,11 @@ export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploa
 
     let xaiApiKey = '';
     let xaiModelName = 'grok-2-vision-1212';
+    let evrenApiKey = '';
+    let evrenModelName = 'dots-ocr';
 
     try {
-      const [provRes, keyRes, modelRes, nKeyRes, nModelRes, oKeyRes, oModelRes, xKeyRes, xModelRes] = await Promise.all([
+      const [provRes, keyRes, modelRes, nKeyRes, nModelRes, oKeyRes, oModelRes, xKeyRes, xModelRes, eKeyRes, eModelRes] = await Promise.all([
         apiFetch('/api/settings/ai_provider').catch(() => null),
         apiFetch('/api/settings/gemini_api_key').catch(() => null),
         apiFetch('/api/settings/gemini_model').catch(() => null),
@@ -581,6 +583,8 @@ export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploa
         apiFetch('/api/settings/openai_model').catch(() => null),
         apiFetch('/api/settings/xai_api_key').catch(() => null),
         apiFetch('/api/settings/xai_model').catch(() => null),
+        apiFetch('/api/settings/evren_api_key').catch(() => null),
+        apiFetch('/api/settings/evren_model').catch(() => null),
       ]);
 
       if (provRes?.success && provRes.value) activeProvider = provRes.value;
@@ -592,6 +596,8 @@ export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploa
       if (oModelRes?.success && oModelRes.value) openaiModelName = oModelRes.value;
       if (xKeyRes?.success && xKeyRes.value) xaiApiKey = xKeyRes.value;
       if (xModelRes?.success && xModelRes.value) xaiModelName = xModelRes.value;
+      if (eKeyRes?.success && eKeyRes.value) evrenApiKey = eKeyRes.value;
+      if (eModelRes?.success && eModelRes.value) evrenModelName = eModelRes.value;
     } catch (err) {
       console.warn('AI ayarları alınamadı:', err);
     }
@@ -602,20 +608,29 @@ export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploa
     }
 
     // Mutabakattaki gibi aktif sağlayıcıyı kontrol et ve anahtar yoksa akıllıca fallback yap
-    if ((activeProvider === 'grok' || activeProvider === 'xai') && !xaiApiKey) {
+    if (activeProvider === 'evren' && !evrenApiKey) {
       if (openaiApiKey) activeProvider = 'openai';
+      else if (xaiApiKey) activeProvider = 'grok';
+      else if (apiKey) activeProvider = 'gemini';
+      else if (nvidiaApiKey) activeProvider = 'nvidia';
+    } else if ((activeProvider === 'grok' || activeProvider === 'xai') && !xaiApiKey) {
+      if (openaiApiKey) activeProvider = 'openai';
+      else if (evrenApiKey) activeProvider = 'evren';
       else if (apiKey) activeProvider = 'gemini';
       else if (nvidiaApiKey) activeProvider = 'nvidia';
     } else if (activeProvider === 'openai' && !openaiApiKey) {
-      if (xaiApiKey) activeProvider = 'grok';
+      if (evrenApiKey) activeProvider = 'evren';
+      else if (xaiApiKey) activeProvider = 'grok';
       else if (apiKey) activeProvider = 'gemini';
       else if (nvidiaApiKey) activeProvider = 'nvidia';
     } else if (activeProvider === 'nvidia' && !nvidiaApiKey) {
-      if (xaiApiKey) activeProvider = 'grok';
+      if (evrenApiKey) activeProvider = 'evren';
+      else if (xaiApiKey) activeProvider = 'grok';
       else if (openaiApiKey) activeProvider = 'openai';
       else if (apiKey) activeProvider = 'gemini';
     } else if (activeProvider === 'gemini' && !apiKey) {
-      if (xaiApiKey) activeProvider = 'grok';
+      if (evrenApiKey) activeProvider = 'evren';
+      else if (xaiApiKey) activeProvider = 'grok';
       else if (openaiApiKey) activeProvider = 'openai';
       else if (nvidiaApiKey) activeProvider = 'nvidia';
     }
@@ -630,16 +645,20 @@ export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploa
       openaiModelName: (openaiModelName || 'gpt-4o-mini').trim(),
       xaiApiKey: (xaiApiKey || '').trim(),
       xaiModelName: (xaiModelName || 'grok-2-vision-1212').trim(),
+      evrenApiKey: (evrenApiKey || '').trim(),
+      evrenModelName: (evrenModelName || 'dots-ocr').trim(),
     };
   };
 
   const executeAiAnalysis = async (prompt: string) => {
     const config = await getAiConfig();
-    const hasKey = (config.activeProvider === 'grok' || config.activeProvider === 'xai')
-      ? !!config.xaiApiKey
-      : (config.activeProvider === 'openai' 
-        ? !!config.openaiApiKey 
-        : (config.activeProvider === 'nvidia' ? !!config.nvidiaApiKey : !!config.apiKey));
+    const hasKey = config.activeProvider === 'evren'
+      ? !!config.evrenApiKey
+      : (config.activeProvider === 'grok' || config.activeProvider === 'xai')
+        ? !!config.xaiApiKey
+        : (config.activeProvider === 'openai' 
+          ? !!config.openaiApiKey 
+          : (config.activeProvider === 'nvidia' ? !!config.nvidiaApiKey : !!config.apiKey));
 
     if (!hasKey) {
       throw new Error(
@@ -653,6 +672,8 @@ export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploa
       body: JSON.stringify({
         prompt,
         provider: config.activeProvider,
+        evrenApiKey: config.evrenApiKey,
+        evrenModel: config.evrenModelName,
         openaiApiKey: config.openaiApiKey,
         openaiModel: config.openaiModelName,
         xaiApiKey: config.xaiApiKey,

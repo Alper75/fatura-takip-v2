@@ -1,6 +1,7 @@
 import { client } from '../db.js';
 import { v4 as uuidv4 } from 'uuid';
 import { saveBase64File } from './fileStorage.js';
+import { evrenClient } from './evrenClient.js';
 
 /**
  * Telegram Bot Service
@@ -423,7 +424,7 @@ ${first.plate ? `🚗 *Plaka:* \`${first.plate}\`\n` : ''}${first.odemeSekli ? `
   async _analyzeReceiptWithAI(base64Data, mimeType) {
     const compId = this.companyId || 1;
     // Mutabakat Yönetimi veya Şirket AI ayarlarını veritabanından al
-    const [provRs, oKeyRs, oModelRs, xKeyRs, xModelRs, nKeyRs, nModelRs, gKeyRs, gModelRs] = await Promise.all([
+    const [provRs, oKeyRs, oModelRs, xKeyRs, xModelRs, nKeyRs, nModelRs, gKeyRs, gModelRs, eKeyRs, eModelRs] = await Promise.all([
       client.execute({ sql: 'SELECT setting_value FROM company_settings WHERE (company_id = ? OR company_id = 1) AND setting_key = ? ORDER BY company_id DESC LIMIT 1', args: [compId, 'ai_provider'] }).catch(() => ({ rows: [] })),
       client.execute({ sql: 'SELECT setting_value FROM company_settings WHERE (company_id = ? OR company_id = 1) AND setting_key = ? ORDER BY company_id DESC LIMIT 1', args: [compId, 'openai_api_key'] }).catch(() => ({ rows: [] })),
       client.execute({ sql: 'SELECT setting_value FROM company_settings WHERE (company_id = ? OR company_id = 1) AND setting_key = ? ORDER BY company_id DESC LIMIT 1', args: [compId, 'openai_model'] }).catch(() => ({ rows: [] })),
@@ -433,6 +434,8 @@ ${first.plate ? `🚗 *Plaka:* \`${first.plate}\`\n` : ''}${first.odemeSekli ? `
       client.execute({ sql: 'SELECT setting_value FROM company_settings WHERE (company_id = ? OR company_id = 1) AND setting_key = ? ORDER BY company_id DESC LIMIT 1', args: [compId, 'nvidia_model'] }).catch(() => ({ rows: [] })),
       client.execute({ sql: 'SELECT setting_value FROM company_settings WHERE (company_id = ? OR company_id = 1) AND setting_key = ? ORDER BY company_id DESC LIMIT 1', args: [compId, 'gemini_api_key'] }).catch(() => ({ rows: [] })),
       client.execute({ sql: 'SELECT setting_value FROM company_settings WHERE (company_id = ? OR company_id = 1) AND setting_key = ? ORDER BY company_id DESC LIMIT 1', args: [compId, 'gemini_model'] }).catch(() => ({ rows: [] })),
+      client.execute({ sql: 'SELECT setting_value FROM company_settings WHERE (company_id = ? OR company_id = 1) AND setting_key = ? ORDER BY company_id DESC LIMIT 1', args: [compId, 'evren_api_key'] }).catch(() => ({ rows: [] })),
+      client.execute({ sql: 'SELECT setting_value FROM company_settings WHERE (company_id = ? OR company_id = 1) AND setting_key = ? ORDER BY company_id DESC LIMIT 1', args: [compId, 'evren_model'] }).catch(() => ({ rows: [] })),
     ]);
 
     let activeProvider = provRs.rows?.[0]?.setting_value || 'openai';
@@ -444,22 +447,37 @@ ${first.plate ? `🚗 *Plaka:* \`${first.plate}\`\n` : ''}${first.odemeSekli ? `
     const nvidiaModel = nModelRs.rows?.[0]?.setting_value || 'stepfun-ai/step-5-preview';
     const geminiApiKey = gKeyRs.rows?.[0]?.setting_value || process.env.VITE_GEMINI_API_KEY || process.env.GEMINI_API_KEY || '';
     const geminiModel = gModelRs.rows?.[0]?.setting_value || 'gemini-3.8-flash';
+    const evrenApiKey = eKeyRs.rows?.[0]?.setting_value || process.env.EVREN_API_KEY || '';
+    const evrenModel = eModelRs.rows?.[0]?.setting_value || 'dots-ocr';
 
-    if ((activeProvider === 'grok' || activeProvider === 'xai') && !xaiApiKey) {
+    if (activeProvider === 'evren' && !evrenApiKey) {
       if (openaiApiKey) activeProvider = 'openai';
+      else if (xaiApiKey) activeProvider = 'grok';
+      else if (geminiApiKey) activeProvider = 'gemini';
+      else if (nvidiaApiKey) activeProvider = 'nvidia';
+    } else if ((activeProvider === 'grok' || activeProvider === 'xai') && !xaiApiKey) {
+      if (openaiApiKey) activeProvider = 'openai';
+      else if (evrenApiKey) activeProvider = 'evren';
       else if (geminiApiKey) activeProvider = 'gemini';
       else if (nvidiaApiKey) activeProvider = 'nvidia';
     } else if (activeProvider === 'openai' && !openaiApiKey) {
-      if (xaiApiKey) activeProvider = 'grok';
+      if (evrenApiKey) activeProvider = 'evren';
+      else if (xaiApiKey) activeProvider = 'grok';
       else if (geminiApiKey) activeProvider = 'gemini';
       else if (nvidiaApiKey) activeProvider = 'nvidia';
     } else if (activeProvider === 'nvidia' && !nvidiaApiKey) {
-      if (xaiApiKey) activeProvider = 'grok';
+      if (evrenApiKey) activeProvider = 'evren';
+      else if (xaiApiKey) activeProvider = 'grok';
       else if (openaiApiKey) activeProvider = 'openai';
       else if (geminiApiKey) activeProvider = 'gemini';
+    } else if (activeProvider === 'gemini' && !geminiApiKey) {
+      if (evrenApiKey) activeProvider = 'evren';
+      else if (xaiApiKey) activeProvider = 'grok';
+      else if (openaiApiKey) activeProvider = 'openai';
+      else if (nvidiaApiKey) activeProvider = 'nvidia';
     }
 
-    console.log(`[TelegramBot][AI] Aktif Sağlayıcı: ${activeProvider.toUpperCase()} | Model: ${activeProvider === 'grok' || activeProvider === 'xai' ? xaiModel : (activeProvider === 'openai' ? openaiModel : (activeProvider === 'nvidia' ? nvidiaModel : geminiModel))}`);
+    console.log(`[TelegramBot][AI] Aktif Sağlayıcı: ${activeProvider.toUpperCase()} | Model: ${activeProvider === 'evren' ? evrenModel : (activeProvider === 'grok' || activeProvider === 'xai' ? xaiModel : (activeProvider === 'openai' ? openaiModel : (activeProvider === 'nvidia' ? nvidiaModel : geminiModel)))}`);
 
     const prompt = `Sen Türkiye Cumhuriyeti Tekdüzen Hesap Planı'na ve KDV mevzuatına tam hâkim kıdemli bir Mali Müşavirsin (SMMM).
 Görseldeki fiş veya faturayı bir mali müşavir titizliğiyle analiz et ve SADECE aşağıdaki JSON formatında çıktı ver.
@@ -496,7 +514,56 @@ Eğer belge okunamıyorsa: {"hata": "Belge okunamadı"}`;
 
     let responseText = '';
 
-    if ((activeProvider === 'grok' || activeProvider === 'xai') && xaiApiKey) {
+    const callEvrenOcr = async () => {
+      if (!evrenApiKey) return '';
+      try {
+        console.log(`[TelegramBot][EVREN] OCR çağrılıyor... Model: ${evrenModel || 'dots-ocr'}`);
+        const ocrRes = await evrenClient.performOcr({
+          imageBase64: base64Data,
+          mimeType: mimeType || 'image/jpeg',
+          apiKey: evrenApiKey,
+          model: evrenModel || 'dots-ocr'
+        });
+        const rawText = ocrRes?.rawText || '';
+        if (!rawText) return '';
+
+        if (openaiApiKey) {
+          try {
+            const oRes = await fetch('https://api.openai.com/v1/chat/completions', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${openaiApiKey}`
+              },
+              body: JSON.stringify({
+                model: 'gpt-4o-mini',
+                messages: [
+                  { role: 'user', content: `${prompt}\n\nAŞAĞIDAKİ METİN EVREN OCR MOTORU (${evrenModel}) TARAFINDAN OKUNMUŞTUR:\n\n${rawText}` }
+                ],
+                temperature: 0.1
+              })
+            });
+            if (oRes.ok) {
+              const oData = await oRes.json();
+              const txt = oData.choices?.[0]?.message?.content;
+              if (txt) return txt;
+            }
+          } catch (e) {}
+        }
+
+        const parsed = evrenClient.extractInvoiceRuleBased(rawText);
+        return JSON.stringify({ faturalar: [parsed] });
+      } catch (err) {
+        console.warn('[TelegramBot][EVREN] OCR hatası:', err.message);
+        return '';
+      }
+    };
+
+    if (activeProvider === 'evren' && evrenApiKey) {
+      responseText = await callEvrenOcr();
+    }
+
+    if (!responseText && (activeProvider === 'grok' || activeProvider === 'xai') && xaiApiKey) {
       const imageUrl = `data:${mimeType || 'image/jpeg'};base64,${base64Data}`;
       const candidateModels = Array.from(new Set([xaiModel, 'grok-2-vision-1212', 'grok-vision-beta', 'grok-2-1212', 'grok-beta'].filter(Boolean)));
       for (const m of candidateModels) {
@@ -665,8 +732,13 @@ Eğer belge okunamıyorsa: {"hata": "Belge okunamadı"}`;
       }
     }
 
+    if (!responseText && evrenApiKey) {
+      console.log('[TelegramBot] Diğer modeller yanıt vermedi, EVREN OCR deneniyor...');
+      responseText = await callEvrenOcr();
+    }
+
     if (!responseText) {
-      throw new Error('Sistemde tanımlı aktif bir Yapay Zeka (Gemini veya NVIDIA) API anahtarı bulunamadı veya model yanıt vermedi.');
+      throw new Error('Sistemde tanımlı aktif bir Yapay Zeka (EVREN OCR, OpenAI, Grok veya Gemini) API anahtarı bulunamadı veya model yanıt vermedi.');
     }
 
     // JSON Temizle ve Güvenli Parse Et

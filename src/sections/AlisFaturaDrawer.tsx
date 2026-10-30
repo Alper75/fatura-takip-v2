@@ -629,9 +629,11 @@ export function AlisFaturaDrawer() {
     let openaiModelName = 'gpt-4o-mini';
     let xaiApiKey = '';
     let xaiModelName = 'grok-2-vision-1212';
+    let evrenApiKey = '';
+    let evrenModelName = 'dots-ocr';
     
     try {
-      const [provRes, keyRes, modelRes, nKeyRes, nModelRes, oKeyRes, oModelRes, xKeyRes, xModelRes] = await Promise.all([
+      const [provRes, keyRes, modelRes, nKeyRes, nModelRes, oKeyRes, oModelRes, xKeyRes, xModelRes, eKeyRes, eModelRes] = await Promise.all([
         apiFetch('/api/settings/ai_provider').catch(() => null),
         apiFetch('/api/settings/gemini_api_key').catch(() => null),
         apiFetch('/api/settings/gemini_model').catch(() => null),
@@ -641,6 +643,8 @@ export function AlisFaturaDrawer() {
         apiFetch('/api/settings/openai_model').catch(() => null),
         apiFetch('/api/settings/xai_api_key').catch(() => null),
         apiFetch('/api/settings/xai_model').catch(() => null),
+        apiFetch('/api/settings/evren_api_key').catch(() => null),
+        apiFetch('/api/settings/evren_model').catch(() => null),
       ]);
 
       if (provRes?.success && provRes.value) activeProvider = provRes.value;
@@ -652,11 +656,19 @@ export function AlisFaturaDrawer() {
       if (oModelRes?.success && oModelRes.value) openaiModelName = oModelRes.value;
       if (xKeyRes?.success && xKeyRes.value) xaiApiKey = xKeyRes.value;
       if (xModelRes?.success && xModelRes.value) xaiModelName = xModelRes.value;
+      if (eKeyRes?.success && eKeyRes.value) evrenApiKey = eKeyRes.value;
+      if (eModelRes?.success && eModelRes.value) evrenModelName = eModelRes.value;
     } catch (keyErr) {
       console.warn('Ayarlar alınamadı:', keyErr);
     }
 
-    if (activeProvider === 'grok' || activeProvider === 'xai') {
+    if (activeProvider === 'evren') {
+      if (!evrenApiKey) {
+        toast.error('EVREN API Key bulunamadı. Lütfen Mutabakat Yönetimi -> Yapay Zeka Ayarları bölümünden tanımlayın.');
+        setIsScanning(false);
+        return;
+      }
+    } else if (activeProvider === 'grok' || activeProvider === 'xai') {
       if (!xaiApiKey) {
         toast.error('xAI Grok API Key bulunamadı. Lütfen Mutabakat Yönetimi -> Yapay Zeka Ayarları bölümünden tanımlayın.');
         setIsScanning(false);
@@ -784,8 +796,8 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
       try {
         let parsed: any = null;
 
-        if (activeProvider === 'openai' || activeProvider === 'nvidia' || activeProvider === 'grok' || activeProvider === 'xai') {
-          // ==================== OPENAI / GROK / NVIDIA PROXY ÇAĞRISI ====================
+        if (activeProvider === 'openai' || activeProvider === 'nvidia' || activeProvider === 'grok' || activeProvider === 'xai' || activeProvider === 'evren') {
+          // ==================== EVREN / OPENAI / GROK / NVIDIA PROXY ÇAĞRISI ====================
           const proxyRes = await apiFetch('/api/ai/analyze-invoice', {
             method: 'POST',
             body: JSON.stringify({
@@ -793,6 +805,8 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
               mimeType: file.mimeType,
               prompt: prompt,
               provider: activeProvider,
+              evrenApiKey: evrenApiKey,
+              evrenModel: evrenModelName,
               openaiApiKey: openaiApiKey,
               openaiModel: openaiModelName,
               xaiApiKey: xaiApiKey,
@@ -803,7 +817,7 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
           });
 
           if (!proxyRes?.success || !proxyRes.data) {
-            const provName = (activeProvider === 'grok' || activeProvider === 'xai') ? 'xAI (Grok)' : (activeProvider === 'openai' ? 'OpenAI (ChatGPT)' : 'NVIDIA NIM');
+            const provName = activeProvider === 'evren' ? 'EVREN (Milli OCR)' : (activeProvider === 'grok' || activeProvider === 'xai') ? 'xAI (Grok)' : (activeProvider === 'openai' ? 'OpenAI (ChatGPT)' : 'NVIDIA NIM');
             throw new Error(proxyRes?.message || `${provName} analizi başarısız oldu.`);
           }
 

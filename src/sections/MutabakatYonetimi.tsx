@@ -28,7 +28,9 @@ export function MutabakatYonetimi() {
   const [isAnalyzing, setIsAnalyzing] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState('liste');
   const [selectedAnalysis, setSelectedAnalysis] = useState<any>(null);
-  const [aiProvider, setAiProvider] = useState<'gemini' | 'nvidia' | 'openai' | 'grok'>('openai');
+  const [aiProvider, setAiProvider] = useState<'gemini' | 'nvidia' | 'openai' | 'grok' | 'evren'>('openai');
+  const [evrenKey, setEvrenKey] = useState('');
+  const [evrenModel, setEvrenModel] = useState('dots-ocr');
   const [geminiKey, setGeminiKey] = useState('');
   const [geminiModel, setGeminiModel] = useState('gemini-3.8-flash');
   const [isCustomGemini, setIsCustomGemini] = useState(false);
@@ -43,6 +45,11 @@ export function MutabakatYonetimi() {
   const [isCustomXai, setIsCustomXai] = useState(false);
   const [isSavingKey, setIsSavingKey] = useState(false);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
+
+  const PRESET_EVREN_MODELS = [
+    { value: 'dots-ocr', label: 'dots-ocr (🇹🇷 Savunma Sanayii / SAYZEK - Fiş, Belge & Tablo OCR - Önerilen)' },
+    { value: 'deepseek-ocr-2', label: 'deepseek-ocr-2 (Gelişmiş Belge & Metin Tanıma)' },
+  ];
 
   const PRESET_XAI_MODELS = [
     { value: 'grok-2-vision-1212', label: 'Grok 2 Vision (🔥 Çok Hızlı, Görsel & Fiş Analizi - Önerilen)' },
@@ -116,7 +123,7 @@ export function MutabakatYonetimi() {
 
   const fetchSettings = async () => {
     try {
-      const [resProvider, resKey, resModel, resNvidiaKey, resNvidiaModel, resOpenaiKey, resOpenaiModel, resXaiKey, resXaiModel] = await Promise.all([
+      const [resProvider, resKey, resModel, resNvidiaKey, resNvidiaModel, resOpenaiKey, resOpenaiModel, resXaiKey, resXaiModel, resEvrenKey, resEvrenModel] = await Promise.all([
         apiFetch('/api/settings/ai_provider').catch(() => null),
         apiFetch('/api/settings/gemini_api_key').catch(() => null),
         apiFetch('/api/settings/gemini_model').catch(() => null),
@@ -126,9 +133,13 @@ export function MutabakatYonetimi() {
         apiFetch('/api/settings/openai_model').catch(() => null),
         apiFetch('/api/settings/xai_api_key').catch(() => null),
         apiFetch('/api/settings/xai_model').catch(() => null),
+        apiFetch('/api/settings/evren_api_key').catch(() => null),
+        apiFetch('/api/settings/evren_model').catch(() => null),
       ]);
 
       if (resProvider?.success && resProvider.value) setAiProvider(resProvider.value as any);
+      if (resEvrenKey?.success) setEvrenKey(resEvrenKey.value || '');
+      if (resEvrenModel?.success && resEvrenModel.value) setEvrenModel(resEvrenModel.value);
       if (resKey?.success) setGeminiKey(resKey.value || '');
       if (resModel?.success && resModel.value) {
         setGeminiModel(resModel.value);
@@ -165,6 +176,8 @@ export function MutabakatYonetimi() {
     try {
       await Promise.all([
         apiFetch('/api/settings/ai_provider', { method: 'POST', body: JSON.stringify({ value: aiProvider }) }),
+        apiFetch('/api/settings/evren_api_key', { method: 'POST', body: JSON.stringify({ value: evrenKey }) }),
+        apiFetch('/api/settings/evren_model', { method: 'POST', body: JSON.stringify({ value: evrenModel }) }),
         apiFetch('/api/settings/openai_api_key', { method: 'POST', body: JSON.stringify({ value: openaiKey }) }),
         apiFetch('/api/settings/openai_model', { method: 'POST', body: JSON.stringify({ value: openaiModel }) }),
         apiFetch('/api/settings/xai_api_key', { method: 'POST', body: JSON.stringify({ value: xaiKey }) }),
@@ -629,7 +642,26 @@ export function MutabakatYonetimi() {
                 {/* Sağlayıcı Seçimi */}
                 <div className="space-y-3">
                   <Label className="text-sm font-bold text-slate-900">Aktif Yapay Zeka Motoru</Label>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setAiProvider('evren')}
+                      className={`p-3.5 rounded-xl border-2 text-left transition-all flex flex-col justify-between gap-2 ${
+                        aiProvider === 'evren' 
+                          ? 'border-red-600 bg-red-50/60 shadow-sm ring-2 ring-red-600/20' 
+                          : 'border-slate-200 hover:border-slate-300 bg-white'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between w-full">
+                        <span className="font-bold text-sm text-slate-900 flex items-center gap-1.5">
+                          🇹🇷 EVREN OCR
+                          <span className="bg-red-100 text-red-800 text-[10px] font-bold px-1.5 py-0.5 rounded">Milli LLM</span>
+                        </span>
+                        {aiProvider === 'evren' && <span className="w-2.5 h-2.5 rounded-full bg-red-600" />}
+                      </div>
+                      <p className="text-[11px] text-slate-500">dots-ocr & deepseek-ocr-2. SAYZEK / Savunma Sanayii Başkanlığı adanmış OCR ucu.</p>
+                    </button>
+
                     <button
                       type="button"
                       onClick={() => setAiProvider('openai')}
@@ -704,6 +736,49 @@ export function MutabakatYonetimi() {
                     </button>
                   </div>
                 </div>
+
+                {/* EVREN (MİLLİ OCR) AYARLARI */}
+                {aiProvider === 'evren' && (
+                  <div className="space-y-4 pt-3 border-t border-slate-100 animate-in fade-in">
+                    <div className="p-3 bg-red-50/60 border border-red-200 rounded-xl flex items-start gap-3">
+                      <span className="text-xl">🇹🇷</span>
+                      <div className="text-xs text-red-900 leading-relaxed">
+                        <strong>T.C. Savunma Sanayii Başkanlığı / SAYZEK EVREN Platformu:</strong> Tüm veriler Türkiye sınırları içerisindeki milli GPU sunucularında adanmış <code className="bg-white px-1.5 py-0.5 rounded text-red-800 font-mono text-[11px]">https://evren-llmapi.ssyz.org.tr/v1/ocr</code> ucu üzerinden taranır. KVKK ve ticari sır mevzuatına tam uyumludur.
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label className="text-xs font-semibold">EVREN API Anahtarı (Bearer Token)</Label>
+                      <Input 
+                        type="password" 
+                        placeholder="EVREN platformundan aldığınız API Key..." 
+                        value={evrenKey}
+                        onChange={(e) => setEvrenKey(e.target.value.trim())}
+                        className="font-mono text-xs"
+                      />
+                      <p className="text-[11px] text-slate-500">
+                        API anahtarınızı <a href="https://evren.ssyz.org.tr/" target="_blank" rel="noreferrer" className="text-red-700 hover:underline font-semibold">evren.ssyz.org.tr</a> platformundan alabilirsiniz.
+                      </p>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label className="text-xs font-semibold">EVREN OCR Modeli</Label>
+                      <Select 
+                        value={evrenModel} 
+                        onValueChange={setEvrenModel}
+                      >
+                        <SelectTrigger className="w-full text-xs">
+                          <SelectValue placeholder="Model seçin" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {PRESET_EVREN_MODELS.map(m => (
+                            <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                )}
 
                 {/* OPENAI (CHATGPT) AYARLARI */}
                 {aiProvider === 'openai' && (

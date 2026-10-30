@@ -23,6 +23,7 @@ import { UblBuilder } from './services/ublBuilder.js';
 import { telegramBotService } from './services/telegramBot.js';
 import { autoInvoiceFetcher } from './services/autoInvoiceFetcher.js';
 import { stockSyncService } from './services/stockSyncService.js';
+import { evrenClient } from './services/evrenClient.js';
 import { saveBase64File, saveBufferFile, saveTextFile, getTextFileIfExists } from './services/fileStorage.js';
 import { runBase64DiskMigration } from './services/migrateBase64Files.js';
 
@@ -6077,7 +6078,7 @@ app.get('/api/settings/:key', authMiddleware, async (req, res, next) => {
     let val = rs.rows.length > 0 ? rs.rows[0].setting_value : null;
 
     // AI ayarları için hiçbir şirkette tanımlı değilse herhangi bir şirketteki tanımlı ayara fallback yap
-    if (!val && ['ai_provider', 'gemini_api_key', 'gemini_model', 'nvidia_api_key', 'nvidia_model', 'openai_api_key', 'openai_model'].includes(req.params.key)) {
+    if (!val && ['ai_provider', 'gemini_api_key', 'gemini_model', 'nvidia_api_key', 'nvidia_model', 'openai_api_key', 'openai_model', 'xai_api_key', 'xai_model', 'evren_api_key', 'evren_model'].includes(req.params.key)) {
       const anyRs = await client.execute({
         sql: "SELECT setting_value FROM company_settings WHERE setting_key = ? AND setting_value IS NOT NULL AND setting_value != '' ORDER BY id DESC LIMIT 1",
         args: [req.params.key]
@@ -6101,6 +6102,8 @@ app.post(['/api/ai/analyze-invoice', '/api/ai/analyze-text'], authMiddleware, as
     mimeType, 
     prompt, 
     provider: requestedProvider,
+    evrenApiKey: bodyEvrenKey,
+    evrenModel: bodyEvrenModel,
     openaiApiKey: bodyOpenaiKey,
     openaiModel: bodyOpenaiModel,
     xaiApiKey: bodyXaiKey,
@@ -6129,7 +6132,7 @@ app.post(['/api/ai/analyze-invoice', '/api/ai/analyze-text'], authMiddleware, as
       return anyRs.rows?.[0]?.setting_value || '';
     };
 
-    const [provVal, oKeyVal, oModelVal, xKeyVal, xModelVal, nKeyVal, nModelVal, gKeyVal, gModelVal] = await Promise.all([
+    const [provVal, oKeyVal, oModelVal, xKeyVal, xModelVal, nKeyVal, nModelVal, gKeyVal, gModelVal, eKeyVal, eModelVal] = await Promise.all([
       getSettingWithFallback('ai_provider'),
       getSettingWithFallback('openai_api_key'),
       getSettingWithFallback('openai_model'),
@@ -6139,6 +6142,8 @@ app.post(['/api/ai/analyze-invoice', '/api/ai/analyze-text'], authMiddleware, as
       getSettingWithFallback('nvidia_model'),
       getSettingWithFallback('gemini_api_key'),
       getSettingWithFallback('gemini_model'),
+      getSettingWithFallback('evren_api_key'),
+      getSettingWithFallback('evren_model'),
     ]);
 
     let activeProvider = requestedProvider || provVal || 'openai';
@@ -6150,22 +6155,33 @@ app.post(['/api/ai/analyze-invoice', '/api/ai/analyze-text'], authMiddleware, as
     const nvidiaModel = bodyNvidiaModel || nModelVal || 'stepfun-ai/step-5-preview';
     const geminiApiKey = bodyGeminiKey || gKeyVal || process.env.VITE_GEMINI_API_KEY || process.env.GEMINI_API_KEY || '';
     const geminiModel = bodyGeminiModel || gModelVal || 'gemini-2.5-flash';
+    const evrenApiKey = bodyEvrenKey || eKeyVal || process.env.EVREN_API_KEY || '';
+    const evrenModel = bodyEvrenModel || eModelVal || 'dots-ocr';
 
     // Provider fallback
-    if ((activeProvider === 'grok' || activeProvider === 'xai') && !xaiApiKey) {
+    if (activeProvider === 'evren' && !evrenApiKey) {
       if (openaiApiKey) activeProvider = 'openai';
+      else if (xaiApiKey) activeProvider = 'grok';
+      else if (geminiApiKey) activeProvider = 'gemini';
+      else if (nvidiaApiKey) activeProvider = 'nvidia';
+    } else if ((activeProvider === 'grok' || activeProvider === 'xai') && !xaiApiKey) {
+      if (openaiApiKey) activeProvider = 'openai';
+      else if (evrenApiKey) activeProvider = 'evren';
       else if (geminiApiKey) activeProvider = 'gemini';
       else if (nvidiaApiKey) activeProvider = 'nvidia';
     } else if (activeProvider === 'openai' && !openaiApiKey) {
-      if (xaiApiKey) activeProvider = 'grok';
+      if (evrenApiKey) activeProvider = 'evren';
+      else if (xaiApiKey) activeProvider = 'grok';
       else if (geminiApiKey) activeProvider = 'gemini';
       else if (nvidiaApiKey) activeProvider = 'nvidia';
     } else if (activeProvider === 'nvidia' && !nvidiaApiKey) {
-      if (xaiApiKey) activeProvider = 'grok';
+      if (evrenApiKey) activeProvider = 'evren';
+      else if (xaiApiKey) activeProvider = 'grok';
       else if (openaiApiKey) activeProvider = 'openai';
       else if (geminiApiKey) activeProvider = 'gemini';
     } else if (activeProvider === 'gemini' && !geminiApiKey) {
-      if (xaiApiKey) activeProvider = 'grok';
+      if (evrenApiKey) activeProvider = 'evren';
+      else if (xaiApiKey) activeProvider = 'grok';
       else if (openaiApiKey) activeProvider = 'openai';
       else if (nvidiaApiKey) activeProvider = 'nvidia';
     }
@@ -6419,8 +6435,106 @@ Temel Muhasebe İlkelerin ve Davranış Kuralların:
       return null;
     };
 
-    if (activeProvider === 'grok' || activeProvider === 'xai') {
+    const runEvren = async () => {
+      if (!evrenApiKey) return null;
+      try {
+        console.log(`[AI Proxy][EVREN] OCR çağrılıyor... Model: ${evrenModel || 'dots-ocr'}`);
+        const ocrResult = await evrenClient.performOcr({
+          imageBase64: fileBase64,
+          mimeType: mimeType || 'image/jpeg',
+          apiKey: evrenApiKey,
+          model: evrenModel || 'dots-ocr'
+        });
+
+        const rawText = ocrResult?.rawText || '';
+        console.log(`[AI Proxy][EVREN] OCR tamamlandı. Metin uzunluğu: ${rawText.length}`);
+
+        if (!rawText) return null;
+
+        let structuredResult = null;
+        if (openaiApiKey) {
+          try {
+            const oRes = await fetch('https://api.openai.com/v1/chat/completions', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${openaiApiKey}`
+              },
+              body: JSON.stringify({
+                model: 'gpt-4o-mini',
+                messages: [
+                  { role: 'system', content: MALI_MUSAVIR_SYSTEM_PROMPT },
+                  { role: 'user', content: `${prompt}\n\nAŞAĞIDAKİ METİN EVREN OCR MOTORU (${evrenModel}) TARAFINDAN OKUNMUŞTUR. BU METİNDEKİ VERİLERİ ANALİZ EDİP SADECE GEÇERLİ JSON OLARAK DÖNDÜR:\n\n${rawText}` }
+                ],
+                temperature: 0.1
+              })
+            });
+            if (oRes.ok) {
+              const oData = await oRes.json();
+              structuredResult = oData.choices?.[0]?.message?.content || null;
+            }
+          } catch (e) {
+            console.warn('[AI Proxy][EVREN] OpenAI metin ayrıştırma hatası:', e.message);
+          }
+        } else if (geminiApiKey) {
+          try {
+            const gRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiApiKey}`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                contents: [{ parts: [{ text: `${MALI_MUSAVIR_SYSTEM_PROMPT}\n\n${prompt}\n\nEVREN OCR METNİ:\n${rawText}` }] }]
+              })
+            });
+            if (gRes.ok) {
+              const gData = await gRes.json();
+              structuredResult = gData.candidates?.[0]?.content?.parts?.[0]?.text || null;
+            }
+          } catch (e) {
+            console.warn('[AI Proxy][EVREN] Gemini metin ayrıştırma hatası:', e.message);
+          }
+        }
+
+        if (!structuredResult) {
+          const parsed = evrenClient.extractInvoiceRuleBased(rawText);
+          structuredResult = JSON.stringify({ faturalar: [parsed] });
+        }
+
+        return structuredResult;
+      } catch (err) {
+        console.warn('[AI Proxy][EVREN] OCR hatası:', err.message);
+        return null;
+      }
+    };
+
+    if (activeProvider === 'evren') {
+      responseText = await runEvren();
+      if (!responseText && openaiApiKey) {
+        console.warn('[AI Proxy] EVREN yanıt vermedi, OpenAI deneniyor...');
+        responseText = await runOpenAI();
+        if (responseText) usedProvider = 'openai';
+      }
+      if (!responseText && xaiApiKey) {
+        console.warn('[AI Proxy] EVREN ve OpenAI yanıt vermedi, Grok deneniyor...');
+        responseText = await runGrok();
+        if (responseText) usedProvider = 'grok';
+      }
+      if (!responseText && geminiApiKey) {
+        console.warn('[AI Proxy] EVREN yanıt vermedi, Gemini deneniyor...');
+        responseText = await runGemini();
+        if (responseText) usedProvider = 'gemini';
+      }
+      if (!responseText && nvidiaApiKey) {
+        console.warn('[AI Proxy] EVREN yanıt vermedi, NVIDIA NIM deneniyor...');
+        responseText = await runNvidia();
+        if (responseText) usedProvider = 'nvidia';
+      }
+    } else if (activeProvider === 'grok' || activeProvider === 'xai') {
       responseText = await runGrok();
+      if (!responseText && evrenApiKey) {
+        console.warn('[AI Proxy] Grok yanıt vermedi, EVREN OCR deneniyor...');
+        responseText = await runEvren();
+        if (responseText) usedProvider = 'evren';
+      }
       if (!responseText && openaiApiKey) {
         console.warn('[AI Proxy] Grok yanıt vermedi, OpenAI deneniyor...');
         responseText = await runOpenAI();
@@ -6438,6 +6552,11 @@ Temel Muhasebe İlkelerin ve Davranış Kuralların:
       }
     } else if (activeProvider === 'openai') {
       responseText = await runOpenAI();
+      if (!responseText && evrenApiKey) {
+        console.warn('[AI Proxy] OpenAI yanıt vermedi, EVREN OCR deneniyor...');
+        responseText = await runEvren();
+        if (responseText) usedProvider = 'evren';
+      }
       if (!responseText && xaiApiKey) {
         console.warn('[AI Proxy] OpenAI yanıt vermedi, Grok deneniyor...');
         responseText = await runGrok();
@@ -6455,6 +6574,11 @@ Temel Muhasebe İlkelerin ve Davranış Kuralların:
       }
     } else if (activeProvider === 'nvidia') {
       responseText = await runNvidia();
+      if (!responseText && evrenApiKey) {
+        console.warn('[AI Proxy] NVIDIA yanıt vermedi, EVREN OCR deneniyor...');
+        responseText = await runEvren();
+        if (responseText) usedProvider = 'evren';
+      }
       if (!responseText && xaiApiKey) {
         console.warn('[AI Proxy] NVIDIA yanıt vermedi, Grok deneniyor...');
         responseText = await runGrok();
@@ -6472,6 +6596,11 @@ Temel Muhasebe İlkelerin ve Davranış Kuralların:
       }
     } else {
       responseText = await runGemini();
+      if (!responseText && evrenApiKey) {
+        console.warn('[AI Proxy] Gemini yanıt vermedi, EVREN OCR deneniyor...');
+        responseText = await runEvren();
+        if (responseText) usedProvider = 'evren';
+      }
       if (!responseText && xaiApiKey) {
         console.warn('[AI Proxy] Gemini yanıt vermedi, Grok deneniyor...');
         responseText = await runGrok();
@@ -6490,7 +6619,7 @@ Temel Muhasebe İlkelerin ve Davranış Kuralların:
     }
 
     if (!responseText) {
-      if (!openaiApiKey && !nvidiaApiKey && !geminiApiKey) {
+      if (!openaiApiKey && !nvidiaApiKey && !geminiApiKey && !evrenApiKey && !xaiApiKey) {
         return res.status(400).json({ success: false, message: 'Yapay zeka anahtarı bulunamadı. Lütfen Ayarlar sayfasından API anahtarınızı tanımlayın.' });
       }
       return res.status(500).json({ success: false, message: 'Yapay zekadan yanıt alınamadı. Tanımlı modeller veya API anahtarları yanıt vermiyor.' });
