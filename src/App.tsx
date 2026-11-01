@@ -1,46 +1,56 @@
+import { lazy, Suspense } from 'react';
 import { AppProvider, useApp } from '@/context/AppContext';
 import { LoginPage } from '@/sections/LoginPage';
 import { Layout } from '@/sections/Layout';
 import { Dashboard } from '@/sections/Dashboard';
-import { SatisFaturaListesi } from '@/sections/SatisFaturaListesi';
-import { AlisFaturaListesi } from '@/sections/AlisFaturaListesi';
-import { VergiRaporu } from './sections/VergiRaporu';
-import { CariListe } from './sections/CariListe';
-import { CekSenetListe } from './sections/CekSenetListe';
-import { BankaListe } from './sections/BankaListe';
-import { BankaEkstreListesi } from './sections/BankaEkstreListesi';
-import { KesilecekFaturalar } from './sections/KesilecekFaturalar';
 import { Toaster } from '@/components/ui/sonner';
-import PersonelListe from './sections/PersonelListe';
-import PersonelDashboard from './sections/PersonelDashboard';
-import IzinYonetimi from './sections/IzinYonetimi';
-import TalepYonetimi from './sections/TalepYonetimi';
-import PuantajCetveli from './sections/PuantajCetveli';
-import PersonelIzinlerim from './sections/PersonelIzinlerim';
-import PersonelMasraflarim from './sections/PersonelMasraflarim';
-import KisiselPuantaj from './sections/KisiselPuantaj';
-import { SuperAdminPanel } from './sections/SuperAdminPanel';
-import { StokPage } from './modules/stok/pages/StokPage';
-import { LucaAyarlari } from './sections/LucaAyarlari';
-import { FaturaAktarim } from './sections/FaturaAktarim';
-import { TeklifListesi } from './sections/TeklifListesi';
-import { SiparisListesi } from './sections/SiparisListesi';
-import { MutabakatYonetimi } from './sections/MutabakatYonetimi';
-import { PublicTeklifView } from './sections/PublicTeklifView';
-import { PublicMutabakatView } from './sections/PublicMutabakatView';
-import EntegratorAyarlari from './sections/EntegratorAyarlari';
-import GelenEFaturalar from './sections/GelenEFaturalar';
-import GidenElogoFaturalar from './sections/GidenElogoFaturalar';
-import GelenUyumsoftFaturalar from './sections/GelenUyumsoftFaturalar';
-import UyumsoftGidenFaturalar from './sections/UyumsoftGidenFaturalar';
-import UyumsoftGidenESMM from './sections/UyumsoftGidenESMM';
-import { SirketDosyalari } from './sections/SirketDosyalari';
-import AkilliOgrenme from './sections/AkilliOgrenme';
-import { MuhasebeFisInceleme } from './sections/MuhasebeFisInceleme';
-import NakitAkisiTakvimi from './sections/NakitAkisiTakvimi';
-import KullaniciYetkiYonetimi from './sections/KullaniciYetkiYonetimi';
-import { DijitalVergiDairesi } from './sections/DijitalVergiDairesi';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { Loader2 } from 'lucide-react';
+
+const SatisFaturaListesi = lazy(() => import('@/sections/SatisFaturaListesi').then(m => ({ default: m.SatisFaturaListesi })));
+const AlisFaturaListesi = lazy(() => import('@/sections/AlisFaturaListesi').then(m => ({ default: m.AlisFaturaListesi })));
+const VergiRaporu = lazy(() => import('./sections/VergiRaporu').then(m => ({ default: m.VergiRaporu })));
+const CariListe = lazy(() => import('./sections/CariListe').then(m => ({ default: m.CariListe })));
+const CekSenetListe = lazy(() => import('./sections/CekSenetListe').then(m => ({ default: m.CekSenetListe })));
+const BankaListe = lazy(() => import('./sections/BankaListe').then(m => ({ default: m.BankaListe })));
+const BankaEkstreListesi = lazy(() => import('./sections/BankaEkstreListesi').then(m => ({ default: m.BankaEkstreListesi })));
+const KesilecekFaturalar = lazy(() => import('./sections/KesilecekFaturalar').then(m => ({ default: m.KesilecekFaturalar })));
+const PersonelListe = lazy(() => import('./sections/PersonelListe'));
+const PersonelDashboard = lazy(() => import('./sections/PersonelDashboard'));
+const IzinYonetimi = lazy(() => import('./sections/IzinYonetimi'));
+const TalepYonetimi = lazy(() => import('./sections/TalepYonetimi'));
+const PuantajCetveli = lazy(() => import('./sections/PuantajCetveli'));
+const PersonelIzinlerim = lazy(() => import('./sections/PersonelIzinlerim'));
+const PersonelMasraflarim = lazy(() => import('./sections/PersonelMasraflarim'));
+const KisiselPuantaj = lazy(() => import('./sections/KisiselPuantaj'));
+const SuperAdminPanel = lazy(() => import('./sections/SuperAdminPanel').then(m => ({ default: m.SuperAdminPanel })));
+const StokPage = lazy(() => import('./modules/stok/pages/StokPage').then(m => ({ default: m.StokPage })));
+const LucaAyarlari = lazy(() => import('./sections/LucaAyarlari').then(m => ({ default: m.LucaAyarlari })));
+const FaturaAktarim = lazy(() => import('./sections/FaturaAktarim').then(m => ({ default: m.FaturaAktarim })));
+const TeklifListesi = lazy(() => import('./sections/TeklifListesi').then(m => ({ default: m.TeklifListesi })));
+const SiparisListesi = lazy(() => import('./sections/SiparisListesi').then(m => ({ default: m.SiparisListesi })));
+const MutabakatYonetimi = lazy(() => import('./sections/MutabakatYonetimi').then(m => ({ default: m.MutabakatYonetimi })));
+const PublicTeklifView = lazy(() => import('./sections/PublicTeklifView').then(m => ({ default: m.PublicTeklifView })));
+const PublicMutabakatView = lazy(() => import('./sections/PublicMutabakatView').then(m => ({ default: m.PublicMutabakatView })));
+const EntegratorAyarlari = lazy(() => import('./sections/EntegratorAyarlari'));
+const GelenEFaturalar = lazy(() => import('./sections/GelenEFaturalar'));
+const GidenElogoFaturalar = lazy(() => import('./sections/GidenElogoFaturalar'));
+const GelenUyumsoftFaturalar = lazy(() => import('./sections/GelenUyumsoftFaturalar'));
+const UyumsoftGidenFaturalar = lazy(() => import('./sections/UyumsoftGidenFaturalar'));
+const UyumsoftGidenESMM = lazy(() => import('./sections/UyumsoftGidenESMM'));
+const SirketDosyalari = lazy(() => import('./sections/SirketDosyalari').then(m => ({ default: m.SirketDosyalari })));
+const AkilliOgrenme = lazy(() => import('./sections/AkilliOgrenme'));
+const MuhasebeFisInceleme = lazy(() => import('./sections/MuhasebeFisInceleme').then(m => ({ default: m.MuhasebeFisInceleme })));
+const NakitAkisiTakvimi = lazy(() => import('./sections/NakitAkisiTakvimi'));
+const KullaniciYetkiYonetimi = lazy(() => import('./sections/KullaniciYetkiYonetimi'));
+const DijitalVergiDairesi = lazy(() => import('./sections/DijitalVergiDairesi').then(m => ({ default: m.DijitalVergiDairesi })));
+
+const PageLoader = () => (
+  <div className="flex flex-col items-center justify-center min-h-[50vh] gap-2 text-slate-500">
+    <Loader2 className="w-7 h-7 animate-spin text-indigo-600" />
+    <span className="text-xs font-medium">Modül yükleniyor...</span>
+  </div>
+);
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -60,11 +70,19 @@ function AppContent() {
   const mutabakatToken = params.get('mutabakat');
   
   if (teklifToken) {
-    return <PublicTeklifView token={teklifToken} />;
+    return (
+      <Suspense fallback={<PageLoader />}>
+        <PublicTeklifView token={teklifToken} />
+      </Suspense>
+    );
   }
 
   if (mutabakatToken) {
-    return <PublicMutabakatView token={mutabakatToken} />;
+    return (
+      <Suspense fallback={<PageLoader />}>
+        <PublicMutabakatView token={mutabakatToken} />
+      </Suspense>
+    );
   }
 
   if (!isAuthenticated) {
@@ -73,6 +91,7 @@ function AppContent() {
 
   return (
     <Layout>
+      <Suspense fallback={<PageLoader />}>
       {(() => {
         switch (currentView) {
           case 'dashboard':
@@ -151,6 +170,7 @@ function AppContent() {
             return <Dashboard />; // Default to Dashboard if currentView is not recognized
         }
       })()}
+      </Suspense>
     </Layout>
   );
 }

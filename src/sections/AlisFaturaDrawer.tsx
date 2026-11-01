@@ -7,7 +7,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Progress } from '@/components/ui/progress';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useApp } from '@/context/AppContext';
-import { Save, X, ShoppingCart, FileText, Sparkles, Loader2, CheckCircle2, Plus, Trash2, Eye, AlertCircle, AlertTriangle, ExternalLink, RotateCcw, Filter } from 'lucide-react';
+import { Save, X, ShoppingCart, FileText, Sparkles, Loader2, CheckCircle2, Plus, Trash2, Eye, AlertCircle, AlertTriangle, ExternalLink, RotateCcw, Filter, Columns, ZoomIn, ZoomOut, ChevronLeft, ChevronRight, BrainCircuit } from 'lucide-react';
 import type { AlisFaturaFormData } from '@/types';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -28,9 +28,10 @@ const INITIAL_FORM: AlisFaturaFormData = {
   tedarikciVkn: '',
   malHizmetAdi: '',
   toplamTutar: '',
-  kdvOrani: '18',
+  kdvOrani: '20',
   tevkifatOrani: '0',
   stopajOrani: '0',
+  oivTutari: '0',
   aciklama: ''
 };
 
@@ -104,7 +105,7 @@ const compressImageIfNeeded = async (file: File): Promise<{ base64: string; mime
 };
 
 export function AlisFaturaDrawer() {
-  const { isAlisDrawerOpen, closeAlisDrawer, addAlisFatura, updateAlisFatura, cariler, alisInitialData, lucaAccounts, isIsletmeDefteri, companies, user, apiFetch } = useApp();
+  const { isAlisDrawerOpen, closeAlisDrawer, addAlisFatura, updateAlisFatura, alisFaturalari, cariler, alisInitialData, lucaAccounts, isIsletmeDefteri, companies, user, apiFetch } = useApp();
   const activeCompany = companies.find(c => c.id === (user?.companyId || 1));
   const hasCommercialVehicle = activeCompany?.vehicles?.some(v => v.type === 'commercial');
   const { data: urunler } = useUrunler();
@@ -113,6 +114,82 @@ export function AlisFaturaDrawer() {
   const [forms, setForms] = useState<FormEntry[]>([]);
   const [isUrunFormOpen, setIsUrunFormOpen] = useState(false);
   const [kurallar, setKurallar] = useState<any[]>([]);
+  const [splitViewMode, setSplitViewMode] = useState(true);
+  const [activeFormId, setActiveFormId] = useState<number | null>(null);
+  const [splitZoom, setSplitZoom] = useState(1);
+
+  // Tedarikçi Hafızası: Geçmiş faturalardan veya AI kurallarından muhasebe kodunu otomatik bul
+  const findRememberedAccountCode = (vkn?: string, unvan?: string, malHizmet?: string): string => {
+    const cleanVkn = (vkn || '').trim();
+    const cleanUnvan = (unvan || '').trim().toLowerCase();
+    const text = `${unvan || ''} ${malHizmet || ''}`.toLowerCase();
+
+    // 1. Önce tanımlı kurallara bak
+    if (kurallar.length > 0 && text.trim()) {
+      for (const rule of kurallar) {
+        if (rule.anahtar_kelime && text.includes(String(rule.anahtar_kelime).toLowerCase())) {
+          return rule.muhasebe_kodu;
+        }
+      }
+    }
+
+    // 2. Geçmiş alış faturalarında aynı VKN veya Firma Adı için kullanılan en son muhasebe koduna bak
+    if (Array.isArray(alisFaturalari) && alisFaturalari.length > 0) {
+      if (cleanVkn.length >= 10) {
+        const pastByVkn = alisFaturalari.find(f => String(f.tedarikciVkn || '').trim() === cleanVkn && f.muhasebeKodu);
+        if (pastByVkn?.muhasebeKodu) return pastByVkn.muhasebeKodu;
+      }
+      if (cleanUnvan.length >= 3) {
+        const pastByName = alisFaturalari.find(f => {
+          const exName = String(f.tedarikciAdi || '').trim().toLowerCase();
+          return exName.length >= 3 && (exName === cleanUnvan || exName.includes(cleanUnvan) || cleanUnvan.includes(exName)) && f.muhasebeKodu;
+        });
+        if (pastByName?.muhasebeKodu) return pastByName.muhasebeKodu;
+      }
+    }
+
+    return '';
+  };
+
+  // Mükerrer Fiş / Fatura Yakalayıcı
+  const findDuplicateForForm = (form: FormEntry) => {
+    if (!Array.isArray(alisFaturalari) || alisFaturalari.length === 0) return null;
+    const d = form.data;
+    const currentId = (d as any).id;
+    const fNo = String(d.faturaNo || '').trim().toLowerCase();
+    const vkn = String(d.tedarikciVkn || '').trim();
+    const unvan = String(d.tedarikciAdi || '').trim().toLowerCase();
+    const tarih = String(d.faturaTarihi || '').trim();
+    const tutar = parseFloat(String(d.toplamTutar || '0')) || 0;
+    const kdvOrani = String(d.kdvOrani || '20').trim();
+
+    if (!fNo && tutar <= 0) return null;
+
+    return alisFaturalari.find(ex => {
+      if (currentId && String(ex.id) === String(currentId)) return false;
+      const exNo = String(ex.faturaNo || '').trim().toLowerCase();
+      const exVkn = String(ex.tedarikciVkn || '').trim();
+      const exUnvan = String(ex.tedarikciAdi || '').trim().toLowerCase();
+      const exTarih = String(ex.faturaTarihi || '').trim();
+      const exTutar = parseFloat(String(ex.toplamTutar || '0')) || 0;
+      const exKdv = String(ex.kdvOrani || '20').trim();
+
+      const sameSupplier = (vkn.length >= 10 && exVkn === vkn) ||
+                           (unvan.length >= 3 && exUnvan.length >= 3 && (exUnvan === unvan || exUnvan.includes(unvan) || unvan.includes(exUnvan)));
+
+      // 1. Birebir aynı Fatura/Fiş No + Aynı Tedarikçi + Aynı KDV Oranı (Çoklu KDV satırlarını mükerrer saymamak için KDV oranını da kontrol et)
+      if (fNo.length >= 3 && exNo === fNo && sameSupplier && exKdv === kdvOrani) {
+        return true;
+      }
+
+      // 2. Aynı Tarih + Aynı Tedarikçi + Aynı KDV + Aynı Tutar (±0.50 TL tolerans)
+      if (tarih && exTarih === tarih && sameSupplier && tutar > 0 && Math.abs(exTutar - tutar) <= 0.50 && exKdv === kdvOrani) {
+        return true;
+      }
+
+      return false;
+    });
+  };
 
   // Kuralları Çek
   useEffect(() => {
@@ -283,6 +360,7 @@ export function AlisFaturaDrawer() {
   const getHesaplanan = (f: FormEntry) => {
     const kdvOrani = parseFloat(f.data.kdvOrani) / 100;
     const stopajOrani = parseFloat(f.data.stopajOrani || '0') / 100;
+    const oivTutari = parseFloat(String(f.data.oivTutari || '0').replace(',', '.')) || 0;
     const girilenTutar = parseFloat(f.data.toplamTutar);
 
     let tevkifatCarpani = 0;
@@ -296,7 +374,8 @@ export function AlisFaturaDrawer() {
 
       if (f.tutarTuru === 'dahil') {
         const carpan = 1 + kdvOrani - stopajOrani - (kdvOrani * tevkifatCarpani);
-        matrah = carpan > 0 ? girilenTutar / carpan : 0;
+        const oivHaricToplam = Math.max(0, girilenTutar - oivTutari);
+        matrah = carpan > 0 ? oivHaricToplam / carpan : 0;
       } else {
         matrah = girilenTutar;
       }
@@ -304,17 +383,18 @@ export function AlisFaturaDrawer() {
       const kdvTutari = matrah * kdvOrani;
       const stopajTutari = matrah * stopajOrani;
       const tevkifatTutari = kdvTutari * tevkifatCarpani;
-      const netOdenecek = matrah + kdvTutari - stopajTutari - tevkifatTutari;
+      const netOdenecek = matrah + kdvTutari + oivTutari - stopajTutari - tevkifatTutari;
 
       return {
         matrah: Math.round(matrah * 100) / 100,
         kdvTutari: Math.round(kdvTutari * 100) / 100,
         stopajTutari: Math.round(stopajTutari * 100) / 100,
         tevkifatTutari: Math.round(tevkifatTutari * 100) / 100,
+        oivTutari: Math.round(oivTutari * 100) / 100,
         toplamNet: Math.round(netOdenecek * 100) / 100,
       };
     }
-    return { matrah: 0, kdvTutari: 0, stopajTutari: 0, tevkifatTutari: 0, toplamNet: 0 };
+    return { matrah: 0, kdvTutari: 0, stopajTutari: 0, tevkifatTutari: 0, oivTutari: 0, toplamNet: 0 };
   };
 
   const updateForm = (id: number, field: keyof AlisFaturaFormData | 'tutarTuru', value: string) => {
@@ -327,16 +407,13 @@ export function AlisFaturaDrawer() {
 
         const newData = { ...f.data, [field]: value };
         
-        // Akıllı Öğrenme: Açıklama veya Satıcı değiştiğinde kural tetikle
-        if ((field === 'malHizmetAdi' || field === 'tedarikciAdi') && !newData.muhasebeKodu && kurallar.length > 0) {
-           const text = `${newData.tedarikciAdi || ''} ${newData.malHizmetAdi || ''}`.toLowerCase();
-           for (const rule of kurallar) {
-             if (text.includes(rule.anahtar_kelime.toLowerCase())) {
-               newData.muhasebeKodu = rule.muhasebe_kodu;
-               toast.success(`Kural eşleşti: ${rule.muhasebe_kodu} atandı!`);
-               break;
-             }
-           }
+        // Akıllı Öğrenme & Tedarikçi Hafızası: Açıklama, VKN veya Satıcı değiştiğinde geçmişten/kuraldan hesap kodu ata
+        if ((field === 'malHizmetAdi' || field === 'tedarikciAdi' || field === 'tedarikciVkn') && !newData.muhasebeKodu) {
+          const remembered = findRememberedAccountCode(newData.tedarikciVkn, newData.tedarikciAdi, newData.malHizmetAdi);
+          if (remembered) {
+            newData.muhasebeKodu = remembered;
+            toast.success(`Tedarikçi hafızasından hesap kodu atandı: ${remembered}`, { id: `mem-${id}` });
+          }
         }
 
         return { ...f, data: newData, errors: newErrors };
@@ -457,6 +534,7 @@ export function AlisFaturaDrawer() {
           kdvTutari: hes.kdvTutari,
           tevkifatTutari: hes.tevkifatTutari,
           stopajTutari: hes.stopajTutari,
+          oivTutari: hes.oivTutari,
           muhasebeKodu: f.data.muhasebeKodu,
           karsiHesapKodu: f.data.karsiHesapKodu,
           dosyaBase64: f.data.dosyaBase64 || '',
@@ -467,6 +545,22 @@ export function AlisFaturaDrawer() {
           await updateAlisFatura((f.data as any).id, invoicePayload);
         } else {
           await addAlisFatura(invoicePayload);
+        }
+
+        // Kendi Kendine Öğrenen Tedarikçi Hafızası: Seçilen muhasebe kodunu firma/tedarikçi adıyla kurallara otomatik kaydet
+        if (f.data.muhasebeKodu && f.data.tedarikciAdi && f.data.tedarikciAdi.trim().length >= 3) {
+          const cleanVendor = f.data.tedarikciAdi.trim();
+          apiFetch('/api/yapay-zeka-kurallari', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              anahtar_kelime: cleanVendor,
+              kategori: f.data.malHizmetAdi || 'Tedarikçi Otomatik Hafıza',
+              muhasebe_kodu: f.data.muhasebeKodu.trim(),
+              kdv_orani: Number(f.data.kdvOrani || 20),
+              upsert: true
+            })
+          }).catch(() => {});
         }
 
         // Başarıyla kaydedilen fişi listeden ve taslaktan anında çıkar:
@@ -813,7 +907,7 @@ MALİ MÜŞAVİRLİK VE KDV AYRIŞTIRMA KURALLARI:
 3. GENEL GİDER - TİCARİ MAL AYRIMI: Şirket içi tüketim, yemek (restoran/lokanta), akaryakıt/yakıt, konaklama/otel, kırtasiye, ofis tüketim, market, temizlik, kargo gibi harcama fişleri KESİNLİKLE 7'li gider hesaplarına (Örn: 770 Genel Yönetim Giderleri) atılmalıdır. 153 Ticari Mallar hesabı SADECE işletmenin satmak amacıyla aldığı ürünler içindir. Fişin niteliğine göre en uygun gider kodunu seç.
 4. AKARYAKIT PLAKA KURALI: Eğer bu bir akaryakıt fişi/faturası ise, fiş üzerinde yazan ARAÇ PLAKASINI mutlaka "plate" alanına yaz (Örn: 34ABC123).
 5. ÖDEME ŞEKLİ: Fiş/fatura üzerindeki ödeme tipini analiz et. Eğer slip veya fiş üzerinde "**** 1104", "Kredi Kartı", "Banka Kartı" gibi kredi kartı ödemesine dair ibare varsa "odeme_sekli": "KREDI_KARTI" yap ve kartın son 4 hanesini "kredi_karti_son4" alanına yaz (örn: "1104"). Nakit ödenmişse "odeme_sekli": "NAKIT" yap. Açık hesap/vadeli ise "odeme_sekli": "CARI_HESAP" yap.
-6. TEVKİFAT VE STOPAJ: Varsa KDV tevkifat oranını (örn: "2/10", "5/10", "9/10") ve Stopaj oranını tespit et.
+6. TEVKİFAT, STOPAJ VE ÖİV (ÖZEL İLETİŞİM / KONAKLAMA VERGİSİ): Varsa KDV tevkifat oranını (örn: "2/10", "5/10", "9/10") ve Stopaj oranını tespit et. Eğer faturada/fişte KDV haricinde "Özel İletişim Vergisi (ÖİV)", "Konaklama Vergisi", "ÖTV" veya "Telsiz Kullanım Ücreti" gibi KDV matrahına dahil olmayan ek bir vergi/kesinti varsa tutarını "oiv_tutari" alanına yaz (yoksa "0").
 
 Aşağıdaki LUCA HESAP PLANI listesinden bu faturanın açıklamasına/türüne en uygun "kod"u seçerek "muhasebe_kodu" alanına yaz:
 ${lucaAccounts.map(a => `${a.kod}: ${a.ad}`).join('\n')}
@@ -835,6 +929,7 @@ SADECE geçerli bir JSON döndür:
       "kdv_tutari": "Bu grubun kendi KDV tutarı (Örn: 20.08)",
       "tevkifat_orani": "0",
       "stopaj_orani": "0",
+      "oiv_tutari": "0",
       "aciklama": "",
       "muhasebe_kodu": "Yukarıdaki listeden seçilen en uygun hesap kodu",
       "plate": "Eğer varsa araç plakası (34ABC123 formatında)",
@@ -1133,6 +1228,7 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
 
             const fTevkifatOrani = f.tevkifat_orani || f.tevkifatOrani || f.tevkifat || '0';
             const fStopajOrani = f.stopaj_orani || f.stopajOrani || f.stopaj || '0';
+            const fOivTutari = String(f.oiv_tutari || f.oivTutari || f.ozel_iletisim_vergisi || '0').replace(',', '.');
             const fAciklama = f.aciklama || f.note || f.not || '';
             const fMuhasebeKodu = f.muhasebe_kodu || f.muhasebeKodu || f.account_code || f.accountCode || '';
             const fPlate = f.plate || f.plaka || f.vehicle_plate || f.vehiclePlate || '';
@@ -1145,6 +1241,12 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
               matchedCari = cariler.find(c => c.unvan && c.unvan.toLowerCase().includes(searchName));
             }
             const rawPlate = fPlate ? fPlate.toUpperCase().replace(/\s+/g, '') : '';
+
+            const rememberedCode = findRememberedAccountCode(
+              matchedCari ? (matchedCari.vknTckn || '') : fTedarikciVkn,
+              matchedCari ? (matchedCari.unvan || '') : fTedarikciAdi,
+              fMalHizmetAdi
+            );
 
             let mappedKarsiHesapKodu = '';
             if (fOdemeSekli === 'KREDI_KARTI') {
@@ -1176,10 +1278,11 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
                 kdvOrani: fKdvOrani,
                 tevkifatOrani: fTevkifatOrani?.toString() || '0',
                 stopajOrani: fStopajOrani?.toString() || '0',
+                oivTutari: fOivTutari || '0',
                 aciklama: fAciklama,
                 cariId: matchedCari ? matchedCari.id : undefined,
                 depoId: varsayilanDepoId,
-                muhasebeKodu: fMuhasebeKodu,
+                muhasebeKodu: rememberedCode || fMuhasebeKodu,
                 karsiHesapKodu: mappedKarsiHesapKodu,
                 vehiclePlate: rawPlate,
                 dosyaBase64: file.base64,
@@ -1279,12 +1382,14 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
       if (matched) {
         setForms(prev => prev.map(f => {
           if (f.id === formId) {
+            const remembered = findRememberedAccountCode(val, matched.unvan, f.data.malHizmetAdi);
             return {
               ...f,
               data: {
                 ...f.data,
                 cariId: matched.id,
-                tedarikciAdi: matched.unvan || ''
+                tedarikciAdi: matched.unvan || '',
+                muhasebeKodu: f.data.muhasebeKodu || remembered
               },
               errors: {}
             };
@@ -1297,15 +1402,32 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
   };
   const errorFormsCount = forms.filter(f => !!f.aiError).length;
   const filteredForms = formFilter === 'errors' ? forms.filter(f => !!f.aiError) : forms;
+  const hasAnyImage = forms.some(f => !!f.data.dosyaBase64);
+  const activeFormForPreview = forms.find(f => f.id === activeFormId && !!f.data.dosyaBase64) || forms.find(f => !!f.data.dosyaBase64) || null;
+  const activePreviewIndex = activeFormForPreview ? forms.findIndex(f => f.id === activeFormForPreview.id) : -1;
 
   return (
     <Sheet open={isAlisDrawerOpen} onOpenChange={handleClose}>
-      <SheetContent className="w-full sm:max-w-2xl overflow-y-auto" side="right">
+      <SheetContent className={cn("w-full overflow-y-auto transition-all duration-300", hasAnyImage && splitViewMode ? "sm:max-w-[95vw] xl:max-w-7xl" : "sm:max-w-2xl")} side="right">
         <SheetHeader className="pb-4 border-b">
-          <SheetTitle className="flex items-center gap-2 text-xl">
-            <ShoppingCart className="w-5 h-5 text-primary" />
-            Yeni Alış Faturası Girişi
-          </SheetTitle>
+          <div className="flex items-center justify-between pr-8 gap-2 flex-wrap">
+            <SheetTitle className="flex items-center gap-2 text-xl">
+              <ShoppingCart className="w-5 h-5 text-primary" />
+              Yeni Alış Faturası Girişi
+            </SheetTitle>
+            {hasAnyImage && (
+              <Button
+                type="button"
+                size="sm"
+                variant={splitViewMode ? "default" : "outline"}
+                onClick={() => setSplitViewMode(prev => !prev)}
+                className={cn("h-8 text-xs gap-1.5 font-semibold", splitViewMode ? "bg-indigo-600 hover:bg-indigo-700 text-white" : "text-indigo-700 border-indigo-200")}
+              >
+                <Columns className="w-3.5 h-3.5" />
+                {splitViewMode ? 'Yan Yana Hızlı Doğrulama: Açık' : 'Yan Yana Hızlı Doğrulama Modu'}
+              </Button>
+            )}
+          </div>
           <SheetDescription>
             PDF dosyalarını veya resimleri yükleyerek yapay zekanın tüm bilgileri çekmesini ve belgeyi kaydetmesini sağlayabilirsiniz.
           </SheetDescription>
@@ -1594,19 +1716,124 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
                   </div>
                 )}
 
-                <div className="space-y-8">
+                <div className={cn("gap-6 items-start", hasAnyImage && splitViewMode ? "grid grid-cols-1 lg:grid-cols-12" : "space-y-8")}>
+                  {hasAnyImage && splitViewMode && activeFormForPreview && (
+                    <div className="lg:col-span-5 sticky top-4 bg-slate-900 rounded-xl border border-slate-700 overflow-hidden shadow-xl flex flex-col max-h-[82vh]">
+                      <div className="px-3.5 py-2.5 bg-slate-800 border-b border-slate-700 flex items-center justify-between gap-2 text-white">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="bg-indigo-600 text-white text-[11px] font-bold px-2 py-0.5 rounded shrink-0">
+                            Fiş #{activePreviewIndex + 1} / {forms.length}
+                          </span>
+                          <span className="text-xs font-medium text-slate-200 truncate">
+                            {activeFormForPreview.data.dosyaAdi || 'Fiş Görseli'}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="ghost"
+                            className="h-7 w-7 text-slate-200 hover:text-white hover:bg-slate-700"
+                            onClick={() => setSplitZoom(z => Math.max(0.5, Number((z - 0.25).toFixed(2))))}
+                            title="Uzaklaştır"
+                          >
+                            <ZoomOut className="w-3.5 h-3.5" />
+                          </Button>
+                          <span className="text-[11px] font-mono text-slate-300 px-1">%{Math.round(splitZoom * 100)}</span>
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="ghost"
+                            className="h-7 w-7 text-slate-200 hover:text-white hover:bg-slate-700"
+                            onClick={() => setSplitZoom(z => Math.min(2.5, Number((z + 0.25).toFixed(2))))}
+                            title="Yakınlaştır"
+                          >
+                            <ZoomIn className="w-3.5 h-3.5" />
+                          </Button>
+                          {forms.length > 1 && (
+                            <>
+                              <Button
+                                type="button"
+                                size="icon"
+                                variant="ghost"
+                                className="h-7 w-7 text-slate-200 hover:text-white hover:bg-slate-700 ml-1"
+                                disabled={activePreviewIndex <= 0}
+                                onClick={() => {
+                                  if (activePreviewIndex > 0) setActiveFormId(forms[activePreviewIndex - 1].id);
+                                }}
+                                title="Önceki Fiş"
+                              >
+                                <ChevronLeft className="w-4 h-4" />
+                              </Button>
+                              <Button
+                                type="button"
+                                size="icon"
+                                variant="ghost"
+                                className="h-7 w-7 text-slate-200 hover:text-white hover:bg-slate-700"
+                                disabled={activePreviewIndex >= forms.length - 1}
+                                onClick={() => {
+                                  if (activePreviewIndex < forms.length - 1) setActiveFormId(forms[activePreviewIndex + 1].id);
+                                }}
+                                title="Sonraki Fiş"
+                              >
+                                <ChevronRight className="w-4 h-4" />
+                              </Button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                      <div className="p-3 overflow-auto flex-1 flex items-start justify-center bg-slate-950/60 min-h-[420px]">
+                        {activeFormForPreview.data.dosyaBase64?.startsWith('data:application/pdf') ? (
+                          <iframe
+                            src={activeFormForPreview.data.dosyaBase64}
+                            title={activeFormForPreview.data.dosyaAdi || 'PDF'}
+                            className="w-full h-[68vh] rounded border-0 bg-white"
+                          />
+                        ) : (
+                          <img
+                            src={activeFormForPreview.data.dosyaBase64}
+                            alt={activeFormForPreview.data.dosyaAdi || 'Fiş'}
+                            style={{ transform: `scale(${splitZoom})`, transformOrigin: 'top center' }}
+                            className="max-w-full h-auto rounded shadow-lg transition-transform duration-150"
+                          />
+                        )}
+                      </div>
+                      <div className="px-3.5 py-2 bg-slate-800/90 border-t border-slate-700 text-[11px] text-slate-300 flex items-center justify-between">
+                        <span>Sağdaki form kartına tıklayarak aktif fiş görselini değiştirebilirsiniz.</span>
+                        <button
+                          type="button"
+                          onClick={() => setPreviewImage({ url: activeFormForPreview.data.dosyaBase64!, name: activeFormForPreview.data.dosyaAdi || 'Fiş' })}
+                          className="text-indigo-300 hover:text-white underline font-semibold shrink-0 ml-2"
+                        >
+                          Tam Ekran Aç
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className={cn("space-y-8", hasAnyImage && splitViewMode ? "lg:col-span-7" : "")}>
                   {filteredForms.map((form) => {
                     const actualIndex = forms.findIndex(f => f.id === form.id);
                     const hes = getHesaplanan(form);
                     const isMultiple = forms.length > 1;
+                    const duplicateMatch = findDuplicateForForm(form);
+                    const isFocusedCard = hasAnyImage && splitViewMode && activeFormForPreview?.id === form.id;
 
                     return (
-                      <div key={form.id} className={cn(
-                        "bg-white rounded-xl p-4 shadow-sm relative group transition-all",
-                        form.aiError 
-                          ? "border-2 border-red-500 bg-red-50/20 ring-2 ring-red-300/60 shadow-md" 
-                          : "border border-slate-200"
-                      )}>
+                      <div
+                        key={form.id}
+                        onClick={() => { if (form.data.dosyaBase64) setActiveFormId(form.id); }}
+                        className={cn(
+                          "bg-white rounded-xl p-4 shadow-sm relative group transition-all",
+                          form.aiError 
+                            ? "border-2 border-red-500 bg-red-50/20 ring-2 ring-red-300/60 shadow-md" 
+                            : duplicateMatch
+                              ? "border-2 border-amber-400 bg-amber-50/10 ring-2 ring-amber-200/50"
+                              : isFocusedCard
+                                ? "border-2 border-indigo-500 ring-2 ring-indigo-200/60 shadow-md"
+                                : "border border-slate-200"
+                        )}
+                      >
                         <div className="flex items-center justify-between pb-3 border-b mb-4 gap-2 flex-wrap">
                           <div className="flex items-center gap-2 flex-wrap">
                             <span className={cn(
@@ -1628,6 +1855,12 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
                               <span className="text-xs bg-red-100 text-red-700 border border-red-300 px-2.5 py-0.5 rounded-full font-bold flex items-center gap-1 animate-pulse">
                                 <AlertCircle className="w-3.5 h-3.5 text-red-600" />
                                 ⚠️ Okunamadı • Manuel Giriş Gerekli
+                              </span>
+                            )}
+                            {duplicateMatch && (
+                              <span className="text-xs bg-amber-100 text-amber-800 border border-amber-300 px-2.5 py-0.5 rounded-full font-bold flex items-center gap-1">
+                                <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
+                                Mükerrer Kayıt Şüphesi
                               </span>
                             )}
                           </div>
@@ -1663,6 +1896,33 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
                             )}
                           </div>
                         </div>
+
+                        {duplicateMatch && (
+                          <div className="bg-amber-50 border-2 border-amber-300 rounded-lg p-3 mb-4 text-xs text-amber-950 flex items-start justify-between gap-2.5 shadow-xs">
+                            <div className="flex items-start gap-2">
+                              <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                              <div>
+                                <div className="font-bold text-amber-900">
+                                  ⚠️ Mükerrer Fiş / Fatura Uyarısı ({duplicateMatch.type === 'existing' ? 'Sistemde Zaten Kayıtlı' : 'Bu Listede Çift Satır'})
+                                </div>
+                                <p className="text-amber-800 mt-0.5">
+                                  {duplicateMatch.reason} — <b>{duplicateMatch.invoice.tedarikciAdi || 'Firma'}</b> ({duplicateMatch.invoice.faturaTarihi}, Fatura No: <b>{duplicateMatch.invoice.faturaNo || '-'}</b>)
+                                </p>
+                              </div>
+                            </div>
+                            {isMultiple && (
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                onClick={(e) => { e.stopPropagation(); removeForm(form.id); }}
+                                className="h-7 text-[11px] border-amber-400 text-amber-900 hover:bg-amber-200 shrink-0"
+                              >
+                                Mükerreri Kaldır
+                              </Button>
+                            )}
+                          </div>
+                        )}
 
                         {form.aiError && (
                           <div className="bg-red-50 border-2 border-red-200 rounded-lg p-3.5 mb-4 text-xs text-red-950 flex items-start gap-2.5 shadow-xs">
@@ -1900,18 +2160,29 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
                         </div>
                       </div>
                       <div className="space-y-2 pl-2">
-                        <Label className="text-xs font-medium text-slate-500">Stopaj Oranı</Label>
-                        <div className="flex items-center gap-2 mt-1">
-                          <Input type="number" min="0" max="100" value={form.data.stopajOrani} onChange={(e) => updateForm(form.id, 'stopajOrani', e.target.value)} className="h-8 w-16" />
-                          <span className="text-xs text-slate-400">%</span>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <Label className="text-xs font-medium text-slate-500">Stopaj Oranı</Label>
+                            <div className="flex items-center gap-1 mt-1">
+                              <Input type="number" min="0" max="100" value={form.data.stopajOrani} onChange={(e) => updateForm(form.id, 'stopajOrani', e.target.value)} className="h-8 w-14 text-xs" />
+                              <span className="text-xs text-slate-400">%</span>
+                            </div>
+                          </div>
+                          <div>
+                            <Label className="text-xs font-medium text-purple-700" title="Özel İletişim Vergisi / Konaklama Vergisi (KKEG 689.01)">ÖİV / Özel Vergi (TL)</Label>
+                            <div className="flex items-center gap-1 mt-1">
+                              <Input type="number" min="0" step="0.01" value={form.data.oivTutari || '0'} onChange={(e) => updateForm(form.id, 'oivTutari', e.target.value)} className="h-8 w-full text-xs border-purple-200 bg-purple-50/30" placeholder="0.00" />
+                            </div>
+                          </div>
                         </div>
                       </div>
                     </div>
 
-                    {(hes.matrah > 0 || hes.kdvTutari > 0) && (
+                    {(hes.matrah > 0 || hes.kdvTutari > 0 || hes.oivTutari > 0) && (
                       <div className="bg-slate-50 rounded p-3 text-xs flex flex-wrap gap-4 border items-center">
                         <div className="text-slate-500">Brüt Matrah: <strong className="text-slate-900">{formatCurrency(hes.matrah)}</strong></div>
                         <div className="text-slate-500">Top. KDV: <strong className="text-slate-900">{formatCurrency(hes.kdvTutari)}</strong></div>
+                        {hes.oivTutari > 0 && <div className="text-purple-700">ÖİV / Özel Vergi (KKEG): <strong>{formatCurrency(hes.oivTutari)}</strong></div>}
                         {hes.tevkifatTutari > 0 && <div className="text-amber-600">Devreden Tevkifat: <strong>-{formatCurrency(hes.tevkifatTutari)}</strong></div>}
                         {hes.stopajTutari > 0 && <div className="text-red-500">Stopaj Kesintisi: <strong>-{formatCurrency(hes.stopajTutari)}</strong></div>}
 
@@ -1923,6 +2194,7 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
                   </div>
                 );
               })}
+              </div>
             </div>
 
             <Button type="button" variant="outline" onClick={addNewForm} className="border-dashed border-2 w-full h-12 text-slate-500 border-slate-300 bg-slate-50 hover:bg-slate-100 hover:text-primary transition-all">

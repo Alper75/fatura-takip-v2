@@ -2139,7 +2139,7 @@ app.post('/api/invoices/parse-xml', authMiddleware, upload.single('file'), async
       const taxTotal = inv['TaxTotal'];
       const withholdingTaxTotal = inv['WithholdingTaxTotal'];
 
-      let kdv1 = 0, kdv10 = 0, kdv20 = 0;
+      let kdv1 = 0, kdv10 = 0, kdv20 = 0, oivTutari = 0;
       let tevkifatTutari = 0, stopajTutari = 0;
       
       const taxTotalArray = Array.isArray(taxTotal) ? taxTotal : (taxTotal ? [taxTotal] : []);
@@ -2154,11 +2154,13 @@ app.post('/api/invoices/parse-xml', authMiddleware, upload.single('file'), async
           const percent = parseFloat(getText(sub['Percent'])) || parseFloat(getText(taxCat?.['Percent'])) || 0;
           const amount = parseFloat(getText(sub['TaxAmount'])) || 0;
           
-          if (taxCode === '0015' || !taxCode) {
+          if (taxCode === '0015' || taxCode === '15' || !taxCode) {
             if (percent === 1) kdv1 += amount;
-            else if (percent === 10) kdv10 += amount;
-            else if (percent === 20) kdv20 += amount;
+            else if (percent === 10 || percent === 8) kdv10 += amount;
+            else if (percent === 20 || percent === 18) kdv20 += amount;
             else kdv20 += amount;
+          } else {
+            oivTutari += amount;
           }
         }
       }
@@ -2168,6 +2170,9 @@ app.post('/api/invoices/parse-xml', authMiddleware, upload.single('file'), async
         const amount = parseFloat(getText(wt['TaxAmount'])) || 0;
         tevkifatTutari += amount;
       }
+
+      const calculatedKdvTotal = Math.round((kdv1 + kdv10 + kdv20) * 100) / 100;
+      const rawTaxTotal = parseFloat(taxTotalArray[0]?.['TaxAmount']?.['#text'] || taxTotalArray[0]?.['TaxAmount'] || 0);
 
       parsedData = {
         faturaNo: getText(inv['ID']),
@@ -2188,7 +2193,8 @@ app.post('/api/invoices/parse-xml', authMiddleware, upload.single('file'), async
         },
         matrah: parseFloat(monTotal?.['TaxExclusiveAmount']?.['#text'] || monTotal?.['TaxExclusiveAmount'] || 0),
         toplamTutar: parseFloat(monTotal?.['PayableAmount']?.['#text'] || monTotal?.['PayableAmount'] || 0),
-        kdvTutari: parseFloat(taxTotalArray[0]?.['TaxAmount']?.['#text'] || taxTotalArray[0]?.['TaxAmount'] || 0),
+        kdvTutari: calculatedKdvTotal > 0 ? calculatedKdvTotal : Math.max(0, rawTaxTotal - oivTutari),
+        oivTutari: Math.round(oivTutari * 100) / 100,
         kdv1, kdv10, kdv20, tevkifatTutari, stopajTutari,
         type: 'Invoice'
       };
@@ -3978,6 +3984,7 @@ app.put('/api/alis-faturalari/:id', authMiddleware, async (req, res) => {
         tevkifat_tutari=COALESCE(?,tevkifat_tutari),
         stopaj_orani=COALESCE(?,stopaj_orani),
         stopaj_tutari=COALESCE(?,stopaj_tutari),
+        oiv_tutari=COALESCE(?,oiv_tutari),
         muhasebe_kodu=COALESCE(?,muhasebe_kodu),
         karsi_hesap_kodu=COALESCE(?,karsi_hesap_kodu),
         kdv_hesap_kodu=COALESCE(?,kdv_hesap_kodu),
@@ -3992,7 +3999,7 @@ app.put('/api/alis-faturalari/:id', authMiddleware, async (req, res) => {
         n(f.faturaTarihi), n(f.tedarikciAdi), n(f.tedarikciVkn), n(f.malHizmetAdi),
         n(f.toplamTutar), n(f.kdvOrani), n(f.kdvTutari), n(f.matrah),
         n(f.tevkifatOrani), n(f.tevkifatTutari), n(f.stopajOrani), n(f.stopajTutari),
-        n(f.muhasebeKodu), n(f.karsiHesapKodu), n(f.kdvHesapKodu), n(f.aciklama), n(f.vadeTarihi),
+        n(f.oivTutari), n(f.muhasebeKodu), n(f.karsiHesapKodu), n(f.kdvHesapKodu), n(f.aciklama), n(f.vadeTarihi),
         mahsupJson !== undefined ? n(mahsupJson) : null,
         hasKkegVal !== undefined ? n(hasKkegVal) : null,
         req.params.id, req.user.companyId
@@ -7418,15 +7425,23 @@ app.get('/api/yapay-zeka-kurallari', authMiddleware, async (req, res) => {
 
 app.post('/api/yapay-zeka-kurallari', authMiddleware, async (req, res) => {
   try {
-    const { kural_tipi, kural_adi, anahtar_kelime, muhasebe_kodu } = req.body;
+    const { kural_tipi, kural_adi, anahtar_kelime, muhasebe_kodu, upsert } = req.body;
     
     const checkResult = await client.execute({
-      sql: 'SELECT id FROM yapay_zeka_kurallari WHERE company_id = ? AND kural_tipi = ? AND anahtar_kelime = ?',
+      sql: 'SELECT id, muhasebe_kodu FROM yapay_zeka_kurallari WHERE company_id = ? AND kural_tipi = ? AND LOWER(anahtar_kelime) = LOWER(?)',
       args: [req.user.companyId, n(kural_tipi), n(anahtar_kelime)]
     });
 
     if (checkResult.rows && checkResult.rows.length > 0) {
-      return res.json({ success: true, message: 'Bu anahtar kelime için zaten bir kural var, atlandı.', skipped: true });
+      const existing = checkResult.rows[0];
+      if (upsert && muhasebe_kodu && existing.muhasebe_kodu !== muhasebe_kodu) {
+        await client.execute({
+          sql: 'UPDATE yapay_zeka_kurallari SET muhasebe_kodu = ?, kural_adi = COALESCE(?, kural_adi) WHERE id = ? AND company_id = ?',
+          args: [n(muhasebe_kodu), n(kural_adi), existing.id, req.user.companyId]
+        });
+        return res.json({ success: true, message: 'Tedarikçi muhasebe kuralı güncellendi.', id: existing.id, updated: true });
+      }
+      return res.json({ success: true, message: 'Bu anahtar kelime için zaten bir kural var, atlandı.', id: existing.id, skipped: true });
     }
 
     const id = uuidv4();

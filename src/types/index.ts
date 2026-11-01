@@ -114,6 +114,7 @@ export interface AlisFatura {
   kdv1?: number;
   kdv10?: number;
   kdv20?: number;
+  oivTutari?: number;
   muhasebeKodu?: string;
   karsiHesapKodu?: string;
   kdvHesapKodu?: string;
@@ -154,6 +155,7 @@ export interface AlisFaturaFormData {
   kdv1?: number;
   kdv10?: number;
   kdv20?: number;
+  oivTutari?: string;
   tevkifatOrani?: string;
   stopajOrani?: string;
   muhasebeKodu?: string;

@@ -18,7 +18,11 @@ import {
   Calendar,
   FileSpreadsheet,
   AlertCircle,
-  Info
+  AlertTriangle,
+  CheckCircle2,
+  ShieldCheck,
+  Info,
+  Wrench
 } from 'lucide-react';
 import { AYLAR } from '@/types';
 import * as XLSX from 'xlsx';
@@ -31,9 +35,137 @@ import {
 } from '@/components/ui/tooltip';
 
 export function VergiRaporu() {
-  const { satisFaturalari, alisFaturalari, getVergiRaporu } = useApp();
+  const { satisFaturalari, alisFaturalari, getVergiRaporu, openAlisDrawer, isIsletmeDefteri } = useApp();
   const [selectedYil, setSelectedYil] = useState(new Date().getFullYear());
   const [selectedAy, setSelectedAy] = useState(new Date().getMonth() + 1);
+
+  // Ay Sonu Beyanname & Muhasebe Denetim Asistanı (Seçili Ay Analizi)
+  const denetimBulgulari = useMemo(() => {
+    const donemPrefix = `${selectedYil}-${String(selectedAy).padStart(2, '0')}`;
+    const donemAlis = (alisFaturalari || []).filter(f => f.faturaTarihi && f.faturaTarihi.startsWith(donemPrefix));
+    const donemSatis = (satisFaturalari || []).filter(f => f.faturaTarihi && f.faturaTarihi.startsWith(donemPrefix));
+
+    const tevsikIhlalleri: Array<{ fatura: any; aciklama: string }> = [];
+    const eksikMuhasebeKodlari: Array<{ fatura: any; tur: 'Alış' | 'Satış'; aciklama: string }> = [];
+    const kdvUyumsuzluklari: Array<{ fatura: any; tur: 'Alış' | 'Satış'; beklenenKdv: number; mevcutKdv: number }> = [];
+    const mukerrerKayitlar: Array<{ fatura: any; sebep: string }> = [];
+    const binekKkegUyarilari: Array<{ fatura: any; aciklama: string }> = [];
+
+    const seenFaturaNo = new Map<string, any>();
+    const seenFingerprints = new Map<string, any>();
+
+    donemAlis.forEach(f => {
+      const toplam = Number(f.toplamTutar) || 0;
+      const matrah = Number(f.matrah) || 0;
+      const kdv = Number(f.kdvTutari) || 0;
+      const oran = Number(f.kdvOrani) || 0;
+      const oiv = Number(f.oivTutari) || 0;
+      const karsiKod = String(f.karsiHesapKodu || '').trim();
+      const anaKod = String(f.muhasebeKodu || '').trim();
+
+      // 1. 7.000 TL Tevsik (Nakit Ödeme) Sınırı Kontrolü
+      if (toplam >= 7000 && (karsiKod.startsWith('100') || (!karsiKod && (f.aciklama || '').toLowerCase().includes('nakit')))) {
+        tevsikIhlalleri.push({
+          fatura: f,
+          aciklama: `${f.tedarikciAdi || 'Tedarikçi'} (${f.faturaNo || 'Belgesiz'}) — ${toplam.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} TL tutarındaki fatura 7.000 TL tevsik sınırını aştığı halde Kasa (100) / Nakit seçilmiş.`
+        });
+      }
+
+      // 2. Eksik Muhasebe Kodu Kontrolü
+      if (!isIsletmeDefteri && !anaKod) {
+        eksikMuhasebeKodlari.push({
+          fatura: f,
+          tur: 'Alış',
+          aciklama: `${f.tedarikciAdi || 'Tedarikçi'} (${f.faturaNo || '-'}) — Ana gider/mal muhasebe hesap kodu (770/153 vb.) atanmamış.`
+        });
+      }
+
+      // 3. Matrah x KDV Oranı Uyumsuzluğu (ÖİV hariç > 1.50 TL sapma)
+      if (matrah > 0 && oran > 0 && oiv === 0) {
+        const beklenen = Math.round((matrah * oran) / 100 * 100) / 100;
+        if (Math.abs(beklenen - kdv) > 1.5) {
+          kdvUyumsuzluklari.push({
+            fatura: f,
+            tur: 'Alış',
+            beklenenKdv: beklenen,
+            mevcutKdv: kdv
+          });
+        }
+      }
+
+      // 4. Mükerrer Kayıt Kontrolü
+      const cleanNo = String(f.faturaNo || '').trim().toUpperCase();
+      const vendorKey = String(f.tedarikciVkn || f.tedarikciAdi || '').trim().toUpperCase();
+      if (cleanNo.length >= 4) {
+        const noKey = `${vendorKey}__${cleanNo}__${oran}`;
+        if (seenFaturaNo.has(noKey)) {
+          mukerrerKayitlar.push({
+            fatura: f,
+            sebep: `Aynı belge numarası (${cleanNo}) ve KDV oranıyla dönem içinde birden fazla kayıt mevcut.`
+          });
+        } else {
+          seenFaturaNo.set(noKey, f);
+        }
+      }
+      if (toplam > 0 && vendorKey) {
+        const fpKey = `${f.faturaTarihi}__${vendorKey}__${toplam.toFixed(2)}__${oran}`;
+        if (seenFingerprints.has(fpKey) && seenFingerprints.get(fpKey).id !== f.id) {
+          mukerrerKayitlar.push({
+            fatura: f,
+            sebep: `Aynı gün (${f.faturaTarihi}), aynı firma ve aynı tutarda (${toplam.toFixed(2)} TL) çift kayıt tespit edildi.`
+          });
+        } else {
+          seenFingerprints.set(fpKey, f);
+        }
+      }
+
+      // 5. Binek Araç / Akaryakıt %70-%30 KKEG Uyarısı
+      const desc = `${f.malHizmetAdi || ''} ${f.aciklama || ''} ${f.tedarikciAdi || ''}`.toLowerCase();
+      const isFuelOrAuto = desc.includes('akaryakıt') || desc.includes('benzin') || desc.includes('motorin') || desc.includes('otopark') || !!f.vehiclePlate;
+      const hasKkegNote = desc.includes('kkeg') || desc.includes('%70') || (Array.isArray(f.mahsupSatirlari) && f.mahsupSatirlari.some((r: any) => String(r.hesapKodu || '').startsWith('689')));
+      if (isFuelOrAuto && !hasKkegNote && toplam > 0) {
+        binekKkegUyarilari.push({
+          fatura: f,
+          aciklama: `${f.tedarikciAdi || 'Akaryakıt/Araç Gideri'} (${toplam.toFixed(2)} TL) — Binek araç gideri ise %70 Gider / %30 KKEG ayrımı kontrol edilmelidir.`
+        });
+      }
+    });
+
+    donemSatis.forEach(f => {
+      const matrah = Number(f.matrah) || 0;
+      const kdv = Number(f.kdvTutari) || 0;
+      const oran = Number(f.kdvOrani) || 0;
+      if (matrah > 0 && oran > 0) {
+        const beklenen = Math.round((matrah * oran) / 100 * 100) / 100;
+        if (Math.abs(beklenen - kdv) > 1.5) {
+          kdvUyumsuzluklari.push({
+            fatura: f,
+            tur: 'Satış',
+            beklenenKdv: beklenen,
+            mevcutKdv: kdv
+          });
+        }
+      }
+    });
+
+    const toplamUyari =
+      tevsikIhlalleri.length +
+      eksikMuhasebeKodlari.length +
+      kdvUyumsuzluklari.length +
+      mukerrerKayitlar.length +
+      binekKkegUyarilari.length;
+
+    return {
+      donemAlisAdet: donemAlis.length,
+      donemSatisAdet: donemSatis.length,
+      toplamUyari,
+      tevsikIhlalleri,
+      eksikMuhasebeKodlari,
+      kdvUyumsuzluklari,
+      mukerrerKayitlar,
+      binekKkegUyarilari
+    };
+  }, [alisFaturalari, satisFaturalari, selectedYil, selectedAy, isIsletmeDefteri]);
 
   // Mevcut yılları bul
   const availableYillar = useMemo(() => {
@@ -195,6 +327,122 @@ export function VergiRaporu() {
           {rapor.ayAdi} {rapor.yil}
         </Badge>
       </div>
+
+      {/* Ay Sonu Beyanname & Muhasebe Denetim Asistanı */}
+      <Card className={denetimBulgulari.toplamUyari > 0 ? "border-2 border-amber-300 bg-amber-50/30 shadow-sm" : "border border-emerald-200 bg-emerald-50/30 shadow-sm"}>
+        <CardHeader className="pb-3">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+            <CardTitle className="text-base font-bold flex items-center gap-2 text-slate-900">
+              <ShieldCheck className={denetimBulgulari.toplamUyari > 0 ? "w-5 h-5 text-amber-600" : "w-5 h-5 text-emerald-600"} />
+              Ay Sonu Beyanname & Muhasebe Denetim Asistanı ({rapor.ayAdi} {rapor.yil})
+            </CardTitle>
+            {denetimBulgulari.toplamUyari > 0 ? (
+              <Badge className="bg-amber-600 hover:bg-amber-700 text-white w-fit">
+                {denetimBulgulari.toplamUyari} Denetim Bulgusu Tespit Edildi
+              </Badge>
+            ) : (
+              <Badge className="bg-emerald-600 hover:bg-emerald-700 text-white w-fit flex items-center gap-1">
+                <CheckCircle2 className="w-3.5 h-3.5" /> Beyannameye Hazır (Sorun Yok)
+              </Badge>
+            )}
+          </div>
+          <p className="text-xs text-slate-600">
+            Seçili dönemdeki {denetimBulgulari.donemAlisAdet} alış ve {denetimBulgulari.donemSatisAdet} satış belgesi; 7.000 TL tevsik sınırı, eksik muhasebe kodu, Matrah×KDV tutarlılığı, mükerrer kayıt ve binek araç gider kısıtı açısından otomatik denetlendi.
+          </p>
+        </CardHeader>
+        {denetimBulgulari.toplamUyari > 0 && (
+          <CardContent className="space-y-3 pt-0 text-xs">
+            {denetimBulgulari.tevsikIhlalleri.length > 0 && (
+              <div className="bg-white border border-red-200 rounded-lg p-3 space-y-1.5">
+                <div className="font-bold text-red-800 flex items-center gap-1.5">
+                  <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
+                  1. Tevsik Zorunluluğu Sınırı (7.000 TL Üzeri Nakit/Kasa Ödeme) ({denetimBulgulari.tevsikIhlalleri.length} Adet)
+                </div>
+                {denetimBulgulari.tevsikIhlalleri.slice(0, 5).map((item, i) => (
+                  <div key={i} className="flex items-center justify-between gap-2 text-slate-700 pl-5 py-0.5 border-b last:border-0 border-slate-100">
+                    <span>• {item.aciklama}</span>
+                    <Button size="sm" variant="outline" className="h-6 text-[11px] px-2 shrink-0" onClick={() => openAlisDrawer(item.fatura)}>
+                      <Wrench className="w-3 h-3 mr-1" /> Düzelt
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {denetimBulgulari.eksikMuhasebeKodlari.length > 0 && (
+              <div className="bg-white border border-amber-200 rounded-lg p-3 space-y-1.5">
+                <div className="font-bold text-amber-900 flex items-center gap-1.5">
+                  <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                  2. Eksik Muhasebe Hesap Kodu ({denetimBulgulari.eksikMuhasebeKodlari.length} Adet)
+                </div>
+                {denetimBulgulari.eksikMuhasebeKodlari.slice(0, 5).map((item, i) => (
+                  <div key={i} className="flex items-center justify-between gap-2 text-slate-700 pl-5 py-0.5 border-b last:border-0 border-slate-100">
+                    <span>• {item.aciklama}</span>
+                    <Button size="sm" variant="outline" className="h-6 text-[11px] px-2 shrink-0" onClick={() => openAlisDrawer(item.fatura)}>
+                      <Wrench className="w-3 h-3 mr-1" /> Kod Ata
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {denetimBulgulari.kdvUyumsuzluklari.length > 0 && (
+              <div className="bg-white border border-purple-200 rounded-lg p-3 space-y-1.5">
+                <div className="font-bold text-purple-900 flex items-center gap-1.5">
+                  <AlertTriangle className="w-4 h-4 text-purple-600 shrink-0" />
+                  3. Matrah × KDV Oranı Uyumsuzluğu / ÖİV Şüphesi ({denetimBulgulari.kdvUyumsuzluklari.length} Adet)
+                </div>
+                {denetimBulgulari.kdvUyumsuzluklari.slice(0, 5).map((item, i) => (
+                  <div key={i} className="flex items-center justify-between gap-2 text-slate-700 pl-5 py-0.5 border-b last:border-0 border-slate-100">
+                    <span>
+                      • [{item.tur}] <b>{item.fatura.tedarikciAdi || item.fatura.musteriAdi || 'Belge'}</b> ({item.fatura.faturaNo || '-'}) — Beklenen KDV: {formatCurrency(item.beklenenKdv)}, Kayıtlı KDV: {formatCurrency(item.mevcutKdv)}
+                    </span>
+                    {item.tur === 'Alış' && (
+                      <Button size="sm" variant="outline" className="h-6 text-[11px] px-2 shrink-0" onClick={() => openAlisDrawer(item.fatura)}>
+                        <Wrench className="w-3 h-3 mr-1" /> İncele
+                      </Button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {denetimBulgulari.mukerrerKayitlar.length > 0 && (
+              <div className="bg-white border border-rose-200 rounded-lg p-3 space-y-1.5">
+                <div className="font-bold text-rose-900 flex items-center gap-1.5">
+                  <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                  4. Mükerrer Fiş / Fatura Şüphesi ({denetimBulgulari.mukerrerKayitlar.length} Adet)
+                </div>
+                {denetimBulgulari.mukerrerKayitlar.slice(0, 5).map((item, i) => (
+                  <div key={i} className="flex items-center justify-between gap-2 text-slate-700 pl-5 py-0.5 border-b last:border-0 border-slate-100">
+                    <span>• <b>{item.fatura.tedarikciAdi || 'Tedarikçi'}</b>: {item.sebep}</span>
+                    <Button size="sm" variant="outline" className="h-6 text-[11px] px-2 shrink-0" onClick={() => openAlisDrawer(item.fatura)}>
+                      <Wrench className="w-3 h-3 mr-1" /> İncele
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {denetimBulgulari.binekKkegUyarilari.length > 0 && (
+              <div className="bg-white border border-indigo-200 rounded-lg p-3 space-y-1.5">
+                <div className="font-bold text-indigo-900 flex items-center gap-1.5">
+                  <Info className="w-4 h-4 text-indigo-600 shrink-0" />
+                  5. Binek Araç %70 Gider / %30 KKEG Kontrolü ({denetimBulgulari.binekKkegUyarilari.length} Adet)
+                </div>
+                {denetimBulgulari.binekKkegUyarilari.slice(0, 5).map((item, i) => (
+                  <div key={i} className="flex items-center justify-between gap-2 text-slate-700 pl-5 py-0.5 border-b last:border-0 border-slate-100">
+                    <span>• {item.aciklama}</span>
+                    <Button size="sm" variant="outline" className="h-6 text-[11px] px-2 shrink-0" onClick={() => openAlisDrawer(item.fatura)}>
+                      <Wrench className="w-3 h-3 mr-1" /> İncele
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        )}
+      </Card>
 
       {/* KDV Raporu */}
       <div className="space-y-3">

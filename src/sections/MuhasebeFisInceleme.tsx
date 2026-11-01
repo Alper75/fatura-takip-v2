@@ -156,8 +156,9 @@ export function MuhasebeFisInceleme() {
   const generateDefaultMahsupRows = (fatura: AlisFatura, giderKoduParam?: string, karsiKoduParam?: string, kdvKoduParam?: string): MahsupSatir[] => {
     const toplamTutar = parseFloat(String(fatura.toplamTutar || 0)) || 0;
     const kdvOrani = parseFloat(String(fatura.kdvOrani || 20)) || 0;
-    const matrah = parseFloat(String(fatura.matrah || 0)) || Math.round((toplamTutar / (1 + kdvOrani / 100)) * 100) / 100;
-    const kdvTutari = parseFloat(String(fatura.kdvTutari || 0)) || Math.round((toplamTutar - matrah) * 100) / 100;
+    const oivTutari = parseFloat(String(fatura.oivTutari || 0)) || 0;
+    const matrah = parseFloat(String(fatura.matrah || 0)) || Math.round(((toplamTutar - oivTutari) / (1 + kdvOrani / 100)) * 100) / 100;
+    const kdvTutari = parseFloat(String(fatura.kdvTutari || 0)) || Math.round((toplamTutar - oivTutari - matrah) * 100) / 100;
     const stopajTutari = parseFloat(String(fatura.stopajTutari || 0)) || 0;
     const tevkifatTutari = parseFloat(String(fatura.tevkifatTutari || 0)) || 0;
 
@@ -241,6 +242,19 @@ export function MuhasebeFisInceleme() {
           aciklama: `İndirilecek KDV %${kdvOrani}`
         });
       }
+    }
+
+    if (oivTutari > 0) {
+      const oivKodu = kdvSettings?.oivKodu || '689.01';
+      rows.push({
+        id: `row_${Date.now()}_${mNo}`,
+        maddeNo: mNo++,
+        kod: oivKodu,
+        ad: getAccountName(oivKodu) || 'Özel İletişim / Özel Vergi (KKEG)',
+        borc: oivTutari,
+        alacak: 0,
+        aciklama: `ÖİV / Özel Vergi Tutarı (KKEG)`
+      });
     }
 
     if (tevkifatTutari > 0) {
@@ -534,8 +548,9 @@ export function MuhasebeFisInceleme() {
     if (!currentFatura) return;
     const toplamTutar = parseFloat(String(currentFatura.toplamTutar || 0)) || 0;
     const kdvOrani = parseFloat(String(currentFatura.kdvOrani || 20)) || 0;
-    const matrah = parseFloat(String(currentFatura.matrah || 0)) || Math.round((toplamTutar / (1 + kdvOrani / 100)) * 100) / 100;
-    const kdvTutari = parseFloat(String(currentFatura.kdvTutari || 0)) || Math.round((toplamTutar - matrah) * 100) / 100;
+    const oivTutari = parseFloat(String(currentFatura.oivTutari || 0)) || 0;
+    const matrah = parseFloat(String(currentFatura.matrah || 0)) || Math.round(((toplamTutar - oivTutari) / (1 + kdvOrani / 100)) * 100) / 100;
+    const kdvTutari = parseFloat(String(currentFatura.kdvTutari || 0)) || Math.round((toplamTutar - oivTutari - matrah) * 100) / 100;
     const stopajTutari = parseFloat(String(currentFatura.stopajTutari || 0)) || 0;
     const tevkifatTutari = parseFloat(String(currentFatura.tevkifatTutari || 0)) || 0;
 
@@ -580,6 +595,19 @@ export function MuhasebeFisInceleme() {
         aciklama: `Binek Araç Kısıtı (%30 KKEG: Matrah ${kkegMatrah} TL + KDV ${kkegKdv} TL)`
       }
     ];
+
+    if (oivTutari > 0) {
+      const oivKodu = kdvSettings?.oivKodu || '689.01';
+      splitRows.push({
+        id: 'row_' + Date.now() + '_' + mNo,
+        maddeNo: mNo++,
+        kod: oivKodu,
+        ad: getAccountName(oivKodu) || 'Özel İletişim / Özel Vergi (KKEG)',
+        borc: oivTutari,
+        alacak: 0,
+        aciklama: `ÖİV / Özel Vergi Tutarı (KKEG)`
+      });
+    }
 
     if (tevkifatTutari > 0) {
       splitRows.push({
@@ -804,7 +832,22 @@ export function MuhasebeFisInceleme() {
         hasKkeg
       } as any);
 
-      toast.success('Muhasebe mahsup fişi ve kalemleri başarıyla kaydedildi!');
+      // Tedarikçi Hafızası: Seçilen muhasebe kodunu bu tedarikçi için otomatik öğren
+      const supplierKey = (currentFatura.tedarikciAdi || '').trim();
+      if (editMuhasebeKodu && supplierKey.length >= 3) {
+        apiFetch('/api/yapay-zeka-kurallari', {
+          method: 'POST',
+          body: JSON.stringify({
+            kural_tipi: 'fatura',
+            kural_adi: `Tedarikçi Hafızası: ${supplierKey}`,
+            anahtar_kelime: supplierKey,
+            muhasebe_kodu: editMuhasebeKodu,
+            upsert: true
+          })
+        }).catch(() => {});
+      }
+
+      toast.success('Muhasebe mahsup fişi ve tedarikçi hesap hafızası kaydedildi!');
     } catch (e: any) {
       toast.error('Güncelleme hatası: ' + e.message);
     } finally {
