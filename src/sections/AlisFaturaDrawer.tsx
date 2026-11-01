@@ -959,8 +959,122 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
       try {
         let parsed: any = null;
 
-        if (activeProvider === 'openai' || activeProvider === 'nvidia' || activeProvider === 'grok' || activeProvider === 'xai' || activeProvider === 'evren') {
-          // ==================== EVREN / OPENAI / GROK / NVIDIA PROXY ÇAĞRISI ====================
+        if (activeProvider === 'evren') {
+          // ==================== EVREN DOĞRUDAN TARAYICI (TÜRKİYE IP) + SUNUCU YEDEK ÇAĞRISI ====================
+          // Google Cloud yurt dışı IP'si ssyz.org.tr tarafından HTTP 403 ile engellenebildiği için önce doğrudan tarayıcıdan deneriz
+          let evrenDirectText = '';
+          let evrenDirectErr = '';
+          try {
+            const formattedImg = file.base64.startsWith('data:') ? file.base64 : `data:${file.mimeType || 'image/jpeg'};base64,${file.base64}`;
+            const isVisionModel = evrenModelName === 'qwen3-vl-30b';
+
+            if (!isVisionModel) {
+              const ocrModel = evrenModelName === 'deepseek-ocr-2' ? 'deepseek-ocr-2' : 'dots-ocr';
+              const ocrRes = await fetch('https://evren-llmapi.ssyz.org.tr/v1/ocr', {
+                method: 'POST',
+                headers: {
+                  'Authorization': `Bearer ${evrenApiKey.trim()}`,
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ model: ocrModel, image: formattedImg })
+              });
+              const ocrJson = await ocrRes.json();
+              if (!ocrRes.ok) {
+                evrenDirectErr = ocrJson?.error?.message || ocrJson?.message || `HTTP ${ocrRes.status}`;
+              } else {
+                const rawOcrText =
+                  typeof ocrJson === 'string' ? ocrJson :
+                  ocrJson.text || ocrJson?.data?.text || ocrJson?.choices?.[0]?.text || ocrJson?.choices?.[0]?.message?.content || ocrJson.result || ocrJson.content || JSON.stringify(ocrJson);
+
+                if (rawOcrText) {
+                  const chatRes = await fetch('https://evren-llmapi.ssyz.org.tr/v1/chat/completions', {
+                    method: 'POST',
+                    headers: {
+                      'Authorization': `Bearer ${evrenApiKey.trim()}`,
+                      'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                      model: 'qwen3.8-flash-next',
+                      messages: [
+                        { role: 'user', content: `${prompt}\n\nAŞAĞIDAKİ METİN EVREN OCR MOTORU TARAFINDAN OKUNMUŞTUR. SADECE GEÇERLİ JSON DÖNDÜR:\n\n${rawOcrText}` }
+                      ],
+                      max_tokens: 2048,
+                      temperature: 0.1
+                    })
+                  });
+                  if (chatRes.ok) {
+                    const chatJson = await chatRes.json();
+                    evrenDirectText = chatJson.choices?.[0]?.message?.content || '';
+                  }
+                }
+              }
+            }
+
+            if (!evrenDirectText) {
+              const visionRes = await fetch('https://evren-llmapi.ssyz.org.tr/v1/chat/completions', {
+                method: 'POST',
+                headers: {
+                  'Authorization': `Bearer ${evrenApiKey.trim()}`,
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                  model: 'qwen3-vl-30b',
+                  messages: [
+                    {
+                      role: 'user',
+                      content: [
+                        { type: 'text', text: prompt + '\nÖNEMLİ: SADECE geçerli JSON döndür.' },
+                        { type: 'image_url', image_url: { url: formattedImg } }
+                      ]
+                    }
+                  ],
+                  max_tokens: 2048,
+                  temperature: 0.1
+                })
+              });
+              const vJson = await visionRes.json();
+              if (visionRes.ok) {
+                evrenDirectText = vJson.choices?.[0]?.message?.content || '';
+              } else if (!evrenDirectErr) {
+                evrenDirectErr = vJson?.error?.message || vJson?.message || `HTTP ${visionRes.status}`;
+              }
+            }
+          } catch (directFetchErr: any) {
+            console.warn('[EVREN Direct] Tarayıcı çağrısı başarısız, sunucu proxy deneniyor:', directFetchErr?.message);
+          }
+
+          if (evrenDirectText) {
+            let text = evrenDirectText.replace(/<think>[\s\S]*?<\/think>/gi, '').replace(/```json/gi, '').replace(/```/g, '').trim();
+            try {
+              parsed = JSON.parse(text);
+            } catch {
+              const fb = text.indexOf('{');
+              const lb = text.lastIndexOf('}');
+              if (fb !== -1 && lb > fb) {
+                try { parsed = JSON.parse(text.substring(fb, lb + 1)); } catch {}
+              }
+            }
+          }
+
+          if (!parsed) {
+            const proxyRes = await apiFetch('/api/ai/analyze-invoice', {
+              method: 'POST',
+              body: JSON.stringify({
+                fileBase64: file.base64,
+                mimeType: file.mimeType,
+                prompt: prompt,
+                provider: activeProvider,
+                evrenApiKey: evrenApiKey,
+                evrenModel: evrenModelName
+              })
+            });
+            if (!proxyRes?.success || !proxyRes.data) {
+              throw new Error(evrenDirectErr ? `EVREN Hatası: ${evrenDirectErr}` : (proxyRes?.message || 'EVREN (Milli OCR) analizi başarısız oldu.'));
+            }
+            parsed = proxyRes.data;
+          }
+        } else if (activeProvider === 'openai' || activeProvider === 'nvidia' || activeProvider === 'grok' || activeProvider === 'xai') {
+          // ==================== OPENAI / GROK / NVIDIA PROXY ÇAĞRISI ====================
           const proxyRes = await apiFetch('/api/ai/analyze-invoice', {
             method: 'POST',
             body: JSON.stringify({
@@ -980,7 +1094,7 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
           });
 
           if (!proxyRes?.success || !proxyRes.data) {
-            const provName = activeProvider === 'evren' ? 'EVREN (Milli OCR)' : (activeProvider === 'grok' || activeProvider === 'xai') ? 'xAI (Grok)' : (activeProvider === 'openai' ? 'OpenAI (ChatGPT)' : 'NVIDIA NIM');
+            const provName = (activeProvider === 'grok' || activeProvider === 'xai') ? 'xAI (Grok)' : (activeProvider === 'openai' ? 'OpenAI (ChatGPT)' : 'NVIDIA NIM');
             throw new Error(proxyRes?.message || `${provName} analizi başarısız oldu.`);
           }
 

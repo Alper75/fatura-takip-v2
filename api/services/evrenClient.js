@@ -58,7 +58,11 @@ export class EvrenClientService {
       let errText = '';
       try {
         const errJson = await response.json();
-        errText = errJson.message || errJson.error || JSON.stringify(errJson);
+        errText =
+          errJson?.error?.message ||
+          errJson?.message ||
+          errJson?.detail ||
+          (typeof errJson?.error === 'string' ? errJson.error : JSON.stringify(errJson));
       } catch (e) {
         errText = await response.text();
       }
@@ -126,13 +130,18 @@ export class EvrenClientService {
           const content = data.choices?.[0]?.message?.content || '';
           if (content) return content;
         } else {
-          if (res.status === 401 || res.status === 403) {
-            throw new Error(`EVREN API Anahtarı geçersiz veya yetkisiz (HTTP ${res.status}).`);
+          let errDetail = '';
+          try {
+            const ej = await res.json();
+            errDetail = ej?.error?.message || ej?.message || JSON.stringify(ej);
+          } catch (e) {}
+          if (res.status === 401) {
+            throw new Error(`EVREN API Anahtarı geçersiz (HTTP 401): ${errDetail}`);
           }
-          console.warn(`[EvrenClient] Chat HTTP ${res.status} (${m})`);
+          console.warn(`[EvrenClient] Chat HTTP ${res.status} (${m}): ${errDetail}`);
         }
       } catch (err) {
-        if (err.message?.includes('geçersiz veya yetkisiz')) throw err;
+        if (err.message?.includes('HTTP 401')) throw err;
         console.warn(`[EvrenClient] Chat çağrı hatası (${m}):`, err.message);
       }
     }
@@ -176,17 +185,52 @@ export class EvrenClientService {
       }
     }
 
-    // 2. Durum: Adanmış OCR ucu (dots-ocr veya deepseek-ocr-2)
-    const ocrModel = (model === 'deepseek-ocr-2') ? 'deepseek-ocr-2' : 'dots-ocr';
-    const ocrRes = await this.performOcr({
-      imageBase64,
-      mimeType,
-      apiKey,
-      model: ocrModel
-    });
+    // 2. Durum: Adanmış OCR ucu (dots-ocr veya deepseek-ocr-2) - 403/hata olursa diğer OCR ve Vision modellerini dene
+    const primaryOcrModel = (model === 'deepseek-ocr-2') ? 'deepseek-ocr-2' : 'dots-ocr';
+    const backupOcrModel = primaryOcrModel === 'dots-ocr' ? 'deepseek-ocr-2' : 'dots-ocr';
+    let rawText = '';
+    let lastOcrError = null;
 
-    const rawText = ocrRes?.rawText || '';
-    if (!rawText) return '';
+    for (const ocrModel of [primaryOcrModel, backupOcrModel]) {
+      try {
+        const ocrRes = await this.performOcr({
+          imageBase64,
+          mimeType,
+          apiKey,
+          model: ocrModel
+        });
+        rawText = ocrRes?.rawText || '';
+        if (rawText) break;
+      } catch (ocrErr) {
+        lastOcrError = ocrErr;
+        console.warn(`[EvrenClient] ${ocrModel} başarısız (${ocrErr.message}), alternatif deneniyor...`);
+      }
+    }
+
+    // Eğer /v1/ocr uçlarının ikisi de 403/hata verdiyse qwen3-vl-30b Vision ucu ile dene
+    if (!rawText) {
+      try {
+        const messages = [];
+        if (systemPrompt) messages.push({ role: 'system', content: systemPrompt });
+        messages.push({
+          role: 'user',
+          content: [
+            { type: 'text', text: prompt + '\nÖNEMLİ: SADECE geçerli JSON döndür.' },
+            { type: 'image_url', image_url: { url: formattedImage } }
+          ]
+        });
+        const visionFallback = await this.chatCompletion({
+          messages,
+          apiKey,
+          model: 'qwen3-vl-30b'
+        });
+        if (visionFallback) return visionFallback;
+      } catch (vErr) {
+        console.warn('[EvrenClient] Vision fallback da başarısız:', vErr.message);
+      }
+      if (lastOcrError) throw lastOcrError;
+      return '';
+    }
 
     // 3. Adım: OCR metnini EVREN'in kendi milli LLM'i (deepseek-v4-flash veya glm-5.3) ile muhasebe JSON formatına dönüştür
     try {
@@ -194,7 +238,7 @@ export class EvrenClientService {
       if (systemPrompt) messages.push({ role: 'system', content: systemPrompt });
       messages.push({
         role: 'user',
-        content: `${prompt}\n\nAŞAĞIDAKİ METİN EVREN OCR MOTORU (${ocrModel}) TARAFINDAN OKUNMUŞTUR. BU METİNDEKİ VERİLERİ ANALİZ EDİP SADECE GEÇERLİ JSON OLARAK DÖNDÜR:\n\n${rawText}`
+        content: `${prompt}\n\nAŞAĞIDAKİ METİN EVREN OCR MOTORU TARAFINDAN OKUNMUŞTUR. BU METİNDEKİ VERİLERİ ANALİZ EDİP SADECE GEÇERLİ JSON OLARAK DÖNDÜR:\n\n${rawText}`
       });
 
       const structuredJson = await this.chatCompletion({
