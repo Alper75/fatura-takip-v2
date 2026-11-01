@@ -430,9 +430,49 @@ export function AlisFaturaDrawer() {
     setForms(prev => prev.filter(f => f.id !== id));
   };
 
-  const validateAll = (): boolean => {
+  const focusAndScrollToForm = (targetFormId: number, focusFieldKey?: string) => {
+    setActiveFormId(targetFormId);
+    setFormFilter('all');
+    setTimeout(() => {
+      const cardEl = document.getElementById(`alis-form-card-${targetFormId}`);
+      if (cardEl) {
+        cardEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        if (focusFieldKey) {
+          const inputEl = cardEl.querySelector<HTMLInputElement>(`[data-field="${focusFieldKey}"]`);
+          if (inputEl) {
+            setTimeout(() => {
+              inputEl.focus();
+              inputEl.select?.();
+            }, 250);
+          }
+        }
+      }
+    }, 60);
+  };
+
+  const validateAll = (): {
+    isValid: boolean;
+    firstInvalidForm?: FormEntry;
+    firstInvalidIndex?: number;
+    firstErrorField?: keyof AlisFaturaFormData;
+    missingLabels?: string[];
+  } => {
     let isValid = true;
-    setForms(prev => prev.map(f => {
+    let firstInvalidForm: FormEntry | undefined;
+    let firstInvalidIndex: number | undefined;
+    let firstErrorField: keyof AlisFaturaFormData | undefined;
+    let missingLabels: string[] = [];
+
+    const fieldLabelMap: Partial<Record<keyof AlisFaturaFormData, string>> = {
+      faturaNo: 'Belge/Fatura No',
+      faturaTarihi: 'Fatura Tarihi',
+      tedarikciAdi: 'Firma / Tedarikçi',
+      tedarikciVkn: 'VKN / T.C.',
+      malHizmetAdi: 'Hizmet/Ürün Açıklaması',
+      toplamTutar: 'Tutar Değeri'
+    };
+
+    const nextForms = forms.map((f, idx) => {
       const e: Partial<Record<keyof AlisFaturaFormData, string>> = {};
       const d = f.data;
       if (!String(d.faturaNo || '').trim()) e.faturaNo = 'Zorunlu';
@@ -442,10 +482,21 @@ export function AlisFaturaDrawer() {
       if (!String(d.malHizmetAdi || '').trim()) e.malHizmetAdi = 'Zorunlu';
       if (!d.toplamTutar || parseFloat(d.toplamTutar) <= 0) e.toplamTutar = 'Geçersiz';
 
-      if (Object.keys(e).length > 0) isValid = false;
+      const errKeys = Object.keys(e) as Array<keyof AlisFaturaFormData>;
+      if (errKeys.length > 0) {
+        isValid = false;
+        if (!firstInvalidForm) {
+          firstInvalidForm = f;
+          firstInvalidIndex = idx;
+          firstErrorField = errKeys[0];
+          missingLabels = errKeys.map(k => fieldLabelMap[k] || String(k));
+        }
+      }
       return { ...f, errors: e };
-    }));
-    return isValid;
+    });
+
+    setForms(nextForms);
+    return { isValid, firstInvalidForm, firstInvalidIndex, firstErrorField, missingLabels };
   };
 
   const handleClose = () => {
@@ -467,10 +518,17 @@ export function AlisFaturaDrawer() {
       return;
     }
 
-    if (!validateAll()) {
-      const errorCount = forms.filter(f => !!f.aiError).length;
-      if (errorCount > 0) {
-        toast.error(`${errorCount} adet kırmızı çerçeveli fişin bilgileri eksik. Lütfen görselden bakarak eksik alanları doldurun veya bu fişleri listeden çıkarın.`);
+    const validation = validateAll();
+    if (!validation.isValid) {
+      if (validation.firstInvalidForm) {
+        if (validation.firstInvalidForm.data.dosyaBase64) {
+          setSplitViewMode(true);
+        }
+        focusAndScrollToForm(validation.firstInvalidForm.id, validation.firstErrorField);
+        const rowNum = (validation.firstInvalidIndex ?? 0) + 1;
+        const fileName = validation.firstInvalidForm.data.dosyaAdi ? ` (${validation.firstInvalidForm.data.dosyaAdi})` : '';
+        const fieldsText = validation.missingLabels?.length ? `: ${validation.missingLabels.join(', ')}` : '';
+        toast.error(`Satır #${rowNum}${fileName} üzerinde eksik alanlar var${fieldsText}. İlgili satıra ve fiş görseline yönlendirildiniz.`);
       } else {
         toast.error('Lütfen formdaki eksik alanları doldurun.');
       }
@@ -1763,9 +1821,11 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
                                 className="h-7 w-7 text-slate-200 hover:text-white hover:bg-slate-700 ml-1"
                                 disabled={activePreviewIndex <= 0}
                                 onClick={() => {
-                                  if (activePreviewIndex > 0) setActiveFormId(forms[activePreviewIndex - 1].id);
+                                  if (activePreviewIndex > 0) {
+                                    focusAndScrollToForm(forms[activePreviewIndex - 1].id);
+                                  }
                                 }}
-                                title="Önceki Fiş"
+                                title="Önceki Fiş (İlgili satıra git)"
                               >
                                 <ChevronLeft className="w-4 h-4" />
                               </Button>
@@ -1776,9 +1836,11 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
                                 className="h-7 w-7 text-slate-200 hover:text-white hover:bg-slate-700"
                                 disabled={activePreviewIndex >= forms.length - 1}
                                 onClick={() => {
-                                  if (activePreviewIndex < forms.length - 1) setActiveFormId(forms[activePreviewIndex + 1].id);
+                                  if (activePreviewIndex < forms.length - 1) {
+                                    focusAndScrollToForm(forms[activePreviewIndex + 1].id);
+                                  }
                                 }}
-                                title="Sonraki Fiş"
+                                title="Sonraki Fiş (İlgili satıra git)"
                               >
                                 <ChevronRight className="w-4 h-4" />
                               </Button>
@@ -1803,7 +1865,7 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
                         )}
                       </div>
                       <div className="px-3.5 py-2 bg-slate-800/90 border-t border-slate-700 text-[11px] text-slate-300 flex items-center justify-between">
-                        <span>Sağdaki form kartına tıklayarak aktif fiş görselini değiştirebilirsiniz.</span>
+                        <span>Ok tuşları (&lt; / &gt;) ile fiş değiştirdiğinizde ilgili satır otomatik yanına gelir.</span>
                         <button
                           type="button"
                           onClick={() => setPreviewImage({ url: activeFormForPreview.data.dosyaBase64!, name: activeFormForPreview.data.dosyaAdi || 'Fiş' })}
@@ -1822,14 +1884,16 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
                     const isMultiple = forms.length > 1;
                     const duplicateMatch = findDuplicateForForm(form);
                     const isFocusedCard = hasAnyImage && splitViewMode && activeFormForPreview?.id === form.id;
+                    const hasValidationErrors = Object.keys(form.errors || {}).length > 0;
 
                     return (
                       <div
                         key={form.id}
+                        id={`alis-form-card-${form.id}`}
                         onClick={() => { if (form.data.dosyaBase64) setActiveFormId(form.id); }}
                         className={cn(
-                          "bg-white rounded-xl p-4 shadow-sm relative group transition-all",
-                          form.aiError 
+                          "bg-white rounded-xl p-4 shadow-sm relative group transition-all scroll-mt-6",
+                          form.aiError || hasValidationErrors
                             ? "border-2 border-red-500 bg-red-50/20 ring-2 ring-red-300/60 shadow-md" 
                             : duplicateMatch
                               ? "border-2 border-amber-400 bg-amber-50/10 ring-2 ring-amber-200/50"
@@ -1840,12 +1904,30 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
                       >
                         <div className="flex items-center justify-between pb-3 border-b mb-4 gap-2 flex-wrap">
                           <div className="flex items-center gap-2 flex-wrap">
+                            {form.data.dosyaBase64 && !form.data.dosyaBase64.startsWith('data:application/pdf') && (
+                              <img
+                                src={form.data.dosyaBase64}
+                                alt={`Satır #${actualIndex + 1}`}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setActiveFormId(form.id);
+                                  setPreviewImage({ url: form.data.dosyaBase64!, name: form.data.dosyaAdi || `Fiş #${actualIndex + 1}` });
+                                }}
+                                title="Büyütmek için tıklayın"
+                                className="w-9 h-9 rounded object-cover border border-slate-300 cursor-zoom-in hover:ring-2 hover:ring-indigo-500 shrink-0"
+                              />
+                            )}
                             <span className={cn(
                               "text-xs font-bold uppercase",
-                              form.aiError ? "text-red-700 font-extrabold" : "text-slate-500"
+                              form.aiError || hasValidationErrors ? "text-red-700 font-extrabold" : isFocusedCard ? "text-indigo-700 font-extrabold" : "text-slate-500"
                             )}>
                               Satır #{actualIndex + 1}
                             </span>
+                            {isFocusedCard && (
+                              <span className="text-[10px] bg-indigo-100 text-indigo-800 border border-indigo-300 px-2 py-0.5 rounded-full font-bold">
+                                👁️ Soldaki Görselde Açık
+                              </span>
+                            )}
                             {form.data.dosyaAdi && (
                               <span className={cn(
                                 "text-xs px-2 py-0.5 rounded font-mono font-medium flex items-center gap-1",
@@ -1859,6 +1941,12 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
                               <span className="text-xs bg-red-100 text-red-700 border border-red-300 px-2.5 py-0.5 rounded-full font-bold flex items-center gap-1 animate-pulse">
                                 <AlertCircle className="w-3.5 h-3.5 text-red-600" />
                                 ⚠️ Okunamadı • Manuel Giriş Gerekli
+                              </span>
+                            )}
+                            {hasValidationErrors && !form.aiError && (
+                              <span className="text-xs bg-red-100 text-red-700 border border-red-300 px-2.5 py-0.5 rounded-full font-bold flex items-center gap-1">
+                                <AlertCircle className="w-3.5 h-3.5 text-red-600" />
+                                Eksik Zorunlu Alanlar Var
                               </span>
                             )}
                             {duplicateMatch && (
@@ -2011,11 +2099,11 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
                     <div className="grid grid-cols-3 gap-4 mb-4">
                       <div className="space-y-2">
                         <Label className="text-xs font-medium text-slate-500">Belge/Fatura No <span className="text-red-500">*</span></Label>
-                        <Input value={form.data.faturaNo} onChange={(e) => updateForm(form.id, 'faturaNo', e.target.value)} className={form.errors.faturaNo ? 'border-red-500 h-9' : 'h-9'} />
+                        <Input data-field="faturaNo" value={form.data.faturaNo} onChange={(e) => updateForm(form.id, 'faturaNo', e.target.value)} className={form.errors.faturaNo ? 'border-red-500 ring-2 ring-red-200 h-9' : 'h-9'} />
                       </div>
                       <div className="space-y-2">
                         <Label className="text-xs font-medium text-slate-500">Fatura Tarihi <span className="text-red-500">*</span></Label>
-                        <Input type="date" value={form.data.faturaTarihi} onChange={(e) => updateForm(form.id, 'faturaTarihi', e.target.value)} className={form.errors.faturaTarihi ? 'border-red-500 h-9' : 'h-9'} />
+                        <Input data-field="faturaTarihi" type="date" value={form.data.faturaTarihi} onChange={(e) => updateForm(form.id, 'faturaTarihi', e.target.value)} className={form.errors.faturaTarihi ? 'border-red-500 ring-2 ring-red-200 h-9' : 'h-9'} />
                       </div>
                       <div className="space-y-2">
                         <Label className="text-xs font-medium text-slate-500">Vade Tarihi</Label>
@@ -2026,11 +2114,11 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
                     <div className="grid grid-cols-2 gap-4 mb-4">
                       <div className="space-y-2">
                         <Label className="text-xs font-medium text-slate-500">Firma / Tedarikçi<span className="text-red-500">*</span></Label>
-                        <Input value={form.data.tedarikciAdi} onChange={(e) => updateForm(form.id, 'tedarikciAdi', e.target.value)} className={form.errors.tedarikciAdi ? 'border-red-500 h-9' : 'h-9'} />
+                        <Input data-field="tedarikciAdi" value={form.data.tedarikciAdi} onChange={(e) => updateForm(form.id, 'tedarikciAdi', e.target.value)} className={form.errors.tedarikciAdi ? 'border-red-500 ring-2 ring-red-200 h-9' : 'h-9'} />
                       </div>
                       <div className="space-y-2">
                         <Label className="text-xs font-medium text-slate-500">VKN / T.C.<span className="text-red-500">*</span></Label>
-                        <Input value={form.data.tedarikciVkn} onChange={(e) => handleVknChange(form.id, e.target.value)} className={form.errors.tedarikciVkn ? 'border-red-500 h-9' : 'h-9'} />
+                        <Input data-field="tedarikciVkn" value={form.data.tedarikciVkn} onChange={(e) => handleVknChange(form.id, e.target.value)} className={form.errors.tedarikciVkn ? 'border-red-500 ring-2 ring-red-200 h-9' : 'h-9'} />
                       </div>
                     </div>
 
@@ -2091,7 +2179,7 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
 
                     <div className="space-y-2 mb-4">
                       <Label className="text-xs font-medium text-slate-500">Hizmet/Ürün Açıklaması<span className="text-red-500">*</span></Label>
-                      <Input value={form.data.malHizmetAdi} onChange={(e) => updateForm(form.id, 'malHizmetAdi', e.target.value)} className={form.errors.malHizmetAdi ? 'border-red-500 h-9' : 'h-9'} />
+                      <Input data-field="malHizmetAdi" value={form.data.malHizmetAdi} onChange={(e) => updateForm(form.id, 'malHizmetAdi', e.target.value)} className={form.errors.malHizmetAdi ? 'border-red-500 ring-2 ring-red-200 h-9' : 'h-9'} />
                     </div>
 
                     <div className="grid grid-cols-2 gap-4 mb-4">
@@ -2131,7 +2219,7 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
                     <div className="grid grid-cols-2 gap-4 mb-4">
                       <div className="space-y-2">
                         <Label className="text-xs font-medium text-slate-500">Tutar Değeri <span className="text-red-500">*</span></Label>
-                        <Input type="number" min="0" step="0.01" value={form.data.toplamTutar} onChange={(e) => updateForm(form.id, 'toplamTutar', e.target.value)} className={form.errors.toplamTutar ? 'border-red-500 h-9' : 'h-9'} />
+                        <Input data-field="toplamTutar" type="number" min="0" step="0.01" value={form.data.toplamTutar} onChange={(e) => updateForm(form.id, 'toplamTutar', e.target.value)} className={form.errors.toplamTutar ? 'border-red-500 ring-2 ring-red-200 h-9' : 'h-9'} />
                       </div>
                       <div className="space-y-2">
                         <Label className="text-xs font-medium text-slate-500">Girdiğiniz Tutar Neyin Tutarı?</Label>
