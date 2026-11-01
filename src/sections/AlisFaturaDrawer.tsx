@@ -965,19 +965,54 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
           let evrenDirectText = '';
           let evrenDirectErr = '';
           try {
+            const cleanEvrenKey = evrenApiKey.trim();
+            // EVREN yeni API anahtarlarında kullanım şartları (v1) onayını otomatik gerçekleştir
+            const ensureEvrenTerms = async () => {
+              try {
+                let ver = 1;
+                const tRes = await fetch('https://evren-llmapi.ssyz.org.tr/v1/terms/text', {
+                  method: 'GET',
+                  headers: { 'Authorization': `Bearer ${cleanEvrenKey}` }
+                });
+                if (tRes.ok) {
+                  const tData = await tRes.json().catch(() => null);
+                  if (tData && typeof tData.version === 'number') ver = tData.version;
+                }
+                await fetch('https://evren-llmapi.ssyz.org.tr/v1/terms/accept', {
+                  method: 'POST',
+                  headers: {
+                    'Authorization': `Bearer ${cleanEvrenKey}`,
+                    'Content-Type': 'application/json'
+                  },
+                  body: JSON.stringify({ version: ver })
+                });
+              } catch {}
+            };
+
             const formattedImg = file.base64.startsWith('data:') ? file.base64 : `data:${file.mimeType || 'image/jpeg'};base64,${file.base64}`;
             const isVisionModel = evrenModelName === 'qwen3-vl-30b';
 
             if (!isVisionModel) {
               const ocrModel = evrenModelName === 'deepseek-ocr-2' ? 'deepseek-ocr-2' : 'dots-ocr';
-              const ocrRes = await fetch('https://evren-llmapi.ssyz.org.tr/v1/ocr', {
+              let ocrRes = await fetch('https://evren-llmapi.ssyz.org.tr/v1/ocr', {
                 method: 'POST',
                 headers: {
-                  'Authorization': `Bearer ${evrenApiKey.trim()}`,
+                  'Authorization': `Bearer ${cleanEvrenKey}`,
                   'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({ model: ocrModel, image: formattedImg })
               });
+              if (ocrRes.status === 403) {
+                await ensureEvrenTerms();
+                ocrRes = await fetch('https://evren-llmapi.ssyz.org.tr/v1/ocr', {
+                  method: 'POST',
+                  headers: {
+                    'Authorization': `Bearer ${cleanEvrenKey}`,
+                    'Content-Type': 'application/json'
+                  },
+                  body: JSON.stringify({ model: ocrModel, image: formattedImg })
+                });
+              }
               const ocrJson = await ocrRes.json();
               if (!ocrRes.ok) {
                 evrenDirectErr = ocrJson?.error?.message || ocrJson?.message || `HTTP ${ocrRes.status}`;
@@ -1011,27 +1046,39 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
             }
 
             if (!evrenDirectText) {
-              const visionRes = await fetch('https://evren-llmapi.ssyz.org.tr/v1/chat/completions', {
+              const visionPayload = JSON.stringify({
+                model: 'qwen3-vl-30b',
+                messages: [
+                  {
+                    role: 'user',
+                    content: [
+                      { type: 'text', text: prompt + '\nÖNEMLİ: SADECE geçerli JSON döndür.' },
+                      { type: 'image_url', image_url: { url: formattedImg } }
+                    ]
+                  }
+                ],
+                max_tokens: 2048,
+                temperature: 0.1
+              });
+              let visionRes = await fetch('https://evren-llmapi.ssyz.org.tr/v1/chat/completions', {
                 method: 'POST',
                 headers: {
-                  'Authorization': `Bearer ${evrenApiKey.trim()}`,
+                  'Authorization': `Bearer ${cleanEvrenKey}`,
                   'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({
-                  model: 'qwen3-vl-30b',
-                  messages: [
-                    {
-                      role: 'user',
-                      content: [
-                        { type: 'text', text: prompt + '\nÖNEMLİ: SADECE geçerli JSON döndür.' },
-                        { type: 'image_url', image_url: { url: formattedImg } }
-                      ]
-                    }
-                  ],
-                  max_tokens: 2048,
-                  temperature: 0.1
-                })
+                body: visionPayload
               });
+              if (visionRes.status === 403) {
+                await ensureEvrenTerms();
+                visionRes = await fetch('https://evren-llmapi.ssyz.org.tr/v1/chat/completions', {
+                  method: 'POST',
+                  headers: {
+                    'Authorization': `Bearer ${cleanEvrenKey}`,
+                    'Content-Type': 'application/json'
+                  },
+                  body: visionPayload
+                });
+              }
               const vJson = await visionRes.json();
               if (visionRes.ok) {
                 evrenDirectText = vJson.choices?.[0]?.message?.content || '';

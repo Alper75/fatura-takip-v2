@@ -19,6 +19,52 @@ export class EvrenClientService {
   constructor() {
     this.ocrEndpoint = 'https://evren-llmapi.ssyz.org.tr/v1/ocr';
     this.chatEndpoint = 'https://evren-llmapi.ssyz.org.tr/v1/chat/completions';
+    this.termsTextEndpoint = 'https://evren-llmapi.ssyz.org.tr/v1/terms/text';
+    this.termsAcceptEndpoint = 'https://evren-llmapi.ssyz.org.tr/v1/terms/accept';
+    this.acceptedKeys = new Set();
+  }
+
+  /**
+   * EVREN API anahtarı için kullanım şartlarını (GET /v1/terms/text & POST /v1/terms/accept) otomatik onaylar
+   */
+  async ensureTermsAccepted(apiKey, force = false) {
+    if (!apiKey) return;
+    const cleanKey = apiKey.trim();
+    if (!force && this.acceptedKeys.has(cleanKey)) return;
+
+    try {
+      let versionToAccept = 1;
+      try {
+        const textRes = await fetch(this.termsTextEndpoint, {
+          method: 'GET',
+          headers: { 'Authorization': `Bearer ${cleanKey}` },
+          signal: AbortSignal.timeout(8000)
+        });
+        if (textRes.ok) {
+          const textData = await textRes.json().catch(() => null);
+          if (textData && typeof textData.version === 'number') {
+            versionToAccept = textData.version;
+          }
+        }
+      } catch (e) {}
+
+      const acceptRes = await fetch(this.termsAcceptEndpoint, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${cleanKey}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ version: versionToAccept }),
+        signal: AbortSignal.timeout(8000)
+      });
+
+      if (acceptRes.ok) {
+        this.acceptedKeys.add(cleanKey);
+        console.log(`[EvrenClient] Kullanım şartları (v${versionToAccept}) otomatik onaylandı.`);
+      }
+    } catch (err) {
+      console.warn('[EvrenClient] Kullanım şartları otomatik onay hatası:', err.message);
+    }
   }
 
   /**
@@ -44,7 +90,9 @@ export class EvrenClientService {
 
     console.log(`[EvrenClient] OCR isteği gönderiliyor -> Model: ${payload.model} (Endpoint: ${this.ocrEndpoint})`);
 
-    const response = await fetch(this.ocrEndpoint, {
+    await this.ensureTermsAccepted(apiKey);
+
+    let response = await fetch(this.ocrEndpoint, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${apiKey.trim()}`,
@@ -53,6 +101,19 @@ export class EvrenClientService {
       body: JSON.stringify(payload),
       signal: AbortSignal.timeout(22000)
     });
+
+    if (response.status === 403) {
+      await this.ensureTermsAccepted(apiKey, true);
+      response = await fetch(this.ocrEndpoint, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiKey.trim()}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(22000)
+      });
+    }
 
     if (!response.ok) {
       let errText = '';
@@ -101,6 +162,8 @@ export class EvrenClientService {
    */
   async chatCompletion({ messages, apiKey, model = 'deepseek-v4-flash', temperature = 0.1 }) {
     if (!apiKey) throw new Error('EVREN API Key eksik.');
+
+    await this.ensureTermsAccepted(apiKey);
 
     const candidateModels = Array.from(new Set([
       model,
