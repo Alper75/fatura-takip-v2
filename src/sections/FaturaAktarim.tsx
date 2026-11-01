@@ -88,18 +88,33 @@ export function FaturaAktarim() {
     return kod;
   };
 
-  // Otomatik Araç / KKEG Kontrolü (%70 Gider / %30 KKEG)
+  // Otomatik Araç / KKEG Kontrolü (%70 Gider / %30 KKEG) - Yalnızca ilk yüklemede varsayılan seçim için kullanılır
   const isInvoiceKkegOrArac = (inv: any): boolean => {
-    if (!inv) return false;
-    if (aracGideriIds.includes(inv.id)) return true;
-    if (inv.vehiclePlate || inv.plaka) return true;
+    if (!inv || inv._type !== 'ALIS') return false;
     if (inv.hasKkeg || inv.has_kkeg || inv.isAracGideri) return true;
+    const plateVal = String(inv.vehiclePlate || inv.plaka || '').trim().toUpperCase().replace(/\s+/g, '');
+    if (plateVal) {
+      const activeComp = companies.find(c => c.id === (user?.companyId || 1));
+      const matchedVehicle = activeComp?.vehicles?.find(v => String(v.plate || '').trim().toUpperCase().replace(/\s+/g, '') === plateVal);
+      if (matchedVehicle?.type === 'commercial') return false;
+      return true;
+    }
     const aciklama = String(inv.aciklama || '').toLowerCase();
     if (aciklama.includes('%70') || aciklama.includes('kkeg') || aciklama.includes('binek araç') || aciklama.includes('binek arac')) return true;
     const malHizmet = String(inv.malHizmetAdi || '').toLowerCase();
-    if (/akaryakıt|yakıt|benzin|motorin|otogaz|lpg|shell|petrol|opet|bp|total|aytemiz/i.test(malHizmet)) return true;
+    if (/akaryakıt|yakıt|benzin|motorin|otogaz|lpg|shell|petrol|opet|bp|total|aytemiz/i.test(malHizmet)) {
+      const activeComp = companies.find(c => c.id === (user?.companyId || 1));
+      const hasCommercialOnly = activeComp?.vehicles && activeComp.vehicles.length > 0 && activeComp.vehicles.every(v => v.type === 'commercial');
+      if (hasCommercialOnly) return false;
+      return true;
+    }
     const unvan = String(inv.ad || inv.unvan || inv.tedarikciAdi || '').toLowerCase();
-    if (/petrol|akaryakıt|benzin|shell|opet|bp|total/i.test(unvan)) return true;
+    if (/petrol|akaryakıt|benzin|shell|opet|bp|total/i.test(unvan)) {
+      const activeComp = companies.find(c => c.id === (user?.companyId || 1));
+      const hasCommercialOnly = activeComp?.vehicles && activeComp.vehicles.length > 0 && activeComp.vehicles.every(v => v.type === 'commercial');
+      if (hasCommercialOnly) return false;
+      return true;
+    }
     if (inv.mahsupSatirlari && Array.isArray(inv.mahsupSatirlari)) {
       if (inv.mahsupSatirlari.some((r: any) => String(r.kod || '').startsWith('689'))) return true;
     }
@@ -184,7 +199,7 @@ export function FaturaAktarim() {
 
   // İŞLETME DEFTERİ İÇİN SATIR FORMATI (HESAP KODSUZ GELİR / GİDER LİSTESİ)
   const getIsletmeDefteriSatiri = (fatura: any, isAracGideriParam: boolean = false) => {
-    const isAracGideri = isAracGideriParam || isInvoiceKkegOrArac(fatura);
+    const isAracGideri = fatura._type === 'ALIS' && isAracGideriParam;
     const isAlis = fatura._type === 'ALIS';
     const isIade = isAlis ? (parseFloat(fatura.toplamTutar || 0) < 0 || (fatura.malHizmetAdi && String(fatura.malHizmetAdi).toLowerCase().includes('iade'))) : (parseFloat(fatura.alinanUcret || 0) < 0 || (fatura.aciklama && String(fatura.aciklama).toLowerCase().includes('iade')));
     const kdvOrani = (fatura.kdvOrani || 20).toString();
@@ -248,7 +263,7 @@ export function FaturaAktarim() {
       const stopajTutar = typeof inv.stopajTutari === 'number'
         ? inv.stopajTutari
         : (parseFloat(String(inv.stopajTutari || inv.stopaj_tutari || inv.stopajTutar || '0').replace(',', '.')) || 0);
-      const isArac = isInvoiceKkegOrArac(inv);
+      const isArac = isAlis && aracGideriIds.includes(inv.id);
       const kdvOranNum = parseFloat(inv.kdvOrani || 20);
       const matrahHesap = isArac ? Math.round(matrah * 0.7 * 100) / 100 : matrah;
       const kdvHesap = isArac ? Math.round(kdvTutar * 0.7 * 100) / 100 : kdvTutar;
@@ -491,15 +506,15 @@ export function FaturaAktarim() {
     if (isAlis) {
         if (!isIade) {
             if (isAracGideri) {
-                const matrahGider = matrah * 0.70;
-                const matrahKkeg = matrah * 0.30;
-                const kdvGider = kdvTutar * 0.70;
-                const kdvKkeg = kdvTutar * 0.30;
+                const matrahGider = Math.round(matrah * 0.70 * 100) / 100;
+                const matrahKkeg = Math.round((matrah - matrahGider) * 100) / 100;
+                const kdvGider = Math.round(kdvTutar * 0.70 * 100) / 100;
+                const kdvKkeg = Math.round((kdvTutar - kdvGider) * 100) / 100;
                 const kkegHesapKodu = settings?.aracGiderKkegKodu || '689.02';
 
                 satirListesi.push(createRow(gelirGiderKod, matrahGider, 0, aciklama + ' (%70 Gider)'));
                 satirListesi.push(createRow(kdvKodu, kdvGider, 0, aciklama + ' (%70 İndirilecek KDV)'));
-                satirListesi.push(createRow(kkegHesapKodu, matrahKkeg + kdvKkeg, 0, aciklama + ' (%30 KKEG ve İndirilemeyen KDV)'));
+                satirListesi.push(createRow(kkegHesapKodu, Math.round((matrahKkeg + kdvKkeg) * 100) / 100, 0, aciklama + ' (%30 KKEG ve İndirilemeyen KDV)'));
             } else {
                 satirListesi.push(createRow(gelirGiderKod, matrah, 0, aciklama));
                 satirListesi.push(createRow(kdvKodu, kdvTutar, 0, aciklama));
@@ -513,10 +528,11 @@ export function FaturaAktarim() {
               satirListesi.push(createRow(settings?.tevkifat || '360.01', 0, tevkifatTutar, aciklama + ' (KDV Tevkifatı)'));
             }
             if (stopajTutar > 0) {
-              satirListesi.push(createRow(settings?.stopaj || '360.02', 0, stopajTutar, aciklama + ' (Stopaj Kesintisi)'));
+              satirListesi.push(createRow(settings?.alisStopaj || settings?.stopaj || '360.02', 0, stopajTutar, aciklama + ' (Stopaj Kesintisi)'));
             }
 
-            satirListesi.push(createRow(cariKod, 0, toplam, aciklama));
+            const netAlisCariAlacak = Math.max(0, Math.round((toplam - tevkifatTutar - stopajTutar) * 100) / 100);
+            satirListesi.push(createRow(cariKod, 0, netAlisCariAlacak, aciklama));
         } else {
             satirListesi.push(createRow(cariKod, toplam, 0, aciklama));
             satirListesi.push(createRow(gelirGiderKod, 0, matrah, aciklama));
@@ -525,7 +541,9 @@ export function FaturaAktarim() {
         }
     } else {
         if (!isIade) {
-            satirListesi.push(createRow(cariKod, toplam, 0, aciklama));
+            const netKdvTutar = Math.max(0, kdvTutar - tevkifatTutar);
+            const netSatisCariBorc = Math.max(0, Math.round((matrah + netKdvTutar - stopajTutar) * 100) / 100);
+            satirListesi.push(createRow(cariKod, netSatisCariBorc, 0, aciklama));
 
             if (stopajTutar > 0) {
               const stopajHesabi = settings?.satisStopaj || settings?.stopaj || '193';
@@ -534,7 +552,6 @@ export function FaturaAktarim() {
 
             satirListesi.push(createRow(gelirGiderKod, 0, matrah, aciklama));
 
-            const netKdvTutar = Math.max(0, kdvTutar - tevkifatTutar);
             if (netKdvTutar > 0) {
               satirListesi.push(createRow(kdvKodu, 0, netKdvTutar, aciklama + (tevkifatTutar > 0 ? ' (Tevkifatlı KDV)' : '')));
             }
@@ -553,7 +570,7 @@ export function FaturaAktarim() {
 
     if (isIsletmeDefteri) {
       // İŞLETME DEFTERİ EXCEL ÇIKTISI
-      const exportData = selectedInvoices.map(inv => getIsletmeDefteriSatiri(inv, isInvoiceKkegOrArac(inv)));
+      const exportData = selectedInvoices.map(inv => getIsletmeDefteriSatiri(inv, aracGideriIds.includes(inv.id)));
       const ws = XLSX.utils.json_to_sheet(exportData);
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, 'Isletme_Defteri');
@@ -564,7 +581,7 @@ export function FaturaAktarim() {
       if (!settings) return toast.error('KDV Ayarları bulunamadı. Lütfen ayarları yapın.');
       let exportData: any[] = [];
       selectedInvoices.forEach(inv => {
-        exportData = [...exportData, ...getMuhasebeSatirlari(inv, isInvoiceKkegOrArac(inv))];
+        exportData = [...exportData, ...getMuhasebeSatirlari(inv, aracGideriIds.includes(inv.id))];
       });
 
       const ws = XLSX.utils.json_to_sheet(exportData);
@@ -840,6 +857,11 @@ export function FaturaAktarim() {
 
       const unvan = inv.ad || inv.unvan || inv.tedarikciAdi || (cariler.find(c => c.id === inv.cariId)?.unvan) || 'Muhtelif Cari';
       const tcVkn = inv.tcVkn || inv.tedarikciVkn || (cariler.find(c => c.id === inv.cariId)?.vknTckn) || '';
+      const isAracRaw = inv._type === 'ALIS' && aracGideriIds.includes(inv.id);
+      const rawMatrah = parseFloat(inv.matrah) || 0;
+      const rawKdv = parseFloat(inv.kdvTutari) || 0;
+      const effMatrah = isAracRaw ? Math.round(rawMatrah * 0.70 * 100) / 100 : rawMatrah;
+      const effKdv = isAracRaw ? Math.round(rawKdv * 0.70 * 100) / 100 : rawKdv;
 
       return {
         id: inv.id,
@@ -848,19 +870,19 @@ export function FaturaAktarim() {
         unvan,
         ad: unvan,
         tcVkn,
-        matrah: parseFloat(inv.matrah) || 0,
+        matrah: effMatrah,
         kdvOrani: inv.kdvOrani || '20',
-        kdvTutari: parseFloat(inv.kdvTutari) || 0,
+        kdvTutari: effKdv,
         tevkifatTutari: parseFloat(inv.tevkifatTutari) || 0,
         stopajTutari: stopajTutar,
         stopajKodu: sKod,
-        toplamTutar: (parseFloat(inv.matrah) || 0) > 0 || (parseFloat(inv.kdvTutari) || 0) > 0
-          ? Math.round(((parseFloat(inv.matrah) || 0) + (parseFloat(inv.kdvTutari) || 0)) * 100) / 100
+        toplamTutar: (effMatrah > 0 || effKdv > 0)
+          ? Math.round((effMatrah + effKdv) * 100) / 100
           : (inv._type === 'ALIS' ? (parseFloat(inv.toplamTutar) || 0) : (parseFloat(inv.alinanUcret) || 0)),
         tur: inv._type === 'ALIS' ? 'gider' : 'gelir',
         tip: inv._type === 'ALIS' ? 'ALIS' : 'SATIS',
         defterTuru: 'ISLETME',
-        isAracGideri: isInvoiceKkegOrArac(inv)
+        isAracGideri: isAracRaw
       };
     });
 
@@ -903,7 +925,7 @@ export function FaturaAktarim() {
     if (!settings) return toast.error('KDV Ayarları bulunamadı. Lütfen ayarları yapın.');
     let exportData: any[] = [];
     selectedInvoices.forEach(inv => {
-      const excelRows = getMuhasebeSatirlari(inv, isInvoiceKkegOrArac(inv));
+      const excelRows = getMuhasebeSatirlari(inv, aracGideriIds.includes(inv.id));
       const extRows = excelRows.map(row => ({
         tarih: row['Evrak Tarihi'],
         evrakNo: row['Evrak No'],
@@ -1136,7 +1158,7 @@ export function FaturaAktarim() {
                     const kdvTutar = parseFloat(inv.kdvTutari) || 0;
                     const kdvDahil = Math.round((matrah + kdvTutar) * 100) / 100;
                     const toplam = (matrah > 0 || kdvTutar > 0) ? kdvDahil : (isAlis ? (parseFloat(inv.toplamTutar) || 0) : (parseFloat(inv.alinanUcret) || 0));
-                    const isArac = isInvoiceKkegOrArac(inv);
+                    const isArac = isAlis && aracGideriIds.includes(inv.id);
                     const stopajTutar = typeof inv.stopajTutari === 'number'
                       ? inv.stopajTutari
                       : (parseFloat(String(inv.stopajTutari || inv.stopaj_tutari || inv.stopajTutar || '0').replace(',', '.')) || 0);

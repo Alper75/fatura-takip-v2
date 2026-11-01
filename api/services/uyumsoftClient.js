@@ -195,7 +195,7 @@ export class UyumsoftClient {
           args = {
             context: {
               attributes: { PageIndex: pageIndex, PageSize: 100 },
-              CreationSartDate: bDate,
+              CreationStartDate: bDate,
               CreationEndDate: eDate,
               SortColumn: 'CreateDate'
             }

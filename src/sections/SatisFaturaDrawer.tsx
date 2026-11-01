@@ -283,7 +283,7 @@ export function SatisFaturaDrawer() {
     let totalAdded = 0;
     
     let apiKey = import.meta.env.VITE_GEMINI_API_KEY || '';
-    let aiModel = 'gemini-3.6-flash';
+    let aiModel = 'gemini-2.5-flash';
     
     try {
       const keyRes = await apiFetch('/api/settings/gemini_api_key');
@@ -298,13 +298,7 @@ export function SatisFaturaDrawer() {
       console.warn('Ayarlardan Gemini API anahtarı alınamadı, yerel değişken kullanılacak:', keyErr);
     }
 
-    if (!apiKey) {
-      toast.error('Yapay zeka anahtarı (Gemini API Key) bulunamadı. Lütfen ayarlardan tanımlayın.');
-      setIsScanning(false);
-      return;
-    }
-
-    const safeModelName = aiModel ? aiModel.trim() : 'gemini-3.6-flash';
+    const safeModelName = aiModel ? aiModel.trim() : 'gemini-2.5-flash';
 
     const prompt = `Sen Türkiye Cumhuriyeti Tekdüzen Hesap Planı'na, KDV Kanunu'na ve Türk Vergi Mevzuatı'na tam hâkim uzman bir Mali Müşavirsin (SMMM).
 Görevin: Satış faturası ve satış belgelerini bir mali müşavir titizliğiyle analiz etmek ve muhasebe kayıtlarını hazırlamaktır.
@@ -344,28 +338,51 @@ Eğer hiçbir belge okunamıyorsa şunu döndür: {"hata": "Belge okunamadı"}`;
       
       try {
         const rawBase64 = file.base64.split(',')[1];
-        const aiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${safeModelName}:generateContent?key=${apiKey}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{
-              parts: [
-                { text: prompt },
-                { inline_data: { mime_type: file.mimeType, data: rawBase64 } }
-              ]
-            }],
-            generationConfig: { responseMimeType: "application/json" }
-          })
-        });
+        let parsed: any = null;
 
-        const data = await aiResponse.json();
-        if (data.error) throw new Error(data.error.message || 'API Hatası');
+        // 1. Öncelik: Backend Çoklu Sağlayıcı Proxy (/api/ai/analyze-invoice)
+        try {
+          const proxyRes = await apiFetch('/api/ai/analyze-invoice', {
+            method: 'POST',
+            body: JSON.stringify({
+              prompt,
+              mimeType: file.mimeType,
+              base64Data: rawBase64
+            })
+          });
+          if (proxyRes && proxyRes.success && proxyRes.data) {
+            parsed = proxyRes.data;
+          }
+        } catch (proxyErr) {
+          console.warn('Backend AI proxy yedekleniyor:', proxyErr);
+        }
 
-        const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-        console.log(`Gemini raw response text for file ${i}:`, text);
-        
-        const clean = text.replace(/```json|```/g, '').trim();
-        const parsed = JSON.parse(clean);
+        // 2. Yedek: Doğrudan Gemini API çağrısı
+        if (!parsed) {
+          if (!apiKey) {
+            throw new Error('Yapay zeka anahtarı bulunamadı. Lütfen Ayarlar sekmesinden API anahtarınızı tanımlayın.');
+          }
+          const aiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${safeModelName}:generateContent?key=${apiKey}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{
+                parts: [
+                  { text: prompt },
+                  { inline_data: { mime_type: file.mimeType, data: rawBase64 } }
+                ]
+              }],
+              generationConfig: { responseMimeType: "application/json" }
+            })
+          });
+
+          const data = await aiResponse.json();
+          if (data.error) throw new Error(data.error.message || 'API Hatası');
+
+          const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+          const clean = text.replace(/```json|```/g, '').trim();
+          parsed = JSON.parse(clean);
+        }
 
         if (parsed.hata) {
           toast.error(`${file.name} okunamadı: ${parsed.hata}`);

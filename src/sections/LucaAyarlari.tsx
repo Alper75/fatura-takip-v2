@@ -272,7 +272,6 @@ export function LucaAyarlari() {
               <div className="w-6 h-6 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center shrink-0 font-bold">4</div>
               <p>Eğer liste otomatik güncellenmezse yukarıdaki <b>"Eklentiden Veriyi Çek"</b> butonunu kullanın.</p>
             </div>
-鼓            
             <div className="mt-6 p-4 bg-white rounded-lg border border-indigo-100">
               <h4 className="font-semibold text-indigo-900 mb-1 flex items-center gap-2">
                 <CheckCircle2 className="w-4 h-4" />

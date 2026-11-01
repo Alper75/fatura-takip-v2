@@ -161,10 +161,15 @@ export function MuhasebeFisInceleme() {
     const stopajTutari = parseFloat(String(fatura.stopajTutari || 0)) || 0;
     const tevkifatTutari = parseFloat(String(fatura.tevkifatTutari || 0)) || 0;
 
-    const isVehicleExpense = !!fatura.vehiclePlate || 
+    const plateNorm = String(fatura.vehiclePlate || '').trim().toUpperCase().replace(/\s+/g, '');
+    const matchedVeh = plateNorm ? activeCompany?.vehicles?.find(v => String(v.plate || '').trim().toUpperCase().replace(/\s+/g, '') === plateNorm) : undefined;
+    const isCommercialVeh = matchedVeh?.type === 'commercial';
+
+    const isVehicleExpense = !!fatura.hasKkeg || (!isCommercialVeh && (
+      !!fatura.vehiclePlate || 
       /akaryakıt|yakıt|benzin|motorin|bakım|onarım/i.test(fatura.malHizmetAdi || '') ||
-      (fatura.aciklama || '').includes('%70 Gider') ||
-      !!fatura.hasKkeg;
+      (fatura.aciklama || '').includes('%70 Gider')
+    ));
 
     const giderKodu = giderKoduParam || fatura.muhasebeKodu || (isVehicleExpense ? '770.02.001' : '770.01.001');
     const kdvKodu = kdvKoduParam || fatura.kdvHesapKodu || getKdvAccountCode(kdvOrani);
@@ -199,8 +204,8 @@ export function MuhasebeFisInceleme() {
         });
       }
 
-      const kkegMatrah = Math.round(matrah * 0.3 * 100) / 100;
-      const kkegKdv = Math.round(kdvTutari * 0.3 * 100) / 100;
+      const kkegMatrah = Math.round((matrah - giderMatrah) * 100) / 100;
+      const kkegKdv = Math.round((kdvTutari - giderKdv) * 100) / 100;
       const toplamKkeg = Math.round((kkegMatrah + kkegKdv) * 100) / 100;
 
       if (toplamKkeg > 0) {
@@ -387,7 +392,7 @@ export function MuhasebeFisInceleme() {
     } else {
       setCurrentDocBase64(null);
     }
-  }, [currentFatura?.id]);
+  }, [currentFatura?.id, kdvSettings]);
 
   // Tekil Görsel Yükleme (Dosya Seçildiğinde veya Sürüklenip Bırakıldığında)
   const handleSingleFileUpload = async (file: File) => {
@@ -531,11 +536,13 @@ export function MuhasebeFisInceleme() {
     const kdvOrani = parseFloat(String(currentFatura.kdvOrani || 20)) || 0;
     const matrah = parseFloat(String(currentFatura.matrah || 0)) || Math.round((toplamTutar / (1 + kdvOrani / 100)) * 100) / 100;
     const kdvTutari = parseFloat(String(currentFatura.kdvTutari || 0)) || Math.round((toplamTutar - matrah) * 100) / 100;
+    const stopajTutari = parseFloat(String(currentFatura.stopajTutari || 0)) || 0;
+    const tevkifatTutari = parseFloat(String(currentFatura.tevkifatTutari || 0)) || 0;
 
     const giderMatrah = Math.round(matrah * 0.7 * 100) / 100;
     const giderKdv = Math.round(kdvTutari * 0.7 * 100) / 100;
-    const kkegMatrah = Math.round(matrah * 0.3 * 100) / 100;
-    const kkegKdv = Math.round(kdvTutari * 0.3 * 100) / 100;
+    const kkegMatrah = Math.round((matrah - giderMatrah) * 100) / 100;
+    const kkegKdv = Math.round((kdvTutari - giderKdv) * 100) / 100;
     const toplamKkeg = Math.round((kkegMatrah + kkegKdv) * 100) / 100;
 
     const giderKodu = editMuhasebeKodu || currentFatura.muhasebeKodu || '770.02.001';
@@ -543,10 +550,11 @@ export function MuhasebeFisInceleme() {
     const karsiKodu = editKarsiHesapKodu || currentFatura.karsiHesapKodu || (currentFatura.cariId ? '320.01' : '100.01');
     const kkegKodu = kdvSettings?.aracGiderKkegKodu || '689.01.001';
 
+    let mNo = 1;
     const splitRows: MahsupSatir[] = [
       {
-        id: 'row_' + Date.now() + '_1',
-        maddeNo: 1,
+        id: 'row_' + Date.now() + '_' + mNo,
+        maddeNo: mNo++,
         kod: giderKodu,
         ad: getAccountName(giderKodu),
         borc: giderMatrah,
@@ -554,8 +562,8 @@ export function MuhasebeFisInceleme() {
         aciklama: `${currentFatura.malHizmetAdi || 'Mal/Hizmet'} (%70 Gider Payı)`
       },
       {
-        id: 'row_' + Date.now() + '_2',
-        maddeNo: 2,
+        id: 'row_' + Date.now() + '_' + mNo,
+        maddeNo: mNo++,
         kod: kdvKodu,
         ad: `${getAccountName(kdvKodu)} (%${kdvOrani})`,
         borc: giderKdv,
@@ -563,24 +571,50 @@ export function MuhasebeFisInceleme() {
         aciklama: `İndirilecek KDV %${kdvOrani} (%70 Pay)`
       },
       {
-        id: 'row_' + Date.now() + '_3',
-        maddeNo: 3,
+        id: 'row_' + Date.now() + '_' + mNo,
+        maddeNo: mNo++,
         kod: kkegKodu,
         ad: getAccountName(kkegKodu) || 'Kanunen Kabul Edilmeyen Giderler (KKEG)',
         borc: toplamKkeg,
         alacak: 0,
         aciklama: `Binek Araç Kısıtı (%30 KKEG: Matrah ${kkegMatrah} TL + KDV ${kkegKdv} TL)`
-      },
-      {
-        id: 'row_' + Date.now() + '_4',
-        maddeNo: 4,
-        kod: karsiKodu,
-        ad: getAccountName(karsiKodu),
-        borc: 0,
-        alacak: toplamTutar,
-        aciklama: `${currentFatura.tedarikciAdi} - Belge No: ${currentFatura.faturaNo}`
       }
     ];
+
+    if (tevkifatTutari > 0) {
+      splitRows.push({
+        id: 'row_' + Date.now() + '_' + mNo,
+        maddeNo: mNo++,
+        kod: '360.01.001',
+        ad: 'Tevkifat KDV Kesintisi',
+        borc: 0,
+        alacak: tevkifatTutari,
+        aciklama: `KDV Tevkifatı (${currentFatura.tevkifatOrani})`
+      });
+    }
+
+    if (stopajTutari > 0) {
+      splitRows.push({
+        id: 'row_' + Date.now() + '_' + mNo,
+        maddeNo: mNo++,
+        kod: '360.02.001',
+        ad: 'Ödenecek Stopaj Vergisi',
+        borc: 0,
+        alacak: stopajTutari,
+        aciklama: `Stopaj Kesintisi (%${currentFatura.stopajOrani})`
+      });
+    }
+
+    const netKarsiAlacak = Math.round((toplamTutar - stopajTutari - tevkifatTutari) * 100) / 100;
+    splitRows.push({
+      id: 'row_' + Date.now() + '_' + mNo,
+      maddeNo: mNo++,
+      kod: karsiKodu,
+      ad: getAccountName(karsiKodu),
+      borc: 0,
+      alacak: netKarsiAlacak,
+      aciklama: `${currentFatura.tedarikciAdi} - Belge No: ${currentFatura.faturaNo}`
+    });
 
     setMahsupSatirlari(splitRows);
     if (!editAciklama.includes('%70 Gider') && !editAciklama.includes('KKEG')) {

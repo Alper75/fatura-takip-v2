@@ -552,27 +552,27 @@ app.post('/api/elogo/fatura-gonder/:id', authMiddleware, async (req, res) => {
     });
     const supplier = rsCompany.rows[0] || {};
 
-    // Fetch Items
+    // Fetch Items (satis_fatura_kalemleri tablosu yoksa faturaData'dan türet)
     const rsItems = await client.execute({
       sql: 'SELECT * FROM satis_fatura_kalemleri WHERE fatura_id = ?',
       args: [faturaId]
-    });
+    }).catch(() => ({ rows: [] }));
     
     const faturaObj = {
       fatura_no: faturaData.fatura_no || `FAT${Date.now()}`,
-      fatura_tarihi: faturaData.tarih || new Date().toISOString(),
+      fatura_tarihi: faturaData.fatura_tarihi || faturaData.tarih || new Date().toISOString(),
       fatura_senaryo: 'TICARIFATURA',
       para_birimi: 'TRY',
-      toplam_tutar: Number(faturaData.toplam_tutar || 0),
-      toplam_kdv_tutar: Number(faturaData.toplam_kdv || 0),
-      genel_toplam: Number(faturaData.genel_toplam || 0)
+      toplam_tutar: Number(faturaData.matrah || faturaData.toplam_tutar || faturaData.alinan_ucret || 0),
+      toplam_kdv_tutar: Number(faturaData.kdv_tutari || faturaData.toplam_kdv || 0),
+      genel_toplam: Number(faturaData.alinan_ucret || faturaData.genel_toplam || 0)
     };
     
     const customerObj = {
-      firma_adi: customer.unvan,
-      vkn: customer.vkn_tckn,
+      firma_adi: customer.unvan || `${faturaData.ad || ''} ${faturaData.soyad || ''}`.trim(),
+      vkn: customer.vkn_tckn || faturaData.tc_vkn,
       vergi_dairesi: customer.vergi_dairesi,
-      adres: customer.adres,
+      adres: customer.adres || faturaData.adres,
       il: customer.il,
       ilce: customer.ilce
     };
@@ -584,12 +584,17 @@ app.post('/api/elogo/fatura-gonder/:id', authMiddleware, async (req, res) => {
       adres: supplier.address
     };
     
-    const items = rsItems.rows.map(row => ({
+    const items = rsItems.rows.length > 0 ? rsItems.rows.map(row => ({
       urun_adi: row.aciklama,
       miktar: Number(row.miktar || 0),
       birim_fiyat: Number(row.birim_fiyat || 0),
       kdv_orani: Number(row.kdv_orani || 0)
-    }));
+    })) : [{
+      urun_adi: faturaData.aciklama || 'Satış Hizmet/Ürün Bedeli',
+      miktar: 1,
+      birim_fiyat: Number(faturaData.matrah || faturaData.alinan_ucret || 0),
+      kdv_orani: Number(faturaData.kdv_orani || 20)
+    }];
 
     const ublXml = UblBuilder.buildInvoiceXml(faturaObj, supplierObj, customerObj, items);
     
@@ -606,8 +611,8 @@ app.post('/api/elogo/fatura-gonder/:id', authMiddleware, async (req, res) => {
     
     if (sendRes.success) {
       await client.execute({
-        sql: 'UPDATE satis_faturalari SET durum = ?, gib_uuid = ? WHERE id = ?',
-        args: ['e-Fatura Gönderildi', sendRes.refId, faturaId]
+        sql: 'UPDATE satis_faturalari SET gib_uuid = ? WHERE id = ?',
+        args: [sendRes.refId, faturaId]
       });
       return res.json({ success: true, message: 'Fatura eLogo üzerinden başarıyla gönderildi.', refId: sendRes.refId });
     } else {
@@ -772,6 +777,10 @@ app.get('/api/elogo/gelen-faturalar', authMiddleware, async (req, res) => {
         let kdvTutari = 0;
         let kdvOrani = 0;
         let oivTutari = 0;
+        let stopajTutari = 0;
+        let stopajOrani = 0;
+        let tevkifatTutari = 0;
+        let tevkifatOrani = 0;
         const taxTotal = inv['TaxTotal'];
         const taxTotalArray = Array.isArray(taxTotal) ? taxTotal : (taxTotal ? [taxTotal] : []);
         
@@ -864,6 +873,10 @@ app.get('/api/elogo/gelen-faturalar', authMiddleware, async (req, res) => {
           kdvOrani,
           kdvTutari,
           oivTutari,
+          stopajOrani,
+          stopajTutari,
+          tevkifatOrani,
+          tevkifatTutari,
           faturaAciklama,
           items
         };
@@ -1001,6 +1014,10 @@ app.get('/api/elogo/giden-faturalar', authMiddleware, async (req, res) => {
         let kdvTutari = 0;
         let kdvOrani = 0;
         let oivTutari = 0;
+        let stopajTutari = 0;
+        let stopajOrani = 0;
+        let tevkifatTutari = 0;
+        let tevkifatOrani = 0;
         const taxTotal = inv['TaxTotal'];
         const taxTotalArray = Array.isArray(taxTotal) ? taxTotal : (taxTotal ? [taxTotal] : []);
         
@@ -1093,6 +1110,10 @@ app.get('/api/elogo/giden-faturalar', authMiddleware, async (req, res) => {
           kdvOrani,
           kdvTutari,
           oivTutari,
+          stopajOrani,
+          stopajTutari,
+          tevkifatOrani,
+          tevkifatTutari,
           faturaAciklama,
           items
         };
@@ -1521,6 +1542,10 @@ app.get('/api/uyumsoft/gelen-faturalar', authMiddleware, async (req, res) => {
         let kdvTutari = 0;
         let kdvOrani = 0;
         let oivTutari = 0;
+        let stopajTutari = 0;
+        let stopajOrani = 0;
+        let tevkifatTutari = 0;
+        let tevkifatOrani = 0;
         const taxTotal = inv['TaxTotal'];
         const taxTotalArray = Array.isArray(taxTotal) ? taxTotal : (taxTotal ? [taxTotal] : []);
         
@@ -1614,6 +1639,10 @@ app.get('/api/uyumsoft/gelen-faturalar', authMiddleware, async (req, res) => {
           kdvOrani,
           kdvTutari,
           oivTutari,
+          stopajOrani,
+          stopajTutari,
+          tevkifatOrani,
+          tevkifatTutari,
           faturaAciklama,
           items
         };
@@ -2647,79 +2676,13 @@ app.delete('/api/vehicles/:id', authMiddleware, async (req, res) => {
   }
 });
 
-// --- SUPER ADMIN COMPANIES ---
-
-// List all companies
-app.get('/api/super/companies', authMiddleware, superAdminMiddleware, async (req, res) => {
-  try {
-    const rs = await client.execute('SELECT * FROM companies ORDER BY id DESC');
-    res.json({ success: true, data: rs.rows });
-  } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-});
-
-// Add new company with its first admin
-app.post('/api/super/companies', authMiddleware, superAdminMiddleware, async (req, res) => {
-  const { name, tax_no, address, email, admin_tc, admin_password, status, company_type } = req.body;
-  
-  if (!name) return res.status(400).json({ success: false, message: 'Şirket adı gereklidir.' });
-
-  try {
-    // 1. Create Company
-    const compResult = await client.execute({
-      sql: 'INSERT INTO companies (name, tax_no, address, email, status, company_type) VALUES (?, ?, ?, ?, ?, ?)',
-      args: [name, n(tax_no), n(address), n(email), status || 'active', company_type || 'BİLANÇO']
-    });
-    const newCompanyId = Number(compResult.lastInsertRowid);
-
-    // 2. Create Admin User if provided
-    if (admin_tc && admin_password) {
-      const hashedPassword = bcrypt.hashSync(admin_password, 10);
-      await client.execute({
-        sql: 'INSERT INTO users (tc, password, role, company_id, must_change_password) VALUES (?, ?, ?, ?, ?)',
-        args: [admin_tc, hashedPassword, 'admin', newCompanyId, 0]
-      });
-    }
-
-    res.json({ success: true, message: 'Şirket ve yönetici hesabı oluşturuldu.', companyId: newCompanyId });
-  } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-});
-
-// Update company
-app.put('/api/super/companies/:id', authMiddleware, superAdminMiddleware, async (req, res) => {
-  const { id } = req.params;
-  const { name, tax_no, address, email, status, company_type } = req.body;
-  try {
-    await client.execute({
-      sql: 'UPDATE companies SET name = ?, tax_no = ?, address = ?, email = ?, status = ?, company_type = ? WHERE id = ?',
-      args: [name, n(tax_no), n(address), n(email), status || 'active', company_type || 'BİLANÇO', id]
-    });
-    res.json({ success: true, message: 'Şirket bilgileri güncellendi.' });
-  } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-});
-
-// Delete company
-app.delete('/api/super/companies/:id', authMiddleware, superAdminMiddleware, async (req, res) => {
-  const { id } = req.params;
-  if (Number(id) === 1) return res.status(400).json({ success: false, message: 'Varsayılan şirket silinemez.' });
-  
-  try {
-    // Not: Gerçek senaryoda cascading delete veya soft-delete tercih edilmeli.
-    // Şimdilik sadece şirketi siliyoruz.
-    await client.execute({
-      sql: 'DELETE FROM companies WHERE id = ?',
-      args: [id]
-    });
-    res.json({ success: true, message: 'Şirket silindi.' });
-  } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-});
+// --- YARDIMCI METOD ---
+// JSON.stringify undefined değerleri yoksaydığı için, req.body'den gelen undefined'ları null'a çevirir
+// SQLite TypeError fırlatmasını (Bind parameter is undefined) engeller.
+const n = (val) => {
+  if (val === undefined || val === null || val === '' || (typeof val === 'number' && isNaN(val))) return null;
+  return val;
+};
 
 // Helper to calculate annual leave based on seniority
 const calculateAnnualLeave = (startDate) => {
@@ -2780,9 +2743,9 @@ app.post('/api/admin/personnel', authMiddleware, adminMiddleware, async (req, re
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       args: [
-        Number(userResult.lastInsertRowid), first_name, last_name, email, phone, 
-        position, department, salary, calculatedLeave, 'Active', 
-        start_date, end_date, puantaj_menu_active ? 1 : 0, req.user.companyId
+        Number(userResult.lastInsertRowid), n(first_name), n(last_name), n(email), n(phone), 
+        n(position), n(department), n(salary), calculatedLeave, 'Active', 
+        n(start_date), n(end_date), puantaj_menu_active ? 1 : 0, req.user.companyId
       ]
     });
     res.json({ success: true, message: 'Personel başarıyla oluşturuldu.' });
@@ -3089,6 +3052,9 @@ app.post('/api/pointage', authMiddleware, async (req, res) => {
         sql: 'SELECT id FROM personnel WHERE user_id = ? AND company_id = ?',
         args: [req.user.id, req.user.companyId]
       });
+      if (!rsP.rows[0]) {
+        return res.status(404).json({ success: false, message: 'Personel kaydı bulunamadı.' });
+      }
       personnel_id = rsP.rows[0].id;
     }
 
@@ -3173,11 +3139,15 @@ app.post('/api/admin/pointage/bulk-lock-all', authMiddleware, adminMiddleware, a
 });
 
 app.get('/api/announcements', authMiddleware, async (req, res) => {
-  const rs = await client.execute({
-    sql: 'SELECT * FROM announcements WHERE company_id = ? ORDER BY created_at DESC LIMIT 10',
-    args: [req.user.companyId]
-  });
-  res.json({ success: true, data: rs.rows });
+  try {
+    const rs = await client.execute({
+      sql: 'SELECT * FROM announcements WHERE company_id = ? ORDER BY created_at DESC LIMIT 10',
+      args: [req.user.companyId]
+    });
+    res.json({ success: true, data: rs.rows });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
 });
 
 app.get('/api/admin/pointage', authMiddleware, adminMiddleware, async (req, res) => {
@@ -3197,23 +3167,27 @@ app.get('/api/admin/pointage', authMiddleware, adminMiddleware, async (req, res)
 });
 
 app.get('/api/admin/pointage/template', authMiddleware, adminMiddleware, async (req, res) => {
-  const rs = await client.execute({
-    sql: "SELECT id, first_name, last_name FROM personnel WHERE status = 'Active' AND company_id = ?",
-    args: [req.user.companyId]
-  });
-  const data = rs.rows.map(p => ({
-    'ID': p.id,
-    'İsim': p.first_name + ' ' + p.last_name,
-    'Tarih': new Date().toISOString().split('T')[0],
-    'Durum': 'Work',
-    'Fazla Mesai': 0
-  }));
-  const ws = xlsx.utils.json_to_sheet(data);
-  const wb = xlsx.utils.book_new();
-  xlsx.utils.book_append_sheet(wb, ws, "Puantaj");
-  const buf = xlsx.write(wb, { type: 'buffer', bookType: 'xlsx' });
-  res.setHeader('Content-Disposition', 'attachment; filename=puantaj_sablon.xlsx');
-  res.send(buf);
+  try {
+    const rs = await client.execute({
+      sql: "SELECT id, first_name, last_name FROM personnel WHERE status = 'Active' AND company_id = ?",
+      args: [req.user.companyId]
+    });
+    const data = rs.rows.map(p => ({
+      'ID': p.id,
+      'İsim': p.first_name + ' ' + p.last_name,
+      'Tarih': new Date().toISOString().split('T')[0],
+      'Durum': 'Work',
+      'Fazla Mesai': 0
+    }));
+    const ws = xlsx.utils.json_to_sheet(data);
+    const wb = xlsx.utils.book_new();
+    xlsx.utils.book_append_sheet(wb, ws, "Puantaj");
+    const buf = xlsx.write(wb, { type: 'buffer', bookType: 'xlsx' });
+    res.setHeader('Content-Disposition', 'attachment; filename=puantaj_sablon.xlsx');
+    res.send(buf);
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
 });
 
 app.post('/api/admin/pointage/bulk-upload', authMiddleware, adminMiddleware, upload.single('file'), async (req, res) => {
@@ -3252,15 +3226,6 @@ app.post('/api/admin/pointage/bulk-upload', authMiddleware, adminMiddleware, upl
 // Removed duplicate requests route that used old 'db' syntax
 
 // ============================================================
-// --- YARDIMCI METOD ---
-// JSON.stringify undefined değerleri yoksaydığı için, req.body'den gelen undefined'ları null'a çevirir
-// SQLite TypeError fırlatmasını (Bind parameter is undefined) engeller.
-const n = (val) => {
-  if (val === undefined || val === null || val === '' || (typeof val === 'number' && isNaN(val))) return null;
-  return val;
-};
-
-// ============================================================
 // --- CARİLER ---
 // ============================================================
 app.get('/api/cariler', authMiddleware, async (req, res) => {
@@ -3282,56 +3247,6 @@ app.get('/api/cariler', authMiddleware, async (req, res) => {
       olusturmaTarihi: r.olusturma_tarihi 
     }));
     res.json({ success: true, data: mapped });
-  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
-});
-
-app.get('/api/alis-faturalari/:id', authMiddleware, async (req, res) => {
-  try {
-    const rs = await client.execute({
-      sql: 'SELECT * FROM alis_faturalari WHERE id = ? AND company_id = ?',
-      args: [req.params.id, req.user.companyId]
-    });
-    if (rs.rows.length === 0) return res.status(404).json({ success: false, message: 'Fatura bulunamadı' });
-    const r = rs.rows[0];
-
-    let cleanPdf = r.pdf_dosya;
-    if (cleanPdf && (cleanPdf.startsWith('data:') || (cleanPdf.length > 500 && !cleanPdf.startsWith('/uploads/') && !cleanPdf.startsWith('http')))) {
-      const isExpense = (r.muhasebe_kodu && String(r.muhasebe_kodu).trim().startsWith('7')) ||
-                        /whatsapp|image|jpeg|jpg|png|fis/i.test(r.pdf_dosya_adi || '') ||
-                        cleanPdf.startsWith('data:image/');
-      const folder = isExpense ? 'fisler' : 'faturalar';
-      const diskPath = saveBase64File(cleanPdf, r.pdf_dosya_adi || (isExpense ? `fis_${r.fatura_no || r.id}.jpg` : `fatura_${r.fatura_no || r.id}.pdf`), folder);
-      if (diskPath && diskPath.startsWith('/uploads/')) {
-        cleanPdf = diskPath;
-        client.execute({ sql: 'UPDATE alis_faturalari SET pdf_dosya = ? WHERE id = ?', args: [diskPath, r.id] }).catch(() => {});
-      }
-    }
-
-    let cleanDekont = r.odeme_dekontu;
-    if (cleanDekont && (cleanDekont.startsWith('data:') || (cleanDekont.length > 500 && !cleanDekont.startsWith('/uploads/') && !cleanDekont.startsWith('http')))) {
-      const diskPath = saveBase64File(cleanDekont, r.odeme_dekontu_adi || 'dekont.pdf', 'dekontlar');
-      if (diskPath && diskPath.startsWith('/uploads/')) {
-        cleanDekont = diskPath;
-        client.execute({ sql: 'UPDATE alis_faturalari SET odeme_dekontu = ? WHERE id = ?', args: [diskPath, r.id] }).catch(() => {});
-      }
-    }
-
-    res.json({
-      success: true,
-      data: {
-        id: r.id, faturaNo: r.fatura_no, faturaTarihi: r.fatura_tarihi, tedarikciAdi: r.tedarikci_adi,
-        tedarikciVkn: r.tedarikci_vkn, malHizmetAdi: r.mal_hizmet_adi, toplamTutar: r.toplam_tutar,
-        kdvOrani: r.kdv_orani, kdvTutari: r.kdv_tutari, matrah: r.matrah, tevkifatOrani: r.tevkifat_orani,
-        tevkifatTutari: r.tevkifat_tutari, stopajOrani: r.stopaj_orani, stopajTutari: r.stopaj_tutari,
-        kdv1: r.kdv1, kdv10: r.kdv10, kdv20: r.kdv20, oivTutari: r.oiv_tutari,
-        muhasebeKodu: r.muhasebe_kodu, karsiHesapKodu: r.karsi_hesap_kodu,
-        pdfDosya: cleanPdf, pdfDosyaAdi: r.pdf_dosya_adi,
-        odemeTarihi: r.odeme_tarihi, odemeDurumu: r.odeme_durumu, odemeDekontu: cleanDekont,
-        odemeDekontuAdi: r.odeme_dekontu_adi, cariId: r.cari_id, vadeTarihi: r.vade_tarihi,
-        aciklama: r.aciklama, olusturmaTarihi: r.olusturma_tarihi, urunId: r.urun_id, depoId: r.depo_id,
-        vehiclePlate: r.vehicle_plate
-      }
-    });
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }
 });
 
@@ -3537,12 +3452,15 @@ app.put('/api/cari-hareketler/:id', authMiddleware, async (req, res) => {
       args: [req.params.id, req.user.companyId]
     });
     const old = rs.rows[0];
+    if (!old) {
+      return res.status(404).json({ success: false, message: 'Cari hareket bulunamadı' });
+    }
 
-    if (old && old.banka_id && old.tutar) {
+    if (old.banka_id && old.tutar) {
       const ArtisTurleri = ['tahsilat', 'satis_faturasi', 'cek_senet_alinan', 'diger_gelir'];
       const AzalisTurleri = ['odeme', 'alis_faturasi', 'vergi_kdv', 'vergi_muhtasar', 'vergi_gecici', 'vergi_damga', 'maas_odemesi', 'kira_odemesi', 'banka_masrafi', 'ssk_odemesi', 'genel_gider', 'kredi_karti_odemesi', 'cek_senet_verilen'];
       let degisim = 0;
-      let amount = old.doviz_tutar ? old.doviz_tutar : old.tutar;
+      let amount = Number(old.doviz_tutar ? old.doviz_tutar : old.tutar) || 0;
       if (ArtisTurleri.includes(old.islem_turu)) degisim = -amount;
       else if (AzalisTurleri.includes(old.islem_turu)) degisim = amount;
       else if (old.islem_turu === 'transfer') {
@@ -3576,21 +3494,21 @@ app.put('/api/cari-hareketler/:id', authMiddleware, async (req, res) => {
       args: [n(updatedCariId), n(updatedTarih), n(updatedIslemTuru), n(updatedTutar), n(updatedAciklama), n(updatedBagliFaturaId), n(updatedBankaId), n(updatedDekontDosya), n(updatedKategoriId), n(updatedMuhasebeKodu), n(updatedDovizTuru), n(updatedDovizTutar), n(updatedDovizKuru), req.params.id, req.user.companyId]
     });
 
-    if (f.bankaId && f.tutar) {
+    if (updatedBankaId && updatedTutar) {
       const ArtisTurleri = ['tahsilat', 'satis_faturasi', 'cek_senet_alinan', 'diger_gelir'];
       const AzalisTurleri = ['odeme', 'alis_faturasi', 'vergi_kdv', 'vergi_muhtasar', 'vergi_gecici', 'vergi_damga', 'maas_odemesi', 'kira_odemesi', 'banka_masrafi', 'ssk_odemesi', 'genel_gider', 'kredi_karti_odemesi', 'cek_senet_verilen'];
       let degisim = 0;
-      let amount = f.dovizTutar !== undefined ? f.dovizTutar : f.tutar;
-      if (ArtisTurleri.includes(f.islemTuru)) degisim = amount;
-      else if (AzalisTurleri.includes(f.islemTuru)) degisim = -amount;
-      else if (f.islemTuru === 'transfer') {
-        if ((f.aciklama||'').toUpperCase().includes('GELEN')) degisim = amount;
+      let amount = Number(updatedDovizTutar ? updatedDovizTutar : updatedTutar) || 0;
+      if (ArtisTurleri.includes(updatedIslemTuru)) degisim = amount;
+      else if (AzalisTurleri.includes(updatedIslemTuru)) degisim = -amount;
+      else if (updatedIslemTuru === 'transfer') {
+        if ((updatedAciklama||'').toUpperCase().includes('GELEN')) degisim = amount;
         else degisim = -amount;
       }
       if (degisim !== 0) {
         await client.execute({
           sql: 'UPDATE banka_hesaplari SET guncel_bakiye = guncel_bakiye + ? WHERE id = ? AND company_id = ?',
-          args: [degisim, f.bankaId, req.user.companyId]
+          args: [degisim, updatedBankaId, req.user.companyId]
         });
       }
     }
@@ -3932,23 +3850,56 @@ app.get('/api/alis-faturalari/:id', authMiddleware, async (req, res) => {
       return res.status(404).json({ success: false, message: 'Fatura bulunamadı' });
     }
     const r = rs.rows[0];
+
+    let cleanPdf = r.pdf_dosya;
+    if (cleanPdf && (cleanPdf.startsWith('data:') || (cleanPdf.length > 500 && !cleanPdf.startsWith('/uploads/') && !cleanPdf.startsWith('http')))) {
+      const isExpense = (r.muhasebe_kodu && String(r.muhasebe_kodu).trim().startsWith('7')) ||
+                        /whatsapp|image|jpeg|jpg|png|fis/i.test(r.pdf_dosya_adi || '') ||
+                        cleanPdf.startsWith('data:image/');
+      const folder = isExpense ? 'fisler' : 'faturalar';
+      const diskPath = saveBase64File(cleanPdf, r.pdf_dosya_adi || (isExpense ? `fis_${r.fatura_no || r.id}.jpg` : `fatura_${r.fatura_no || r.id}.pdf`), folder);
+      if (diskPath && diskPath.startsWith('/uploads/')) {
+        cleanPdf = diskPath;
+        client.execute({ sql: 'UPDATE alis_faturalari SET pdf_dosya = ? WHERE id = ?', args: [diskPath, r.id] }).catch(() => {});
+      }
+    }
+
+    let cleanDekont = r.odeme_dekontu;
+    if (cleanDekont && (cleanDekont.startsWith('data:') || (cleanDekont.length > 500 && !cleanDekont.startsWith('/uploads/') && !cleanDekont.startsWith('http')))) {
+      const diskPath = saveBase64File(cleanDekont, r.odeme_dekontu_adi || 'dekont.pdf', 'dekontlar');
+      if (diskPath && diskPath.startsWith('/uploads/')) {
+        cleanDekont = diskPath;
+        client.execute({ sql: 'UPDATE alis_faturalari SET odeme_dekontu = ? WHERE id = ?', args: [diskPath, r.id] }).catch(() => {});
+      }
+    }
+
     let parsedMahsup = undefined;
     if (r.mahsup_satirlari) {
       try {
         parsedMahsup = typeof r.mahsup_satirlari === 'string' ? JSON.parse(r.mahsup_satirlari) : r.mahsup_satirlari;
       } catch (e) {}
     }
+
+    const totalAmount = parseFloat(r.toplam_tutar || 0);
+    const odenen = parseFloat(r.odenen_tutar || 0);
+    const kalan = r.kalan_tutar !== null && r.kalan_tutar !== undefined
+      ? parseFloat(r.kalan_tutar)
+      : (r.odeme_durumu === 'odendi' ? 0 : Math.max(0, totalAmount - odenen));
+
     const fatura = {
       id: r.id, faturaNo: r.fatura_no, faturaTarihi: r.fatura_tarihi, tedarikciAdi: r.tedarikci_adi, 
       tedarikciVkn: r.tedarikci_vkn, malHizmetAdi: r.mal_hizmet_adi, toplamTutar: r.toplam_tutar, 
       kdvOrani: r.kdv_orani, kdvTutari: r.kdv_tutari, matrah: r.matrah, tevkifatOrani: r.tevkifat_orani, 
       tevkifatTutari: r.tevkifat_tutari, stopajOrani: r.stopaj_orani, stopajTutari: r.stopaj_tutari, 
       kdv1: r.kdv1, kdv10: r.kdv10, kdv20: r.kdv20, oivTutari: r.oiv_tutari,
-      muhasebeKodu: r.muhasebe_kodu, karsiHesapKodu: r.karsi_hesap_kodu, kdvHesapKodu: r.kdv_hesap_kodu, pdfDosya: r.pdf_dosya, pdfDosyaAdi: r.pdf_dosya_adi, 
-      odemeTarihi: r.odeme_tarihi, odemeDurumu: r.odeme_durumu, odemeDekontu: r.odeme_dekontu, 
+      muhasebeKodu: r.muhasebe_kodu, karsiHesapKodu: r.karsi_hesap_kodu, kdvHesapKodu: r.kdv_hesap_kodu, pdfDosya: cleanPdf, pdfDosyaAdi: r.pdf_dosya_adi, 
+      odemeTarihi: r.odeme_tarihi, odemeDurumu: r.odeme_durumu, odemeDekontu: cleanDekont, 
       odemeDekontuAdi: r.odeme_dekontu_adi, cariId: r.cari_id, vadeTarihi: r.vade_tarihi, 
       aciklama: r.aciklama, olusturmaTarihi: r.olusturma_tarihi, urunId: r.urun_id, depoId: r.depo_id,
       vehiclePlate: r.vehicle_plate,
+      gibUuid: r.gib_uuid,
+      odenenTutar: odenen,
+      kalanTutar: kalan,
       mahsupSatirlari: parsedMahsup,
       hasKkeg: r.has_kkeg === 1 || r.has_kkeg === true
     };
@@ -4349,7 +4300,7 @@ app.put('/api/super/companies/:id', authMiddleware, superAdminMiddleware, async 
   try {
     await client.execute({
       sql: 'UPDATE companies SET name = ?, tax_no = ?, address = ?, email = ?, status = ?, company_type = ? WHERE id = ?',
-      args: [n(name), n(tax_no), n(address), n(email), n(status), company_type || 'BİLANÇO', id]
+      args: [n(name), n(tax_no), n(address), n(email), status || 'active', company_type || 'BİLANÇO', id]
     });
     res.json({ success: true, message: 'Şirket güncellendi.' });
   } catch (error) { res.status(500).json({ success: false, message: error.message }); }
@@ -4357,7 +4308,7 @@ app.put('/api/super/companies/:id', authMiddleware, superAdminMiddleware, async 
 
 app.delete('/api/super/companies/:id', authMiddleware, superAdminMiddleware, async (req, res) => {
   const { id } = req.params;
-  if (id === '1') return res.status(400).json({ success: false, message: 'Varsayılan şirket silinemez.' });
+  if (String(id) === '1') return res.status(400).json({ success: false, message: 'Varsayılan şirket silinemez.' });
   
   try {
     // 1. Manually delete all associated data (Cascade)
@@ -5189,9 +5140,9 @@ app.post('/api/stok/urunler', authMiddleware, async (req, res) => {
         aktif, birim_fiyat, aciklama, company_id
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       args: [
-        ensureId(u.id), u.stokKodu, u.barkod || null, u.urunAdi, u.kategoriId || null, u.anaBirim,
-        u.minimumStok || 0, u.maksimumStok || null, u.lotTakibi ? 1 : 0, u.sonKullanma_tarihli ? 1 : 0,
-        u.aktif !== false ? 1 : 0, u.birimFiyat || 0, u.aciklama || null, req.user.companyId
+        ensureId(u.id), n(u.stokKodu), n(u.barkod), n(u.urunAdi), n(u.kategoriId), n(u.anaBirim) || 'Adet',
+        u.minimumStok || 0, n(u.maksimumStok), u.lotTakibi ? 1 : 0, (u.sonKullanma_tarihli || u.sonKullanmaTarihli) ? 1 : 0,
+        u.aktif !== false ? 1 : 0, u.birimFiyat || 0, n(u.aciklama), req.user.companyId
       ]
     });
     res.json({ success: true });
@@ -5208,9 +5159,9 @@ app.put('/api/stok/urunler/:id', authMiddleware, async (req, res) => {
         aktif = ?, birim_fiyat = ?, aciklama = ?
         WHERE id = ? AND company_id = ?`,
       args: [
-        u.stokKodu, u.barkod || null, u.urunAdi, u.kategoriId || null, u.anaBirim,
-        u.minimumStok || 0, u.maksimumStok || null, u.lotTakibi ? 1 : 0, u.sonKullanma_tarihli ? 1 : 0,
-        u.aktif !== false ? 1 : 0, u.birimFiyat || 0, u.aciklama || null,
+        n(u.stokKodu), n(u.barkod), n(u.urunAdi), n(u.kategoriId), n(u.anaBirim) || 'Adet',
+        u.minimumStok || 0, n(u.maksimumStok), u.lotTakibi ? 1 : 0, (u.sonKullanma_tarihli || u.sonKullanmaTarihli) ? 1 : 0,
+        u.aktif !== false ? 1 : 0, u.birimFiyat || 0, n(u.aciklama),
         req.params.id, req.user.companyId
       ]
     });
@@ -5623,6 +5574,7 @@ app.post('/api/stok/sayimlar/onayla', authMiddleware, async (req, res) => {
       args: [id, req.user.companyId]
     });
     const sayim = sayimRs.rows[0];
+    if (!sayim) return res.status(404).json({ success: false, message: 'Sayım kaydı bulunamadı.' });
     if (sayim.durum !== 'TASLAK') return res.status(400).json({ success: false, message: 'Bu sayım zaten onaylanmış.' });
 
     const kalemlerRs = await client.execute({
@@ -5755,34 +5707,11 @@ app.get('/api/admin/upgrade-to-super', async (req, res) => {
   }
 
   try {
-    console.log('Starting Super Admin Upgrade via Turso Batch API...');
-    
-    // Check current columns to ensure we copy everything
-    const columnsRs = await client.execute('PRAGMA table_info(users)');
-    const columns = columnsRs.rows.map(c => c.name).join(', ');
-    
-// Execute all migration steps in a single atomic batch
-    await client.batch([
-      "PRAGMA foreign_keys=OFF",
-      "DROP TABLE IF EXISTS users_new",
-      `CREATE TABLE users_new (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        tc TEXT UNIQUE NOT NULL,
-        password TEXT NOT NULL,
-        role TEXT CHECK(role IN ('admin', 'personnel', 'super_admin')) NOT NULL DEFAULT 'personnel',
-        must_change_password BOOLEAN DEFAULT 1,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        company_id INTEGER DEFAULT 1
-      )`,
-      `INSERT INTO users_new (${columns}) SELECT ${columns} FROM users`,
-      "DROP TABLE users",
-      "ALTER TABLE users_new RENAME TO users",
-      {
-        sql: "UPDATE users SET role = 'super_admin' WHERE tc = 'admin'",
-        args: []
-      },
-      "PRAGMA foreign_keys=ON"
-    ], "write");
+    console.log('Starting Super Admin Upgrade...');
+    await client.execute({
+      sql: "UPDATE users SET role = 'super_admin' WHERE tc = 'admin'",
+      args: []
+    });
 
     res.json({ 
       success: true, 
@@ -5877,8 +5806,8 @@ app.put('/api/teklifler/:id', authMiddleware, async (req, res) => {
   const { durum, notlar } = req.body;
   try {
     await client.execute({
-      sql: 'UPDATE teklifler SET durum = ?, notlar = ? WHERE id = ? AND company_id = ?',
-      args: [durum, n(notlar), id, req.user.companyId]
+      sql: 'UPDATE teklifler SET durum = COALESCE(?, durum), notlar = COALESCE(?, notlar) WHERE id = ? AND company_id = ?',
+      args: [n(durum), n(notlar), id, req.user.companyId]
     });
     res.json({ success: true });
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }
@@ -6656,7 +6585,7 @@ app.get('/api/settings/smtp', authMiddleware, async (req, res) => {
     });
     
     let settings = {};
-    rs.rs.rows.forEach(r => { settings[r.setting_key] = r.setting_value; });
+    rs.rows.forEach(r => { settings[r.setting_key] = r.setting_value; });
     res.json({ success: true, settings });
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }
 });
@@ -6687,7 +6616,7 @@ app.post('/api/teklifler/:id/send-email', authMiddleware, async (req, res) => {
     });
     
     let config = {};
-    configRs.rs.rows.forEach(r => { config[r.setting_key] = r.setting_value; });
+    configRs.rows.forEach(r => { config[r.setting_key] = r.setting_value; });
     
     if (!config.smtp_host || !config.smtp_user || !config.smtp_pass) {
       return res.status(400).json({ success: false, message: 'SMTP ayarları eksik. Lütfen önce "Ayarlar" sekmesinden e-posta bilgilerinizi tanımlayın.' });
@@ -6812,7 +6741,7 @@ app.post('/api/mutabakatlar/:id/send-mail', authMiddleware, async (req, res) => 
       args: [req.user.companyId]
     });
     const config = {};
-    rsSettings.rs.rows.forEach(r => { config[r.setting_key] = r.setting_value; });
+    rsSettings.rows.forEach(r => { config[r.setting_key] = r.setting_value; });
 
     const transporter = nodemailer.createTransport({
       host: config.smtp_host,
@@ -7452,7 +7381,7 @@ app.get('/api/cron/sync-elogo', async (req, res) => {
               payableAmount, kdvOrani || 0, kdvTutari || 0, matrah || 0, '0', 0,
               '0', 0, null, null, pdfDosyaBase64, pdfDosyaAdi,
               null, 'odenmedi', null, null, null, null,
-              f.senderName || 'Alış Faturası', new Date().toISOString().split('T')[0], companyId,
+              senderName || 'Alış Faturası', new Date().toISOString().split('T')[0], companyId,
               (kdvOrani === 1 ? kdvTutari : 0), (kdvOrani === 10 ? kdvTutari : 0), (kdvOrani === 20 ? kdvTutari : 0), oivTutari || 0
             ]
           });
@@ -7493,7 +7422,7 @@ app.post('/api/yapay-zeka-kurallari', authMiddleware, async (req, res) => {
     
     const checkResult = await client.execute({
       sql: 'SELECT id FROM yapay_zeka_kurallari WHERE company_id = ? AND kural_tipi = ? AND anahtar_kelime = ?',
-      args: [req.user.companyId, kural_tipi, anahtar_kelime]
+      args: [req.user.companyId, n(kural_tipi), n(anahtar_kelime)]
     });
 
     if (checkResult.rows && checkResult.rows.length > 0) {
@@ -7503,7 +7432,7 @@ app.post('/api/yapay-zeka-kurallari', authMiddleware, async (req, res) => {
     const id = uuidv4();
     await client.execute({
       sql: 'INSERT INTO yapay_zeka_kurallari (id, company_id, kural_tipi, kural_adi, anahtar_kelime, muhasebe_kodu) VALUES (?, ?, ?, ?, ?, ?)',
-      args: [id, req.user.companyId, kural_tipi, kural_adi, anahtar_kelime, muhasebe_kodu]
+      args: [id, req.user.companyId, n(kural_tipi), n(kural_adi) || n(anahtar_kelime), n(anahtar_kelime), n(muhasebe_kodu)]
     });
     res.json({ success: true, message: 'Kural eklendi', id });
   } catch (error) {

@@ -1441,8 +1441,10 @@ export function KesilecekFaturalar() {
       ad: form.ad, soyad: form.soyad, vknTckn: form.vknTckn,
       vergiDairesi: form.vergiDairesi, adres: form.adres, il: form.il, ilce: form.ilce,
       tutar: kalemToplam.toplam,
+      matrah: kalemToplam.matrah,
+      kdvTutari: kalemToplam.kdv,
       kdvDahil: form.kdvHesaplamaTipi === 'DAHIL',
-      kdvOrani: parseInt(form.kdvOrani),
+      kdvOrani: kalemlerDolu[0]?.kdvOrani ?? (parseInt(form.kdvOrani) || 20),
       faturaTarihi: form.faturaTarihi,
       aciklama: form.aciklama,
       kalemler: kalemlerDolu,
@@ -2860,8 +2862,18 @@ export function KesilecekFaturalar() {
                         </div>
 
                         <div className="text-right text-[10px] text-slate-500 pt-0.5">
-                          Matrah: <strong className="text-slate-700">{formatCurrency(k.birimFiyat * k.miktar)}</strong>
-                          {' · '}KDV: <strong className="text-emerald-700">{formatCurrency((k.birimFiyat * k.miktar) * (k.kdvOrani / 100))}</strong>
+                          {(() => {
+                            const lineGross = (Number(k.birimFiyat) || 0) * (Number(k.miktar) || 1);
+                            const rate = (Number(k.kdvOrani) ?? 20) / 100;
+                            const lineMatrah = form.kdvHesaplamaTipi === 'DAHIL' ? +(lineGross / (1 + rate)).toFixed(2) : +lineGross.toFixed(2);
+                            const lineKdv = form.kdvHesaplamaTipi === 'DAHIL' ? +(lineGross - lineMatrah).toFixed(2) : +(lineMatrah * rate).toFixed(2);
+                            return (
+                              <>
+                                Matrah: <strong className="text-slate-700">{formatCurrency(lineMatrah)}</strong>
+                                {' · '}KDV: <strong className="text-emerald-700">{formatCurrency(lineKdv)}</strong>
+                              </>
+                            );
+                          })()}
                         </div>
                       </div>
                     ))}
@@ -3258,14 +3270,19 @@ export function KesilecekFaturalar() {
                         </TableCell>
                         {(() => {
                           const rowTutar = Number(f.tutar) || 0;
+                          const fallbackRate = (Number(f.kdvOrani) || 20) / 100;
                           const rowMatrah = (f.matrah !== undefined && f.matrah !== null && Number(f.matrah) > 0)
                             ? Number(f.matrah)
                             : (f.kalemler && f.kalemler.length > 0)
-                              ? f.kalemler.reduce((sum: number, k: any) => sum + (Number(k.miktar || 1) * Number(k.birimFiyat || 0)), 0)
-                              : (rowTutar > 0 ? +(rowTutar / 1.20).toFixed(2) : 0);
+                              ? +f.kalemler.reduce((sum: number, k: any) => {
+                                  const gross = Number(k.miktar || 1) * Number(k.birimFiyat || 0);
+                                  const r = (Number(k.kdvOrani) ?? (Number(f.kdvOrani) || 20)) / 100;
+                                  return sum + (f.kdvDahil ? gross / (1 + r) : gross);
+                                }, 0).toFixed(2)
+                              : (rowTutar > 0 ? +(rowTutar / (1 + fallbackRate)).toFixed(2) : 0);
                           const rowKdv = (f.kdvTutari !== undefined && f.kdvTutari !== null && Number(f.kdvTutari) > 0)
                             ? Number(f.kdvTutari)
-                            : (rowTutar > 0 ? +(rowTutar - rowMatrah).toFixed(2) : 0);
+                            : (rowTutar > 0 ? Math.max(0, +(rowTutar - rowMatrah).toFixed(2)) : 0);
 
                           return (
                             <>

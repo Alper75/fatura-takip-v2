@@ -967,7 +967,7 @@ Eğer belge okunamıyorsa: {"hata": "Belge okunamadı"}`;
         saveBase64File(`data:image/jpeg;base64,${base64Data}`, `telegram_fis_${faturaNo}.jpg`, 'fisler'),
         `telegram_fis_${faturaNo}.jpg`,
         faturaTarihi,
-        item.odeme_sekli === 'KREDI_KARTI' ? 'odendi' : 'bekliyor',
+        item.odeme_sekli === 'KREDI_KARTI' ? 'odendi' : 'odenmedi',
         null,
         'telegram_bot',
         null,

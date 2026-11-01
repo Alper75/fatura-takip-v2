@@ -467,7 +467,18 @@ class AutoInvoiceFetcherService {
           const issueDate = inv.tarih ? inv.tarih.split('/').reverse().join('-') : new Date().toISOString().split('T')[0];
           const recipientName = inv.aliciUnvanAdSoyad || inv.unvan || 'GİB Müşteri';
           const recipientVkn = inv.aliciVergiNo || inv.vknTckn || '';
-          const totalAmount = parseFloat(inv.odenecek || inv.toplamTutar || inv.vergilerDahilToplamTutar || 0);
+          const parseTrNum = (v) => {
+            if (typeof v === 'number') return v;
+            const s = String(v || '0').trim();
+            if (s.includes(',') && s.includes('.')) return parseFloat(s.replace(/\./g, '').replace(',', '.')) || 0;
+            if (s.includes(',')) return parseFloat(s.replace(',', '.')) || 0;
+            return parseFloat(s) || 0;
+          };
+          const totalAmount = parseTrNum(inv.odenecek || inv.toplamTutar || inv.vergilerDahilToplamTutar || 0);
+          const rawMatrah = parseTrNum(inv.malHizmetToplamTutari || inv.matrah || 0);
+          const rawKdv = parseTrNum(inv.hesaplananKdv || inv.kdvTutari || 0);
+          const calcMatrah = rawMatrah > 0 ? rawMatrah : (rawKdv > 0 ? Math.max(0, totalAmount - rawKdv) : Math.round((totalAmount / 1.20) * 100) / 100);
+          const calcKdv = rawKdv > 0 ? rawKdv : Math.max(0, Math.round((totalAmount - calcMatrah) * 100) / 100);
 
           const invoiceData = {
             uuid,
@@ -477,8 +488,8 @@ class AutoInvoiceFetcherService {
             aliciVkn: recipientVkn,
             toplamTutar: totalAmount,
             kdvOrani: 20,
-            kdvTutari: 0,
-            matrah: totalAmount,
+            kdvTutari: calcKdv,
+            matrah: calcMatrah,
             faturaAciklama: isIsletme ? 'GİB İşletme Geliri (Satış Faturası)' : 'GİB e-Arşiv Satış Faturası'
           };
 
@@ -510,7 +521,18 @@ class AutoInvoiceFetcherService {
             const issueDate = inv.tarih ? inv.tarih.split('/').reverse().join('-') : new Date().toISOString().split('T')[0];
             const senderName = inv.saticiUnvan || inv.aliciUnvanAdSoyad || inv.unvan || 'GİB Alış Fatura';
             const senderVkn = inv.saticiVergiNo || inv.aliciVergiNo || inv.vknTckn || '';
-            const totalAmount = parseFloat(inv.odenecek || inv.toplamTutar || inv.vergilerDahilToplamTutar || 0);
+            const parseTrNumIn = (v) => {
+              if (typeof v === 'number') return v;
+              const s = String(v || '0').trim();
+              if (s.includes(',') && s.includes('.')) return parseFloat(s.replace(/\./g, '').replace(',', '.')) || 0;
+              if (s.includes(',')) return parseFloat(s.replace(',', '.')) || 0;
+              return parseFloat(s) || 0;
+            };
+            const totalAmount = parseTrNumIn(inv.odenecek || inv.toplamTutar || inv.vergilerDahilToplamTutar || 0);
+            const rawMatrahIn = parseTrNumIn(inv.malHizmetToplamTutari || inv.matrah || 0);
+            const rawKdvIn = parseTrNumIn(inv.hesaplananKdv || inv.kdvTutari || 0);
+            const calcMatrahIn = rawMatrahIn > 0 ? rawMatrahIn : (rawKdvIn > 0 ? Math.max(0, totalAmount - rawKdvIn) : Math.round((totalAmount / 1.20) * 100) / 100);
+            const calcKdvIn = rawKdvIn > 0 ? rawKdvIn : Math.max(0, Math.round((totalAmount - calcMatrahIn) * 100) / 100);
 
             const invoiceData = {
               uuid,
@@ -520,8 +542,8 @@ class AutoInvoiceFetcherService {
               tedarikciVkn: senderVkn,
               toplamTutar: totalAmount,
               kdvOrani: 20,
-              kdvTutari: 0,
-              matrah: totalAmount,
+              kdvTutari: calcKdvIn,
+              matrah: calcMatrahIn,
               faturaAciklama: isIsletme ? 'GİB İşletme Gideri (Alış Faturası)' : 'GİB e-Arşiv Alış Faturası'
             };
 
@@ -676,8 +698,8 @@ class AutoInvoiceFetcherService {
       } else {
         cariId = uuidv4();
         await client.execute({
-          sql: `INSERT INTO cariler (id, unvan, vkn_tckn, tip, bakiye, olusturma_tarihi, company_id) 
-                VALUES (?, ?, ?, 'tedarikci', 0, ?, ?)`,
+          sql: `INSERT INTO cariler (id, unvan, vkn_tckn, tip, olusturma_tarihi, company_id) 
+                VALUES (?, ?, ?, 'tedarikci', ?, ?)`,
           args: [cariId, data.tedarikciAdi, data.tedarikciVkn, new Date().toISOString().split('T')[0], companyId]
         }).catch(err => console.warn('Cari oluşturulamadı:', err.message));
       }
@@ -796,8 +818,8 @@ class AutoInvoiceFetcherService {
       } else {
         cariId = uuidv4();
         await client.execute({
-          sql: `INSERT INTO cariler (id, unvan, vkn_tckn, tip, bakiye, olusturma_tarihi, company_id) 
-                VALUES (?, ?, ?, 'musteri', 0, ?, ?)`,
+          sql: `INSERT INTO cariler (id, unvan, vkn_tckn, tip, olusturma_tarihi, company_id) 
+                VALUES (?, ?, ?, 'musteri', ?, ?)`,
           args: [cariId, data.aliciAdi, data.aliciVkn, new Date().toISOString().split('T')[0], companyId]
         }).catch(err => console.warn('Müşteri cari oluşturulamadı:', err.message));
       }

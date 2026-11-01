@@ -440,11 +440,11 @@ export function AlisFaturaDrawer() {
           const matrah = hes.matrah;
           const kdv = hes.kdvTutari;
           const giderPayi = Math.round(matrah * 0.7 * 100) / 100;
-          const kkegPayi = Math.round(matrah * 0.3 * 100) / 100;
+          const kkegPayi = Math.round((matrah - giderPayi) * 100) / 100;
           const kdvGiderPayi = Math.round(kdv * 0.7 * 100) / 100;
-          const kdvKkegPayi = Math.round(kdv * 0.3 * 100) / 100;
+          const kdvKkegPayi = Math.round((kdv - kdvGiderPayi) * 100) / 100;
 
-          finalData.aciklama = (finalData.aciklama || '') + ` [%70 Gider: ${giderPayi + kdvGiderPayi} TL, %30 KKEG: ${kkegPayi + kdvKkegPayi} TL]`;
+          finalData.aciklama = (finalData.aciklama || '') + ` [%70 Gider: ${Math.round((giderPayi + kdvGiderPayi) * 100) / 100} TL, %30 KKEG: ${Math.round((kkegPayi + kdvKkegPayi) * 100) / 100} TL]`;
         }
 
         const isEditMode = !!(f.data as any).id;
@@ -466,22 +466,7 @@ export function AlisFaturaDrawer() {
         if (isEditMode) {
           await updateAlisFatura((f.data as any).id, invoicePayload);
         } else {
-          const invoiceId = await addAlisFatura(invoicePayload);
-
-          if (f.data.urunId) {
-            await stokApi.addHareket({
-              urunId: f.data.urunId,
-              depoId: f.data.depoId || varsayilanDepoId,
-              tip: 'GIRIS',
-              miktar: 1, 
-              birimFiyat: hes.matrah,
-              tutar: hes.matrah,
-              tarih: f.data.faturaTarihi,
-              referansNo: `Alış Faturası: ${f.data.faturaNo}`,
-              aciklama: `${f.data.tedarikciAdi} firmasından alım.`,
-              bagliFaturaId: invoiceId
-            });
-          }
+          await addAlisFatura(invoicePayload);
         }
 
         // Başarıyla kaydedilen fişi listeden ve taslaktan anında çıkar:

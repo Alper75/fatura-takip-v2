@@ -1414,9 +1414,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         urunId: formData.urunId,
         depoId: formData.depoId
       };
-      await apiFetch('/api/satis-faturalari', { method: 'POST', body: JSON.stringify(bodyToSend) });
+      const res = await apiFetch('/api/satis-faturalari', { method: 'POST', body: JSON.stringify(bodyToSend) });
+      if (!res || res.success === false) {
+        throw new Error(res?.message || 'Satış faturası kaydedilemedi');
+      }
     } catch (e) {
       console.error('Satış fatura eklenemedi:', e);
+      setSatisFaturalari(prev => prev.filter(f => f.id !== yeniFatura.id));
+      throw e;
     }
 
     if (formData.cariId) {
@@ -1528,7 +1533,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     // Fatura ve varsa PDF görselini tek seferde POST ile kaydet (backend diske yazıp URL'yi DB'ye koyar)
     try {
-      await apiFetch('/api/alis-faturalari', {
+      const res = await apiFetch('/api/alis-faturalari', {
         method: 'POST',
         body: JSON.stringify({
           ...yeniFatura,
@@ -1540,8 +1545,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           depoId: formData.depoId
         })
       });
+      if (!res || res.success === false) {
+        throw new Error(res?.message || 'Alış faturası kaydedilemedi');
+      }
     } catch (e) {
       console.error('Alış fatura eklenemedi:', e);
+      setAlisFaturalari(prev => prev.filter(f => f.id !== yeniFatura.id));
+      throw e;
     }
 
     if (formData.cariId) {
