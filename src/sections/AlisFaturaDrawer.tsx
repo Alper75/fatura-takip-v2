@@ -910,7 +910,11 @@ MALİ MÜŞAVİRLİK VE KDV AYRIŞTIRMA KURALLARI:
 6. TEVKİFAT, STOPAJ VE ÖİV (ÖZEL İLETİŞİM / KONAKLAMA VERGİSİ): Varsa KDV tevkifat oranını (örn: "2/10", "5/10", "9/10") ve Stopaj oranını tespit et. Eğer faturada/fişte KDV haricinde "Özel İletişim Vergisi (ÖİV)", "Konaklama Vergisi", "ÖTV" veya "Telsiz Kullanım Ücreti" gibi KDV matrahına dahil olmayan ek bir vergi/kesinti varsa tutarını "oiv_tutari" alanına yaz (yoksa "0").
 
 Aşağıdaki LUCA HESAP PLANI listesinden bu faturanın açıklamasına/türüne en uygun "kod"u seçerek "muhasebe_kodu" alanına yaz:
-${lucaAccounts.map(a => `${a.kod}: ${a.ad}`).join('\n')}
+${lucaAccounts
+  .filter(a => /^(15|73|74|76|77|78|25)/.test(String(a.kod || '').trim()))
+  .slice(0, 80)
+  .map(a => `${a.kod}: ${a.ad}`)
+  .join('\n') || lucaAccounts.slice(0, 60).map(a => `${a.kod}: ${a.ad}`).join('\n')}
 
 SADECE geçerli bir JSON döndür:
 {

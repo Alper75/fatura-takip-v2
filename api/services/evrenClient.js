@@ -50,7 +50,8 @@ export class EvrenClientService {
         'Authorization': `Bearer ${apiKey.trim()}`,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(22000)
     });
 
     if (!response.ok) {
@@ -99,11 +100,9 @@ export class EvrenClientService {
 
     const candidateModels = Array.from(new Set([
       model,
-      'deepseek-v4-flash',
-      'glm-5.3',
       'qwen3.8-flash-next',
-      'auto'
-    ].filter(Boolean)));
+      'deepseek-v4-flash'
+    ].filter(Boolean))).slice(0, 2);
 
     for (const m of candidateModels) {
       try {
@@ -116,8 +115,10 @@ export class EvrenClientService {
           body: JSON.stringify({
             model: m,
             messages,
+            max_tokens: 2048,
             temperature
-          })
+          }),
+          signal: AbortSignal.timeout(15000)
         });
 
         if (res.ok) {
@@ -125,9 +126,13 @@ export class EvrenClientService {
           const content = data.choices?.[0]?.message?.content || '';
           if (content) return content;
         } else {
+          if (res.status === 401 || res.status === 403) {
+            throw new Error(`EVREN API Anahtarı geçersiz veya yetkisiz (HTTP ${res.status}).`);
+          }
           console.warn(`[EvrenClient] Chat HTTP ${res.status} (${m})`);
         }
       } catch (err) {
+        if (err.message?.includes('geçersiz veya yetkisiz')) throw err;
         console.warn(`[EvrenClient] Chat çağrı hatası (${m}):`, err.message);
       }
     }

@@ -6148,6 +6148,8 @@ Temel Muhasebe İlkelerin ve Davranış Kuralların:
    - Kullanıcının hesap planı (Luca Hesap Planı) sağlandığında, genel geçer ezbere kodlar vermek yerine işletmenin kendi hesap planındaki en uygun alt hesap kodunu (örn: 770.01.001, 102.01.002 vb.) seç.
    - Belirsiz veya yetersiz açıklamalarda mantıklı tahmin yap, gerekirse en uygun ana hesap grubunu öner.`;
 
+    let lastProviderError = '';
+
     const runGrok = async () => {
       if (!xaiApiKey) return null;
       const imageUrl = fileBase64 ? (fileBase64.startsWith('data:') ? fileBase64 : `data:${mimeType || 'image/jpeg'};base64,${fileBase64}`) : null;
@@ -6160,11 +6162,8 @@ Temel Muhasebe İlkelerin ve Davranış Kuralların:
 
       const candidateModels = Array.from(new Set([
         xaiModel,
-        'grok-2-vision-1212',
-        'grok-vision-beta',
-        'grok-2-1212',
-        'grok-beta'
-      ].filter(Boolean)));
+        'grok-2-vision-1212'
+      ].filter(Boolean))).slice(0, 2);
 
       for (const m of candidateModels) {
         try {
@@ -6182,12 +6181,15 @@ Temel Muhasebe İlkelerin ve Davranış Kuralların:
               ],
               max_tokens: 4096,
               temperature: 0.1
-            })
+            }),
+            signal: AbortSignal.timeout(22000)
           });
           const xData = await xRes.json();
           if (!xRes.ok) {
             const errMsg = xData.error?.message || `xAI/Grok HTTP ${xRes.status}`;
+            lastProviderError = `Grok (${m}): ${errMsg}`;
             console.warn(`[Grok AI] ${m} hatası:`, errMsg);
+            if (xRes.status === 401 || xRes.status === 403 || xRes.status === 429) break;
             continue;
           }
           const choice = xData.choices?.[0];
@@ -6195,6 +6197,7 @@ Temel Muhasebe İlkelerin ve Davranış Kuralların:
           if (!txt && choice?.message?.reasoning_content) txt = choice.message.reasoning_content;
           if (txt) return txt;
         } catch (err) {
+          lastProviderError = `Grok (${m}): ${err.message}`;
           console.warn(`[Grok AI] ${m} çağrısında hata:`, err.message);
         }
       }
@@ -6226,12 +6229,15 @@ Temel Muhasebe İlkelerin ve Davranış Kuralların:
             ],
             max_tokens: 4096,
             temperature: 0.1
-          })
+          }),
+          signal: AbortSignal.timeout(22000)
         });
         const nvData = await nvRes.json();
         if (!nvRes.ok) {
           const errMsg = nvData.message || nvData.detail || nvData.error?.message || `NVIDIA HTTP ${nvRes.status}`;
-          throw new Error(errMsg);
+          const err = new Error(errMsg);
+          err.status = nvRes.status;
+          throw err;
         }
         const choice = nvData.choices?.[0];
         let txt = choice?.message?.content || '';
@@ -6241,17 +6247,17 @@ Temel Muhasebe İlkelerin ve Davranış Kuralların:
 
       const candidateModels = Array.from(new Set([
         nvidiaModel,
-        'stepfun-ai/step-5-preview',
-        'meta/llama-3.2-11b-vision-instruct',
-        'meta/llama-3.2-90b-vision-instruct'
-      ].filter(m => m && !m.includes('nemotron-parse') && !m.includes('phi-3-vision') && !m.includes('kimi-k3') && !m.includes('qwen2.5-vl-72b-instruct'))));
+        'meta/llama-3.2-11b-vision-instruct'
+      ].filter(m => m && !m.includes('nemotron-parse') && !m.includes('phi-3-vision') && !m.includes('kimi-k3') && !m.includes('qwen2.5-vl-72b-instruct')))).slice(0, 2);
 
       for (const m of candidateModels) {
         try {
           const res = await callTarget(m);
           if (res) return res;
         } catch (err) {
+          lastProviderError = `NVIDIA (${m}): ${err.message}`;
           console.warn(`[NVIDIA AI] ${m} çağrısında hata:`, err.message);
+          if (err.status === 401 || err.status === 403 || err.status === 429) break;
         }
       }
       return null;
@@ -6271,9 +6277,8 @@ Temel Muhasebe İlkelerin ve Davranış Kuralların:
         safeModel,
         'gemini-2.5-flash',
         'gemini-2.0-flash',
-        'gemini-1.5-flash',
-        'gemini-1.5-pro'
-      ].filter(Boolean)));
+        'gemini-1.5-flash'
+      ].filter(Boolean))).slice(0, 2);
 
       for (const model of candidateModels) {
         try {
@@ -6296,13 +6301,15 @@ Temel Muhasebe İlkelerin ve Davranış Kuralların:
                 { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
                 { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" }
               ]
-            })
+            }),
+            signal: AbortSignal.timeout(22000)
           });
 
           const gData = await gRes.json();
           if (gData.error) {
+            lastProviderError = `Gemini (${model}): ${gData.error.message}`;
             console.warn(`[Gemini AI] ${model} hatası:`, gData.error.message);
-            if (gData.error.message?.includes('leaked')) {
+            if (gData.error.message?.includes('leaked') || gData.error.code === 400 || gData.error.code === 403 || gData.error.code === 429) {
               break;
             }
             continue;
@@ -6315,6 +6322,7 @@ Temel Muhasebe İlkelerin ve Davranış Kuralların:
             return JSON.stringify({ hata: 'Güvenlik filtresi (SAFETY) nedeniyle yapay zeka bu fişi okuyamadı.' });
           }
         } catch (fetchErr) {
+          lastProviderError = `Gemini (${model}): ${fetchErr.message}`;
           console.warn(`[Gemini AI] ${model} fetch hatası:`, fetchErr.message);
         }
       }
@@ -6333,9 +6341,8 @@ Temel Muhasebe İlkelerin ve Davranış Kuralların:
 
       const candidateModels = Array.from(new Set([
         openaiModel,
-        'gpt-4o-mini',
-        'gpt-4o'
-      ].filter(Boolean)));
+        'gpt-4o-mini'
+      ].filter(Boolean))).slice(0, 2);
 
       for (const m of candidateModels) {
         try {
@@ -6353,12 +6360,15 @@ Temel Muhasebe İlkelerin ve Davranış Kuralların:
               ],
               max_tokens: 4096,
               temperature: 0.1
-            })
+            }),
+            signal: AbortSignal.timeout(22000)
           });
           const oData = await oRes.json();
           if (!oRes.ok) {
             const errMsg = oData.error?.message || `OpenAI HTTP ${oRes.status}`;
+            lastProviderError = `OpenAI (${m}): ${errMsg}`;
             console.warn(`[OpenAI AI] ${m} hatası:`, errMsg);
+            if (oRes.status === 401 || oRes.status === 403 || oRes.status === 429) break;
             continue;
           }
           const choice = oData.choices?.[0];
@@ -6366,6 +6376,7 @@ Temel Muhasebe İlkelerin ve Davranış Kuralların:
           if (!txt && choice?.message?.reasoning_content) txt = choice.message.reasoning_content;
           if (txt) return txt;
         } catch (err) {
+          lastProviderError = `OpenAI (${m}): ${err.message}`;
           console.warn(`[OpenAI AI] ${m} çağrısında hata:`, err.message);
         }
       }
@@ -6387,128 +6398,33 @@ Temel Muhasebe İlkelerin ve Davranış Kuralların:
 
         if (result) return result;
       } catch (err) {
+        lastProviderError = `EVREN (${evrenModel || 'dots-ocr'}): ${err.message}`;
         console.warn('[AI Proxy][EVREN] Hata:', err.message);
       }
       return null;
     };
 
+    // Sadece seçili sağlayıcıyı çalıştır (Zincirleme 5 sağlayıcı denemesi 60sn Nginx 504 Timeout hatasına yol açtığı için kaldırıldı)
     if (activeProvider === 'evren') {
       responseText = await runEvren();
-      if (!responseText && openaiApiKey) {
-        console.warn('[AI Proxy] EVREN yanıt vermedi, OpenAI deneniyor...');
-        responseText = await runOpenAI();
-        if (responseText) usedProvider = 'openai';
-      }
-      if (!responseText && xaiApiKey) {
-        console.warn('[AI Proxy] EVREN ve OpenAI yanıt vermedi, Grok deneniyor...');
-        responseText = await runGrok();
-        if (responseText) usedProvider = 'grok';
-      }
-      if (!responseText && geminiApiKey) {
-        console.warn('[AI Proxy] EVREN yanıt vermedi, Gemini deneniyor...');
-        responseText = await runGemini();
-        if (responseText) usedProvider = 'gemini';
-      }
-      if (!responseText && nvidiaApiKey) {
-        console.warn('[AI Proxy] EVREN yanıt vermedi, NVIDIA NIM deneniyor...');
-        responseText = await runNvidia();
-        if (responseText) usedProvider = 'nvidia';
-      }
     } else if (activeProvider === 'grok' || activeProvider === 'xai') {
       responseText = await runGrok();
-      if (!responseText && evrenApiKey) {
-        console.warn('[AI Proxy] Grok yanıt vermedi, EVREN OCR deneniyor...');
-        responseText = await runEvren();
-        if (responseText) usedProvider = 'evren';
-      }
-      if (!responseText && openaiApiKey) {
-        console.warn('[AI Proxy] Grok yanıt vermedi, OpenAI deneniyor...');
-        responseText = await runOpenAI();
-        if (responseText) usedProvider = 'openai';
-      }
-      if (!responseText && geminiApiKey) {
-        console.warn('[AI Proxy] Grok ve OpenAI yanıt vermedi, Gemini deneniyor...');
-        responseText = await runGemini();
-        if (responseText) usedProvider = 'gemini';
-      }
-      if (!responseText && nvidiaApiKey) {
-        console.warn('[AI Proxy] Grok, OpenAI ve Gemini yanıt vermedi, NVIDIA NIM deneniyor...');
-        responseText = await runNvidia();
-        if (responseText) usedProvider = 'nvidia';
-      }
     } else if (activeProvider === 'openai') {
       responseText = await runOpenAI();
-      if (!responseText && evrenApiKey) {
-        console.warn('[AI Proxy] OpenAI yanıt vermedi, EVREN OCR deneniyor...');
-        responseText = await runEvren();
-        if (responseText) usedProvider = 'evren';
-      }
-      if (!responseText && xaiApiKey) {
-        console.warn('[AI Proxy] OpenAI yanıt vermedi, Grok deneniyor...');
-        responseText = await runGrok();
-        if (responseText) usedProvider = 'grok';
-      }
-      if (!responseText && geminiApiKey) {
-        console.warn('[AI Proxy] OpenAI yanıt vermedi, Gemini deneniyor...');
-        responseText = await runGemini();
-        if (responseText) usedProvider = 'gemini';
-      }
-      if (!responseText && nvidiaApiKey) {
-        console.warn('[AI Proxy] OpenAI ve Gemini yanıt vermedi, NVIDIA NIM deneniyor...');
-        responseText = await runNvidia();
-        if (responseText) usedProvider = 'nvidia';
-      }
     } else if (activeProvider === 'nvidia') {
       responseText = await runNvidia();
-      if (!responseText && evrenApiKey) {
-        console.warn('[AI Proxy] NVIDIA yanıt vermedi, EVREN OCR deneniyor...');
-        responseText = await runEvren();
-        if (responseText) usedProvider = 'evren';
-      }
-      if (!responseText && xaiApiKey) {
-        console.warn('[AI Proxy] NVIDIA yanıt vermedi, Grok deneniyor...');
-        responseText = await runGrok();
-        if (responseText) usedProvider = 'grok';
-      }
-      if (!responseText && openaiApiKey) {
-        console.warn('[AI Proxy] NVIDIA yanıt vermedi, OpenAI deneniyor...');
-        responseText = await runOpenAI();
-        if (responseText) usedProvider = 'openai';
-      }
-      if (!responseText && geminiApiKey) {
-        console.warn('[AI Proxy] NVIDIA ve OpenAI yanıt vermedi, Gemini deneniyor...');
-        responseText = await runGemini();
-        if (responseText) usedProvider = 'gemini';
-      }
     } else {
       responseText = await runGemini();
-      if (!responseText && evrenApiKey) {
-        console.warn('[AI Proxy] Gemini yanıt vermedi, EVREN OCR deneniyor...');
-        responseText = await runEvren();
-        if (responseText) usedProvider = 'evren';
-      }
-      if (!responseText && xaiApiKey) {
-        console.warn('[AI Proxy] Gemini yanıt vermedi, Grok deneniyor...');
-        responseText = await runGrok();
-        if (responseText) usedProvider = 'grok';
-      }
-      if (!responseText && openaiApiKey) {
-        console.warn('[AI Proxy] Gemini yanıt vermedi, OpenAI deneniyor...');
-        responseText = await runOpenAI();
-        if (responseText) usedProvider = 'openai';
-      }
-      if (!responseText && nvidiaApiKey) {
-        console.warn('[AI Proxy] Gemini ve OpenAI yanıt vermedi, NVIDIA NIM deneniyor...');
-        responseText = await runNvidia();
-        if (responseText) usedProvider = 'nvidia';
-      }
     }
 
     if (!responseText) {
       if (!openaiApiKey && !nvidiaApiKey && !geminiApiKey && !evrenApiKey && !xaiApiKey) {
         return res.status(400).json({ success: false, message: 'Yapay zeka anahtarı bulunamadı. Lütfen Ayarlar sayfasından API anahtarınızı tanımlayın.' });
       }
-      return res.status(500).json({ success: false, message: 'Yapay zekadan yanıt alınamadı. Tanımlı modeller veya API anahtarları yanıt vermiyor.' });
+      return res.status(500).json({
+        success: false,
+        message: lastProviderError || `Seçili yapay zeka sağlayıcısından (${activeProvider}) yanıt alınamadı. Lütfen API anahtarınızı veya model seçiminizi kontrol edin.`
+      });
     }
 
     // Gelişmiş JSON Ayrıştırma ve Hata Ayıklama
