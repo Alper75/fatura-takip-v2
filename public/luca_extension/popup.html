@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Luca Aktarım & Hesap Planı Yönetimi</title>
+  <style>
+    :root {
+      --primary: #4f46e5;
+      --primary-hover: #4338ca;
+      --success: #10b981;
+      --success-hover: #059669;
+      --danger: #ef4444;
+      --warning: #f59e0b;
+      --bg: #0f172a;
+      --card-bg: #1e293b;
+      --card-border: #334155;
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      width: 420px;
+      min-height: 580px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      background-color: var(--bg);
+      color: var(--text);
+      font-size: 13px;
+    }
+    .header {
+      padding: 12px 16px;
+      background: linear-gradient(135deg, #1e1b4b 0%, #312e81 100%);
+      border-bottom: 1px solid rgba(255,255,255,0.1);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .logo-area {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .logo-badge {
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      background: linear-gradient(135deg, #6366f1, #a855f7);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      font-size: 16px;
+      color: white;
+      box-shadow: 0 4px 10px rgba(99, 102, 241, 0.4);
+    }
+    .title-area h1 {
+      font-size: 14px;
+      font-weight: 700;
+      color: #fff;
+    }
+    .title-area span {
+      font-size: 10px;
+      color: #cbd5e1;
+    }
+    .session-badge {
+      font-size: 11px;
+      padding: 4px 8px;
+      border-radius: 6px;
+      background: rgba(16, 185, 129, 0.15);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      color: #34d399;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background-color: #10b981;
+      display: inline-block;
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(1.2); }
+      100% { opacity: 1; transform: scale(1); }
+    }
+
+    /* Sekme Menüsü */
+    .nav-tabs {
+      display: flex;
+      background: #1e293b;
+      border-bottom: 1px solid var(--card-border);
+    }
+    .tab-btn {
+      flex: 1;
+      padding: 10px 4px;
+      text-align: center;
+      font-size: 11.5px;
+      font-weight: 600;
+      color: var(--text-muted);
+      border: none;
+      background: none;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+    }
+    .tab-btn:hover {
+      color: #fff;
+      background: rgba(255,255,255,0.02);
+    }
+    .tab-btn.active {
+      color: #818cf8;
+      border-bottom-color: #818cf8;
+      background: rgba(129, 140, 248, 0.08);
+    }
+
+    .tab-content {
+      display: none;
+      padding: 14px;
+      max-height: 500px;
+      overflow-y: auto;
+    }
+    .tab-content.active {
+      display: block;
+    }
+
+    /* Kart Yapısı */
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 10px;
+      padding: 12px;
+      margin-bottom: 12px;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2);
+    }
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+    .card-title {
+      font-size: 12px;
+      font-weight: 700;
+      color: #e2e8f0;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .badge {
+      font-size: 10px;
+      padding: 2px 7px;
+      border-radius: 10px;
+      font-weight: 700;
+    }
+    .badge-blue { background: #1e3a8a; color: #93c5fd; }
+    .badge-green { background: #064e3b; color: #6ee7b7; }
+    .badge-amber { background: #78350f; color: #fcd34d; }
+
+    /* Butonlar */
+    .btn {
+      width: 100%;
+      padding: 9px 12px;
+      border: none;
+      border-radius: 7px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: all 0.2s;
+    }
+    .btn-primary {
+      background: linear-gradient(135deg, #4f46e5 0%, #4338ca 100%);
+      color: white;
+    }
+    .btn-primary:hover:not(:disabled) {
+      filter: brightness(1.1);
+      box-shadow: 0 4px 12px rgba(79, 70, 229, 0.35);
+    }
+    .btn-success {
+      background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+      color: white;
+    }
+    .btn-success:hover:not(:disabled) {
+      filter: brightness(1.1);
+      box-shadow: 0 4px 12px rgba(16, 185, 129, 0.35);
+    }
+    .btn-secondary {
+      background: #334155;
+      color: #cbd5e1;
+      margin-top: 6px;
+    }
+    .btn-secondary:hover:not(:disabled) {
+      background: #475569;
+      color: white;
+    }
+    .btn-sm {
+      padding: 6px 10px;
+      font-size: 11px;
+    }
+    .btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      filter: grayscale(0.5);
+    }
+
+    /* Form Elemanları */
+    .form-group {
+      margin-bottom: 10px;
+    }
+    .form-label {
+      display: block;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-muted);
+      margin-bottom: 4px;
+    }
+    .form-input, .form-select {
+      width: 100%;
+      padding: 7px 10px;
+      background: #0f172a;
+      border: 1px solid var(--card-border);
+      border-radius: 6px;
+      color: #fff;
+      font-size: 12px;
+    }
+    .form-input:focus, .form-select:focus {
+      outline: none;
+      border-color: #818cf8;
+      box-shadow: 0 0 0 2px rgba(129, 140, 248, 0.2);
+    }
+    .input-group {
+      display: flex;
+      gap: 6px;
+    }
+
+    /* Tablo */
+    .table-container {
+      max-height: 240px;
+      overflow-y: auto;
+      border: 1px solid var(--card-border);
+      border-radius: 6px;
+      margin-top: 8px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 11px;
+    }
+    th {
+      background: #0f172a;
+      padding: 6px 8px;
+      text-align: left;
+      color: var(--text-muted);
+      position: sticky;
+      top: 0;
+      border-bottom: 1px solid var(--card-border);
+    }
+    td {
+      padding: 6px 8px;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+    }
+    tr:hover td {
+      background: rgba(255,255,255,0.03);
+    }
+
+    /* Bildirim Toast */
+    .alert-box {
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-size: 11.5px;
+      margin-top: 8px;
+      display: none;
+    }
+    .alert-success { background: rgba(16, 185, 129, 0.2); border: 1px solid #10b981; color: #6ee7b7; }
+    .alert-error { background: rgba(239, 68, 68, 0.2); border: 1px solid #ef4444; color: #fca5a5; }
+
+    .footer {
+      padding: 8px;
+      text-align: center;
+      font-size: 10px;
+      color: var(--text-muted);
+      border-top: 1px solid var(--card-border);
+      background: #0f172a;
+    }
+  </style>
+</head>
+<body>
+  <!-- Header & Oturum -->
+  <div class="header">
+    <div class="logo-area">
+      <div class="logo-badge">L</div>
+      <div class="title-area">
+        <h1>Luca Entegratör v3.0</h1>
+        <span id="luca-host-label">auygs.luca.com.tr</span>
+      </div>
+    </div>
+    <div class="session-badge" id="session-box">
+      <span class="dot"></span>
+      <span id="session-label">Oturum aranıyor...</span>
+    </div>
+  </div>
+
+  <!-- Sekmeler -->
+  <div class="nav-tabs">
+    <button class="tab-btn active" data-tab="tab-aktarim">⚡ Aktarım</button>
+    <button class="tab-btn" data-tab="tab-hesap-plani">📋 Hesap Planı</button>
+    <button class="tab-btn" data-tab="tab-yeni-hesap">➕ Yeni Hesap / Cari</button>
+  </div>
+
+  <!-- 1. SEKME: AKTARIM -->
+  <div class="tab-content active" id="tab-aktarim">
+    <!-- Hızlı Fiş (İşletme) -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">📖 İşletme Defteri (Hızlı Fiş)</span>
+        <span class="badge badge-blue" id="queue-badge">0 Fatura</span>
+      </div>
+      <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 8px;">
+        Luca'da <code>Hızlı Fiş</code> penceresi açıkken tıklayın. Belge türü, stopaj ve tevkifat otomatik eşleştirilir.
+      </div>
+      <button id="paste-btn" class="btn btn-primary" disabled>
+        ⚡ Faturaları Hızlı Fişe Aktar (<span id="queue-count">0</span>)
+      </button>
+      <button id="clear-btn" class="btn btn-secondary btn-sm">Fatura Kuyruğunu Temizle</button>
+    </div>
+
+    <!-- Mahsup / Yevmiye (Bilanço) -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">📑 Bilanço Fatura (Mahsup Fişi)</span>
+        <span class="badge badge-green" id="mahsup-queue-badge">0 Satır</span>
+      </div>
+      <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 8px;">
+        Luca'da <code>Yevmiye Fiş Girişi</code> (addFis.do) ekranında satırları otomatik oluşturur ve Ba-Bs kodlarını tamamlar.
+      </div>
+      <button id="mahsup-paste-btn" class="btn btn-success" disabled>
+        📥 Mahsup Fişine Aktar (<span id="mahsup-queue-count">0</span>)
+      </button>
+      <button id="mahsup-clear-btn" class="btn btn-secondary btn-sm">Mahsup Kuyruğunu Temizle</button>
+    </div>
+
+    <!-- Banka Hareketleri -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">💳 Banka Hareketleri</span>
+        <span class="badge badge-amber" id="bank-queue-badge">0 Hareket</span>
+      </div>
+      <button id="bank-paste-btn" class="btn btn-primary" disabled style="background: linear-gradient(135deg, #d97706, #b45309);">
+        🏦 Banka Hareketlerini Aktar (<span id="bank-queue-count">0</span>)
+      </button>
+      <button id="bank-clear-btn" class="btn btn-secondary btn-sm">Banka Kuyruğunu Temizle</button>
+    </div>
+  </div>
+
+  <!-- 2. SEKME: HESAP PLANI -->
+  <div class="tab-content" id="tab-hesap-plani">
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">📥 Luca Hesap Planını Çek</span>
+        <span class="badge badge-green" id="acc-count-badge">0 Hesap</span>
+      </div>
+      <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 10px;">
+        Luca'da herhangi bir sayfada olmanıza gerek yoktur; doğrudan arka plandan <code>listAltHesapTempAction.do</code> üzerinden tüm hesap planı anında çekilir.
+      </div>
+      <div class="input-group" style="margin-bottom: 8px;">
+        <button id="btn-fetch-accounts" class="btn btn-success">
+          🔄 Tüm Hesap Planını Çek
+        </button>
+        <button id="btn-sync-to-webapp" class="btn btn-primary" title="Fatura Takip Web Uygulamasına Eşitle">
+          🌐 Web'e Eşitle
+        </button>
+      </div>
+      <div id="acc-last-sync" style="font-size: 10px; color: var(--text-muted); margin-bottom: 8px;">Son Senkronizasyon: Henüz yapılmadı</div>
+
+      <!-- Arama Kutusu -->
+      <input type="text" id="acc-search-input" class="form-input" placeholder="🔍 Kod veya isim ile ara... (Örn: 120, Garanti, 320)" />
+
+      <!-- Hesap Tablosu -->
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 100px;">Hesap Kodu</th>
+              <th>Hesap Adı</th>
+            </tr>
+          </thead>
+          <tbody id="acc-table-body">
+            <tr>
+              <td colspan="2" style="text-align:center; color: var(--text-muted); padding: 16px;">
+                Henüz hesap planı çekilmedi. "Tüm Hesap Planını Çek" butonuna tıklayın.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- 3. SEKME: YENİ HESAP / CARİ AÇMA -->
+  <div class="tab-content" id="tab-yeni-hesap">
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">🔍 1. Adım: VKN / TCKN ile Doğrula</span>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Vergi / TC Kimlik No</label>
+        <div class="input-group">
+          <input type="text" id="new-acc-vkn" class="form-input" placeholder="10 haneli VKN veya 11 haneli TCKN" maxlength="11" />
+          <button id="btn-query-vkn" class="btn btn-primary" style="width: 120px;">
+            🔎 Sorgula
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">➕ 2. Adım: Hesap Kartı Bilgileri</span>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Hesap Şablonu</label>
+        <select id="new-acc-template" class="form-select">
+          <option value="120">120 - Alıcılar / Müşteriler</option>
+          <option value="320">320 - Satıcılar / Tedarikçiler</option>
+          <option value="600">600 - Yurtiçi Satışlar</option>
+          <option value="191">191 - İndirilecek KDV</option>
+          <option value="391">391 - Hesaplanan KDV</option>
+          <option value="770">770 - Genel Yönetim Giderleri</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Açılacak Hesap Kodu</label>
+        <div class="input-group">
+          <input type="text" id="new-acc-code" class="form-input" placeholder="Örn: 120.01.001" />
+          <button id="btn-next-code" class="btn btn-secondary" style="width: 110px;" title="Mevcut plandaki bir sonraki boş kodu bulur">
+            🎯 Sonraki Kod
+          </button>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Hesap Adı / Cari Ünvan</label>
+        <input type="text" id="new-acc-name" class="form-input" placeholder="Firma Ünvanı veya Hesap Adı" />
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Vergi Dairesi</label>
+        <div class="input-group">
+          <input type="text" id="new-acc-vd-code" class="form-input" style="width: 80px;" placeholder="Kod" />
+          <input type="text" id="new-acc-vd-name" class="form-input" placeholder="Vergi Dairesi Adı" />
+        </div>
+      </div>
+
+      <button id="btn-create-account" class="btn btn-success" style="margin-top: 8px;">
+        💾 Hesap Kartını Luca'ya Kaydet
+      </button>
+
+      <div id="account-result-box" class="alert-box"></div>
+    </div>
+  </div>
+
+  <div id="global-alert" class="alert-box" style="margin: 0 14px 10px 14px;"></div>
+
+  <div class="footer">
+    Luca Entegrasyonu v3.0 &bull; Fatura & Banka Otomasyonu
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

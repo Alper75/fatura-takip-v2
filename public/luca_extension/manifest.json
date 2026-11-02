@@ -1,0 +1,62 @@
+{
+  "manifest_version": 3,
+  "name": "Luca Aktarım ve Hesap Planı Entegrasyonu",
+  "version": "3.0.0",
+  "description": "Fatura Takip uygulamasından Luca Mali Müşavir'e hızlı fiş, mahsup ve banka aktarımı, hesap planı çekme ve otomatik cari hesap açma sağlar.",
+  "permissions": [
+    "storage",
+    "tabs",
+    "activeTab",
+    "scripting",
+    "declarativeNetRequest"
+  ],
+  "declarative_net_request": {
+    "rule_resources": [
+      {
+        "id": "ruleset_1",
+        "enabled": true,
+        "path": "rules_1.json"
+      }
+    ]
+  },
+  "host_permissions": [
+    "*://*.luca.com.tr/*",
+    "<all_urls>"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": "icon128.png"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "*://*.luca.com.tr/*"
+      ],
+      "js": [
+        "luca_content.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": true
+    },
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "fatura_content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "externally_connectable": {
+    "matches": [
+      "<all_urls>"
+    ]
+  },
+  "icons": {
+    "128": "icon128.png"
+  }
+}
