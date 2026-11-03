@@ -667,6 +667,27 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (actionKey === 'GET_EXTENSION_INFO') {
+    sendResponse({ version: '3.1.0', installType: 'development' });
+    return true;
+  }
+
+  if (actionKey === 'GET_USER_INFO') {
+    sendResponse({ userId: 'fatura_user', parasutCompanyId: 'fatura_company' });
+    return true;
+  }
+
+  if (actionKey === 'CLEAN_TEMPORARY_STORAGE') {
+    chrome.storage.local.remove(['lucaBucket']);
+    sendResponse({ ok: true });
+    return true;
+  }
+
+  if (actionKey === 'TRACK_EVENT') {
+    sendResponse({ ok: true });
+    return true;
+  }
+
   if (actionKey === 'CREATE_TAB') {
     (async () => {
       try {
@@ -680,11 +701,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           if (lucaTab.windowId) {
             try { await chrome.windows.update(lucaTab.windowId, { focused: true }); } catch(e) {}
           }
+
+          // Açık Luca sekmesine hem RESET_LUCA_STATE hem TRIGGER_MAHSUP_AKTAR ilet
+          chrome.tabs.sendMessage(lucaTab.id, { actionKey: 'RESET_LUCA_STATE' }, () => {});
+          setTimeout(() => {
+            chrome.tabs.sendMessage(lucaTab.id, { type: 'TRIGGER_MAHSUP_AKTAR' }, () => {});
+          }, 600);
+
           sendResponse(lucaTab.id);
         } else {
           const newTab = await chrome.tabs.create({
             url: message.options?.url || 'https://auygs.luca.com.tr/Luca/menu.do'
           });
+          setTimeout(() => {
+            chrome.tabs.sendMessage(newTab.id, { type: 'TRIGGER_MAHSUP_AKTAR' }, () => {});
+          }, 3500);
           sendResponse(newTab.id);
         }
       } catch(err) {

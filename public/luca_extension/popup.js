@@ -106,7 +106,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // 3. TRANSFER VERİLERİ VE UI GÜNCELLEMESİ
   const updateTransferUI = () => {
-    chrome.storage.local.get(['transferData', 'lucaAccounts', 'lastSyncTime'], (res) => {
+    chrome.storage.local.get(['transferData', 'lucaAccounts', 'lastSyncTime', 'lucaBucket'], (res) => {
       // Hesap planı önbelleği
       if (res.lucaAccounts && res.lucaAccounts.length > 0) {
         loadedAccounts = res.lucaAccounts;
@@ -121,14 +121,16 @@ document.addEventListener('DOMContentLoaded', async () => {
       const transfer = res.transferData || {};
 
       // Hızlı Fiş (İşletme)
-      const invoices = transfer.invoices || transfer.hizliFisItems || [];
+      const invoices = transfer.invoices || transfer.hizliFisItems || (res.lucaBucket?.accounting_type === 'basic' ? res.lucaBucket.ledger_rows : []) || [];
       queueCount.textContent = invoices.length;
       queueBadge.textContent = `${invoices.length} Fatura`;
       queueBadge.className = invoices.length > 0 ? 'badge badge-green' : 'badge badge-blue';
       pasteBtn.disabled = invoices.length === 0;
 
       // Mahsup (Bilanço)
-      const mahsupRows = transfer.mahsupRows || [];
+      const mahsupRows = (transfer.mahsupRows && transfer.mahsupRows.length > 0)
+        ? transfer.mahsupRows
+        : (res.lucaBucket?.accounting_type !== 'basic' && res.lucaBucket?.ledger_rows ? res.lucaBucket.ledger_rows : []);
       mahsupQueueCount.textContent = mahsupRows.length;
       mahsupQueueBadge.textContent = `${mahsupRows.length} Satır`;
       mahsupQueueBadge.className = mahsupRows.length > 0 ? 'badge badge-green' : 'badge badge-blue';

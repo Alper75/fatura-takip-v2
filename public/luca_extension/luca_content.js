@@ -463,13 +463,52 @@
       doc = document.querySelector('#frm3').contentDocument;
     }
 
+    // 1. Fiş tablosu henüz yoksa (#scroll yoksa) ve addFis.do / kaydetHref varsa fişi otomatik başlat!
+    let scrollEl = doc.getElementById('scroll') || doc.querySelector('input[name="HESAP_KODU"], input[name*="hesapKodu"]');
+    if (!scrollEl) {
+      const kaydetBtn = doc.getElementById('kaydetHref') || doc.querySelector('a#kaydetHref, a[onclick*="kaydet"], input[value*="Kaydet"]');
+      if (kaydetBtn) {
+        showToast("Fiş başlatılıyor...");
+        const firstRow = rows[0] || {};
+        const firstDate = formatDateTR(firstRow.document_date || firstRow.evrakTarihi || firstRow.tarih || firstRow['Evrak Tarihi'] || '');
+        const dateInput = doc.querySelector('input[name="FIS_TARIHI"], input[id="FIS_TARIHI"], input[name*="fisTarih"]');
+        if (dateInput && firstDate) {
+          dateInput.value = firstDate;
+          dateInput.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+
+        const fisTipiSelect = doc.querySelector('select[name="FIS_TIPI"], select[id="FIS_TIPI"]');
+        if (fisTipiSelect) {
+          fisTipiSelect.value = "3"; // 3: Mahsup
+          fisTipiSelect.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+
+        try {
+          kaydetBtn.click();
+        } catch(e) {
+          if (typeof doc.defaultView?.gonder === 'function') {
+            doc.defaultView.gonder('kaydet');
+          }
+        }
+
+        // #scroll tablosunun yüklenmesini bekle (en fazla 25 x 200ms = 5 sn)
+        let waitScroll = 0;
+        while (waitScroll < 25) {
+          await new Promise(r => setTimeout(r, 200));
+          scrollEl = doc.getElementById('scroll') || doc.querySelector('input[name="HESAP_KODU"], input[name*="hesapKodu"]');
+          if (scrollEl) break;
+          waitScroll++;
+        }
+      }
+    }
+
     const isFisPage = !!doc.querySelector('input[name="HESAP_KODU"], input[name*="hesapKodu"]') ||
                       !!doc.getElementById('scroll') ||
                       !!doc.getElementById('hpTable') ||
                       !!doc.forms['fisDetayFormArray'];
 
     if (!isFisPage) {
-      showToast("Lütfen Luca'da 'Yevmiye Fiş Girişi' (addFis.do) ekranını açın!");
+      showToast("Lütfen Luca'da 'Yevmiye Fiş Girişi' (addFis.do) ekranını açın veya 'Fiş Başlat' butonuna tıklayın!");
       return;
     }
 
@@ -616,7 +655,7 @@
                        tr.cells?.[10]?.querySelector('input[type="text"]');
 
       // 1. Hesap Kodu
-      const codeVal = (r.account_code || r.hesapKodu || r.muhasebeKodu || r['Hesap Kodu'] || r.kod || '').trim();
+      const codeVal = (r.contact_account_code || r.account_code || r.hesapKodu || r.muhasebeKodu || r['Hesap Kodu'] || r.kod || r.invoice_account_code || r.vat_account_code || '').trim();
       if (codeInput && codeVal) {
         setVal(codeInput, codeVal);
         codeInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', keyCode: 9, which: 9, bubbles: true }));
@@ -646,10 +685,10 @@
       // 6. Borç / Alacak Tutarları (Banka ve Mahsup için tam uyumlu)
       const debitRaw = (r.formatted_debit !== undefined && r.formatted_debit !== '') 
         ? r.formatted_debit 
-        : (r.borc !== undefined ? r.borc : (r.tur === 'borc' ? r.tutar : ''));
+        : (r.borc !== undefined ? r.borc : (r.tur === 'borc' ? (r.tutar || r.formatted_net_total) : ''));
       const creditRaw = (r.formatted_credit !== undefined && r.formatted_credit !== '') 
         ? r.formatted_credit 
-        : (r.alacak !== undefined ? r.alacak : (r.tur === 'alacak' ? r.tutar : ''));
+        : (r.alacak !== undefined ? r.alacak : (r.tur === 'alacak' ? (r.tutar || r.formatted_net_total) : ''));
 
       const debitVal = formatTutar(debitRaw);
       const creditVal = formatTutar(creditRaw);
@@ -786,32 +825,49 @@
         return true;
       }
 
-      // C. MAHSUP VE BANKA AKTARIMI
+      // C. MAHSUP VE BANKA AKTARIMI (Panel ve Popup Uyumlu)
       if (message.type === 'TRIGGER_MAHSUP_AKTAR' || message.type === 'TRIGGER_BANKA_AKTAR') {
-        // Eğer ana penceredeysek ve alt fiş penceresi (frm3) varsa, işlemi doğrudan o iframe'in içerik scripti yürütür
+        const isBank = message.type === 'TRIGGER_BANKA_AKTAR';
+
+        const runTransferWithStorage = async () => {
+          chrome.storage.local.get(['transferData', 'lucaBucket'], async (res) => {
+            const bkt = res.lucaBucket;
+            let rows = isBank 
+              ? (res.transferData?.bankTransactions || res.transferData?.mahsupRows || [])
+              : (res.transferData?.mahsupRows || []);
+            // Eğer transferData boşsa lucaBucket'a bak (Panel.js uyumu)
+            if ((!rows || rows.length === 0) && bkt && bkt.ledger_rows) {
+              rows = bkt.ledger_rows;
+            }
+
+            if (rows && rows.length > 0) {
+              await runMahsupFill(rows, isBank);
+              try { sendResponse({ status: 'success', count: rows.length }); } catch(e) {}
+            } else {
+              showToast("Kuyrukta aktarılacak mahsup satırı bulunamadı.");
+              try { sendResponse({ status: 'error', message: 'Kuyrukta aktarılacak mahsup satırı bulunamadı.' }); } catch(e) {}
+            }
+          });
+        };
+
+        // Eğer ana penceredeysek ve alt fiş penceresi (frm3) varsa:
         if (window.self === window.top && (window.frames?.frm3 || document.querySelector('#frm3'))) {
-          return false;
+          const frm3 = document.querySelector('#frm3') || window.frames?.frm3;
+          const curHref = frm3?.contentWindow?.location?.href || frm3?.src || '';
+          if (!curHref.includes('addFis.do')) {
+            showToast("Fiş ekranı (addFis.do) açılıyor...");
+            frm3.src = '/Luca/addFis.do';
+            setTimeout(() => {
+              runTransferWithStorage();
+            }, 1800);
+            return true;
+          }
+          runTransferWithStorage();
+          return true;
         }
 
-        // Fiş ekranı olmayan frame'ler sessizce atlasın
-        const docCheck = document;
-        const isFis = !!docCheck.querySelector('input[name="HESAP_KODU"], input[name*="hesapKodu"]') ||
-                      !!docCheck.getElementById('scroll') ||
-                      !!docCheck.getElementById('hpTable') ||
-                      !!docCheck.forms['fisDetayFormArray'];
-        if (!isFis && window.self !== window.top) return false;
-        chrome.storage.local.get(['transferData'], async (res) => {
-          const isBank = message.type === 'TRIGGER_BANKA_AKTAR';
-          const rows = isBank 
-            ? (res.transferData?.bankTransactions || res.transferData?.mahsupRows || [])
-            : (res.transferData?.mahsupRows || []);
-          if (rows && rows.length > 0) {
-            await runMahsupFill(rows, isBank);
-            sendResponse({ status: 'success', count: rows.length });
-          } else {
-            sendResponse({ status: 'error', message: 'Kuyrukta aktarılacak satır bulunamadı.' });
-          }
-        });
+        // Fiş ekranı veya frame içi doğrudan yürüt:
+        runTransferWithStorage();
         return true;
       }
     });
