@@ -58,5 +58,21 @@
   },
   "icons": {
     "128": "icon128.png"
-  }
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "panel.html",
+        "panel.js",
+        "panel.css",
+        "veri-aktarma.html",
+        "veri-aktarma.js",
+        "images/*"
+      ],
+      "matches": [
+        "*://*.luca.com.tr/*",
+        "<all_urls>"
+      ]
+    }
+  ]
 }

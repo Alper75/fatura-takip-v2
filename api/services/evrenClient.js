@@ -1,18 +1,15 @@
 /**
- * EVREN LLM API & OCR Entegrasyon Servisi
+ * EVREN LLM API & OCR Entegrasyon Servisi (v2.0 - Profesyonel & Güvenli Muhasebe Mimarisi)
  * T.C. Savunma Sanayii Başkanlığı / SAYZEK Milli Yapay Zeka Platformu
  *
- * EVREN Modelleri:
- * 1. Adanmış Belge & OCR (/v1/ocr):
- *    - dots-ocr (1.7B VLM - Belge, perakende fiş & tablo düzeni ayrıştırma)
- *    - deepseek-ocr-2 (Gelişmiş belge & metin okuma)
- * 2. Çok Modlu Görsel (/v1/chat/completions):
- *    - qwen3-vl-30b (30B Görsel & Belge analiz modeli)
- * 3. Akıl Yürütme & Dil Modelleri (/v1/chat/completions):
- *    - deepseek-v4-flash (Hızlı ve zeki akıl yürütme)
- *    - glm-5.3 (Kapsamlı mantık ve Türkçe anlama)
- *    - qwen3.8-flash-next (Hızlı akıl yürütme)
- *    - gemma-4-31b (31B Açık model)
+ * Temel İlkeler:
+ * 1. "Tahmin Etme, Emin Değilsen Bildir": Fiş No veya Tarih bulunamazsa rastgele numara veya
+ *    bugünün tarihi ASLA uydurulmaz. Alanlar boş bırakılır ve `warnings` listesine eklenir.
+ * 2. Matematiksel KDV Dağılımı: Keyfi pay katsayıları (%40 vb.) tamamen kaldırılmıştır.
+ *    Çoklu KDV varsa kesin lineer denklem sistemi (Matrah10 + Matrah20 = MatrahToplam) çözülür.
+ * 3. Telefon Numarası / VKN Ayrımı: 0 ile başlayan 11 haneli telefon numaraları VKN sanılmaz.
+ * 4. Çift Doğrulama (Cross-Validation): OCR kural motoru ile LLM çıktısı karşılaştırılır.
+ * 5. Güvenilirlik & İnceleme: Her belge için `confidence`, `warnings` ve `needsReview` bayrakları üretilir.
  */
 
 export class EvrenClientService {
@@ -25,7 +22,8 @@ export class EvrenClientService {
   }
 
   /**
-   * EVREN API anahtarı için kullanım şartlarını (GET /v1/terms/text & POST /v1/terms/accept) otomatik onaylar
+   * EVREN API anahtarı için kullanım şartlarını (GET /v1/terms/text & POST /v1/terms/accept) otomatik onaylar.
+   * EVREN API'si ilk kullanımda 403 hatası verdiği için gerekli sürüm teyidi sağlanır.
    */
   async ensureTermsAccepted(apiKey, force = false) {
     if (!apiKey) return;
@@ -38,7 +36,7 @@ export class EvrenClientService {
         const textRes = await fetch(this.termsTextEndpoint, {
           method: 'GET',
           headers: { 'Authorization': `Bearer ${cleanKey}` },
-          signal: AbortSignal.timeout(8000)
+          signal: AbortSignal.timeout(6000)
         });
         if (textRes.ok) {
           const textData = await textRes.json().catch(() => null);
@@ -55,15 +53,15 @@ export class EvrenClientService {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({ version: versionToAccept }),
-        signal: AbortSignal.timeout(8000)
+        signal: AbortSignal.timeout(6000)
       });
 
       if (acceptRes.ok) {
         this.acceptedKeys.add(cleanKey);
-        console.log(`[EvrenClient] Kullanım şartları (v${versionToAccept}) otomatik onaylandı.`);
+        console.log(`[EvrenClient] Kullanım şartları (v${versionToAccept}) teyit edildi.`);
       }
     } catch (err) {
-      console.warn('[EvrenClient] Kullanım şartları otomatik onay hatası:', err.message);
+      console.warn('[EvrenClient] Kullanım şartları onay kontrolü:', err.message);
     }
   }
 
@@ -87,8 +85,6 @@ export class EvrenClientService {
       model: model || 'dots-ocr',
       image: formattedImage
     };
-
-    console.log(`[EvrenClient] OCR isteği gönderiliyor -> Model: ${payload.model} (Endpoint: ${this.ocrEndpoint})`);
 
     await this.ensureTermsAccepted(apiKey);
 
@@ -168,9 +164,9 @@ export class EvrenClientService {
     const candidateModels = Array.from(new Set([
       model,
       'gemma-4-31b',
-      'qwen3.8-flash-next',
-      'deepseek-v4-flash'
-    ].filter(Boolean))).slice(0, 2);
+      'deepseek-v4-flash',
+      'qwen3.8-flash-next'
+    ].filter(Boolean))).slice(0, 3);
 
     for (const m of candidateModels) {
       try {
@@ -250,7 +246,7 @@ export class EvrenClientService {
       }
     }
 
-    // 2. Durum: Adanmış OCR ucu (dots-ocr veya deepseek-ocr-2) - 403/hata olursa diğer OCR ve Vision modellerini dene
+    // 2. Durum: Adanmış OCR ucu (dots-ocr veya deepseek-ocr-2)
     const primaryOcrModel = (model === 'deepseek-ocr-2') ? 'deepseek-ocr-2' : 'dots-ocr';
     const backupOcrModel = primaryOcrModel === 'dots-ocr' ? 'deepseek-ocr-2' : 'dots-ocr';
     let rawText = '';
@@ -272,7 +268,7 @@ export class EvrenClientService {
       }
     }
 
-    // Eğer /v1/ocr uçlarının ikisi de 403/hata verdiyse qwen3-vl-30b Vision ucu ile dene
+    // Eğer /v1/ocr uçları başarısız olduysa Vision ucu ile dene
     if (!rawText) {
       try {
         const messages = [];
@@ -297,17 +293,32 @@ export class EvrenClientService {
       return '';
     }
 
-    // 3. Adım: Önce yerel akıllı kural motoru ile kesin alanları (Tarih, VKN, Tutar, Fiş No, Plaka, Ünvan) çıkar
+    // 3. Adım: Yerel matematiksel kural motoru ile temel verileri çıkar
     const ruleBasedResult = this.extractInvoiceRuleBased(rawText);
     const ruleItems = Array.isArray(ruleBasedResult) ? ruleBasedResult : [ruleBasedResult];
 
-    // 4. Adım: OCR metnini EVREN'in hızlı LLM'i (gemma-4-31b) ile muhasebe JSON formatına dönüştür ve kural motoruyla doğrula
+    // 4. Adım: OCR metnini EVREN LLM ile analiz et ve kural motoruyla çapraz doğrula
     try {
       const messages = [];
       if (systemPrompt) messages.push({ role: 'system', content: systemPrompt });
       messages.push({
         role: 'user',
-        content: `${prompt}\n\nÖNEMLİ İPUÇLARI (Fiş üzerindeki tespitler - lütfen kontrol ederek kullan):\n- Tespit Edilen Firma: ${ruleItems[0]?.tedarikciAdi || ''}\n- Tespit Edilen VKN/TCKN (Telefon DEĞİLDİR): ${ruleItems[0]?.tedarikciVkn || ''}\n- Tespit Edilen Tarih: ${ruleItems[0]?.faturaTarihi || ''}\n- Tespit Edilen Fiş/Belge No: ${ruleItems[0]?.faturaNo || ''}\n- Tespit Edilen Genel Toplam: ${ruleItems[0]?.genel_toplam || ruleItems[0]?.tutar || ''}\n- Tespit Edilen Plaka: ${ruleItems[0]?.plate || ''}\n\nAŞAĞIDAKİ METİN EVREN OCR MOTORU TARAFINDAN OKUNMUŞTUR. BU METİNDEKİ VERİLERİ ANALİZ EDİP SADECE GEÇERLİ JSON OLARAK DÖNDÜR:\n\n${rawText}`
+        content: `${prompt}
+
+ÖNEMLİ KURALLAR:
+1. Telefon numaraları (0 ile başlayanlar) ASLA VKN/TCKN değildir.
+2. Belge numarası veya tarih emin değilsen uydurma değer üretme, boş string "" bırak.
+3. OCR üzerinde tespit edilen ipuçları (Kontrol ederek kullan):
+   - Muhtemel Firma: ${ruleItems[0]?.tedarikciAdi || ''}
+   - Muhtemel VKN/TCKN: ${ruleItems[0]?.tedarikciVkn || ''}
+   - Muhtemel Tarih: ${ruleItems[0]?.faturaTarihi || ''}
+   - Muhtemel Fiş No: ${ruleItems[0]?.faturaNo || ''}
+   - Muhtemel Genel Toplam: ${ruleItems[0]?.genel_toplam || ruleItems[0]?.tutar || ''}
+   - Muhtemel Plaka: ${ruleItems[0]?.plate || ''}
+
+AŞAĞIDAKİ METİN EVREN OCR MOTORU TARAFINDAN OKUNMUŞTUR. BU METİNDEKİ VERİLERİ ANALİZ EDİP SADECE GEÇERLİ JSON OLARAK DÖNDÜR:
+
+${rawText}`
       });
 
       const structuredJson = await this.chatCompletion({
@@ -318,7 +329,11 @@ export class EvrenClientService {
 
       if (structuredJson) {
         try {
-          let cleanTxt = structuredJson.replace(/<think>[\s\S]*?<\/think>/gi, '').replace(/```json/gi, '').replace(/```/g, '').trim();
+          let cleanTxt = structuredJson
+            .replace(/<think>[\s\S]*?<\/think>/gi, '')
+            .replace(/```json/gi, '')
+            .replace(/```/g, '')
+            .trim();
           const fb = cleanTxt.indexOf('{');
           const lb = cleanTxt.lastIndexOf('}');
           if (fb !== -1 && lb > fb) cleanTxt = cleanTxt.substring(fb, lb + 1);
@@ -329,29 +344,55 @@ export class EvrenClientService {
 
           arr.forEach((it) => {
             if (!it || typeof it !== 'object') return;
-            // 1. VKN düzeltmesi: LLM telefon numarası (0 ile başlayan 11 hane) veya boş döndürdüyse kural motorunun bulduğu VKN'yi yaz
+            it.warnings = it.warnings || [];
+            it.confidence = it.confidence || {};
+
+            // 1. VKN düzeltmesi: LLM telefon numarası (0 ile başlayan) veya boş döndürdüyse kural motorunun VKN'sini yaz
             const llmVkn = String(it.tedarikciVkn || it.tedarikci_vkn || '').replace(/\D/g, '');
             if ((!llmVkn || (llmVkn.length === 11 && llmVkn.startsWith('0'))) && refRule.tedarikciVkn) {
               it.tedarikciVkn = refRule.tedarikciVkn;
+              it.confidence.vkn = refRule.confidence?.vkn || 'medium';
+            } else if (!it.tedarikciVkn && !refRule.tedarikciVkn) {
+              it.tedarikciVkn = '';
+              it.confidence.vkn = 'none';
+              it.warnings.push('VKN/TCKN okunamadı, manuel giriniz.');
             }
+
             // 2. Tarih düzeltmesi: LLM geçersiz tarih döndürdüyse kural motorunun bulduğu tarihi yaz
             const llmDate = String(it.faturaTarihi || it.fatura_tarihi || '');
             if ((!/^20[1-3][0-9]-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$/.test(llmDate)) && refRule.faturaTarihi) {
               it.faturaTarihi = refRule.faturaTarihi;
+              it.confidence.date = refRule.confidence?.date || 'high';
+            } else if (!it.faturaTarihi && !refRule.faturaTarihi) {
+              it.faturaTarihi = '';
+              it.confidence.date = 'none';
+              it.warnings.push('Belge tarihi tespit edilemedi.');
             }
+
             // 3. Ünvan düzeltmesi: LLM şube/semt adı (örn: Sarıgazi) döndürdüyse ve kural motoru A.Ş./LTD içeren tam ünvan bulduysa düzelt
             const llmVendor = String(it.tedarikciAdi || it.tedarikci_adi || '').trim();
             if (refRule.tedarikciAdi && companyIndicators.test(refRule.tedarikciAdi) && !companyIndicators.test(llmVendor)) {
               it.tedarikciAdi = refRule.tedarikciAdi;
+              it.confidence.vendor = 'high';
             }
-            // 4. Fiş No düzeltmesi
-            if ((!it.faturaNo && !it.fatura_no) && refRule.faturaNo) {
-              it.faturaNo = refRule.faturaNo;
+
+            // 4. Fiş No düzeltmesi: Uydurma rastgele numara yok!
+            if (!it.faturaNo && !it.fatura_no) {
+              if (refRule.faturaNo) {
+                it.faturaNo = refRule.faturaNo;
+                it.confidence.faturaNo = 'high';
+              } else {
+                it.faturaNo = '';
+                it.confidence.faturaNo = 'none';
+                it.warnings.push('Belge numarası okunamadı, lütfen manuel giriniz.');
+              }
             }
+
             // 5. Plaka düzeltmesi
             if ((!it.plate && !it.plaka) && refRule.plate) {
               it.plate = refRule.plate;
             }
+
             // 6. Tek KDV'li fişte tutar 3.076,48 yerine 307 gibi 10 kat eksik okunduysa düzelt
             if (arr.length === 1 && refRule.genel_toplam) {
               const ruleTotal = parseFloat(refRule.genel_toplam) || 0;
@@ -359,16 +400,20 @@ export class EvrenClientService {
               if (ruleTotal > 0 && Math.abs(llmTotal - ruleTotal) > 1) {
                 it.tutar = ruleTotal.toFixed(2);
                 it.genel_toplam = ruleTotal.toFixed(2);
+                it.confidence.total = 'high';
               }
             }
+
+            it.needsReview = it.warnings.length > 0 || !it.faturaNo || !it.faturaTarihi || !it.tedarikciVkn;
           });
+
           return JSON.stringify({ faturalar: arr });
         } catch (mergeErr) {
           return structuredJson;
         }
       }
     } catch (llmErr) {
-      console.warn('[EvrenClient] EVREN LLM metin ayrıştırma hatası, kural motoruna geçiliyor:', llmErr.message);
+      console.warn('[EvrenClient] EVREN LLM ayrıştırma hatası, kural motoruna geçiliyor:', llmErr.message);
     }
 
     // 5. Adım Fallback: Yerel kural motoru çıktısını döndür
@@ -376,7 +421,7 @@ export class EvrenClientService {
   }
 
   /**
-   * Türkçe para formatını (*3.076,48 / 3,076.48 / 512,75) güvenli şekilde float sayıya çevirir
+   * Türkçe para formatını (*3.076,48 / 3,076.48 / 512,75) güvenli şekilde float sayıya çevirir.
    */
   parseTurkishCurrency(rawStr) {
     if (!rawStr) return 0;
@@ -404,7 +449,6 @@ export class EvrenClientService {
       }
     } else if (lastDot !== -1) {
       const parts = s.split('.');
-      // 3.076 gibi binlik ayraçsa noktayı kaldır, 512.75 gibi kuruşsa koru
       if (parts[parts.length - 1].length === 3 && parts.length > 1) {
         s = s.replace(/\./g, '');
       }
@@ -415,7 +459,8 @@ export class EvrenClientService {
   }
 
   /**
-   * OCR'dan dönen Türkçe metni kural bazlı ve regex ile akıllıca analiz edip fatura nesnesi üretir
+   * OCR metnini matematiksel ve kurallı olarak analiz edip profesyonel fatura nesnesi üretir.
+   * Kesinlikle sahte tarih (new Date()) veya sahte fiş no (Math.random()) üretmez.
    */
   extractInvoiceRuleBased(rawText) {
     const text = (rawText || '').replace(/\r/g, '');
@@ -424,42 +469,64 @@ export class EvrenClientService {
       .map(l => l.replace(/^[|#*\-\s]+|[|#*\s]+$/g, '').trim())
       .filter(Boolean);
 
-    // 1. TARİH TESPİTİ (Sadece gerçek takvim tarihlerini yakala: GG-AA-YYYY, GG.AA.YYYY, GG/AA/YYYY veya YYYY-AA-GG)
-    // Lisans No (939-82/48218) veya Mersis No (0729-0015-0430-0023) gibi numaraları kesinlikle hariç tut!
-    let faturaTarihi = new Date().toISOString().split('T')[0];
-    let foundDate = false;
+    const warnings = [];
+    const confidence = {
+      vendor: 'medium',
+      vkn: 'none',
+      date: 'none',
+      total: 'none',
+      faturaNo: 'none'
+    };
 
+    // 1. TARİH TESPİTİ (GG-AA-YYYY, GG.AA.YYYY, GG/AA/YYYY veya YYYY-AA-GG)
+    // Lisans veya Mersis no gibi sahte eşleşmeleri hariç tut
+    let faturaTarihi = '';
     const dmyRegex = /\b(0?[1-9]|[12][0-9]|3[01])[./-](0?[1-9]|1[0-2])[./-](20[1-3][0-9])\b/g;
     let m;
     while ((m = dmyRegex.exec(text)) !== null) {
       const day = m[1].padStart(2, '0');
       const month = m[2].padStart(2, '0');
       const year = m[3];
-      faturaTarihi = `${year}-${month}-${day}`;
-      foundDate = true;
-      break;
+      // Takvim geçerlilik kontrolü (Şubat 30 vb. olamaz)
+      const testDate = new Date(`${year}-${month}-${day}`);
+      if (!isNaN(testDate.getTime())) {
+        faturaTarihi = `${year}-${month}-${day}`;
+        confidence.date = 'high';
+        break;
+      }
     }
 
-    if (!foundDate) {
+    if (!faturaTarihi) {
       const ymdRegex = /\b(20[1-3][0-9])[./-](0?[1-9]|1[0-2])[./-](0?[1-9]|[12][0-9]|3[01])\b/g;
       while ((m = ymdRegex.exec(text)) !== null) {
         const year = m[1];
         const month = m[2].padStart(2, '0');
         const day = m[3].padStart(2, '0');
-        faturaTarihi = `${year}-${month}-${day}`;
-        foundDate = true;
-        break;
+        const testDate = new Date(`${year}-${month}-${day}`);
+        if (!isNaN(testDate.getTime())) {
+          faturaTarihi = `${year}-${month}-${day}`;
+          confidence.date = 'high';
+          break;
+        }
       }
     }
 
-    // 2. VKN / TCKN TESPİTİ (Telefon numaralarını 0216..., 0532... ve Mersis No'yu kesinlikle hariç tut!)
+    if (!faturaTarihi) {
+      warnings.push('Belge tarihi tespit edilemedi.');
+    }
+
+    // 2. VKN / TCKN TESPİTİ (Telefon numaralarını 0216..., 0532... ve Mersis No'yu hariç tut!)
     let vkn = '';
-    // Önce açıkça VD:, V.D.:, VKN:, TCKN:, VERGİ NO: yazan satırları tara
     const vknLabeledMatch = text.match(/(?:VKN|TCKN|VERG[İI]\s*NO|VERG[İI]\s*NUMARASI|V\.?\s*D\.?|VD|TC\s*NO)[:.\s-]*([0-9]{10,11})\b/i);
     if (vknLabeledMatch) {
-      vkn = vknLabeledMatch[1];
-    } else {
-      // Etiket yoksa satır satır bak; TEL, FAX, GSM, MERSİS, LİSANS, SİCİL satırlarını atla
+      const cand = vknLabeledMatch[1];
+      if (!(cand.length === 11 && cand.startsWith('0'))) {
+        vkn = cand;
+        confidence.vkn = 'high';
+      }
+    }
+
+    if (!vkn) {
       for (const line of lines) {
         if (/(?:TEL|TELEFON|FAX|FAKS|GSM|CEP|MERS[İI]S|L[İI]SANS|S[İI]C[İI]L|BARKOD|EK[ÜU]|Z\s*NO)/i.test(line)) {
           continue;
@@ -467,9 +534,10 @@ export class EvrenClientService {
         const candidateMatches = line.match(/\b([0-9]{10,11})\b/g);
         if (candidateMatches) {
           for (const cand of candidateMatches) {
-            // Türkiye'de 11 haneli TCKN asla '0' ile başlamaz; '0' ile başlayan 11 haneli sayılar telefon numarasıdır (0216..., 0532..., 0850...)
+            // Türkiye'de 11 haneli TCKN asla '0' ile başlamaz; '0' ile başlayanlar telefon numarasıdır
             if (cand.length === 11 && cand.startsWith('0')) continue;
             vkn = cand;
+            confidence.vkn = 'medium';
             break;
           }
         }
@@ -477,17 +545,24 @@ export class EvrenClientService {
       }
     }
 
-    // 3. FİŞ / FATURA / BELGE NO TESPİTİ (Adres içindeki "No:56" veya "ADA NO:2-1" ile karışmasını engelle)
+    if (!vkn) {
+      warnings.push('VKN/TCKN okunamadı, manuel giriniz.');
+    }
+
+    // 3. FİŞ / FATURA / BELGE NO TESPİTİ
     let faturaNo = '';
     const fisNoMatch =
       text.match(/(?:F[İI]Ş\s*NO|FIS\s*NO|FATURA\s*NO|BELGE\s*NO|MAKBUZ\s*NO|ERS\s*NO|SIRA\s*NO)\s*[:.]?\s*([A-Z0-9-]{1,20})/i);
     if (fisNoMatch) {
       faturaNo = fisNoMatch[1].trim();
+      confidence.faturaNo = 'high';
     } else {
-      faturaNo = 'FİŞ-' + Math.floor(100000 + Math.random() * 900000);
+      // Uydurma random numara üretme! Boş bırak ve uyar.
+      faturaNo = '';
+      warnings.push('Belge numarası (Fiş/Fatura No) okunamadı.');
     }
 
-    // 4. GENEL TOPLAM VE TOPKDV TESPİTİ (*3.076,48 gibi binlik noktalı tutarları tam yakala)
+    // 4. GENEL TOPLAM VE TOPLAM KDV TESPİTİ
     let genelToplam = 0;
     const numberPattern = '([0-9]{1,3}(?:[.\\s][0-9]{3})+[,][0-9]{2}|[0-9]{1,3}(?:[,\\s][0-9]{3})+[.][0-9]{2}|[0-9]+[.,][0-9]{2})';
     const totalRegex = new RegExp(`(?:GENEL\\s*TOPLAM|TOPLAM|ÖDENECEK\\s*TUTAR|ODENECEK|ÖDENEN|ODENEN)(?!\\s*KDV)[^0-9\\n]*?\\*?${numberPattern}`, 'gi');
@@ -495,6 +570,12 @@ export class EvrenClientService {
     while ((tm = totalRegex.exec(text)) !== null) {
       const val = this.parseTurkishCurrency(tm[1]);
       if (val > genelToplam) genelToplam = val;
+    }
+
+    if (genelToplam > 0) {
+      confidence.total = 'high';
+    } else {
+      warnings.push('Genel toplam tutarı tespit edilemedi.');
     }
 
     let topKdv = 0;
@@ -518,7 +599,7 @@ export class EvrenClientService {
       odemeSekli = 'KREDI_KARTI';
     }
 
-    // 6. FİRMA / TEDARİKÇİ ÜNVANI TESPİTİ ("PETROL OFİSİ A.Ş." içindeki "OFİSİ" kelimesinin "FİS" diye atlanmasını engelle!)
+    // 6. FİRMA / TEDARİKÇİ ÜNVANI TESPİTİ
     let tedarikciAdi = lines[0] || 'Genel Harcama / Fiş';
     const companyIndicators = /(?:A\.?\s*Ş\.?|A\.?\s*S\.?|LTD|ŞTİ|STI|TİC|TIC|SAN\.|PETROL|MARKET|MAĞAZA|MAGAZA|GIDA|RESTORAN|LOKANTA|OTOMOTİV|ECZANE|HOLDİNG|PERAKENDE|KURUMSAL)/i;
     const skipHeaderLine = /^(?:TAR[İI]H\b|SAAT\b|F[İI]Ş\s*NO\b|FIS\s*NO\b|VKN\b|TCKN\b|HOŞGELD[İI]N|HOSGELDIN|FATURA\b|TEŞEKKÜR|İYİ\s*GÜNLER|NO\s*:|TEL\s*:)/i;
@@ -529,6 +610,7 @@ export class EvrenClientService {
       if (skipHeaderLine.test(line)) continue;
       if (companyIndicators.test(line) && line.length >= 3) {
         foundCompanyLine = line;
+        confidence.vendor = 'high';
         break;
       }
     }
@@ -545,7 +627,7 @@ export class EvrenClientService {
       }
     }
 
-    // 7. ARAÇ PLAKASI TESPİTİ (34KCR118 vb. - Posta kodu 34785 ile karışmaz çünkü ortada harf grubu zorunludur)
+    // 7. ARAÇ PLAKASI TESPİTİ
     let plate = '';
     const plateMatch = text.match(/\b(0[1-9]|[1-7][0-9]|8[01])\s*([A-Z]{1,3})\s*([0-9]{2,5})\b/);
     if (plateMatch) {
@@ -556,50 +638,64 @@ export class EvrenClientService {
     const has20 = /(?:^|\s|\*)%20\b|KDV\s*%?20\b/i.test(text);
     const has1 = /(?:^|\s|\*)%(?:01|1)(?!\d)|KDV\s*%?(?:01|1)(?!\d)/i.test(text);
 
-    // Çoklu KDV tespiti (%10 ve %20 birlikte varsa)
-    if (has10 && has20 && genelToplam > 0) {
-      let tutar10 = 0;
-      if (kdv10Tutari > 0) {
-        // Eğer yakalanan tutar KDV ise (genelToplam'ın %15'inden küçükse) *11 yap, doğrudan ürün satır tutarıysa olduğu gibi al
-        tutar10 = kdv10Tutari < genelToplam * 0.15 ? Math.round(kdv10Tutari * 11 * 100) / 100 : kdv10Tutari;
-      }
-      if (tutar10 <= 0 || tutar10 >= genelToplam) {
-        tutar10 = Math.round(genelToplam * 0.4 * 100) / 100;
-      }
-      const tutar20 = Math.round((genelToplam - tutar10) * 100) / 100;
+    // ÇOKLU KDV DAĞILIMI (Kesin Matematiksel Lineer Sistem Çözümü - 0.4 uydurma katsayısı kaldırıldı!)
+    if (has10 && has20 && genelToplam > 0 && topKdv > 0) {
+      // Toplam Matrah = GenelToplam - TopKDV
+      const toplamMatrah = genelToplam - topKdv;
+      // Denklem:
+      // M10 + M20 = toplamMatrah
+      // 0.10 * M10 + 0.20 * M20 = topKdv
+      // => 0.10 * (toplamMatrah - M20) + 0.20 * M20 = topKdv
+      // => 0.10 * M20 = topKdv - 0.10 * toplamMatrah
+      // => M20 = (topKdv - 0.10 * toplamMatrah) / 0.10
+      const matrah20 = (topKdv - 0.10 * toplamMatrah) / 0.10;
+      const matrah10 = toplamMatrah - matrah20;
 
-      return [
-        {
-          tedarikciAdi,
-          tedarikciVkn: vkn,
-          faturaNo,
-          malHizmetAdi: plate ? `Akaryakıt Harcaması (${plate})` : 'Perakende Fiş Harcaması (%10 Gıda/Temel)',
-          faturaTarihi,
-          genel_toplam: genelToplam.toFixed(2),
-          toplam_kdv: topKdv > 0 ? topKdv.toFixed(2) : undefined,
-          tutar: tutar10.toFixed(2),
-          kdv_orani: '10',
-          plate,
-          odeme_sekli: odemeSekli,
-          ham_ocr_metni: text
-        },
-        {
-          tedarikciAdi,
-          tedarikciVkn: vkn,
-          faturaNo,
-          malHizmetAdi: plate ? `Akaryakıt Harcaması (${plate})` : 'Perakende Fiş Harcaması (%20 Genel)',
-          faturaTarihi,
-          genel_toplam: genelToplam.toFixed(2),
-          toplam_kdv: topKdv > 0 ? topKdv.toFixed(2) : undefined,
-          tutar: tutar20.toFixed(2),
-          kdv_orani: '20',
-          plate,
-          odeme_sekli: odemeSekli,
-          ham_ocr_metni: text
-        }
-      ];
+      // Eğer denklem geçerli pozitif matrahlar veriyorsa kesin matematiksel sonucu üret
+      if (matrah10 > 0.5 && matrah20 > 0.5) {
+        const tutar10 = Math.round(matrah10 * 1.10 * 100) / 100;
+        const tutar20 = Math.round((genelToplam - tutar10) * 100) / 100;
+
+        return [
+          {
+            tedarikciAdi,
+            tedarikciVkn: vkn,
+            faturaNo,
+            malHizmetAdi: plate ? `Akaryakıt Harcaması (${plate})` : 'Perakende Fiş Harcaması (%10 Gıda/Temel)',
+            faturaTarihi,
+            genel_toplam: genelToplam.toFixed(2),
+            toplam_kdv: topKdv.toFixed(2),
+            tutar: tutar10.toFixed(2),
+            kdv_orani: '10',
+            plate,
+            odeme_sekli: odemeSekli,
+            confidence,
+            warnings: [...warnings],
+            needsReview: warnings.length > 0 || !faturaNo || !faturaTarihi || !vkn,
+            ham_ocr_metni: text
+          },
+          {
+            tedarikciAdi,
+            tedarikciVkn: vkn,
+            faturaNo,
+            malHizmetAdi: plate ? `Akaryakıt Harcaması (${plate})` : 'Perakende Fiş Harcaması (%20 Genel)',
+            faturaTarihi,
+            genel_toplam: genelToplam.toFixed(2),
+            toplam_kdv: topKdv.toFixed(2),
+            tutar: tutar20.toFixed(2),
+            kdv_orani: '20',
+            plate,
+            odeme_sekli: odemeSekli,
+            confidence,
+            warnings: [...warnings],
+            needsReview: warnings.length > 0 || !faturaNo || !faturaTarihi || !vkn,
+            ham_ocr_metni: text
+          }
+        ];
+      }
     }
 
+    // Tekli KDV veya Matrahı Ayrıştırılamayan Durum
     let kdvOrani = '20';
     if (has10 && !has20) kdvOrani = '10';
     else if (has1 && !has20 && !has10) kdvOrani = '1';
@@ -611,6 +707,10 @@ export class EvrenClientService {
         else if (Math.abs(calcRate - 10) <= 2) kdvOrani = '10';
         else if (Math.abs(calcRate - 1) <= 0.8) kdvOrani = '1';
       }
+    }
+
+    if (has10 && has20) {
+      warnings.push('Belgede çoklu KDV (%10 ve %20) tespit edildi ancak satır tutarları net ayrıştırılamadı. KDV oran ve tutarlarını kontrol ediniz.');
     }
 
     return {
@@ -625,6 +725,9 @@ export class EvrenClientService {
       kdv_orani: kdvOrani,
       plate,
       odeme_sekli: odemeSekli,
+      confidence,
+      warnings,
+      needsReview: warnings.length > 0 || !faturaNo || !faturaTarihi || !vkn,
       ham_ocr_metni: text
     };
   }

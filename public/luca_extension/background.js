@@ -53,13 +53,58 @@ async function getLucaSessionInfo() {
   }
 }
 
-// 2. HESAP PLANI HTML AYRIŞTIRICI (listAltHesapTempAction.do & listHesapPlaniBaBs.do)
+// 2. HESAP PLANI AYRIŞTIRICI (HTML, XML, JSON & Script Uyumlu)
 function parseAccountsFromLucaHtml(html) {
   if (!html) return [];
   const accounts = [];
   const seen = new Set();
 
-  // Yöntem A: <tr> satırlarını ayrıştır (regex ile DOMParser'a gerek kalmadan Service Worker uyumlu)
+  const addAccount = (c, n, extra1 = '', extra2 = '') => {
+    const code = String(c || '').trim();
+    const name = String(n || '').trim();
+    if (/^\d{3}(\.[0-9A-Za-z_]+)*$/.test(code) && name && !name.toLowerCase().includes('hesap ad') && !name.toLowerCase().includes('hesap adi') && !seen.has(code)) {
+      seen.add(code);
+      accounts.push({
+        code,
+        kod: code,
+        name,
+        ad: name,
+        taxOrInfo: extra1,
+        balanceInfo: extra2
+      });
+    }
+  };
+
+  // Yöntem A: JSON Formatı
+  try {
+    const trimmed = html.trim();
+    if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
+      const parsed = JSON.parse(trimmed);
+      const arr = Array.isArray(parsed) ? parsed : (parsed.data || parsed.items || parsed.accounts || parsed.hesaplar || []);
+      for (const item of arr) {
+        addAccount(item.hesapKodu || item.code || item.kod, item.hesapAdi || item.name || item.ad);
+      }
+      if (accounts.length > 0) return accounts;
+    }
+  } catch(e) {}
+
+  // Yöntem B: XML Etiketleri (<hesapKodu>...</hesapKodu><hesapAdi>...</hesapAdi>)
+  const xmlTagRegex = /<(?:hesapKodu|hesapkodu|kod|hk)[^>]*>([\s\S]*?)<\/(?:hesapKodu|hesapkodu|kod|hk)>[\s\S]*?<(?:hesapAdi|hesapadi|ad|ha)[^>]*>([\s\S]*?)<\/(?:hesapAdi|hesapadi|ad|ha)>/gi;
+  let xm;
+  while ((xm = xmlTagRegex.exec(html)) !== null) {
+    addAccount(xm[1].replace(/<[^>]+>/g, ''), xm[2].replace(/<[^>]+>/g, ''));
+  }
+  if (accounts.length > 0) return accounts;
+
+  // Yöntem C: XML Nitelikleri (<hesap kod="..." ad="..." />)
+  const xmlAttrRegex = /<[^>]+(?:kod|code)=['"](\d{3}(?:\.[0-9A-Za-z_]+)*)['"][^>]+(?:ad|name)=['"]([^'"]+)['"]/gi;
+  let am;
+  while ((am = xmlAttrRegex.exec(html)) !== null) {
+    addAccount(am[1], am[2]);
+  }
+  if (accounts.length > 0) return accounts;
+
+  // Yöntem D: HTML <tr> Tablo Satırları (addFis.do, hesapPlaniListesi.do, popup vb.)
   const trMatches = html.match(/<tr[\s\S]*?<\/tr>/gi) || [];
   for (const tr of trMatches) {
     const tdMatches = tr.match(/<td[\s\S]*?<\/td>/gi) || [];
@@ -67,7 +112,6 @@ function parseAccountsFromLucaHtml(html) {
 
     const cells = tdMatches.map(td => td.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim());
 
-    // Hesap kodu formatı: 100, 120.01.001, 320.01, vb.
     let codeIdx = -1;
     for (let i = 0; i < Math.min(cells.length, 4); i++) {
       if (/^\d{3}(\.[0-9A-Za-z_]+)*$/.test(cells[i])) {
@@ -81,49 +125,26 @@ function parseAccountsFromLucaHtml(html) {
       const name = cells[codeIdx + 1] || "";
       const extra1 = cells[codeIdx + 2] || "";
       const extra2 = cells.slice(codeIdx + 3).filter(Boolean).join(" | ");
-      const key = `${code}|${name}`;
-      if (!seen.has(key) && name && !name.toLowerCase().includes("hesap adı") && !name.toLowerCase().includes("hesap adi")) {
-        seen.add(key);
-        accounts.push({
-          code,
-          kod: code,
-          name,
-          ad: name,
-          taxOrInfo: extra1,
-          balanceInfo: extra2
-        });
-      }
+      addAccount(code, name, extra1, extra2);
     }
   }
+  if (accounts.length > 0) return accounts;
 
-  // Yöntem B: <option> etiketlerini ayrıştır
-  if (accounts.length === 0) {
-    const optRegex = /<option[^>]*>([\s\S]*?)<\/option>/gi;
-    let optMatch;
-    while ((optMatch = optRegex.exec(html)) !== null) {
-      const text = optMatch[1].replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
-      const m = text.match(/^(\d{3}(?:\.[0-9A-Za-z_]+)*)\s*[-–:]?\s*(.+)$/);
-      if (m) {
-        const key = `${m[1]}|${m[2]}`;
-        if (!seen.has(key)) {
-          seen.add(key);
-          accounts.push({ code: m[1], kod: m[1], name: m[2], ad: m[2] });
-        }
-      }
-    }
+  // Yöntem E: <option> Açılır Menü Etiketleri
+  const optRegex = /<option[^>]*>([\s\S]*?)<\/option>/gi;
+  let optMatch;
+  while ((optMatch = optRegex.exec(html)) !== null) {
+    const text = optMatch[1].replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+    const m = text.match(/^(\d{3}(?:\.[0-9A-Za-z_]+)*)\s*[-–:]?\s*(.+)$/);
+    if (m) addAccount(m[1], m[2]);
   }
+  if (accounts.length > 0) return accounts;
 
-  // Yöntem C: Script değişkenleri / dizileri
-  if (accounts.length === 0) {
-    const jsRegex = /["'](\d{3}(?:\.[0-9A-Za-z_]+)+)["']\s*,\s*["']([^"']{2,100})["']/g;
-    let match;
-    while ((match = jsRegex.exec(html)) !== null) {
-      const key = `${match[1]}|${match[2]}`;
-      if (!seen.has(key)) {
-        seen.add(key);
-        accounts.push({ code: match[1], kod: match[1], name: match[2], ad: match[2] });
-      }
-    }
+  // Yöntem F: JavaScript Dizileri ve Metin Regex
+  const jsRegex = /["']?(\d{3}(?:\.[0-9A-Za-z_]+)+)["']?\s*[,\-–—|]\s*["']?([^"'\r\n<]{2,80})["']?/g;
+  let match;
+  while ((match = jsRegex.exec(html)) !== null) {
+    addAccount(match[1], match[2]);
   }
 
   return accounts;
@@ -134,11 +155,12 @@ async function fetchAccountsFromLuca(prefix = "") {
   const host = await getLucaHost();
   let accounts = [];
 
-  // Yöntem 0: Eğer Luca sekmesi açıksa oradan anlık DOM/sayfa tablosunu sorgula
+  // Yöntem 0: Açık Luca sekmelerinden sorgula (İçerik scripti veya executeScript)
   try {
     const tabs = await chrome.tabs.query({ url: "*://*.luca.com.tr/*" });
     for (const t of tabs) {
       if (t.id) {
+        // 0.a Mesaj ile dene
         try {
           const domRes = await new Promise(resolve => {
             chrome.tabs.sendMessage(t.id, { type: 'SCRAPE_PAGE_ACCOUNTS' }, (resp) => {
@@ -148,20 +170,93 @@ async function fetchAccountsFromLuca(prefix = "") {
           });
           if (domRes && domRes.length > 0) {
             accounts = domRes;
-            console.log('[Luca Background] Açık sekmeden hesap planı alındı:', accounts.length);
+            console.log('[Luca Background] Açık sekmeden hesap planı alındı (Message):', accounts.length);
             break;
           }
         } catch (e) {}
+
+        // 0.b Scripting executeScript ile sekme içinden doğrudan çek
+        if (accounts.length === 0) {
+          try {
+            const execRes = await chrome.scripting.executeScript({
+              target: { tabId: t.id },
+              func: async () => {
+                const found = [];
+                const seenKeys = new Set();
+                const add = (c, n) => {
+                  const code = (c || '').trim();
+                  const name = (n || '').trim();
+                  if (/^\d{3}(\.[0-9A-Za-z_]+)*$/.test(code) && name && !seenKeys.has(code)) {
+                    seenKeys.add(code);
+                    found.push({ code, kod: code, name, ad: name });
+                  }
+                };
+
+                // Tüm frame'leri tara
+                const docList = [document];
+                try {
+                  if (window.frames) {
+                    for (let f = 0; f < window.frames.length; f++) {
+                      try { if (window.frames[f]?.document) docList.push(window.frames[f].document); } catch(e) {}
+                    }
+                  }
+                } catch(e) {}
+
+                for (const d of docList) {
+                  const trs = Array.from(d.querySelectorAll('tr'));
+                  for (const tr of trs) {
+                    if (tr.querySelector('th')) continue;
+                    const tds = Array.from(tr.querySelectorAll('td')).map(x => (x.innerText || '').trim());
+                    for (let i = 0; i < Math.min(tds.length, 3); i++) {
+                      if (/^\d{3}(\.[0-9A-Za-z_]+)+$/.test(tds[i])) {
+                        add(tds[i], tds[i + 1]);
+                        break;
+                      }
+                    }
+                  }
+                }
+
+                // Sayfa içinden yerel AJAX isteği (Session çerezi ile kesin çalışır)
+                if (found.length === 0) {
+                  try {
+                    const r = await fetch('/Luca/listAltHesapTempAction.do?bakiyeGetir=1&hesapKodu=', { credentials: 'include' });
+                    const txt = await r.text();
+                    const xmlRegex = /<(?:hesapKodu|kod)[^>]*>([\s\S]*?)<\/(?:hesapKodu|kod)>[\s\S]*?<(?:hesapAdi|ad)[^>]*>([\s\S]*?)<\/(?:hesapAdi|ad)>/gi;
+                    let m;
+                    while ((m = xmlRegex.exec(txt)) !== null) {
+                      add(m[1].replace(/<[^>]+>/g, ''), m[2].replace(/<[^>]+>/g, ''));
+                    }
+                  } catch(e) {}
+                }
+
+                return found;
+              }
+            });
+
+            if (execRes && execRes[0]?.result && execRes[0].result.length > 0) {
+              accounts = execRes[0].result;
+              console.log('[Luca Background] Açık sekmeden hesap planı alındı (Scripting):', accounts.length);
+              break;
+            }
+          } catch(e) {}
+        }
       }
     }
   } catch (e) {}
 
-  // 1. Öncelikli Yöntem: listAltHesapTempAction.do (GET ve POST)
+  const standardHeaders = {
+    'Referer': `https://${host}/Luca/menu.do`,
+    'Origin': `https://${host}`,
+    'X-Requested-With': 'XMLHttpRequest',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+  };
+
+  // 1. listAltHesapTempAction.do (GET & POST)
   if (accounts.length === 0) {
     try {
       const url = `https://${host}/Luca/listAltHesapTempAction.do?bakiyeGetir=1&hesapKodu=${encodeURIComponent(prefix)}`;
       console.log('[Luca Background] Alt Hesap Planı çekiliyor (GET):', url);
-      const res = await fetch(url, { credentials: 'include' });
+      const res = await fetch(url, { headers: standardHeaders, credentials: 'include' });
       const html = await res.text();
       accounts = parseAccountsFromLucaHtml(html);
     } catch (e) {
@@ -169,24 +264,27 @@ async function fetchAccountsFromLuca(prefix = "") {
     }
   }
 
-  // 1.b listAltHesapTempAction.do POST ile deneme
+  // 1.b Ana hesap kodları ile parça parça çekme (1..7)
   if (accounts.length === 0) {
     try {
-      const url = `https://${host}/Luca/listAltHesapTempAction.do`;
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
-        body: new URLSearchParams({ bakiyeGetir: '1', hesapKodu: prefix }).toString(),
-        credentials: 'include'
-      });
-      const html = await res.text();
-      accounts = parseAccountsFromLucaHtml(html);
+      const mainPrefixes = ['1', '2', '3', '6', '7'];
+      for (const p of mainPrefixes) {
+        const url = `https://${host}/Luca/listAltHesapTempAction.do?bakiyeGetir=1&hesapKodu=${p}`;
+        const res = await fetch(url, { headers: standardHeaders, credentials: 'include' });
+        const html = await res.text();
+        const parsed = parseAccountsFromLucaHtml(html);
+        parsed.forEach(acc => {
+          if (!accounts.some(a => (a.code || a.kod) === (acc.code || acc.kod))) {
+            accounts.push(acc);
+          }
+        });
+      }
     } catch (e) {
-      console.warn('[Luca Background] listAltHesapTempAction POST hatası:', e);
+      console.warn('[Luca Background] prefix listAltHesapTempAction hatası:', e);
     }
   }
 
-  // 2. Tamamlayıcı / Alternatif Yöntem: listHesapPlaniBaBs.do
+  // 2. listHesapPlaniBaBs.do POST
   if (accounts.length === 0) {
     try {
       const url = `https://${host}/Luca/listHesapPlaniBaBs.do`;
@@ -194,7 +292,7 @@ async function fetchAccountsFromLuca(prefix = "") {
       for (const mCode of mainCodes) {
         const res = await fetch(url, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
+          headers: { ...standardHeaders, 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
           body: new URLSearchParams({ HKTEKSECILI: mCode }).toString(),
           credentials: 'include'
         });
@@ -216,7 +314,7 @@ async function fetchAccountsFromLuca(prefix = "") {
     try {
       const endpoints = ['/Luca/hesapPlaniListesi.do', '/Luca/listHesapPlani.do'];
       for (const ep of endpoints) {
-        const res = await fetch(`https://${host}${ep}`, { credentials: 'include' });
+        const res = await fetch(`https://${host}${ep}`, { headers: standardHeaders, credentials: 'include' });
         const html = await res.text();
         const parsed = parseAccountsFromLucaHtml(html);
         if (parsed.length > 0) {
@@ -234,6 +332,7 @@ async function fetchAccountsFromLuca(prefix = "") {
       lucaAccounts: accounts,
       lastSyncTime: new Date().toISOString()
     });
+    console.log(`[Luca Background] Toplam ${accounts.length} hesap yerel hafızaya kaydedildi.`);
   }
 
   return accounts;
@@ -281,10 +380,45 @@ async function verifyVknTcknInLuca(taxNo) {
   const url = `https://${host}/Luca/cariBilgiDogrulamaSistemdenAl.do?${queryParam}&HESAP_ID=&HESAP_KODU=&F10=1`;
   console.log('[Luca Background] VKN/TCKN sorgulanıyor:', url);
 
-  const res = await fetch(url, { credentials: 'include' });
-  const html = await res.text();
-  const parsed = parseCariDogrulamaVars(html);
-  return parsed || { error: 'Cari bilgisi ayrıştırılamadı', rawHtml: html.slice(0, 300) };
+  // 1. Önce açık bir Luca sekmesinde sorgula (Oturum çerezleri kesinlikle aktiftir)
+  try {
+    const tabs = await chrome.tabs.query({ url: "*://*.luca.com.tr/*" });
+    if (tabs && tabs.length > 0) {
+      const tabRes = await chrome.scripting.executeScript({
+        target: { tabId: tabs[0].id },
+        func: async (fetchUrl) => {
+          try {
+            const r = await fetch(fetchUrl, { credentials: 'include' });
+            return await r.text();
+          } catch(e) { return null; }
+        },
+        args: [url]
+      });
+      if (tabRes && tabRes[0]?.result) {
+        const parsed = parseCariDogrulamaVars(tabRes[0].result);
+        if (parsed && (parsed.unvan || parsed.vergiNo || parsed.tckNo)) {
+          return parsed;
+        }
+      }
+    }
+  } catch(e) {}
+
+  // 2. Arka plan fetch ile dene
+  try {
+    const res = await fetch(url, {
+      headers: {
+        'Referer': `https://${host}/Luca/menu.do`,
+        'Origin': `https://${host}`,
+        'X-Requested-With': 'XMLHttpRequest'
+      },
+      credentials: 'include'
+    });
+    const html = await res.text();
+    const parsed = parseCariDogrulamaVars(html);
+    return parsed || { error: 'Cari bilgisi ayrıştırılamadı', rawHtml: html.slice(0, 300) };
+  } catch(err) {
+    return { error: err.message };
+  }
 }
 
 // 5. YENİ HESAP / CARİ KART AÇMA (hesapPlaniBaBs.do)
@@ -338,42 +472,68 @@ async function createAccountInLuca(accData) {
   const url = `https://${host}/Luca/hesapPlaniBaBs.do?popup=true&hpId=hk_kdvli0&parentDIV=cariIslemDiv&opr=kaydet&time=${Date.now()}&topluBeyan=null&donemId=null`;
   console.log('[Luca Background] Yeni hesap kaydediliyor:', url, payload);
 
+  // 1. Önce açık Luca sekmesinden post et
+  try {
+    const tabs = await chrome.tabs.query({ url: "*://*.luca.com.tr/*" });
+    if (tabs && tabs.length > 0) {
+      const tabRes = await chrome.scripting.executeScript({
+        target: { tabId: tabs[0].id },
+        func: async (postUrl, formBody) => {
+          try {
+            const r = await fetch(postUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
+              body: new URLSearchParams(formBody).toString(),
+              credentials: 'include'
+            });
+            return await r.text();
+          } catch(e) { return null; }
+        },
+        args: [url, payload]
+      });
+
+      if (tabRes && tabRes[0]?.result) {
+        const html = tabRes[0].result;
+        const notMatch = html.match(/lucaNotYaz\s*\(\s*["']([^"']+)["'](?:\s*,\s*["']([^"']+)["'])?\s*\)/i);
+        const idMatch = html.match(/name=["']HESAP_ID["'][^>]*value=["']([^'"]*)["']/i);
+        const createdId = idMatch ? idMatch[1] : "";
+        fetchAccountsFromLuca().catch(() => {});
+        if (notMatch) {
+          const msg = notMatch[1];
+          const isError = msg.toLowerCase().includes("hata") || msg.toLowerCase().includes("uyarı");
+          return { success: !isError, message: msg, createdId, code, name };
+        }
+        return { success: true, message: "Hesap planı başarıyla kaydedildi.", createdId, code, name };
+      }
+    }
+  } catch(e) {}
+
+  // 2. Arka plan fetch ile dene
   const res = await fetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+      'Referer': `https://${host}/Luca/menu.do`,
+      'Origin': `https://${host}`
+    },
     body: new URLSearchParams(payload).toString(),
     credentials: 'include'
   });
 
   const html = await res.text();
-
-  // Dönen yanıttaki lucaNotYaz mesajını yakala
   const notMatch = html.match(/lucaNotYaz\s*\(\s*["']([^"']+)["'](?:\s*,\s*["']([^"']+)["'])?\s*\)/i);
-  const idMatch = html.match(/name=["']HESAP_ID["'][^>]*value=["']([^"']*)["']/i);
+  const idMatch = html.match(/name=["']HESAP_ID["'][^>]*value=["']([^'"]*)["']/i);
   const createdId = idMatch ? idMatch[1] : "";
 
-  // Arka planda hesap planını güncelle
   fetchAccountsFromLuca().catch(() => {});
 
   if (notMatch) {
     const msg = notMatch[1];
     const isError = msg.toLowerCase().includes("hata") || msg.toLowerCase().includes("uyarı");
-    return {
-      success: !isError,
-      message: msg,
-      createdId,
-      code,
-      name
-    };
+    return { success: !isError, message: msg, createdId, code, name };
   }
 
-  return {
-    success: true,
-    message: "Hesap planı kaydedildi.",
-    createdId,
-    code,
-    name
-  };
+  return { success: true, message: "Hesap planı kaydedildi.", createdId, code, name };
 }
 
 // 6. MESAJ DİNLEYİCİ
@@ -436,7 +596,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-  // F. Atlas Uyumluluk Eylemleri (FETCH_LUCA_URL_AS_HTML & POST_LUCA_URL_AS_HTML)
+  // F. Atlas & Panel.js Uyumluluk Eylemleri
   if (actionKey === 'FETCH_LUCA_URL_AS_HTML') {
     fetch(message.fetchUrl, { credentials: 'include' })
       .then(res => res.text())
@@ -458,6 +618,79 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       .then(res => res.text())
       .then(html => sendResponse({ html }))
       .catch(err => sendResponse({ error: err.message }));
+    return true;
+  }
+
+  if (actionKey === 'PING') {
+    sendResponse({ ok: true, version: '3.1.0' });
+    return true;
+  }
+
+  if (actionKey === 'GET_CURRENT_LUCA_WINDOW_IP') {
+    getLucaHost().then(host => sendResponse(host || 'auygs.luca.com.tr'));
+    return true;
+  }
+
+  if (actionKey === 'GET_LUCA_TOKEN') {
+    chrome.storage.sync?.get(['LUCA_TOKEN'], (res) => {
+      sendResponse(res?.LUCA_TOKEN || '');
+    });
+    return true;
+  }
+
+  if (actionKey === 'SET_LUCA_BUCKET') {
+    const bucket = message.bucket || {};
+    chrome.storage.local.set({ lucaBucket: bucket }, () => {
+      // Ayrıca transferData formatına da dönüştür
+      if (bucket.ledger_rows && Array.isArray(bucket.ledger_rows)) {
+        chrome.storage.local.get(['transferData'], (tRes) => {
+          const current = tRes.transferData || {};
+          const isBasic = bucket.accounting_type === 'basic';
+          chrome.storage.local.set({
+            transferData: {
+              ...current,
+              invoices: isBasic ? bucket.ledger_rows : current.invoices,
+              mahsupRows: !isBasic ? bucket.ledger_rows : current.mahsupRows
+            }
+          });
+        });
+      }
+      sendResponse({ ok: true });
+    });
+    return true;
+  }
+
+  if (actionKey === 'GET_LUCA_BUCKET') {
+    chrome.storage.local.get(['lucaBucket'], (res) => {
+      sendResponse(res?.lucaBucket || null);
+    });
+    return true;
+  }
+
+  if (actionKey === 'CREATE_TAB') {
+    (async () => {
+      try {
+        const tabs = await chrome.tabs.query({ url: "*://*.luca.com.tr/*" });
+        let lucaTab = null;
+        if (tabs && tabs.length > 0) {
+          lucaTab = tabs.find(t => t.url && (t.url.includes('luca.do') || t.url.includes('menu.do'))) || tabs[0];
+        }
+        if (lucaTab) {
+          await chrome.tabs.update(lucaTab.id, { active: true });
+          if (lucaTab.windowId) {
+            try { await chrome.windows.update(lucaTab.windowId, { focused: true }); } catch(e) {}
+          }
+          sendResponse(lucaTab.id);
+        } else {
+          const newTab = await chrome.tabs.create({
+            url: message.options?.url || 'https://auygs.luca.com.tr/Luca/menu.do'
+          });
+          sendResponse(newTab.id);
+        }
+      } catch(err) {
+        sendResponse(null);
+      }
+    })();
     return true;
   }
 });

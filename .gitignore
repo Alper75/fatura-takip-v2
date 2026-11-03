@@ -6,3 +6,4 @@ dist
 scratch/
 api/uploads/*
 !api/uploads/.gitkeep
+**/_metadata/

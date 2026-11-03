@@ -304,9 +304,14 @@
         <span id="luca-host-label">auygs.luca.com.tr</span>
       </div>
     </div>
-    <div class="session-badge" id="session-box">
-      <span class="dot"></span>
-      <span id="session-label">Oturum aranıyor...</span>
+    <div style="display: flex; align-items: center; gap: 8px;">
+      <button id="btn-open-panel" class="btn btn-sm" style="width: auto; background: linear-gradient(135deg, #6366f1, #4f46e5); color: white; padding: 4px 8px; font-size: 11px; border-radius: 6px; box-shadow: 0 2px 5px rgba(99,102,241,0.3);" title="Gelişmiş Aktarım Panelini Yeni Sekmede Aç">
+        🖥️ Geniş Panel
+      </button>
+      <div class="session-badge" id="session-box">
+        <span class="dot"></span>
+        <span id="session-label">Oturum aranıyor...</span>
+      </div>
     </div>
   </div>
 
@@ -319,6 +324,12 @@
 
   <!-- 1. SEKME: AKTARIM -->
   <div class="tab-content active" id="tab-aktarim">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; padding: 4px 6px; background: rgba(59, 130, 246, 0.1); border-radius: 6px; border: 1px solid rgba(59, 130, 246, 0.2);">
+      <span style="font-size: 11px; color: #93c5fd; font-weight: 500;">🌐 Fatura Takip Senkronu</span>
+      <button id="btn-pull-webapp" class="btn btn-primary btn-sm" style="width: auto; padding: 3px 8px; font-size: 11px; margin: 0; background: #3b82f6;">
+        🔄 Verileri Yenile
+      </button>
+    </div>
     <!-- Hızlı Fiş (İşletme) -->
     <div class="card">
       <div class="card-header">
@@ -463,9 +474,27 @@
         </div>
       </div>
 
-      <button id="btn-create-account" class="btn btn-success" style="margin-top: 8px;">
-        💾 Hesap Kartını Luca'ya Kaydet
-      </button>
+      <div class="form-group">
+        <label class="form-label">Adres</label>
+        <textarea id="new-acc-address" class="form-input" rows="2" placeholder="Firma Adresi"></textarea>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">İl / İlçe</label>
+        <div class="input-group">
+          <input type="text" id="new-acc-il" class="form-input" placeholder="İl" />
+          <input type="text" id="new-acc-ilce" class="form-input" placeholder="İlçe" />
+        </div>
+      </div>
+
+      <div style="display: flex; gap: 8px; margin-top: 8px;">
+        <button id="btn-create-account" class="btn btn-success" style="flex: 1;">
+          💾 Luca'ya Kaydet
+        </button>
+        <button id="btn-add-to-webapp" class="btn btn-primary" style="flex: 1; background: #0284c7;" title="Fatura Takip Cari Listesine Ekle">
+          🌐 Fatura Takip'e Ekle
+        </button>
+      </div>
 
       <div id="account-result-box" class="alert-box"></div>
     </div>

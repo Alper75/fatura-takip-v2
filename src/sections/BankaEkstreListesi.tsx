@@ -308,6 +308,11 @@ export function BankaEkstreListesi() {
 
   const handleBulkSendToLuca = () => {
     const selected = filteredHareketler.filter(h => selectedHareketIds.includes(h.id));
+    if (selected.length === 0) {
+      toast.error('Lütfen aktarılacak en az bir banka hareketi seçin.');
+      return;
+    }
+
     const payload = selected.flatMap(h => {
       const banka = bankaHesaplari.find(b => b.id === h.bankaId);
       const cari = cariler.find(c => c.id === h.cariId);
@@ -324,18 +329,38 @@ export function BankaEkstreListesi() {
         .trim()
         .substring(0, 50);
 
+      // Cari / Karşı Hesap Kodu: Cari karttaki muhasebe kodu -> hareketteki muhasebe kodu -> varsayılan (120/320)
+      const cariHesapKodu = (cari?.muhasebeKodu || (h as any).muhasebeKodu || (h as any).hesapKodu || '').trim() ||
+        (isGiris ? '120.01.001' : '320.01.001');
+
+      // Banka Hesap Kodu: Banka tanımındaki muhasebe kodu -> hareketteki banka kodu -> varsayılan (102)
+      const bankaHesapKodu = (banka?.muhasebeKodu || (h as any).bankaMuhasebeKodu || '').trim() || '102.01.001';
+
+      const tutarNum = typeof h.tutar === 'number' ? h.tutar : parseFloat(String(h.tutar).replace(/\./g, '').replace(',', '.')) || 0;
+      const formattedTutarStr = tutarNum.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
       return [
         {
           // 1. Cari / Karşı Hesap Satırı
           tarih: formattedTarih,
+          document_date: formattedTarih,
           evrakNo: evrakNo,
+          document_no: evrakNo,
           aciklama: cleanAciklama,
-          tutar: h.tutar,
+          description: cleanAciklama,
+          tutar: tutarNum,
           tur: isGiris ? 'alacak' : 'borc',
+          borc: isGiris ? 0 : tutarNum,
+          alacak: isGiris ? tutarNum : 0,
+          formatted_debit: !isGiris ? formattedTutarStr : '',
+          formatted_credit: isGiris ? formattedTutarStr : '',
           islemTuru: h.islemTuru,
           banka: banka?.hesapAdi || '',
           cari: cari?.unvan || '',
-          muhasebeKodu: (h as any).muhasebeKodu || '',
+          hesapKodu: cariHesapKodu,
+          muhasebeKodu: cariHesapKodu,
+          account_code: cariHesapKodu,
+          kod: cariHesapKodu,
           dovizTuru: h.dovizTuru,
           dovizTutar: h.dovizTutar,
           dovizKuru: h.dovizKuru
@@ -343,24 +368,30 @@ export function BankaEkstreListesi() {
         {
           // 2. Banka Satırı (Ters Kayıt)
           tarih: formattedTarih,
+          document_date: formattedTarih,
           evrakNo: evrakNo,
+          document_no: evrakNo,
           aciklama: cleanAciklama,
-          tutar: h.tutar,
+          description: cleanAciklama,
+          tutar: tutarNum,
           tur: isGiris ? 'borc' : 'alacak',
+          borc: isGiris ? tutarNum : 0,
+          alacak: isGiris ? 0 : tutarNum,
+          formatted_debit: isGiris ? formattedTutarStr : '',
+          formatted_credit: !isGiris ? formattedTutarStr : '',
           islemTuru: h.islemTuru,
           banka: banka?.hesapAdi || '',
           cari: cari?.unvan || '',
-          muhasebeKodu: banka?.muhasebeKodu || '',
+          hesapKodu: bankaHesapKodu,
+          muhasebeKodu: bankaHesapKodu,
+          account_code: bankaHesapKodu,
+          kod: bankaHesapKodu,
           dovizTuru: h.dovizTuru,
           dovizTutar: h.dovizTutar,
           dovizKuru: h.dovizKuru
         }
       ];
     });
-    if (selected.length === 0) {
-      toast.error('Lütfen aktarılacak en az bir banka hareketi seçin.');
-      return;
-    }
 
     const transferPayload = {
       isIsletme: false,

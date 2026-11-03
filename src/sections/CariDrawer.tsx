@@ -26,8 +26,68 @@ export function CariDrawer() {
   const { isCariDrawerOpen, closeCariDrawer, selectedCariId, cariler, addCari, updateCari } = useApp();
   const [formData, setFormData] = useState<CariFormData>(INITIAL_FORM);
   const [errors, setErrors] = useState<Partial<Record<keyof CariFormData, string>>>({});
+  const [isQueryingLuca, setIsQueryingLuca] = useState(false);
 
   const isEditing = !!selectedCariId;
+
+  // Eklentiden doğrudan yeni cari alma dinleyicisi
+  useEffect(() => {
+    const handleAddCariFromExt = (e: any) => {
+      const c = e.detail;
+      if (c && c.unvan && c.vknTckn) {
+        addCari({
+          tip: c.tip || 'musteri',
+          unvan: c.unvan,
+          vknTckn: c.vknTckn,
+          vergiDairesi: c.vergiDairesi || '',
+          adres: c.adres || '',
+          telefon: '',
+          eposta: '',
+          muhasebeKodu: c.muhasebeKodu || ''
+        });
+        toast.success(`'${c.unvan}' eklentiden cari listesine eklendi!`);
+      }
+    };
+    window.addEventListener('FATURA_APP_ADD_CARI', handleAddCariFromExt);
+    return () => window.removeEventListener('FATURA_APP_ADD_CARI', handleAddCariFromExt);
+  }, [addCari]);
+
+  const handleQueryLucaTax = () => {
+    const tax = String(formData.vknTckn || '').trim();
+    if (!tax || (tax.length !== 10 && tax.length !== 11)) {
+      toast.error('Lütfen 10 haneli VKN veya 11 haneli TCKN girin.');
+      return;
+    }
+    setIsQueryingLuca(true);
+    toast.info("Luca'dan cari bilgisi sorgulanıyor...");
+
+    const onTaxResponse = (e: any) => {
+      window.removeEventListener('FATURA_APP_LUCA_VERIFY_TAX_RESPONSE', onTaxResponse);
+      setIsQueryingLuca(false);
+      const res = e.detail;
+      if (res && res.status === 'success' && res.data) {
+        const info = res.data;
+        setFormData(prev => ({
+          ...prev,
+          unvan: info.unvan || prev.unvan,
+          vergiDairesi: info.vergiDairesiAd || info.vergiDairesi || prev.vergiDairesi,
+          adres: info.adres ? `${info.adres} ${info.ilce || ''} ${info.il || ''}`.trim() : prev.adres,
+        }));
+        toast.success(`Luca'dan alındı: ${info.unvan || 'Bilgiler dolduruldu'}`);
+      } else {
+        toast.error(res?.message || 'Luca sisteminde kayıt bulunamadı veya Luca oturumu kapalı.');
+      }
+    };
+
+    window.addEventListener('FATURA_APP_LUCA_VERIFY_TAX_RESPONSE', onTaxResponse);
+    window.dispatchEvent(new CustomEvent('FATURA_APP_LUCA_VERIFY_TAX', { detail: { taxNo: tax } }));
+    window.postMessage({ type: 'FATURA_APP_LUCA_VERIFY_TAX', taxNo: tax }, '*');
+
+    setTimeout(() => {
+      window.removeEventListener('FATURA_APP_LUCA_VERIFY_TAX_RESPONSE', onTaxResponse);
+      setIsQueryingLuca(false);
+    }, 7000);
+  };
 
   useEffect(() => {
     if (isCariDrawerOpen) {
@@ -128,7 +188,18 @@ export function CariDrawer() {
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label>T.C. Kimlik / VKN <span className="text-red-500">*</span></Label>
+              <div className="flex items-center justify-between">
+                <Label>T.C. Kimlik / VKN <span className="text-red-500">*</span></Label>
+                <button
+                  type="button"
+                  onClick={handleQueryLucaTax}
+                  disabled={isQueryingLuca}
+                  className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1 font-medium disabled:opacity-50"
+                  title="Luca üzerinden resmi ünvan, vergi dairesi ve adres bilgilerini otomatik doldurur"
+                >
+                  {isQueryingLuca ? '⏳ Çekiliyor...' : '🔍 Luca\'dan Çek'}
+                </button>
+              </div>
               <Input 
                 value={formData.vknTckn} 
                 onChange={e => updateField('vknTckn', e.target.value)}

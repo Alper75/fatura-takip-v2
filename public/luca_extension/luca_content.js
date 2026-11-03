@@ -485,39 +485,57 @@
       el.dispatchEvent(new Event('blur', { bubbles: true }));
     };
 
-    const pressAltE = () => {
-      // 1. Varsa son satırdaki "+" butonunu tıkla (en güvenilir yöntem)
-      const plusBtns = Array.from(doc.querySelectorAll('td.add_delete input[value="+"], input[title*="Ekle"], input[onclick*="addRow"]'));
-      if (plusBtns.length > 0) {
-        const lastBtn = plusBtns[plusBtns.length - 1];
-        try {
-          lastBtn.focus();
-          lastBtn.click();
-          return;
-        } catch(e) {}
+    const pressAltE = (prevTr) => {
+      // 1. Önceki satırın "+" butonunu tıkla (varsa en güvenli 1 satır ekleme)
+      if (prevTr) {
+        const plusBtn = prevTr.querySelector('td.add_delete input[value="+"], input[title*="Ekle"], input[onclick*="addRow"]');
+        if (plusBtn) {
+          try {
+            plusBtn.focus();
+            plusBtn.click();
+            return;
+          } catch(e) {}
+        }
       }
 
-      // 2. addRow fonksiyonu
-      if (typeof doc.defaultView?.addRow === 'function') {
-        try { doc.defaultView.addRow(null, 3); return; } catch(e) {}
+      // 2. Alt+E Klavye kısayolu (Luca standardı: keyCode 69)
+      const evtDown = new KeyboardEvent('keydown', { key: 'e', code: 'KeyE', keyCode: 69, which: 69, altKey: true, bubbles: true, cancelable: true });
+      const evtUp = new KeyboardEvent('keyup', { key: 'e', code: 'KeyE', keyCode: 69, which: 69, altKey: true, bubbles: true, cancelable: true });
+      
+      if (window.frames?.frm3?.document) {
+        window.frames.frm3.document.dispatchEvent(evtDown);
+        window.frames.frm3.document.dispatchEvent(evtUp);
       }
-      if (typeof doc.defaultView?.satirEkle === 'function') {
-        try { doc.defaultView.satirEkle(); return; } catch(e) {}
-      }
-
-      // 3. Klavye kısayolu
-      const evtDown = new KeyboardEvent('keydown', { key: 'e', code: 'KeyE', keyCode: 69, which: 69, altKey: true, bubbles: true });
-      const evtUp = new KeyboardEvent('keyup', { key: 'e', code: 'KeyE', keyCode: 69, which: 69, altKey: true, bubbles: true });
-      doc.body.dispatchEvent(evtDown);
-      doc.body.dispatchEvent(evtUp);
       doc.dispatchEvent(evtDown);
       doc.dispatchEvent(evtUp);
+      if (doc.body) {
+        doc.body.dispatchEvent(evtDown);
+        doc.body.dispatchEvent(evtUp);
+      }
+
+      // 3. addRow tek satır (kesinlikle 3 parametresi verilmez, tek satır için addRow(null, 1))
+      if (typeof doc.defaultView?.satirEkle === 'function') {
+        try { doc.defaultView.satirEkle(); return; } catch(e) {}
+      } else if (typeof doc.defaultView?.addRow === 'function') {
+        try { doc.defaultView.addRow(null, 1); return; } catch(e) {}
+      }
     };
 
     const getRowByIndex = (idx) => {
-      const trById = doc.getElementById('tr' + (idx + 1)) || doc.getElementById('tr' + idx);
+      // 1. Doğrudan görünür HESAP_KODU inputları üzerinden satırı bul (en hızlı ve garantili yol)
+      const isVisible = (el) => el && el.type !== 'hidden' && el.offsetParent !== null;
+      const kodInputs = Array.from(doc.querySelectorAll('input[name="HESAP_KODU"], input[name*="hesapKodu"], input[id*="hesapKodu"]')).filter(isVisible);
+      if (kodInputs[idx]) {
+        const tr = kodInputs[idx].closest('tr');
+        if (tr) return tr;
+      }
+
+      // 2. ID ile bul (#tr1, #tr2, #tr0, #tr_1 vb.)
+      const trById = doc.getElementById('tr' + (idx + 1)) || doc.getElementById('tr' + idx) || doc.getElementById('tr_' + (idx + 1));
       if (trById) return trById;
-      const allRows = Array.from(doc.querySelectorAll('#scroll tbody tr, tr[id^="tr"]')).filter(r => {
+
+      // 3. Tablo satırlarını tara
+      const allRows = Array.from(doc.querySelectorAll('#scroll tbody tr, table tbody tr, tr[id*="tr"]')).filter(r => {
         return !!r.querySelector('input[name*="HESAP_KODU"], input[name*="hesapKodu"]') || (r.cells && r.cells.length >= 7);
       });
       return allRows[idx] || null;
@@ -553,33 +571,60 @@
       let tr = getRowByIndex(i);
 
       if (!tr) {
-        pressAltE();
+        pressAltE(i > 0 ? getRowByIndex(i - 1) : null);
         let wait = 0;
-        while (!getRowByIndex(i) && wait < 30) {
+        while (!getRowByIndex(i) && wait < 20) {
           await new Promise(res => setTimeout(res, 50));
           wait++;
         }
         tr = getRowByIndex(i);
       }
 
-      if (!tr) continue;
+      if (!tr) {
+        const allVisible = Array.from(doc.querySelectorAll('tr')).filter(row => row.querySelector('input[name="HESAP_KODU"], input[name*="hesapKodu"]'));
+        if (allVisible[i]) {
+          tr = allVisible[i];
+        } else {
+          console.warn(`[Luca Bridge] Satır #${i + 1} oluşturulamadı, devam ediliyor.`);
+          continue;
+        }
+      }
 
-      const codeInput = tr.querySelector('input[name="HESAP_KODU"], input[name*="hesapKodu"]') || tr.cells?.[1]?.querySelector('input[type="text"]');
-      const docNoInput = tr.querySelector('input[name="EVRAK_NO"], input[name*="evrakNo"]') || tr.cells?.[3]?.querySelector('input[type="text"]');
-      const dateInput = tr.querySelector('input[name="EVRAK_TARIH"], input[name*="evrakTarih"]') || tr.cells?.[4]?.querySelector('input[type="text"]');
-      const docTypeInput = tr.querySelector('input[name="BELGE_TURU"], input[name*="belgeTur"]') || tr.cells?.[5]?.querySelector('input[type="text"]');
-      const descInput = tr.querySelector('input[name="ACIKLAMA"], input[name*="aciklama"]') || tr.cells?.[7]?.querySelector('input[type="text"]');
-      const debitInput = tr.querySelector('input[name="BORC"], input[name*="borc"]') || tr.cells?.[8]?.querySelector('input[type="text"]');
-      const creditInput = tr.querySelector('input[name="ALACAK"], input[name*="alacak"]') || tr.cells?.[9]?.querySelector('input[type="text"]');
-      const qtyInput = tr.querySelector('input[name="MIKTAR"], input[name*="miktar"]') || tr.cells?.[10]?.querySelector('input[type="text"]');
+      const codeInput = tr.querySelector('input[name="HESAP_KODU"], input[name*="hesapKodu"]') || 
+                        tr.children?.HESAP_KODU || 
+                        tr.cells?.[1]?.querySelector('input[type="text"]');
+      const docNoInput = tr.querySelector('input[name="EVRAK_NO"], input[name*="evrakNo"]') || 
+                         tr.children?.EVRAK_NO || 
+                         tr.cells?.[3]?.querySelector('input[type="text"]');
+      const dateInput = tr.querySelector('input[name="EVRAK_TARIH"], input[name*="evrakTarih"]') || 
+                        tr.children?.EVRAK_TARIH || 
+                        tr.cells?.[4]?.querySelector('input[type="text"]');
+      const docTypeInput = tr.querySelector('input[name="BELGE_TURU"], input[name*="belgeTur"]') || 
+                           tr.children?.BELGE_TURU || 
+                           tr.cells?.[5]?.querySelector('input[type="text"]');
+      const descInput = tr.querySelector('input[name="ACIKLAMA"], input[name*="aciklama"]') || 
+                        tr.children?.ACIKLAMA || 
+                        tr.cells?.[7]?.querySelector('input[type="text"]');
+      const debitInput = tr.querySelector('input[name="BORC"], input[name*="borc"]') || 
+                         tr.children?.BORC || 
+                         tr.cells?.[8]?.querySelector('input[type="text"]');
+      const creditInput = tr.querySelector('input[name="ALACAK"], input[name*="alacak"]') || 
+                          tr.children?.ALACAK || 
+                          tr.cells?.[9]?.querySelector('input[type="text"]');
+      const qtyInput = tr.querySelector('input[name="MIKTAR"], input[name*="miktar"]') || 
+                       tr.children?.MIKTAR || 
+                       tr.cells?.[10]?.querySelector('input[type="text"]');
 
       // 1. Hesap Kodu
-      const codeVal = r.account_code || r.hesapKodu || r.muhasebeKodu || r['Hesap Kodu'] || r.kod || '';
-      if (codeInput) {
+      const codeVal = (r.account_code || r.hesapKodu || r.muhasebeKodu || r['Hesap Kodu'] || r.kod || '').trim();
+      if (codeInput && codeVal) {
         setVal(codeInput, codeVal);
         codeInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', keyCode: 9, which: 9, bubbles: true }));
         codeInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, which: 13, bubbles: true }));
-        if (tr.cells?.[2]) tr.cells[2].click();
+        if (tr.cells?.[2]) {
+          const c2 = tr.cells[2].querySelector('input[type="text"]') || tr.cells[2];
+          c2.click();
+        }
       }
 
       // 2. Evrak No
@@ -598,9 +643,16 @@
       const descVal = r.description || r.aciklama || '';
       if (descInput) setVal(descInput, descVal);
 
-      // 6. Borç / Alacak Tutarları
-      const debitVal = formatTutar(r.formatted_debit !== undefined ? r.formatted_debit : r.borc);
-      const creditVal = formatTutar(r.formatted_credit !== undefined ? r.formatted_credit : r.alacak);
+      // 6. Borç / Alacak Tutarları (Banka ve Mahsup için tam uyumlu)
+      const debitRaw = (r.formatted_debit !== undefined && r.formatted_debit !== '') 
+        ? r.formatted_debit 
+        : (r.borc !== undefined ? r.borc : (r.tur === 'borc' ? r.tutar : ''));
+      const creditRaw = (r.formatted_credit !== undefined && r.formatted_credit !== '') 
+        ? r.formatted_credit 
+        : (r.alacak !== undefined ? r.alacak : (r.tur === 'alacak' ? r.tutar : ''));
+
+      const debitVal = formatTutar(debitRaw);
+      const creditVal = formatTutar(creditRaw);
       if (debitInput) setVal(debitInput, debitVal);
       if (creditInput) setVal(creditInput, creditVal);
 
@@ -628,13 +680,13 @@
       // 9. Satır Onay
       if (descInput) descInput.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true }));
 
-      // Sonraki satıra geçiş (Sadece sıradaki satır DOM'da henüz yoksa yeni satır tetikle)
+      // SADECE son satır değilse ve sıradaki satır DOM'da henüz YOKSA bir sonraki satırı aç
       if (i < rows.length - 1) {
         await new Promise(res => setTimeout(res, 60));
         if (!getRowByIndex(i + 1)) {
-          pressAltE();
+          pressAltE(tr);
           let wait = 0;
-          while (!getRowByIndex(i + 1) && wait < 25) {
+          while (!getRowByIndex(i + 1) && wait < 20) {
             await new Promise(res => setTimeout(res, 40));
             wait++;
           }
@@ -648,38 +700,80 @@
   // --- 5. RUNTIME MESAJ DİNLEYİCİSİ (Popup ve Web App İstekleri) ---
   if (isRuntimeValid() && chrome.runtime.onMessage) {
     chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+      // A. HESAP PLANI KAZIMA / ÇEKME
       if (message.type === 'SCRAPE_PAGE_ACCOUNTS' || message.type === 'SCRAPE_ACCOUNTS') {
-        const doc = window.frames?.frm3?.document || document;
-        const table = doc.getElementById("TBL") || doc.getElementById("HTBL") || doc.getElementById("scroll") || Array.from(doc.querySelectorAll("table")).find(t => (t.innerText || '').includes("Hesap Kodu"));
-        if (!table) {
-          sendResponse({ status: 'error', message: 'Tablo bulunamadı' });
-          return true;
-        }
+        (async () => {
+          const accounts = [];
+          const seen = new Set();
+          const addAcc = (code, name) => {
+            const c = (code || '').trim();
+            const n = (name || '').trim();
+            if (/^\d{3}(\.[0-9A-Za-z_]+)*$/.test(c) && n && !seen.has(c)) {
+              seen.add(c);
+              accounts.push({ code: c, kod: c, name: n, ad: n });
+            }
+          };
 
-        const accounts = [];
-        const rows = Array.from(table.querySelectorAll('tr'));
-        for (let i = 0; i < rows.length; i++) {
-          const row = rows[i];
-          if (row.querySelector("th") || (row.innerText || '').includes("Hesap Kodu")) continue;
-          const cells = Array.from(row.querySelectorAll('td')).map(td => (td.innerText || '').trim());
-          let codeIdx = -1;
-          for (let c = 0; c < Math.min(cells.length, 3); c++) {
-            if (/^\d{3}(\.[0-9A-Za-z_]+)*$/.test(cells[c])) {
-              codeIdx = c;
-              break;
+          // 1. Tüm sayfa ve frame'lerdeki tabloları tara
+          const docs = [document];
+          try {
+            if (window.frames) {
+              for (let f = 0; f < window.frames.length; f++) {
+                try { if (window.frames[f]?.document) docs.push(window.frames[f].document); } catch(e) {}
+              }
+            }
+          } catch(e) {}
+
+          for (const d of docs) {
+            const tables = Array.from(d.querySelectorAll('table'));
+            for (const table of tables) {
+              const rows = Array.from(table.querySelectorAll('tr'));
+              for (const row of rows) {
+                if (row.querySelector('th')) continue;
+                const cells = Array.from(row.querySelectorAll('td')).map(td => (td.innerText || '').trim());
+                for (let ci = 0; ci < Math.min(cells.length, 3); ci++) {
+                  if (/^\d{3}(\.[0-9A-Za-z_]+)+$/.test(cells[ci])) {
+                    addAcc(cells[ci], cells[ci + 1]);
+                    break;
+                  }
+                }
+              }
             }
           }
-          if (codeIdx !== -1) {
-            const code = cells[codeIdx];
-            const name = cells[codeIdx + 1] || "";
-            if (code && name && !accounts.some(a => a.kod === code)) {
-              accounts.push({ code, kod: code, name, ad: name });
-            }
+
+          // 2. Eğer tabloda bulunamadıysa, sayfa bağlamından listAltHesapTempAction.do isteği at
+          if (accounts.length === 0) {
+            try {
+              const endpoints = [
+                '/Luca/listAltHesapTempAction.do?bakiyeGetir=1&hesapKodu=',
+                '/Luca/listAltHesapTempAction.do?hesapKodu='
+              ];
+              for (const ep of endpoints) {
+                const res = await fetch(ep, { credentials: 'include' });
+                const txt = await res.text();
+                // XML parsing
+                const xmlRegex = /<(?:hesapKodu|kod)[^>]*>([\s\S]*?)<\/(?:hesapKodu|kod)>[\s\S]*?<(?:hesapAdi|ad)[^>]*>([\s\S]*?)<\/(?:hesapAdi|ad)>/gi;
+                let xm;
+                while ((xm = xmlRegex.exec(txt)) !== null) {
+                  addAcc(xm[1].replace(/<[^>]+>/g, ''), xm[2].replace(/<[^>]+>/g, ''));
+                }
+                if (accounts.length > 0) break;
+              }
+            } catch(e) {}
           }
-        }
-        sendResponse({ status: 'success', data: accounts });
+
+          if (accounts.length > 0) {
+            chrome.storage.local.set({ lucaAccounts: accounts, lastSyncTime: new Date().toISOString() });
+            sendResponse({ status: 'success', data: accounts });
+          } else {
+            sendResponse({ status: 'error', message: 'Hesap planı tablosu veya verisi bulunamadı.' });
+          }
+        })();
         return true;
       }
+
+      // B. HIZLI FİŞ AKTARIMI
+      if (message.type === 'TRIGGER_HIZLI_FIS_AKTAR') {
         chrome.storage.local.get(['transferData'], async (res) => {
           const invList = res.transferData?.invoices || res.transferData?.hizliFisItems || [];
           if (invList && invList.length > 0) {
@@ -692,7 +786,20 @@
         return true;
       }
 
+      // C. MAHSUP VE BANKA AKTARIMI
       if (message.type === 'TRIGGER_MAHSUP_AKTAR' || message.type === 'TRIGGER_BANKA_AKTAR') {
+        // Eğer ana penceredeysek ve alt fiş penceresi (frm3) varsa, işlemi doğrudan o iframe'in içerik scripti yürütür
+        if (window.self === window.top && (window.frames?.frm3 || document.querySelector('#frm3'))) {
+          return false;
+        }
+
+        // Fiş ekranı olmayan frame'ler sessizce atlasın
+        const docCheck = document;
+        const isFis = !!docCheck.querySelector('input[name="HESAP_KODU"], input[name*="hesapKodu"]') ||
+                      !!docCheck.getElementById('scroll') ||
+                      !!docCheck.getElementById('hpTable') ||
+                      !!docCheck.forms['fisDetayFormArray'];
+        if (!isFis && window.self !== window.top) return false;
         chrome.storage.local.get(['transferData'], async (res) => {
           const isBank = message.type === 'TRIGGER_BANKA_AKTAR';
           const rows = isBank 
@@ -731,4 +838,3 @@
     window.dispatchEvent(new CustomEvent('LUCA_SCRAPE_ACCOUNTS_RESPONSE', { detail: { status: 'success', data: accounts }}));
   });
 })();
-

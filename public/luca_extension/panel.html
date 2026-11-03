@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Luca Aktarım & Otomasyon Test Paneli (v1.1.24)</title>
+  <link rel="stylesheet" href="panel.css" />
+</head>
+<body>
+  <header class="top-header">
+    <div class="brand">
+      <div class="brand-logo">L</div>
+      <div>
+        <h1>Luca Otomasyon & Aktarım Test Paneli</h1>
+        <p>Atlas Aktarım Mali Müşavir Eklentisi (v1.1.24) Tüm Bileşenler & Canlı Test Aracı</p>
+      </div>
+    </div>
+    <div class="connection-bar">
+      <div class="ext-id-box">
+        <label for="extIdInput">Eklenti ID:</label>
+        <input type="text" id="extIdInput" value="coeahbhnhdjmbepdfeecebhcoiocoeih" title="Chrome Eklenti ID" />
+        <button id="btnPing" class="btn btn-sm btn-primary">Bağlantıyı Test Et</button>
+      </div>
+      <div class="status-badges">
+        <span id="badgeExtStatus" class="badge badge-warn">Bağlantı Bekleniyor...</span>
+        <span id="badgeLucaSession" class="badge badge-neutral">Oturum: Kontrol Ediliyor...</span>
+        <span id="badgeLucaIp" class="badge badge-neutral">Sunucu: auygs.luca.com.tr</span>
+        <span id="badgeLucaToken" class="badge badge-neutral">SSO Token: Yok</span>
+      </div>
+    </div>
+  </header>
+
+  <div class="main-layout">
+    <!-- SOL MENÜ / SEKMELER -->
+    <aside class="sidebar">
+      <nav class="nav-tabs">
+        <button class="nav-btn active" data-tab="tab-bulk">
+          <span class="nav-icon">📄</span>
+          <div>
+            <strong>1. Toplu Fatura Girişi</strong>
+            <small>Bilanço Alış/Satış (BULK)</small>
+          </div>
+        </button>
+        <button class="nav-btn" data-tab="tab-single">
+          <span class="nav-icon">📒</span>
+          <div>
+            <strong>2. Muhasebe Fişi / Kayıt</strong>
+            <small>Yevmiye Fişi (SINGLE)</small>
+          </div>
+        </button>
+        <button class="nav-btn" data-tab="tab-basic">
+          <span class="nav-icon">⚡</span>
+          <div>
+            <strong>3. Hızlı Fiş (İşletme)</strong>
+            <small>hizliFisPopUp.do (basic)</small>
+          </div>
+        </button>
+        <button class="nav-btn" data-tab="tab-accounts">
+          <span class="nav-icon">🏦</span>
+          <div>
+            <strong>4. Hesap Planı & Cari Açma</strong>
+            <small>Hesap Planı Çek & Yeni Aç</small>
+          </div>
+        </button>
+        <button class="nav-btn" data-tab="tab-architecture">
+          <span class="nav-icon">🧩</span>
+          <div>
+            <strong>5. Çıkarılan Bileşenler</strong>
+            <small>Mimari & Kaynak Kod Özeti</small>
+          </div>
+        </button>
+      </nav>
+
+      <div class="luca-quick-box">
+        <h3>Hızlı Luca İşlemleri</h3>
+        <div class="form-group">
+          <label>Aktif Luca Sunucusu (Host/IP)</label>
+          <input type="text" id="lucaHostInput" value="auygs.luca.com.tr" />
+        </div>
+        <div class="btn-stack">
+          <button id="btnRefreshLucaInfo" class="btn btn-secondary btn-block">🔄 Oturum, Şirket & Token Oku</button>
+          <button id="btnOpenLucaLogin" class="btn btn-outline btn-block">🔑 Luca Giriş Sayfasını Aç</button>
+        </div>
+      </div>
+    </aside>
+
+    <!-- ORTA İÇERİK ALANI -->
+    <main class="content-area">
+      
+      <!-- SEKME 1: TOPLU FATURA GİRİŞİ (BULK) -->
+      <section id="tab-bulk" class="tab-panel active">
+        <div class="panel-header">
+          <div>
+            <h2>1. Luca Toplu Fatura Girişi (Bilanço - BULK Modu)</h2>
+            <p><code>luca-app-content-script.js</code> içindeki <code>entry_method: "BULK"</code> bileşenini tetikler. Tek satırda Cari Hesap + Matrah Hesabı + KDV Hesabı açarak <code>addFis.do</code> ekranına yazar.</p>
+          </div>
+          <div class="header-actions">
+            <button id="btnBulkAddSample" class="btn btn-secondary">+ Örnek Fatura Satırı Ekle</button>
+            <button id="btnBulkSend" class="btn btn-success btn-lg">🚀 Luca'ya Faturaları Aktar (BULK)</button>
+          </div>
+        </div>
+
+        <div class="card form-grid-3">
+          <div class="form-group">
+            <label>Fiş Tarihi (<code>ledger_date</code>)</label>
+            <input type="text" id="bulkLedgerDate" value="20/10/2026" placeholder="GG/AA/YYYY" />
+          </div>
+          <div class="form-group">
+            <label>Fatura Yönü (<code>ledger_type_value</code>)</label>
+            <select id="bulkLedgerType">
+              <option value="1">1 - Alış Faturaları (191 İndirilecek KDV / 320 Satıcılar)</option>
+              <option value="2" selected>2 - Satış Faturaları (391 Hesaplanan KDV / 120 Alıcılar)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Giriş Şekli (<code>GIRIS_SEKLI</code>)</label>
+            <input type="text" value="2 (Toplu Alış/Satış Fişi - BULK)" disabled />
+          </div>
+        </div>
+
+        <div class="card table-card">
+          <div class="table-responsive">
+            <table class="data-table" id="bulkTable">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>KDV %</th>
+                  <th>Cari Hesap Kodu<br><small>(120 / 320 / 100)</small></th>
+                  <th>Evrak No</th>
+                  <th>Evrak Tarihi</th>
+                  <th>Belge Türü</th>
+                  <th>Açıklama</th>
+                  <th>Miktar</th>
+                  <th>KDV Dahil Toplam</th>
+                  <th>Matrah Hesap Kodu<br><small>(600 / 153 / 770)</small></th>
+                  <th>KDV Hariç Matrah</th>
+                  <th>KDV Hesap Kodu<br><small>(391 / 191)</small></th>
+                  <th>KDV Tutarı</th>
+                  <th>Döviz</th>
+                  <th>BA/BS</th>
+                  <th>Sil</th>
+                </tr>
+              </thead>
+              <tbody id="bulkTbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- SEKME 2: MUHASEBE FİŞİ / KAYIT GİRME (SINGLE) -->
+      <section id="tab-single" class="tab-panel">
+        <div class="panel-header">
+          <div>
+            <h2>2. Standart Muhasebe Fişi / Yevmiye Kaydı Girme (SINGLE Modu)</h2>
+            <p><code>luca-app-content-script.js</code> içindeki <code>entry_method: "SINGLE"</code> bileşenini tetikler. Standart Yevmiye / Mahsup fişine her bir hesap kodunu (Borç / Alacak) ayrı satır olarak işler.</p>
+          </div>
+          <div class="header-actions">
+            <button id="btnSingleAddRow" class="btn btn-secondary">+ Yeni Fiş Satırı Ekle</button>
+            <button id="btnSingleAddInvoiceSet" class="btn btn-outline">+ 3 Satırlık Örnek Fatura Kaydı (120/600/391)</button>
+            <button id="btnSingleSend" class="btn btn-success btn-lg">🚀 Luca'ya Muhasebe Fişini Aktar (SINGLE)</button>
+          </div>
+        </div>
+
+        <div class="card form-grid-3">
+          <div class="form-group">
+            <label>Fiş Tarihi (<code>ledger_date</code>)</label>
+            <input type="text" id="singleLedgerDate" value="20/10/2026" placeholder="GG/AA/YYYY" />
+          </div>
+          <div class="form-group">
+            <label>BA/BS İşlem Türü (<code>ledger_type_value</code>)</label>
+            <select id="singleLedgerType">
+              <option value="1">1 - Alış İşlemi (BA Bildirimi)</option>
+              <option value="2" selected>2 - Satış İşlemi (BS Bildirimi)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Borç / Alacak Dengesi</label>
+            <div id="singleBalanceBox" class="balance-indicator">Borç: 0,00 | Alacak: 0,00</div>
+          </div>
+        </div>
+
+        <div class="card table-card">
+          <div class="table-responsive">
+            <table class="data-table" id="singleTable">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Hesap Kodu<br><small>(HESAP_KODU)</small></th>
+                  <th>Evrak No</th>
+                  <th>Evrak Tarihi</th>
+                  <th>Belge Türü</th>
+                  <th>Açıklama</th>
+                  <th>Borç Tutarı<br><small>(formatted_debit)</small></th>
+                  <th>Alacak Tutarı<br><small>(formatted_credit)</small></th>
+                  <th>Miktar</th>
+                  <th>Döviz</th>
+                  <th>Kur</th>
+                  <th>Döviz Tutarı</th>
+                  <th>BA/BS</th>
+                  <th>Cari Kodu (BA/BS)</th>
+                  <th>Sil</th>
+                </tr>
+              </thead>
+              <tbody id="singleTbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- SEKME 3: HIZLI FİŞ / İŞLETME DEFTERİ (BASIC) -->
+      <section id="tab-basic" class="tab-panel">
+        <div class="panel-header">
+          <div>
+            <h2>3. İşletme Defteri / Hızlı Fiş Fatura Girişi (<code>hizliFisPopUp.do</code>)</h2>
+            <p><code>luca-app-content-script-basic.js</code> bileşenini tetikler. KDV Tevkifatı (Oran &amp; Tevkifat Kodu), Stopaj Kodu, Stopaj Tutarı, Beyan Belge Türü, Alış/Satış Türü ve Kayıt Alt Türü alanlarını otomatik seçer.</p>
+          </div>
+          <div class="header-actions" style="flex-wrap:wrap; gap:8px;">
+            <button id="btnPullBasicOptions" class="btn btn-outline" title="Açık olan Hızlı Fiş (hizliFisPopUp.do) penceresindeki canlı Tevkifat ve Stopaj listelerini çeker">🔄 Hızlı Fişten Canlı Kodları Çek</button>
+            <button id="btnBasicAddTevkifatRow" class="btn btn-secondary">+ Tevkifatlı Satır Ekle</button>
+            <button id="btnBasicAddStopajRow" class="btn btn-secondary">+ Stopajlı Satır Ekle</button>
+            <button id="btnBasicAddRow" class="btn btn-secondary">+ Normal Satır Ekle</button>
+            <button id="btnBasicSend" class="btn btn-success btn-lg">🚀 Hızlı Fişe Aktar (BASIC)</button>
+          </div>
+        </div>
+
+        <div class="card form-grid-3" style="margin-bottom: 12px;">
+          <div class="form-group">
+            <label>Ay Seçimi (<code>month_number</code>)</label>
+            <select id="basicMonth">
+              <option value="01">01 - Ocak</option>
+              <option value="02">02 - Şubat</option>
+              <option value="03">03 - Mart</option>
+              <option value="04">04 - Nisan</option>
+              <option value="05">05 - Mayıs</option>
+              <option value="06">06 - Haziran</option>
+              <option value="07">07 - Temmuz</option>
+              <option value="08">08 - Ağustos</option>
+              <option value="09" selected>09 - Eylül</option>
+              <option value="10">10 - Ekim</option>
+              <option value="11">11 - Kasım</option>
+              <option value="12">12 - Aralık</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Varsayılan İşlem Yönü (<code>#islem0</code> / <code>tur</code>)</label>
+            <select id="basicLedgerType">
+              <option value="0">0 - Gelir / Satış (e-Fatura: 7, e-Arşiv: 8)</option>
+              <option value="1" selected>1 - Gider / Alış (Fatura: 1, e-Fatura: 9, e-Arşiv: 10)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Otomatik Hesaplama Seçeneği</label>
+            <label style="display:flex; align-items:center; gap:8px; font-weight:500; cursor:pointer; padding-top:6px;">
+              <input type="checkbox" id="basicAutoCalcCheck" checked />
+              Tevkifat / Stopaj seçildiğinde KDV, Stopaj ve Toplamı otomatik hesapla
+            </label>
+          </div>
+        </div>
+
+        <!-- KDV TEVKİFATI VE STOPAJ KODU EKLEME & HIZLI UYGULAMA KARTI -->
+        <div class="grid-2" style="margin-bottom: 12px;">
+          <div class="card" style="padding: 12px 14px;">
+            <h3 style="margin-bottom:6px; font-size:13px;">⚖️ KDV Tevkifat Kodu &amp; Oranı Ekle / Tüm Satırlara Uygula</h3>
+            <div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:8px;">
+              <select id="quickApplyTevCode" style="flex:2; min-width:210px;"></select>
+              <select id="quickApplyTevRate" style="flex:1; min-width:120px;"></select>
+              <button id="btnApplyTevAll" class="btn btn-primary btn-sm">Tüm Satırlara Uygula</button>
+            </div>
+            <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center;">
+              <input type="text" id="newTevCodeInput" placeholder="Yeni Kod (Örn: 601)" style="width:110px;" />
+              <input type="text" id="newTevNameInput" placeholder="Tevkifat Açıklaması (Örn: Yapım İşleri)" style="flex:1; min-width:140px;" />
+              <select id="newTevRateSelect" style="width:115px;">
+                <option value="10">2/10 (Kod:10)</option>
+                <option value="12">3/10 (Kod:12)</option>
+                <option value="13">4/10 (Kod:13)</option>
+                <option value="11" selected>5/10 (Kod:11)</option>
+                <option value="9">7/10 (Kod:9)</option>
+                <option value="4">9/10 (Kod:4)</option>
+                <option value="5">Tam (Kod:5)</option>
+                <option value="6">1/6 (Kod:6)</option>
+                <option value="8">1/5 (Kod:8)</option>
+                <option value="1">1/3 (Kod:1)</option>
+                <option value="2">1/2 (Kod:2)</option>
+                <option value="3">2/3 (Kod:3)</option>
+                <option value="7">4/5 (Kod:7)</option>
+              </select>
+              <button id="btnAddNewTevCode" class="btn btn-secondary btn-sm">+ Tevkifat Kodu Ekle</button>
+            </div>
+          </div>
+
+          <div class="card" style="padding: 12px 14px;">
+            <h3 style="margin-bottom:6px; font-size:13px;">🏛️ Stopaj Kodu Ekle / Tüm Satırlara Uygula</h3>
+            <div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:8px;">
+              <select id="quickApplyStopajCode" style="flex:2; min-width:240px;"></select>
+              <button id="btnApplyStopajAll" class="btn btn-primary btn-sm">Tüm Satırlara Uygula</button>
+            </div>
+            <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center;">
+              <input type="text" id="newStopajCodeInput" placeholder="Yeni Stopaj Kodu (Örn: 022)" style="width:135px;" />
+              <input type="text" id="newStopajNameInput" placeholder="Stopaj Açıklaması (Örn: Serbest Meslek)" style="flex:1; min-width:140px;" />
+              <input type="text" id="newStopajRateInput" placeholder="Oran % (Örn: 20)" style="width:105px;" value="20" />
+              <button id="btnAddNewStopajCode" class="btn btn-secondary btn-sm">+ Stopaj Kodu Ekle</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="card table-card">
+          <div class="table-responsive">
+            <table class="data-table" id="basicTable">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>İşlem<br><small>(#islem)</small></th>
+                  <th>Kategori<br><small>(#kategori)</small></th>
+                  <th>Tip<br><small>(#belge)</small></th>
+                  <th>Evrak Tarihi</th>
+                  <th>Evrak No</th>
+                  <th>Açıklama</th>
+                  <th>Miktar</th>
+                  <th>B.Fiyat</th>
+                  <th>KDV Hariç<br><small>(#tutar)</small></th>
+                  <th>KDV %<br><small>(#kdvOran2)</small></th>
+                  <th>KDV Tevkifat Oranı<br><small>(#tevkifat / sozluk7)</small></th>
+                  <th>Tevkifat / İstisna Kodu<br><small>(#kodNo / 601-627)</small></th>
+                  <th>KDV Tutarı<br><small>(#kdvTutar)</small></th>
+                  <th>Genel Toplam<br><small>(#topNotBura)</small></th>
+                  <th>Stopaj Kodu Seçimi<br><small>(#stopajKodu)</small></th>
+                  <th>Stopaj Tutarı<br><small>(#stopajTutari)</small></th>
+                  <th>Adı</th>
+                  <th>Soyadı / Ünvan</th>
+                  <th>TCKN / VKN</th>
+                  <th>Belge Türü DB<br><small>(#beyanBelgeTuru)</small></th>
+                  <th>Alış/Satış<br><small>(#alisSatisTuru)</small></th>
+                  <th>Alt Tür<br><small>(#kayitAltTuru)</small></th>
+                  <th>Sil</th>
+                </tr>
+              </thead>
+              <tbody id="basicTbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- SEKME 4: HESAP PLANI ÇEKME, CARİ KART AÇMA & HTTP KÖPRÜSÜ -->
+      <section id="tab-accounts" class="tab-panel">
+        <div class="panel-header">
+          <div>
+            <h2>4. Luca Hesap Planı Çekme, Cari/Hesap Kartı Açma & Canlı API</h2>
+            <p>Atlas uygulamasının gerçek Luca uç noktaları olan <code>listAltHesapTempAction.do</code>, <code>listHesapPlaniBaBs.do</code>, <code>cariBilgiDogrulamaSistemdenAl.do</code> ve <code>hesapPlaniBaBs.do</code> üzerinden işlem yapar.</p>
+          </div>
+          <div class="header-actions">
+            <button id="btnCheckSession" class="btn btn-secondary">👤 Aktif Luca Oturumunu Sorgula (GetSessionInfoServlet)</button>
+            <button id="btnFetchCompanies" class="btn btn-outline">🏢 Şirket/Dönem Listesini Çek (TopFrameAction.do)</button>
+          </div>
+        </div>
+
+        <!-- AKTİF ŞİRKET / DÖNEM BİLGİSİ VE DEĞİŞTİRME ÇUBUĞU -->
+        <div class="card form-grid-3" style="margin-bottom: 14px;">
+          <div class="form-group">
+            <label>Aktif Luca Kullanıcı / Şirket / Dönem</label>
+            <input type="text" id="sessionSummaryInput" value="Henüz sorgulanmadı..." readonly />
+          </div>
+          <div class="form-group">
+            <label>Şirket Seç / Değiştir (<code>SIRKET_ID</code>)</label>
+            <select id="companySelect">
+              <option value="">-- Mevcut Aktif Şirket --</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Dönem ID (<code>DONEM_ID</code>) & Geçiş</label>
+            <div style="display:flex; gap:6px;">
+              <input type="text" id="termIdInput" placeholder="Dönem ID (Örn: 12345)" />
+              <button id="btnSwitchCompany" class="btn btn-primary btn-sm" style="white-space:nowrap;">Şirket/Dönem Seç</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- ÜST KART: GERÇEK HESAP PLANI ÇEKME VE LİSTELEME TABLOSU -->
+        <div class="card" style="margin-bottom: 14px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:10px;">
+            <div>
+              <h3>📋 1. Luca Hesap Planını Çek (<code>listAltHesapTempAction.do</code> & <code>listHesapPlaniBaBs.do</code>)</h3>
+              <p class="card-desc" style="margin-bottom:0;">Luca'da <code>listHesapPlani.do</code> boş çerçeve döner; gerçek hesap planı <code>listAltHesapTempAction.do?bakiyeGetir=1&hesapKodu=</code> (GET) veya <code>listHesapPlaniBaBs.do</code> (POST <code>HKTEKSECILI</code>) ile çekilir.</p>
+            </div>
+            <div class="btn-row" style="margin-top:0;">
+              <input type="text" id="accFilterPrefix" value="" placeholder="Kod Filtresi (Örn: 120, 320, boş=tümü)" style="width:210px;" />
+              <button id="btnFetchAltHesap" class="btn btn-success">📥 Tüm Alt Hesap Planını Çek (listAltHesapTempAction.do)</button>
+              <select id="babsMainCodeSelect" style="width:150px;">
+                <option value="1">Grup 1 (1xx Dönen)</option>
+                <option value="3">Grup 3 (3xx Yabancı)</option>
+                <option value="6">Grup 6 (6xx Gelir)</option>
+                <option value="7">Grup 7 (7xx Maliyet)</option>
+                <option value="120">120 - Alıcılar</option>
+                <option value="320">320 - Satıcılar</option>
+              </select>
+              <button id="btnFetchBaBsHesap" class="btn btn-primary">📥 Ana Gruba Göre Çek (listHesapPlaniBaBs.do)</button>
+            </div>
+          </div>
+
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; gap:10px;">
+            <input type="text" id="accTableSearch" placeholder="🔍 Çekilen hesaplar içinde kod veya ünvan ara..." style="max-width:360px;" />
+            <span id="accCountBadge" class="badge badge-neutral">0 Hesap Listelendi</span>
+          </div>
+
+          <div class="table-responsive" style="max-height: 260px; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 6px;">
+            <table class="data-table" id="fetchedAccountsTable">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Hesap Kodu</th>
+                  <th>Hesap Adı / Ünvan</th>
+                  <th>VKN / TCKN / Ek Bilgi</th>
+                  <th>Borç / Alacak / Bakiye</th>
+                  <th>İşlem</th>
+                </tr>
+              </thead>
+              <tbody id="fetchedAccountsTbody">
+                <tr>
+                  <td colspan="6" style="text-align:center; padding:16px; color:#64748b;">
+                    Hesap planını görüntülemek için yukarıdaki <strong>"Tüm Alt Hesap Planını Çek"</strong> veya <strong>"Ana Gruba Göre Çek"</strong> butonuna tıklayın.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <!-- SOL KART: 2 ADIMLI GERÇEK HESAP PLANI / CARİ KART AÇMA -->
+          <div class="card">
+            <h3>➕ 2. Yeni Hesap Planı / Cari Kart Aç (Gerçek 2 Adımlı Luca Akışı)</h3>
+            <p class="card-desc">
+              <strong>Adım 1:</strong> <code>cariBilgiDogrulamaSistemdenAl.do</code> ile TCKN/VKN'yi sorgular; <code>unvan</code>, <code>vergiNo</code>, <code>tckNo</code>, <code>vergiDairesi</code> ve <code>vergiDairesiAd</code> değişkenlerini otomatik doldurur.<br>
+              <strong>Adım 2:</strong> <code>hesapPlaniBaBsForm</code> alanlarını (<code>HESAP_KOD</code>, <code>HESAP_AD</code>, <code>N="B"</code>, <code>DOVIZKOD="0"</code> vb.) <code>hesapPlaniBaBs.do</code>'ya kaydeder.
+            </p>
+
+            <div class="form-grid-2">
+              <div class="form-group">
+                <label>1. Sorgulanacak VKN (10) veya TCKN (11)</label>
+                <div style="display:flex; gap:6px;">
+                  <input type="text" id="accQueryTaxInput" value="17204940254" placeholder="TCKN veya VKN girin" />
+                  <button id="btnQueryTaxNo" class="btn btn-secondary btn-sm" style="white-space:nowrap;">🔍 1. Luca'dan Doğrula</button>
+                </div>
+              </div>
+              <div class="form-group">
+                <label>Hazır Hesap Kodu Şablonu</label>
+                <select id="accTemplateSelect">
+                  <option value="120">120 - Alıcılar (Müşteri Cari Hesabı)</option>
+                  <option value="320">320 - Satıcılar (Tedarikçi Cari Hesabı)</option>
+                  <option value="600">600 - Yurtiçi Satışlar (Gelir Hesabı)</option>
+                  <option value="191">191 - İndirilecek KDV</option>
+                  <option value="391">391 - Hesaplanan KDV</option>
+                  <option value="770">770 - Genel Yönetim Giderleri</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="form-grid-2">
+              <div class="form-group">
+                <label>Açılacak Hesap Kodu (<code>HESAP_KOD</code>)</label>
+                <input type="text" id="accCode" value="120.01.001" />
+              </div>
+              <div class="form-group">
+                <label>Hesap Adı / Ünvanı (<code>HESAP_AD</code>)</label>
+                <input type="text" id="accName" value="ALPER ÇETIN" />
+              </div>
+            </div>
+
+            <div class="form-grid-2">
+              <div class="form-group">
+                <label>VKN - 10 Hane (<code>VERGI_NO</code>)</label>
+                <input type="text" id="accVkn" value="2430911751" maxlength="10" />
+              </div>
+              <div class="form-group">
+                <label>TCKN - 11 Hane (<code>TCK_NO</code>)</label>
+                <input type="text" id="accTckn" value="17204940254" maxlength="11" />
+              </div>
+            </div>
+
+            <div class="form-grid-3">
+              <div class="form-group">
+                <label>Vergi Dairesi Kodu (<code>VERGI_DAIRESI</code>)</label>
+                <input type="text" id="accVdCode" value="034288" />
+              </div>
+              <div class="form-group">
+                <label>Vergi Dairesi Adı (<code>VERGI_DAIRESI_AD</code>)</label>
+                <input type="text" id="accVdName" value="SARIGAZI VERGI DAIRESI MÜD." />
+              </div>
+              <div class="form-group">
+                <label>Döviz Kodu (<code>DOVIZKOD</code>)</label>
+                <select id="accCurrency">
+                  <option value="0">0 - TRY (TL)</option>
+                  <option value="1">1 - USD</option>
+                  <option value="4">4 - EUR</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label>Luca Hesap Kayıt Endpoint (<code>hesapPlaniBaBsForm</code> Action)</label>
+              <input type="text" id="accEndpointUrl" value="https://auygs.luca.com.tr/Luca/hesapPlaniBaBs.do?popup=true&hpId=hk_kdvli0&parentDIV=cariIslemDiv&opr=kaydet&topluBeyan=null&donemId=null" />
+            </div>
+
+            <div class="form-group">
+              <label>Gönderilecek <code>hesapPlaniBaBsForm</code> POST Verisi (JSON - Düzenlenebilir)</label>
+              <textarea id="accPostBody" rows="6" class="code-textarea"></textarea>
+            </div>
+
+            <div class="btn-row">
+              <button id="btnCreateAccountPost" class="btn btn-primary">📤 2. Hesap Kartını Luca'ya Kaydet (hesapPlaniBaBs.do)</button>
+              <button id="btnUseAccountInForms" class="btn btn-secondary">🔄 Bu Hesap Kodunu Fatura Sekmelerine Aktar</button>
+            </div>
+          </div>
+
+          <!-- SAĞ KART: GENEL LUCA HTTP GET / POST TEST ARACI -->
+          <div class="card">
+            <h3>🌐 3. Ham Luca HTTP İstek Köprüsü & HTML Yanıt İnceleyici</h3>
+            <p class="card-desc">Atlas'ın kullandığı tüm gerçek Luca uç noktalarını (Servlet ve Struts `.do` aksiyonları) seçip ham HTML/XML yanıtlarını aşağıda inceleyebilirsiniz.</p>
+
+            <div class="form-group">
+              <label>Gerçek Luca Uç Noktası (Endpoint) Seç</label>
+              <select id="quickEndpointSelect">
+                <option value="/Luca/listAltHesapTempAction.do?bakiyeGetir=1&hesapKodu=">📋 Alt Hesap Planı & Bakiyeler (listAltHesapTempAction.do)</option>
+                <option value="/Luca/listHesapPlaniBaBs.do">📋 Ana Koda Göre Hesap Planı [POST HKTEKSECILI=1] (listHesapPlaniBaBs.do)</option>
+                <option value="/Luca/GetSessionInfoServlet">👤 Aktif Kullanıcı, Şirket & Dönem XML (GetSessionInfoServlet)</option>
+                <option value="/Luca/TopFrameAction.do">🏢 Şirketler ve Dönemler Çerçevesi (TopFrameAction.do)</option>
+                <option value="/Luca/cariBilgiDogrulamaSistemdenAl.do?TCK_NO=&VERGI_NO=1234567890&HESAP_ID=&HESAP_KODU=&F10=1">🔍 VKN/TCKN Doğrulama & Cari Açılış Formu (cariBilgiDogrulamaSistemdenAl.do)</option>
+                <option value="/Luca/hesapPlaniBaBs.do?popup=true&hpId=hk_kdvli0&parentDIV=cariIslemDiv&opr=kaydet&topluBeyan=null&donemId=null">➕ Hesap Planı / Cari Kaydet [POST] (hesapPlaniBaBs.do)</option>
+                <option value="/Luca/menu.do">🏠 Menü & Yetki Kontrol Sayfası (menu.do)</option>
+                <option value="/Luca/addFis.do">📒 Muhasebe Fiş Giriş Sayfası (addFis.do)</option>
+                <option value="/Luca/hizliFisPopUp.do">⚡ Hızlı Fiş Giriş Sayfası (hizliFisPopUp.do)</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label>İstek Adresi (<code>fetchUrl</code>)</label>
+              <input type="text" id="rawFetchUrl" value="https://auygs.luca.com.tr/Luca/listAltHesapTempAction.do?bakiyeGetir=1&hesapKodu=" />
+            </div>
+
+            <div class="btn-row">
+              <button id="btnRawGet" class="btn btn-primary">📥 FETCH_LUCA_URL_AS_HTML (GET)</button>
+              <button id="btnRawPost" class="btn btn-outline">📤 POST_LUCA_URL_AS_HTML (POST)</button>
+            </div>
+
+            <div class="form-group" style="margin-top:12px;">
+              <label>Luca'dan Dönen Ham HTML / XML Yanıtı</label>
+              <textarea id="rawHtmlOutput" rows="12" class="code-textarea" readonly placeholder="İstek sonucu burada görüntülenecektir..."></textarea>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- SEKME 5: ÇIKARILAN BİLEŞENLER VE MİMARİ -->
+      <section id="tab-architecture" class="tab-panel">
+        <div class="panel-header">
+          <div>
+            <h2>5. Çıkarılan Eklenti Bileşenleri & Protokol Referansı</h2>
+            <p><code>1.1.24_0</code> klasöründeki tüm sıkıştırılmış (minified) Webpack paketleri ayrıştırılmış ve okunabilir kaynak kodları <code>extracted_extension/</code> klasörüne çıkarılmıştır.</p>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div class="card">
+            <h3>📂 Çıkarılan Dosyalar (<code>extracted_extension/</code>)</h3>
+            <ul class="comp-list">
+              <li>
+                <strong>1. <code>1_background_readable.js</code> (<code>background.js</code>)</strong>
+                <p>Service Worker. <code>tabIdManager</code>, <code>bucketManager</code>, <code>userInfoManager</code>, <code>qs.stringify</code> ile URL-encoded form post etme, <code>FETCH_LUCA_URL_AS_HTML</code>, <code>POST_LUCA_URL_AS_HTML</code>, <code>SET_LUCA_BUCKET</code> ve <code>CREATE_TAB</code> mesaj yöneticilerini içerir.</p>
+              </li>
+              <li>
+                <strong>2. <code>2_luca_login_readable.js</code> (<code>luca-login-content-script.js</code>)</strong>
+                <p><code>agiris.luca.com.tr</code> üzerinde çalışır. Sayfa HTML'inden <code>f.s.value</code> (<code>LUCA_TOKEN</code>) ve <code>f.action</code> içindeki sunucu IP/host adresini (<code>CURRENT_LUCA_WINDOW_IP</code>) regex ile yakalar.</p>
+              </li>
+              <li>
+                <strong>3. <code>3_luca_standard_accounting_readable.js</code> (<code>luca-app-content-script.js</code>)</strong>
+                <p>Bilanço usulü muhasebe fişi ve fatura girişi. <code>#frm3</code> iframe'inde <code>addFis.do</code>'yu açar, <code>SINGLE</code> (standart yevmiye satırı) ve <code>BULK</code> (toplu alış/satış faturası satırı) modlarında <code>Alt+E</code> ile satır açıp <code>MutationObserver</code> ile doldurur.</p>
+              </li>
+              <li>
+                <strong>4. <code>4_luca_basic_accounting_readable.js</code> (<code>luca-app-content-script-basic.js</code>)</strong>
+                <p>İşletme defteri / Hızlı Fiş (<code>hizliFisPopUp.do</code>) otomasyonu. Tevkifat, Beyan Belge Türü (<code>#beyanBelgeTuru</code>), Alış/Satış Türü (<code>#alisSatisTuru</code>), Kayıt Alt Türü (<code>#kayitAltTuru</code>) ve Stopaj Kodu (<code>#stopajKodu</code>) multiselect kutularını doldurup <code>Alt+S</code> ile kaydeder.</p>
+              </li>
+              <li>
+                <strong>5. <code>rules_1.json</code> (Declarative Net Request)</strong>
+                <p>Luca'nın CSRF/Referer kontrolünü aşmak için <code>luca.do</code>, <code>menu.do</code>, <code>addFis.do</code> ve <code>ssoGiris.do</code> isteklerine otomatik <code>Referer</code> başlığı ekler.</p>
+              </li>
+            </ul>
+          </div>
+
+          <div class="card">
+            <h3>📦 Aktif Bucket (Veri Paketi) JSON Önizlemesi & Manuel Tetikleme</h3>
+            <p class="card-desc">Sekmelerde hazırladığınız verinin eklentiye gönderilen birebir <code>bucket</code> JSON formatı aşağıdadır. İstediğiniz gibi düzenleyip doğrudan gönderebilirsiniz:</p>
+            <textarea id="bucketPreviewJson" rows="14" class="code-textarea"></textarea>
+            <div class="btn-row" style="margin-top:10px;">
+              <button id="btnSendCustomBucket" class="btn btn-primary">💾 Sadece Bucket'a Kaydet (SET_LUCA_BUCKET)</button>
+              <button id="btnSendCustomAndOpen" class="btn btn-success">🚀 Bucket'ı Kaydet & Luca Sekmesini Aç (CREATE_TAB)</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </main>
+
+    <!-- SAĞ KONSOL / CANLI LOG PANELİ -->
+    <aside class="log-panel">
+      <div class="log-header">
+        <h3>📡 Canlı İletişim & İşlem Kayıtları</h3>
+        <button id="btnClearLogs" class="btn btn-xs btn-outline">Temizle</button>
+      </div>
+      <div id="logContainer" class="log-container"></div>
+    </aside>
+  </div>
+
+  <script src="panel.js"></script>
+</body>
+</html>

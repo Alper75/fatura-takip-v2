@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <title>Luca'ya Aktarılıyor - Lütfen Bekleyiniz...</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background-color: #f1f5f9;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      color: #1e293b;
+    }
+    .box {
+      background: #fff;
+      padding: 32px 40px;
+      border-radius: 12px;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.08);
+      text-align: center;
+      max-width: 480px;
+    }
+    .spinner {
+      width: 44px;
+      height: 44px;
+      border: 4px solid #e2e8f0;
+      border-top-color: #2563eb;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin: 0 auto 16px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    h2 { margin: 0 0 8px; font-size: 20px; }
+    p { margin: 0; color: #64748b; font-size: 14px; line-height: 1.5; }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <div class="spinner" id="spinner"></div>
+    <h2 id="statusTitle">Luca Oturumu Başlatılıyor...</h2>
+    <p id="statusDesc">SSO Token ile <code>ssoGiris.do</code> üzerinden Luca ekranına yönlendiriliyorsunuz. Lütfen bekleyiniz...</p>
+  </div>
+
+  <form method="post" class="lucaForm" id="lucaSsoForm">
+    <input name="s" id="inputS" type="hidden" value="" />
+    <input name="t" id="inputT" type="hidden" value="" />
+  </form>
+
+  <script src="veri-aktarma.js"></script>
+</body>
+</html>

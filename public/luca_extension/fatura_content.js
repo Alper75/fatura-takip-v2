@@ -46,7 +46,8 @@ window.addEventListener('FATURA_APP_LUCA_SEND_MAHSUP', (e) => {
 // 4. Banka Hareketleri
 window.addEventListener('FATURA_APP_LUCA_SEND_BANKA_HAREKETLERI', (e) => {
   if (e.detail) {
-    const items = Array.isArray(e.detail) ? e.detail : (e.detail.bankTransactions || e.detail.hareketler || e.detail.mahsupRows || []);
+    const raw = e.detail;
+    const items = Array.isArray(raw) ? raw : (raw.bankTransactions || raw.hareketler || raw.mahsupRows || []);
     sendToExtension({
       isIsletme: false,
       bankTransactions: items,
@@ -150,5 +151,21 @@ window.addEventListener('message', (e) => {
     sendToExtension({ isIsletme: true, invoices: detail || data || payload });
   } else if (type === 'FATURA_APP_LUCA_AUTO_SYNC' || type === 'FATURA_APP_LUCA_SYNC_REQUEST') {
     handleAccountSync();
+  } else if (type === 'FATURA_APP_LUCA_VERIFY_TAX') {
+    const taxNo = detail?.taxNo || data?.taxNo || payload?.taxNo || detail || data || payload;
+    if (taxNo && typeof chrome !== 'undefined' && chrome.runtime?.id) {
+      chrome.runtime.sendMessage({ type: 'VERIFY_VKN_TCKN', taxNo }, (res) => {
+        window.postMessage({ type: 'FATURA_APP_LUCA_VERIFY_TAX_RESPONSE', detail: res }, '*');
+        window.dispatchEvent(new CustomEvent('FATURA_APP_LUCA_VERIFY_TAX_RESPONSE', { detail: res }));
+      });
+    }
+  } else if (type === 'FATURA_APP_LUCA_CREATE_ACCOUNT') {
+    const accData = detail || data || payload;
+    if (accData && typeof chrome !== 'undefined' && chrome.runtime?.id) {
+      chrome.runtime.sendMessage({ type: 'CREATE_LUCA_ACCOUNT', data: accData }, (res) => {
+        window.postMessage({ type: 'FATURA_APP_LUCA_CREATE_ACCOUNT_RESPONSE', detail: res }, '*');
+        window.dispatchEvent(new CustomEvent('FATURA_APP_LUCA_CREATE_ACCOUNT_RESPONSE', { detail: res }));
+      });
+    }
   }
 });
