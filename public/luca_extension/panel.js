@@ -1309,20 +1309,177 @@ function updateBucketPreview(mode = "BULK") {
   }
 }
 
+// BULK FATURALARI STANDART MAHSUP FİŞİ SATIRLARINA (CARİ / MATRAH / KDV) DÖNÜŞTÜRÜCÜ
+function convertBulkRowsToMahsupRows(bulkRows, ledgerTypeValue, defaultDate) {
+  const converted = [];
+  const isSatis = Number(ledgerTypeValue) === 2;
+
+  (bulkRows || []).forEach(row => {
+    const docNo = row.document_no || '';
+    const docDate = row.document_date || defaultDate || '';
+    const docType = row.document_type || 'FT';
+    const desc = row.description || (isSatis ? 'Satış Faturası' : 'Alış Faturası');
+    const cariKod = (row.contact_account_code || (isSatis ? '120.01.001' : '320.01.001')).trim();
+    const faturaKod = (row.invoice_account_code || (isSatis ? '600.01.020' : '153.01.001')).trim();
+    const kdvKod = (row.vat_account_code || (isSatis ? '391.01.020' : '191.01.020')).trim();
+    const qty = row.quantity || '1';
+    const curr = row.currency || 'TRY';
+    const rate = row.formatted_exchange_rate || '1,00';
+    const isBabs = !!row.babs;
+
+    const netTotal = row.formatted_net_total || '0,00';
+    const matrah = row.formatted_net_total_without_vat || '0,00';
+    const vat = row.formatted_vat || '0,00';
+
+    if (isSatis) {
+      // 1. Cari Hesap (120) -> BORÇ
+      converted.push({
+        account_code: cariKod,
+        document_no: docNo,
+        document_date: docDate,
+        document_type: docType,
+        description: desc,
+        formatted_debit: netTotal,
+        formatted_credit: "0,00",
+        quantity: qty,
+        currency: curr,
+        formatted_exchange_rate: rate,
+        formatted_currency_debit: row.formatted_currency_net_total || "0,00",
+        formatted_currency_credit: "0,00",
+        babs: isBabs,
+        contact_account_code: cariKod
+      });
+
+      // 2. Gelir Hesabı (600) -> ALACAK (Matrah)
+      converted.push({
+        account_code: faturaKod,
+        document_no: docNo,
+        document_date: docDate,
+        document_type: docType,
+        description: `${desc} (Matrah)`,
+        formatted_debit: "0,00",
+        formatted_credit: matrah,
+        quantity: qty,
+        currency: curr,
+        formatted_exchange_rate: rate,
+        formatted_currency_debit: "0,00",
+        formatted_currency_credit: row.formatted_currency_net_total_without_vat || "0,00",
+        babs: false,
+        contact_account_code: cariKod
+      });
+
+      // 3. Hesaplanan KDV (391) -> ALACAK
+      if (vat && vat !== "0,00" && vat !== "0") {
+        converted.push({
+          account_code: kdvKod,
+          document_no: docNo,
+          document_date: docDate,
+          document_type: docType,
+          description: `${desc} (KDV %${row.vat_rate || '20'})`,
+          formatted_debit: "0,00",
+          formatted_credit: vat,
+          quantity: qty,
+          currency: curr,
+          formatted_exchange_rate: rate,
+          formatted_currency_debit: "0,00",
+          formatted_currency_credit: row.formatted_currency_vat || "0,00",
+          babs: false,
+          contact_account_code: cariKod
+        });
+      }
+    } else {
+      // 1. Cari Hesap (320) -> ALACAK
+      converted.push({
+        account_code: cariKod,
+        document_no: docNo,
+        document_date: docDate,
+        document_type: docType,
+        description: desc,
+        formatted_debit: "0,00",
+        formatted_credit: netTotal,
+        quantity: qty,
+        currency: curr,
+        formatted_exchange_rate: rate,
+        formatted_currency_debit: "0,00",
+        formatted_currency_credit: row.formatted_currency_net_total || "0,00",
+        babs: isBabs,
+        contact_account_code: cariKod
+      });
+
+      // 2. Alış/Gider (153/770) -> BORÇ (Matrah)
+      converted.push({
+        account_code: faturaKod,
+        document_no: docNo,
+        document_date: docDate,
+        document_type: docType,
+        description: `${desc} (Matrah)`,
+        formatted_debit: matrah,
+        formatted_credit: "0,00",
+        quantity: qty,
+        currency: curr,
+        formatted_exchange_rate: rate,
+        formatted_currency_debit: row.formatted_currency_net_total_without_vat || "0,00",
+        formatted_currency_credit: "0,00",
+        babs: false,
+        contact_account_code: cariKod
+      });
+
+      // 3. İndirilecek KDV (191) -> BORÇ
+      if (vat && vat !== "0,00" && vat !== "0") {
+        converted.push({
+          account_code: kdvKod,
+          document_no: docNo,
+          document_date: docDate,
+          document_type: docType,
+          description: `${desc} (KDV %${row.vat_rate || '20'})`,
+          formatted_debit: vat,
+          formatted_credit: "0,00",
+          quantity: qty,
+          currency: curr,
+          formatted_exchange_rate: rate,
+          formatted_currency_debit: row.formatted_currency_vat || "0,00",
+          formatted_currency_credit: "0,00",
+          babs: false,
+          contact_account_code: cariKod
+        });
+      }
+    }
+  });
+
+  return converted;
+}
+
 // LUCA'YA AKTARIM TETİKLEYİCİ (SET_LUCA_BUCKET + AÇIK LUCA SEKMESİNE BAĞLAN / SSO İLE AÇ)
 async function transferBucketToLuca(bucket) {
   try {
     const host = getLucaHost();
+
+    // Toplu fişe gitmesini engelle: BULK faturaları doğrudan Standart Mahsup Fişi (Yevmiye) satırlarına dönüştür
+    if (bucket && bucket.entry_method === "BULK" && Array.isArray(bucket.ledger_rows)) {
+      const mahsupRows = convertBulkRowsToMahsupRows(bucket.ledger_rows, bucket.ledger_type_value, bucket.ledger_date);
+      bucket.entry_method = "SINGLE"; // Standart Mahsup Fişi
+      bucket.ledger_rows = mahsupRows;
+    }
+
     addLog("1/2: SET_LUCA_BUCKET Gönderiliyor...", bucket, "info");
     await sendExtensionMessage({
       actionKey: "SET_LUCA_BUCKET",
       bucket
     });
 
+    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+      chrome.storage.local.get(['transferData'], (res) => {
+        const td = res.transferData || {};
+        td.mahsupRows = bucket.ledger_rows;
+        td.isIsletme = false;
+        chrome.storage.local.set({ transferData: td, lucaBucket: bucket });
+      });
+    }
+
     const targetUrl = `https://${host}/Luca/luca.do`;
     addLog(
-      "2/2: Açık Luca Sekmesine Bağlanılıyor (veya SSO ile Başlatılıyor)...",
-      "Tarayıcıda açık olan Luca sekmesi (Örn: 2HB GÜZELL) varsa doğrudan onun içindeki #frm3 çerçevesinde addFis.do açılır; yoksa ssoGiris.do üzerinden açılır.",
+      "2/2: Açık Luca Sekmesine Bağlanılıyor (Direkt Mahsup Fişi)...",
+      "Luca sekmesinde #frm3 çerçevesinde addFis.do (Standart Mahsup Fişi) açılarak satırlar doğrudan fişe yazılır (Toplu fişe gidilmez).",
       "info"
     );
     const tabId = await sendExtensionMessage({
@@ -1332,7 +1489,7 @@ async function transferBucketToLuca(bucket) {
 
     addLog(
       "Aktarım Başlatıldı ✔",
-      `Hedef Luca Sekmesi (Tab ID: ${tabId}) aktif edildi ve fiş/fatura satırları yazılıyor.`,
+      `Hedef Luca Sekmesi (Tab ID: ${tabId}) aktif edildi ve Mahsup Fişi satırları yazılıyor.`,
       "success"
     );
   } catch (err) {

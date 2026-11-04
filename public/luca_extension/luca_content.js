@@ -840,6 +840,104 @@
               rows = bkt.ledger_rows;
             }
 
+            // Toplu fiş yerine DİREKT MAHSUP FİŞİ: Eğer satırlar toplu fatura formatındaysa (invoice_account_code / vat_account_code)
+            // bunları standart 3 satırlık dengeli yevmiye maddelerine dönüştür
+            if (rows && rows.length > 0 && rows.some(r => r.invoice_account_code || r.vat_account_code)) {
+              const isSatis = bkt?.ledger_type_value ? Number(bkt.ledger_type_value) === 2 : true;
+              const expanded = [];
+              rows.forEach(r => {
+                if (r.invoice_account_code || r.vat_account_code) {
+                  const docNo = r.document_no || r.evrakNo || '';
+                  const docDate = r.document_date || r.evrakTarihi || r.tarih || '';
+                  const docType = r.document_type || r.belgeTuru || 'FT';
+                  const desc = r.description || r.aciklama || (isSatis ? 'Satış Faturası' : 'Alış Faturası');
+                  const cariKod = (r.contact_account_code || r.account_code || (isSatis ? '120.01.001' : '320.01.001')).trim();
+                  const faturaKod = (r.invoice_account_code || (isSatis ? '600.01.020' : '153.01.001')).trim();
+                  const kdvKod = (r.vat_account_code || (isSatis ? '391.01.020' : '191.01.020')).trim();
+                  const netTotal = r.formatted_net_total || r.tutar || '0,00';
+                  const matrah = r.formatted_net_total_without_vat || '0,00';
+                  const vat = r.formatted_vat || '0,00';
+
+                  if (isSatis) {
+                    expanded.push({
+                      account_code: cariKod,
+                      document_no: docNo,
+                      document_date: docDate,
+                      document_type: docType,
+                      description: desc,
+                      formatted_debit: netTotal,
+                      formatted_credit: "0,00",
+                      babs: !!r.babs,
+                      contact_account_code: cariKod
+                    });
+                    expanded.push({
+                      account_code: faturaKod,
+                      document_no: docNo,
+                      document_date: docDate,
+                      document_type: docType,
+                      description: `${desc} (Matrah)`,
+                      formatted_debit: "0,00",
+                      formatted_credit: matrah,
+                      babs: false,
+                      contact_account_code: cariKod
+                    });
+                    if (vat && vat !== "0,00" && vat !== "0") {
+                      expanded.push({
+                        account_code: kdvKod,
+                        document_no: docNo,
+                        document_date: docDate,
+                        document_type: docType,
+                        description: `${desc} (KDV)`,
+                        formatted_debit: "0,00",
+                        formatted_credit: vat,
+                        babs: false,
+                        contact_account_code: cariKod
+                      });
+                    }
+                  } else {
+                    expanded.push({
+                      account_code: cariKod,
+                      document_no: docNo,
+                      document_date: docDate,
+                      document_type: docType,
+                      description: desc,
+                      formatted_debit: "0,00",
+                      formatted_credit: netTotal,
+                      babs: !!r.babs,
+                      contact_account_code: cariKod
+                    });
+                    expanded.push({
+                      account_code: faturaKod,
+                      document_no: docNo,
+                      document_date: docDate,
+                      document_type: docType,
+                      description: `${desc} (Matrah)`,
+                      formatted_debit: matrah,
+                      formatted_credit: "0,00",
+                      babs: false,
+                      contact_account_code: cariKod
+                    });
+                    if (vat && vat !== "0,00" && vat !== "0") {
+                      expanded.push({
+                        account_code: kdvKod,
+                        document_no: docNo,
+                        document_date: docDate,
+                        document_type: docType,
+                        description: `${desc} (KDV)`,
+                        formatted_debit: vat,
+                        formatted_credit: "0,00",
+                        babs: false,
+                        contact_account_code: cariKod
+                      });
+                    }
+                  }
+                } else {
+                  expanded.push(r);
+                }
+              });
+              rows = expanded;
+            }
+
             if (rows && rows.length > 0) {
               await runMahsupFill(rows, isBank);
               try { sendResponse({ status: 'success', count: rows.length }); } catch(e) {}
