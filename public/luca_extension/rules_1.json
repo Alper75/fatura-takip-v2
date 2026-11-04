@@ -1,92 +1,1593 @@
 [
     {
-        "id": 1,
-        "priority": 2,
-        "action": {
-            "type": "modifyHeaders",
-            "requestHeaders": [
-                {
-                    "header": "Referer",
-                    "operation": "set",
-                    "value": "https://agiris.luca.com.tr/"
-                }
-            ]
-        },
-        "condition": {
-            "urlFilter": "auygs.luca.com.tr/Luca/luca.do",
-            "resourceTypes": ["main_frame", "sub_frame", "object", "xmlhttprequest", "other"]
-        }
+        "priority":  10,
+        "condition":  {
+                          "resourceTypes":  [
+                                                "main_frame",
+                                                "sub_frame",
+                                                "object",
+                                                "xmlhttprequest",
+                                                "other"
+                                            ],
+                          "urlFilter":  "luca.com.tr"
+                      },
+        "id":  100,
+        "action":  {
+                       "type":  "modifyHeaders",
+                       "responseHeaders":  [
+                                               {
+                                                   "operation":  "remove",
+                                                   "header":  "X-Frame-Options"
+                                               },
+                                               {
+                                                   "operation":  "remove",
+                                                   "header":  "Frame-Options"
+                                               },
+                                               {
+                                                   "operation":  "remove",
+                                                   "header":  "Content-Security-Policy"
+                                               }
+                                           ]
+                   }
     },
     {
-        "id": 2,
-        "priority": 2,
-        "action": {
-            "type": "modifyHeaders",
-            "requestHeaders": [
-                {
-                    "header": "Referer",
-                    "operation": "set",
-                    "value": "https://auygs.luca.com.tr/Luca/luca.do"
-                }
-            ]
-        },
-        "condition": {
-            "urlFilter": "auygs.luca.com.tr/Luca/menu.do",
-            "resourceTypes": ["main_frame", "sub_frame", "object", "xmlhttprequest", "other"]
-        }
+        "priority":  4,
+        "condition":  {
+                          "resourceTypes":  [
+                                                "main_frame",
+                                                "sub_frame",
+                                                "object",
+                                                "xmlhttprequest",
+                                                "other"
+                                            ],
+                          "urlFilter":  "*/Luca/luca.do*"
+                      },
+        "id":  1,
+        "action":  {
+                       "requestHeaders":  [
+                                              {
+                                                  "operation":  "set",
+                                                  "header":  "Referer",
+                                                  "value":  "https://agiris.luca.com.tr/"
+                                              }
+                                          ],
+                       "type":  "modifyHeaders"
+                   }
     },
     {
-        "id": 3,
-        "priority": 2,
-        "action": {
-            "type": "modifyHeaders",
-            "requestHeaders": [
-                {
-                    "header": "Referer",
-                    "operation": "set",
-                    "value": "https://auygs.luca.com.tr/Luca/menu.do"
-                }
-            ]
-        },
-        "condition": {
-            "urlFilter": "auygs.luca.com.tr/Luca/addFis.do",
-            "resourceTypes": ["main_frame", "sub_frame", "object", "xmlhttprequest", "other"]
-        }
+        "priority":  4,
+        "condition":  {
+                          "resourceTypes":  [
+                                                "main_frame",
+                                                "sub_frame",
+                                                "object",
+                                                "xmlhttprequest",
+                                                "other"
+                                            ],
+                          "urlFilter":  "*/Luca/ssoGiris.do*"
+                      },
+        "id":  2,
+        "action":  {
+                       "requestHeaders":  [
+                                              {
+                                                  "operation":  "set",
+                                                  "header":  "Referer",
+                                                  "value":  "https://agiris.luca.com.tr/"
+                                              }
+                                          ],
+                       "type":  "modifyHeaders"
+                   }
     },
     {
-        "id": 4,
-        "priority": 2,
-        "action": {
-            "type": "modifyHeaders",
-            "requestHeaders": [
-                {
-                    "header": "Referer",
-                    "operation": "set",
-                    "value": "https://agiris.luca.com.tr/"
-                }
-            ]
-        },
-        "condition": {
-            "urlFilter": "auygs.luca.com.tr/Luca/ssoGiris.do",
-            "resourceTypes": ["main_frame", "sub_frame", "object", "xmlhttprequest", "other"]
-        }
+        "priority":  3,
+        "condition":  {
+                          "resourceTypes":  [
+                                                "main_frame",
+                                                "sub_frame",
+                                                "object",
+                                                "xmlhttprequest",
+                                                "other"
+                                            ],
+                          "urlFilter":  "auygs.luca.com.tr/Luca/menu.do"
+                      },
+        "id":  10,
+        "action":  {
+                       "requestHeaders":  [
+                                              {
+                                                  "operation":  "set",
+                                                  "header":  "Referer",
+                                                  "value":  "https://auygs.luca.com.tr/Luca/luca.do"
+                                              }
+                                          ],
+                       "type":  "modifyHeaders"
+                   }
     },
     {
-        "id": 5,
-        "priority": 1,
-        "action": {
-            "type": "modifyHeaders",
-            "requestHeaders": [
-                {
-                    "header": "Referer",
-                    "operation": "set",
-                    "value": "https://auygs.luca.com.tr/Luca/menu.do"
-                }
-            ]
-        },
-        "condition": {
-            "urlFilter": "*/Luca/*",
-            "resourceTypes": ["main_frame", "sub_frame", "object", "xmlhttprequest", "other"]
-        }
+        "priority":  2,
+        "condition":  {
+                          "resourceTypes":  [
+                                                "main_frame",
+                                                "sub_frame",
+                                                "object",
+                                                "xmlhttprequest",
+                                                "other"
+                                            ],
+                          "urlFilter":  "auygs.luca.com.tr/Luca/*"
+                      },
+        "id":  11,
+        "action":  {
+                       "requestHeaders":  [
+                                              {
+                                                  "operation":  "set",
+                                                  "header":  "Referer",
+                                                  "value":  "https://auygs.luca.com.tr/Luca/menu.do"
+                                              }
+                                          ],
+                       "type":  "modifyHeaders"
+                   }
+    },
+    {
+        "priority":  3,
+        "condition":  {
+                          "resourceTypes":  [
+                                                "main_frame",
+                                                "sub_frame",
+                                                "object",
+                                                "xmlhttprequest",
+                                                "other"
+                                            ],
+                          "urlFilter":  "auygs1.luca.com.tr/Luca/menu.do"
+                      },
+        "id":  12,
+        "action":  {
+                       "requestHeaders":  [
+                                              {
+                                                  "operation":  "set",
+                                                  "header":  "Referer",
+                                                  "value":  "https://auygs1.luca.com.tr/Luca/luca.do"
+                                              }
+                                          ],
+                       "type":  "modifyHeaders"
+                   }
+    },
+    {
+        "priority":  2,
+        "condition":  {
+                          "resourceTypes":  [
+                                                "main_frame",
+                                                "sub_frame",
+                                                "object",
+                                                "xmlhttprequest",
+                                                "other"
+                                            ],
+                          "urlFilter":  "auygs1.luca.com.tr/Luca/*"
+                      },
+        "id":  13,
+        "action":  {
+                       "requestHeaders":  [
+                                              {
+                                                  "operation":  "set",
+                                                  "header":  "Referer",
+                                                  "value":  "https://auygs1.luca.com.tr/Luca/menu.do"
+                                              }
+                                          ],
+                       "type":  "modifyHeaders"
+                   }
+    },
+    {
+        "priority":  3,
+        "condition":  {
+                          "resourceTypes":  [
+                                                "main_frame",
+                                                "sub_frame",
+                                                "object",
+                                                "xmlhttprequest",
+                                                "other"
+                                            ],
+                          "urlFilter":  "auygs2.luca.com.tr/Luca/menu.do"
+                      },
+        "id":  14,
+        "action":  {
+                       "requestHeaders":  [
+                                              {
+                                                  "operation":  "set",
+                                                  "header":  "Referer",
+                                                  "value":  "https://auygs2.luca.com.tr/Luca/luca.do"
+                                              }
+                                          ],
+                       "type":  "modifyHeaders"
+                   }
+    },
+    {
+        "priority":  2,
+        "condition":  {
+                          "resourceTypes":  [
+                                                "main_frame",
+                                                "sub_frame",
+                                                "object",
+                                                "xmlhttprequest",
+                                                "other"
+                                            ],
+                          "urlFilter":  "auygs2.luca.com.tr/Luca/*"
+                      },
+        "id":  15,
+        "action":  {
+                       "requestHeaders":  [
+                                              {
+                                                  "operation":  "set",
+                                                  "header":  "Referer",
+                                                  "value":  "https://auygs2.luca.com.tr/Luca/menu.do"
+                                              }
+                                          ],
+                       "type":  "modifyHeaders"
+                   }
+    },
+    {
+        "priority":  3,
+        "condition":  {
+                          "resourceTypes":  [
+                                                "main_frame",
+                                                "sub_frame",
+                                                "object",
+                                                "xmlhttprequest",
+                                                "other"
+                                            ],
+                          "urlFilter":  "auygs3.luca.com.tr/Luca/menu.do"
+                      },
+        "id":  16,
+        "action":  {
+                       "requestHeaders":  [
+                                              {
+                                                  "operation":  "set",
+                                                  "header":  "Referer",
+                                                  "value":  "https://auygs3.luca.com.tr/Luca/luca.do"
+                                              }
+                                          ],
+                       "type":  "modifyHeaders"
+                   }
+    },
+    {
+        "priority":  2,
+        "condition":  {
+                          "resourceTypes":  [
+                                                "main_frame",
+                                                "sub_frame",
+                                                "object",
+                                                "xmlhttprequest",
+                                                "other"
+                                            ],
+                          "urlFilter":  "auygs3.luca.com.tr/Luca/*"
+                      },
+        "id":  17,
+        "action":  {
+                       "requestHeaders":  [
+                                              {
+                                                  "operation":  "set",
+                                                  "header":  "Referer",
+                                                  "value":  "https://auygs3.luca.com.tr/Luca/menu.do"
+                                              }
+                                          ],
+                       "type":  "modifyHeaders"
+                   }
+    },
+    {
+        "priority":  3,
+        "condition":  {
+                          "resourceTypes":  [
+                                                "main_frame",
+                                                "sub_frame",
+                                                "object",
+                                                "xmlhttprequest",
+                                                "other"
+                                            ],
+                          "urlFilter":  "auygs4.luca.com.tr/Luca/menu.do"
+                      },
+        "id":  18,
+        "action":  {
+                       "requestHeaders":  [
+                                              {
+                                                  "operation":  "set",
+                                                  "header":  "Referer",
+                                                  "value":  "https://auygs4.luca.com.tr/Luca/luca.do"
+                                              }
+                                          ],
+                       "type":  "modifyHeaders"
+                   }
+    },
+    {
+        "priority":  2,
+        "condition":  {
+                          "resourceTypes":  [
+                                                "main_frame",
+                                                "sub_frame",
+                                                "object",
+                                                "xmlhttprequest",
+                                                "other"
+                                            ],
+                          "urlFilter":  "auygs4.luca.com.tr/Luca/*"
+                      },
+        "id":  19,
+        "action":  {
+                       "requestHeaders":  [
+                                              {
+                                                  "operation":  "set",
+                                                  "header":  "Referer",
+                                                  "value":  "https://auygs4.luca.com.tr/Luca/menu.do"
+                                              }
+                                          ],
+                       "type":  "modifyHeaders"
+                   }
+    },
+    {
+        "priority":  3,
+        "condition":  {
+                          "resourceTypes":  [
+                                                "main_frame",
+                                                "sub_frame",
+                                                "object",
+                                                "xmlhttprequest",
+                                                "other"
+                                            ],
+                          "urlFilter":  "auygs5.luca.com.tr/Luca/menu.do"
+                      },
+        "id":  20,
+        "action":  {
+                       "requestHeaders":  [
+                                              {
+                                                  "operation":  "set",
+                                                  "header":  "Referer",
+                                                  "value":  "https://auygs5.luca.com.tr/Luca/luca.do"
+                                              }
+                                          ],
+                       "type":  "modifyHeaders"
+                   }
+    },
+    {
+        "priority":  2,
+        "condition":  {
+                          "resourceTypes":  [
+                                                "main_frame",
+                                                "sub_frame",
+                                                "object",
+                                                "xmlhttprequest",
+                                                "other"
+                                            ],
+                          "urlFilter":  "auygs5.luca.com.tr/Luca/*"
+                      },
+        "id":  21,
+        "action":  {
+                       "requestHeaders":  [
+                                              {
+                                                  "operation":  "set",
+                                                  "header":  "Referer",
+                                                  "value":  "https://auygs5.luca.com.tr/Luca/menu.do"
+                                              }
+                                          ],
+                       "type":  "modifyHeaders"
+                   }
+    },
+    {
+        "priority":  3,
+        "condition":  {
+                          "resourceTypes":  [
+                                                "main_frame",
+                                                "sub_frame",
+                                                "object",
+                                                "xmlhttprequest",
+                                                "other"
+                                            ],
+                          "urlFilter":  "auygs6.luca.com.tr/Luca/menu.do"
+                      },
+        "id":  22,
+        "action":  {
+                       "requestHeaders":  [
+                                              {
+                                                  "operation":  "set",
+                                                  "header":  "Referer",
+                                                  "value":  "https://auygs6.luca.com.tr/Luca/luca.do"
+                                              }
+                                          ],
+                       "type":  "modifyHeaders"
+                   }
+    },
+    {
+        "priority":  2,
+        "condition":  {
+                          "resourceTypes":  [
+                                                "main_frame",
+                                                "sub_frame",
+                                                "object",
+                                                "xmlhttprequest",
+                                                "other"
+                                            ],
+                          "urlFilter":  "auygs6.luca.com.tr/Luca/*"
+                      },
+        "id":  23,
+        "action":  {
+                       "requestHeaders":  [
+                                              {
+                                                  "operation":  "set",
+                                                  "header":  "Referer",
+                                                  "value":  "https://auygs6.luca.com.tr/Luca/menu.do"
+                                              }
+                                          ],
+                       "type":  "modifyHeaders"
+                   }
+    },
+    {
+        "priority":  3,
+        "condition":  {
+                          "resourceTypes":  [
+                                                "main_frame",
+                                                "sub_frame",
+                                                "object",
+                                                "xmlhttprequest",
+                                                "other"
+                                            ],
+                          "urlFilter":  "auygs7.luca.com.tr/Luca/menu.do"
+                      },
+        "id":  24,
+        "action":  {
+                       "requestHeaders":  [
+                                              {
+                                                  "operation":  "set",
+                                                  "header":  "Referer",
+                                                  "value":  "https://auygs7.luca.com.tr/Luca/luca.do"
+                                              }
+                                          ],
+                       "type":  "modifyHeaders"
+                   }
+    },
+    {
+        "priority":  2,
+        "condition":  {
+                          "resourceTypes":  [
+                                                "main_frame",
+                                                "sub_frame",
+                                                "object",
+                                                "xmlhttprequest",
+                                                "other"
+                                            ],
+                          "urlFilter":  "auygs7.luca.com.tr/Luca/*"
+                      },
+        "id":  25,
+        "action":  {
+                       "requestHeaders":  [
+                                              {
+                                                  "operation":  "set",
+                                                  "header":  "Referer",
+                                                  "value":  "https://auygs7.luca.com.tr/Luca/menu.do"
+                                              }
+                                          ],
+                       "type":  "modifyHeaders"
+                   }
+    },
+    {
+        "priority":  3,
+        "condition":  {
+                          "resourceTypes":  [
+                                                "main_frame",
+                                                "sub_frame",
+                                                "object",
+                                                "xmlhttprequest",
+                                                "other"
+                                            ],
+                          "urlFilter":  "auygs8.luca.com.tr/Luca/menu.do"
+                      },
+        "id":  26,
+        "action":  {
+                       "requestHeaders":  [
+                                              {
+                                                  "operation":  "set",
+                                                  "header":  "Referer",
+                                                  "value":  "https://auygs8.luca.com.tr/Luca/luca.do"
+                                              }
+                                          ],
+                       "type":  "modifyHeaders"
+                   }
+    },
+    {
+        "priority":  2,
+        "condition":  {
+                          "resourceTypes":  [
+                                                "main_frame",
+                                                "sub_frame",
+                                                "object",
+                                                "xmlhttprequest",
+                                                "other"
+                                            ],
+                          "urlFilter":  "auygs8.luca.com.tr/Luca/*"
+                      },
+        "id":  27,
+        "action":  {
+                       "requestHeaders":  [
+                                              {
+                                                  "operation":  "set",
+                                                  "header":  "Referer",
+                                                  "value":  "https://auygs8.luca.com.tr/Luca/menu.do"
+                                              }
+                                          ],
+                       "type":  "modifyHeaders"
+                   }
+    },
+    {
+        "priority":  3,
+        "condition":  {
+                          "resourceTypes":  [
+                                                "main_frame",
+                                                "sub_frame",
+                                                "object",
+                                                "xmlhttprequest",
+                                                "other"
+                                            ],
+                          "urlFilter":  "auygs9.luca.com.tr/Luca/menu.do"
+                      },
+        "id":  28,
+        "action":  {
+                       "requestHeaders":  [
+                                              {
+                                                  "operation":  "set",
+                                                  "header":  "Referer",
+                                                  "value":  "https://auygs9.luca.com.tr/Luca/luca.do"
+                                              }
+                                          ],
+                       "type":  "modifyHeaders"
+                   }
+    },
+    {
+        "priority":  2,
+        "condition":  {
+                          "resourceTypes":  [
+                                                "main_frame",
+                                                "sub_frame",
+                                                "object",
+                                                "xmlhttprequest",
+                                                "other"
+                                            ],
+                          "urlFilter":  "auygs9.luca.com.tr/Luca/*"
+                      },
+        "id":  29,
+        "action":  {
+                       "requestHeaders":  [
+                                              {
+                                                  "operation":  "set",
+                                                  "header":  "Referer",
+                                                  "value":  "https://auygs9.luca.com.tr/Luca/menu.do"
+                                              }
+                                          ],
+                       "type":  "modifyHeaders"
+                   }
+    },
+    {
+        "priority":  3,
+        "condition":  {
+                          "resourceTypes":  [
+                                                "main_frame",
+                                                "sub_frame",
+                                                "object",
+                                                "xmlhttprequest",
+                                                "other"
+                                            ],
+                          "urlFilter":  "auygs10.luca.com.tr/Luca/menu.do"
+                      },
+        "id":  30,
+        "action":  {
+                       "requestHeaders":  [
+                                              {
+                                                  "operation":  "set",
+                                                  "header":  "Referer",
+                                                  "value":  "https://auygs10.luca.com.tr/Luca/luca.do"
+                                              }
+                                          ],
+                       "type":  "modifyHeaders"
+                   }
+    },
+    {
+        "priority":  2,
+        "condition":  {
+                          "resourceTypes":  [
+                                                "main_frame",
+                                                "sub_frame",
+                                                "object",
+                                                "xmlhttprequest",
+                                                "other"
+                                            ],
+                          "urlFilter":  "auygs10.luca.com.tr/Luca/*"
+                      },
+        "id":  31,
+        "action":  {
+                       "requestHeaders":  [
+                                              {
+                                                  "operation":  "set",
+                                                  "header":  "Referer",
+                                                  "value":  "https://auygs10.luca.com.tr/Luca/menu.do"
+                                              }
+                                          ],
+                       "type":  "modifyHeaders"
+                   }
+    },
+    {
+        "priority":  3,
+        "condition":  {
+                          "resourceTypes":  [
+                                                "main_frame",
+                                                "sub_frame",
+                                                "object",
+                                                "xmlhttprequest",
+                                                "other"
+                                            ],
+                          "urlFilter":  "auygs11.luca.com.tr/Luca/menu.do"
+                      },
+        "id":  32,
+        "action":  {
+                       "requestHeaders":  [
+                                              {
+                                                  "operation":  "set",
+                                                  "header":  "Referer",
+                                                  "value":  "https://auygs11.luca.com.tr/Luca/luca.do"
+                                              }
+                                          ],
+                       "type":  "modifyHeaders"
+                   }
+    },
+    {
+        "priority":  2,
+        "condition":  {
+                          "resourceTypes":  [
+                                                "main_frame",
+                                                "sub_frame",
+                                                "object",
+                                                "xmlhttprequest",
+                                                "other"
+                                            ],
+                          "urlFilter":  "auygs11.luca.com.tr/Luca/*"
+                      },
+        "id":  33,
+        "action":  {
+                       "requestHeaders":  [
+                                              {
+                                                  "operation":  "set",
+                                                  "header":  "Referer",
+                                                  "value":  "https://auygs11.luca.com.tr/Luca/menu.do"
+                                              }
+                                          ],
+                       "type":  "modifyHeaders"
+                   }
+    },
+    {
+        "priority":  3,
+        "condition":  {
+                          "resourceTypes":  [
+                                                "main_frame",
+                                                "sub_frame",
+                                                "object",
+                                                "xmlhttprequest",
+                                                "other"
+                                            ],
+                          "urlFilter":  "auygs12.luca.com.tr/Luca/menu.do"
+                      },
+        "id":  34,
+        "action":  {
+                       "requestHeaders":  [
+                                              {
+                                                  "operation":  "set",
+                                                  "header":  "Referer",
+                                                  "value":  "https://auygs12.luca.com.tr/Luca/luca.do"
+                                              }
+                                          ],
+                       "type":  "modifyHeaders"
+                   }
+    },
+    {
+        "priority":  2,
+        "condition":  {
+                          "resourceTypes":  [
+                                                "main_frame",
+                                                "sub_frame",
+                                                "object",
+                                                "xmlhttprequest",
+                                                "other"
+                                            ],
+                          "urlFilter":  "auygs12.luca.com.tr/Luca/*"
+                      },
+        "id":  35,
+        "action":  {
+                       "requestHeaders":  [
+                                              {
+                                                  "operation":  "set",
+                                                  "header":  "Referer",
+                                                  "value":  "https://auygs12.luca.com.tr/Luca/menu.do"
+                                              }
+                                          ],
+                       "type":  "modifyHeaders"
+                   }
+    },
+    {
+        "priority":  3,
+        "condition":  {
+                          "resourceTypes":  [
+                                                "main_frame",
+                                                "sub_frame",
+                                                "object",
+                                                "xmlhttprequest",
+                                                "other"
+                                            ],
+                          "urlFilter":  "auygs13.luca.com.tr/Luca/menu.do"
+                      },
+        "id":  36,
+        "action":  {
+                       "requestHeaders":  [
+                                              {
+                                                  "operation":  "set",
+                                                  "header":  "Referer",
+                                                  "value":  "https://auygs13.luca.com.tr/Luca/luca.do"
+                                              }
+                                          ],
+                       "type":  "modifyHeaders"
+                   }
+    },
+    {
+        "priority":  2,
+        "condition":  {
+                          "resourceTypes":  [
+                                                "main_frame",
+                                                "sub_frame",
+                                                "object",
+                                                "xmlhttprequest",
+                                                "other"
+                                            ],
+                          "urlFilter":  "auygs13.luca.com.tr/Luca/*"
+                      },
+        "id":  37,
+        "action":  {
+                       "requestHeaders":  [
+                                              {
+                                                  "operation":  "set",
+                                                  "header":  "Referer",
+                                                  "value":  "https://auygs13.luca.com.tr/Luca/menu.do"
+                                              }
+                                          ],
+                       "type":  "modifyHeaders"
+                   }
+    },
+    {
+        "priority":  3,
+        "condition":  {
+                          "resourceTypes":  [
+                                                "main_frame",
+                                                "sub_frame",
+                                                "object",
+                                                "xmlhttprequest",
+                                                "other"
+                                            ],
+                          "urlFilter":  "auygs14.luca.com.tr/Luca/menu.do"
+                      },
+        "id":  38,
+        "action":  {
+                       "requestHeaders":  [
+                                              {
+                                                  "operation":  "set",
+                                                  "header":  "Referer",
+                                                  "value":  "https://auygs14.luca.com.tr/Luca/luca.do"
+                                              }
+                                          ],
+                       "type":  "modifyHeaders"
+                   }
+    },
+    {
+        "priority":  2,
+        "condition":  {
+                          "resourceTypes":  [
+                                                "main_frame",
+                                                "sub_frame",
+                                                "object",
+                                                "xmlhttprequest",
+                                                "other"
+                                            ],
+                          "urlFilter":  "auygs14.luca.com.tr/Luca/*"
+                      },
+        "id":  39,
+        "action":  {
+                       "requestHeaders":  [
+                                              {
+                                                  "operation":  "set",
+                                                  "header":  "Referer",
+                                                  "value":  "https://auygs14.luca.com.tr/Luca/menu.do"
+                                              }
+                                          ],
+                       "type":  "modifyHeaders"
+                   }
+    },
+    {
+        "priority":  3,
+        "condition":  {
+                          "resourceTypes":  [
+                                                "main_frame",
+                                                "sub_frame",
+                                                "object",
+                                                "xmlhttprequest",
+                                                "other"
+                                            ],
+                          "urlFilter":  "auygs15.luca.com.tr/Luca/menu.do"
+                      },
+        "id":  40,
+        "action":  {
+                       "requestHeaders":  [
+                                              {
+                                                  "operation":  "set",
+                                                  "header":  "Referer",
+                                                  "value":  "https://auygs15.luca.com.tr/Luca/luca.do"
+                                              }
+                                          ],
+                       "type":  "modifyHeaders"
+                   }
+    },
+    {
+        "priority":  2,
+        "condition":  {
+                          "resourceTypes":  [
+                                                "main_frame",
+                                                "sub_frame",
+                                                "object",
+                                                "xmlhttprequest",
+                                                "other"
+                                            ],
+                          "urlFilter":  "auygs15.luca.com.tr/Luca/*"
+                      },
+        "id":  41,
+        "action":  {
+                       "requestHeaders":  [
+                                              {
+                                                  "operation":  "set",
+                                                  "header":  "Referer",
+                                                  "value":  "https://auygs15.luca.com.tr/Luca/menu.do"
+                                              }
+                                          ],
+                       "type":  "modifyHeaders"
+                   }
+    },
+    {
+        "priority":  3,
+        "condition":  {
+                          "resourceTypes":  [
+                                                "main_frame",
+                                                "sub_frame",
+                                                "object",
+                                                "xmlhttprequest",
+                                                "other"
+                                            ],
+                          "urlFilter":  "auygs16.luca.com.tr/Luca/menu.do"
+                      },
+        "id":  42,
+        "action":  {
+                       "requestHeaders":  [
+                                              {
+                                                  "operation":  "set",
+                                                  "header":  "Referer",
+                                                  "value":  "https://auygs16.luca.com.tr/Luca/luca.do"
+                                              }
+                                          ],
+                       "type":  "modifyHeaders"
+                   }
+    },
+    {
+        "priority":  2,
+        "condition":  {
+                          "resourceTypes":  [
+                                                "main_frame",
+                                                "sub_frame",
+                                                "object",
+                                                "xmlhttprequest",
+                                                "other"
+                                            ],
+                          "urlFilter":  "auygs16.luca.com.tr/Luca/*"
+                      },
+        "id":  43,
+        "action":  {
+                       "requestHeaders":  [
+                                              {
+                                                  "operation":  "set",
+                                                  "header":  "Referer",
+                                                  "value":  "https://auygs16.luca.com.tr/Luca/menu.do"
+                                              }
+                                          ],
+                       "type":  "modifyHeaders"
+                   }
+    },
+    {
+        "priority":  3,
+        "condition":  {
+                          "resourceTypes":  [
+                                                "main_frame",
+                                                "sub_frame",
+                                                "object",
+                                                "xmlhttprequest",
+                                                "other"
+                                            ],
+                          "urlFilter":  "auygs17.luca.com.tr/Luca/menu.do"
+                      },
+        "id":  44,
+        "action":  {
+                       "requestHeaders":  [
+                                              {
+                                                  "operation":  "set",
+                                                  "header":  "Referer",
+                                                  "value":  "https://auygs17.luca.com.tr/Luca/luca.do"
+                                              }
+                                          ],
+                       "type":  "modifyHeaders"
+                   }
+    },
+    {
+        "priority":  2,
+        "condition":  {
+                          "resourceTypes":  [
+                                                "main_frame",
+                                                "sub_frame",
+                                                "object",
+                                                "xmlhttprequest",
+                                                "other"
+                                            ],
+                          "urlFilter":  "auygs17.luca.com.tr/Luca/*"
+                      },
+        "id":  45,
+        "action":  {
+                       "requestHeaders":  [
+                                              {
+                                                  "operation":  "set",
+                                                  "header":  "Referer",
+                                                  "value":  "https://auygs17.luca.com.tr/Luca/menu.do"
+                                              }
+                                          ],
+                       "type":  "modifyHeaders"
+                   }
+    },
+    {
+        "priority":  3,
+        "condition":  {
+                          "resourceTypes":  [
+                                                "main_frame",
+                                                "sub_frame",
+                                                "object",
+                                                "xmlhttprequest",
+                                                "other"
+                                            ],
+                          "urlFilter":  "auygs18.luca.com.tr/Luca/menu.do"
+                      },
+        "id":  46,
+        "action":  {
+                       "requestHeaders":  [
+                                              {
+                                                  "operation":  "set",
+                                                  "header":  "Referer",
+                                                  "value":  "https://auygs18.luca.com.tr/Luca/luca.do"
+                                              }
+                                          ],
+                       "type":  "modifyHeaders"
+                   }
+    },
+    {
+        "priority":  2,
+        "condition":  {
+                          "resourceTypes":  [
+                                                "main_frame",
+                                                "sub_frame",
+                                                "object",
+                                                "xmlhttprequest",
+                                                "other"
+                                            ],
+                          "urlFilter":  "auygs18.luca.com.tr/Luca/*"
+                      },
+        "id":  47,
+        "action":  {
+                       "requestHeaders":  [
+                                              {
+                                                  "operation":  "set",
+                                                  "header":  "Referer",
+                                                  "value":  "https://auygs18.luca.com.tr/Luca/menu.do"
+                                              }
+                                          ],
+                       "type":  "modifyHeaders"
+                   }
+    },
+    {
+        "priority":  3,
+        "condition":  {
+                          "resourceTypes":  [
+                                                "main_frame",
+                                                "sub_frame",
+                                                "object",
+                                                "xmlhttprequest",
+                                                "other"
+                                            ],
+                          "urlFilter":  "auygs19.luca.com.tr/Luca/menu.do"
+                      },
+        "id":  48,
+        "action":  {
+                       "requestHeaders":  [
+                                              {
+                                                  "operation":  "set",
+                                                  "header":  "Referer",
+                                                  "value":  "https://auygs19.luca.com.tr/Luca/luca.do"
+                                              }
+                                          ],
+                       "type":  "modifyHeaders"
+                   }
+    },
+    {
+        "priority":  2,
+        "condition":  {
+                          "resourceTypes":  [
+                                                "main_frame",
+                                                "sub_frame",
+                                                "object",
+                                                "xmlhttprequest",
+                                                "other"
+                                            ],
+                          "urlFilter":  "auygs19.luca.com.tr/Luca/*"
+                      },
+        "id":  49,
+        "action":  {
+                       "requestHeaders":  [
+                                              {
+                                                  "operation":  "set",
+                                                  "header":  "Referer",
+                                                  "value":  "https://auygs19.luca.com.tr/Luca/menu.do"
+                                              }
+                                          ],
+                       "type":  "modifyHeaders"
+                   }
+    },
+    {
+        "priority":  3,
+        "condition":  {
+                          "resourceTypes":  [
+                                                "main_frame",
+                                                "sub_frame",
+                                                "object",
+                                                "xmlhttprequest",
+                                                "other"
+                                            ],
+                          "urlFilter":  "auygs20.luca.com.tr/Luca/menu.do"
+                      },
+        "id":  50,
+        "action":  {
+                       "requestHeaders":  [
+                                              {
+                                                  "operation":  "set",
+                                                  "header":  "Referer",
+                                                  "value":  "https://auygs20.luca.com.tr/Luca/luca.do"
+                                              }
+                                          ],
+                       "type":  "modifyHeaders"
+                   }
+    },
+    {
+        "priority":  2,
+        "condition":  {
+                          "resourceTypes":  [
+                                                "main_frame",
+                                                "sub_frame",
+                                                "object",
+                                                "xmlhttprequest",
+                                                "other"
+                                            ],
+                          "urlFilter":  "auygs20.luca.com.tr/Luca/*"
+                      },
+        "id":  51,
+        "action":  {
+                       "requestHeaders":  [
+                                              {
+                                                  "operation":  "set",
+                                                  "header":  "Referer",
+                                                  "value":  "https://auygs20.luca.com.tr/Luca/menu.do"
+                                              }
+                                          ],
+                       "type":  "modifyHeaders"
+                   }
+    },
+    {
+        "priority":  3,
+        "condition":  {
+                          "resourceTypes":  [
+                                                "main_frame",
+                                                "sub_frame",
+                                                "object",
+                                                "xmlhttprequest",
+                                                "other"
+                                            ],
+                          "urlFilter":  "auygs21.luca.com.tr/Luca/menu.do"
+                      },
+        "id":  52,
+        "action":  {
+                       "requestHeaders":  [
+                                              {
+                                                  "operation":  "set",
+                                                  "header":  "Referer",
+                                                  "value":  "https://auygs21.luca.com.tr/Luca/luca.do"
+                                              }
+                                          ],
+                       "type":  "modifyHeaders"
+                   }
+    },
+    {
+        "priority":  2,
+        "condition":  {
+                          "resourceTypes":  [
+                                                "main_frame",
+                                                "sub_frame",
+                                                "object",
+                                                "xmlhttprequest",
+                                                "other"
+                                            ],
+                          "urlFilter":  "auygs21.luca.com.tr/Luca/*"
+                      },
+        "id":  53,
+        "action":  {
+                       "requestHeaders":  [
+                                              {
+                                                  "operation":  "set",
+                                                  "header":  "Referer",
+                                                  "value":  "https://auygs21.luca.com.tr/Luca/menu.do"
+                                              }
+                                          ],
+                       "type":  "modifyHeaders"
+                   }
+    },
+    {
+        "priority":  3,
+        "condition":  {
+                          "resourceTypes":  [
+                                                "main_frame",
+                                                "sub_frame",
+                                                "object",
+                                                "xmlhttprequest",
+                                                "other"
+                                            ],
+                          "urlFilter":  "auygs22.luca.com.tr/Luca/menu.do"
+                      },
+        "id":  54,
+        "action":  {
+                       "requestHeaders":  [
+                                              {
+                                                  "operation":  "set",
+                                                  "header":  "Referer",
+                                                  "value":  "https://auygs22.luca.com.tr/Luca/luca.do"
+                                              }
+                                          ],
+                       "type":  "modifyHeaders"
+                   }
+    },
+    {
+        "priority":  2,
+        "condition":  {
+                          "resourceTypes":  [
+                                                "main_frame",
+                                                "sub_frame",
+                                                "object",
+                                                "xmlhttprequest",
+                                                "other"
+                                            ],
+                          "urlFilter":  "auygs22.luca.com.tr/Luca/*"
+                      },
+        "id":  55,
+        "action":  {
+                       "requestHeaders":  [
+                                              {
+                                                  "operation":  "set",
+                                                  "header":  "Referer",
+                                                  "value":  "https://auygs22.luca.com.tr/Luca/menu.do"
+                                              }
+                                          ],
+                       "type":  "modifyHeaders"
+                   }
+    },
+    {
+        "priority":  3,
+        "condition":  {
+                          "resourceTypes":  [
+                                                "main_frame",
+                                                "sub_frame",
+                                                "object",
+                                                "xmlhttprequest",
+                                                "other"
+                                            ],
+                          "urlFilter":  "auygs23.luca.com.tr/Luca/menu.do"
+                      },
+        "id":  56,
+        "action":  {
+                       "requestHeaders":  [
+                                              {
+                                                  "operation":  "set",
+                                                  "header":  "Referer",
+                                                  "value":  "https://auygs23.luca.com.tr/Luca/luca.do"
+                                              }
+                                          ],
+                       "type":  "modifyHeaders"
+                   }
+    },
+    {
+        "priority":  2,
+        "condition":  {
+                          "resourceTypes":  [
+                                                "main_frame",
+                                                "sub_frame",
+                                                "object",
+                                                "xmlhttprequest",
+                                                "other"
+                                            ],
+                          "urlFilter":  "auygs23.luca.com.tr/Luca/*"
+                      },
+        "id":  57,
+        "action":  {
+                       "requestHeaders":  [
+                                              {
+                                                  "operation":  "set",
+                                                  "header":  "Referer",
+                                                  "value":  "https://auygs23.luca.com.tr/Luca/menu.do"
+                                              }
+                                          ],
+                       "type":  "modifyHeaders"
+                   }
+    },
+    {
+        "priority":  3,
+        "condition":  {
+                          "resourceTypes":  [
+                                                "main_frame",
+                                                "sub_frame",
+                                                "object",
+                                                "xmlhttprequest",
+                                                "other"
+                                            ],
+                          "urlFilter":  "auygs24.luca.com.tr/Luca/menu.do"
+                      },
+        "id":  58,
+        "action":  {
+                       "requestHeaders":  [
+                                              {
+                                                  "operation":  "set",
+                                                  "header":  "Referer",
+                                                  "value":  "https://auygs24.luca.com.tr/Luca/luca.do"
+                                              }
+                                          ],
+                       "type":  "modifyHeaders"
+                   }
+    },
+    {
+        "priority":  2,
+        "condition":  {
+                          "resourceTypes":  [
+                                                "main_frame",
+                                                "sub_frame",
+                                                "object",
+                                                "xmlhttprequest",
+                                                "other"
+                                            ],
+                          "urlFilter":  "auygs24.luca.com.tr/Luca/*"
+                      },
+        "id":  59,
+        "action":  {
+                       "requestHeaders":  [
+                                              {
+                                                  "operation":  "set",
+                                                  "header":  "Referer",
+                                                  "value":  "https://auygs24.luca.com.tr/Luca/menu.do"
+                                              }
+                                          ],
+                       "type":  "modifyHeaders"
+                   }
+    },
+    {
+        "priority":  3,
+        "condition":  {
+                          "resourceTypes":  [
+                                                "main_frame",
+                                                "sub_frame",
+                                                "object",
+                                                "xmlhttprequest",
+                                                "other"
+                                            ],
+                          "urlFilter":  "auygs25.luca.com.tr/Luca/menu.do"
+                      },
+        "id":  60,
+        "action":  {
+                       "requestHeaders":  [
+                                              {
+                                                  "operation":  "set",
+                                                  "header":  "Referer",
+                                                  "value":  "https://auygs25.luca.com.tr/Luca/luca.do"
+                                              }
+                                          ],
+                       "type":  "modifyHeaders"
+                   }
+    },
+    {
+        "priority":  2,
+        "condition":  {
+                          "resourceTypes":  [
+                                                "main_frame",
+                                                "sub_frame",
+                                                "object",
+                                                "xmlhttprequest",
+                                                "other"
+                                            ],
+                          "urlFilter":  "auygs25.luca.com.tr/Luca/*"
+                      },
+        "id":  61,
+        "action":  {
+                       "requestHeaders":  [
+                                              {
+                                                  "operation":  "set",
+                                                  "header":  "Referer",
+                                                  "value":  "https://auygs25.luca.com.tr/Luca/menu.do"
+                                              }
+                                          ],
+                       "type":  "modifyHeaders"
+                   }
+    },
+    {
+        "priority":  3,
+        "condition":  {
+                          "resourceTypes":  [
+                                                "main_frame",
+                                                "sub_frame",
+                                                "object",
+                                                "xmlhttprequest",
+                                                "other"
+                                            ],
+                          "urlFilter":  "auygs26.luca.com.tr/Luca/menu.do"
+                      },
+        "id":  62,
+        "action":  {
+                       "requestHeaders":  [
+                                              {
+                                                  "operation":  "set",
+                                                  "header":  "Referer",
+                                                  "value":  "https://auygs26.luca.com.tr/Luca/luca.do"
+                                              }
+                                          ],
+                       "type":  "modifyHeaders"
+                   }
+    },
+    {
+        "priority":  2,
+        "condition":  {
+                          "resourceTypes":  [
+                                                "main_frame",
+                                                "sub_frame",
+                                                "object",
+                                                "xmlhttprequest",
+                                                "other"
+                                            ],
+                          "urlFilter":  "auygs26.luca.com.tr/Luca/*"
+                      },
+        "id":  63,
+        "action":  {
+                       "requestHeaders":  [
+                                              {
+                                                  "operation":  "set",
+                                                  "header":  "Referer",
+                                                  "value":  "https://auygs26.luca.com.tr/Luca/menu.do"
+                                              }
+                                          ],
+                       "type":  "modifyHeaders"
+                   }
+    },
+    {
+        "priority":  3,
+        "condition":  {
+                          "resourceTypes":  [
+                                                "main_frame",
+                                                "sub_frame",
+                                                "object",
+                                                "xmlhttprequest",
+                                                "other"
+                                            ],
+                          "urlFilter":  "auygs27.luca.com.tr/Luca/menu.do"
+                      },
+        "id":  64,
+        "action":  {
+                       "requestHeaders":  [
+                                              {
+                                                  "operation":  "set",
+                                                  "header":  "Referer",
+                                                  "value":  "https://auygs27.luca.com.tr/Luca/luca.do"
+                                              }
+                                          ],
+                       "type":  "modifyHeaders"
+                   }
+    },
+    {
+        "priority":  2,
+        "condition":  {
+                          "resourceTypes":  [
+                                                "main_frame",
+                                                "sub_frame",
+                                                "object",
+                                                "xmlhttprequest",
+                                                "other"
+                                            ],
+                          "urlFilter":  "auygs27.luca.com.tr/Luca/*"
+                      },
+        "id":  65,
+        "action":  {
+                       "requestHeaders":  [
+                                              {
+                                                  "operation":  "set",
+                                                  "header":  "Referer",
+                                                  "value":  "https://auygs27.luca.com.tr/Luca/menu.do"
+                                              }
+                                          ],
+                       "type":  "modifyHeaders"
+                   }
+    },
+    {
+        "priority":  3,
+        "condition":  {
+                          "resourceTypes":  [
+                                                "main_frame",
+                                                "sub_frame",
+                                                "object",
+                                                "xmlhttprequest",
+                                                "other"
+                                            ],
+                          "urlFilter":  "auygs28.luca.com.tr/Luca/menu.do"
+                      },
+        "id":  66,
+        "action":  {
+                       "requestHeaders":  [
+                                              {
+                                                  "operation":  "set",
+                                                  "header":  "Referer",
+                                                  "value":  "https://auygs28.luca.com.tr/Luca/luca.do"
+                                              }
+                                          ],
+                       "type":  "modifyHeaders"
+                   }
+    },
+    {
+        "priority":  2,
+        "condition":  {
+                          "resourceTypes":  [
+                                                "main_frame",
+                                                "sub_frame",
+                                                "object",
+                                                "xmlhttprequest",
+                                                "other"
+                                            ],
+                          "urlFilter":  "auygs28.luca.com.tr/Luca/*"
+                      },
+        "id":  67,
+        "action":  {
+                       "requestHeaders":  [
+                                              {
+                                                  "operation":  "set",
+                                                  "header":  "Referer",
+                                                  "value":  "https://auygs28.luca.com.tr/Luca/menu.do"
+                                              }
+                                          ],
+                       "type":  "modifyHeaders"
+                   }
+    },
+    {
+        "priority":  3,
+        "condition":  {
+                          "resourceTypes":  [
+                                                "main_frame",
+                                                "sub_frame",
+                                                "object",
+                                                "xmlhttprequest",
+                                                "other"
+                                            ],
+                          "urlFilter":  "auygs29.luca.com.tr/Luca/menu.do"
+                      },
+        "id":  68,
+        "action":  {
+                       "requestHeaders":  [
+                                              {
+                                                  "operation":  "set",
+                                                  "header":  "Referer",
+                                                  "value":  "https://auygs29.luca.com.tr/Luca/luca.do"
+                                              }
+                                          ],
+                       "type":  "modifyHeaders"
+                   }
+    },
+    {
+        "priority":  2,
+        "condition":  {
+                          "resourceTypes":  [
+                                                "main_frame",
+                                                "sub_frame",
+                                                "object",
+                                                "xmlhttprequest",
+                                                "other"
+                                            ],
+                          "urlFilter":  "auygs29.luca.com.tr/Luca/*"
+                      },
+        "id":  69,
+        "action":  {
+                       "requestHeaders":  [
+                                              {
+                                                  "operation":  "set",
+                                                  "header":  "Referer",
+                                                  "value":  "https://auygs29.luca.com.tr/Luca/menu.do"
+                                              }
+                                          ],
+                       "type":  "modifyHeaders"
+                   }
+    },
+    {
+        "priority":  3,
+        "condition":  {
+                          "resourceTypes":  [
+                                                "main_frame",
+                                                "sub_frame",
+                                                "object",
+                                                "xmlhttprequest",
+                                                "other"
+                                            ],
+                          "urlFilter":  "auygs30.luca.com.tr/Luca/menu.do"
+                      },
+        "id":  70,
+        "action":  {
+                       "requestHeaders":  [
+                                              {
+                                                  "operation":  "set",
+                                                  "header":  "Referer",
+                                                  "value":  "https://auygs30.luca.com.tr/Luca/luca.do"
+                                              }
+                                          ],
+                       "type":  "modifyHeaders"
+                   }
+    },
+    {
+        "priority":  2,
+        "condition":  {
+                          "resourceTypes":  [
+                                                "main_frame",
+                                                "sub_frame",
+                                                "object",
+                                                "xmlhttprequest",
+                                                "other"
+                                            ],
+                          "urlFilter":  "auygs30.luca.com.tr/Luca/*"
+                      },
+        "id":  71,
+        "action":  {
+                       "requestHeaders":  [
+                                              {
+                                                  "operation":  "set",
+                                                  "header":  "Referer",
+                                                  "value":  "https://auygs30.luca.com.tr/Luca/menu.do"
+                                              }
+                                          ],
+                       "type":  "modifyHeaders"
+                   }
+    },
+    {
+        "priority":  1,
+        "condition":  {
+                          "resourceTypes":  [
+                                                "main_frame",
+                                                "sub_frame",
+                                                "object",
+                                                "xmlhttprequest",
+                                                "other"
+                                            ],
+                          "urlFilter":  "*/Luca/*"
+                      },
+        "id":  99,
+        "action":  {
+                       "requestHeaders":  [
+                                              {
+                                                  "operation":  "set",
+                                                  "header":  "Referer",
+                                                  "value":  "https://auygs.luca.com.tr/Luca/menu.do"
+                                              }
+                                          ],
+                       "type":  "modifyHeaders"
+                   }
     }
 ]

@@ -23,13 +23,19 @@ function sanitizeLucaHost(h) {
 async function getOpenLucaAppTabs() {
   try {
     const tabs = await chrome.tabs.query({ url: "*://*.luca.com.tr/Luca/*" });
-    return (tabs || []).filter(t => {
+    const valid = (tabs || []).filter(t => {
       if (!t.url) return false;
       if (t.title && t.title.toUpperCase().includes("HATA")) return false;
       const u = t.url.toLowerCase();
       if (u.includes("://www.luca.com.tr") || u.includes("://agiris.luca.com.tr")) return false;
       return true;
     });
+    valid.sort((a, b) => {
+      const aMain = a.url && (a.url.includes('/Luca/luca.do') || a.url.includes('/Luca/ssoGiris.do') || a.url.includes('/Luca/menu.do')) && !a.url.includes('hizliFisPopUp.do') ? 0 : 1;
+      const bMain = b.url && (b.url.includes('/Luca/luca.do') || b.url.includes('/Luca/ssoGiris.do') || b.url.includes('/Luca/menu.do')) && !b.url.includes('hizliFisPopUp.do') ? 0 : 1;
+      return aMain - bMain;
+    });
+    return valid;
   } catch (e) {
     return [];
   }
@@ -70,7 +76,7 @@ function parseSessionXml(text) {
 async function getLucaSessionInfo() {
   const host = await getLucaHost();
   const appTabs = await getOpenLucaAppTabs();
-  const mainTab = appTabs.find(t => t.url && (t.url.includes('/Luca/luca.do') || t.url.includes('/Luca/menu.do'))) || appTabs[0];
+  const mainTab = appTabs.find(t => t.url && (t.url.includes('/Luca/luca.do') || t.url.includes('/Luca/ssoGiris.do') || t.url.includes('/Luca/menu.do'))) || appTabs[0];
 
   // A. Önce açık Luca sekmesi içinden sorgula (Çerezler ve oturum %100 aktiftir)
   if (mainTab && mainTab.id) {
@@ -110,6 +116,7 @@ async function getLucaSessionInfo() {
 
           const isMainAppPage =
             window.location.pathname.includes('/Luca/luca.do') ||
+            window.location.pathname.includes('/Luca/ssoGiris.do') ||
             window.location.pathname.includes('/Luca/menu.do') ||
             !!document.querySelector('#frm1, #frm2, #frm3, frame, iframe');
 
@@ -143,7 +150,7 @@ async function getLucaSessionInfo() {
       }
     } catch (e) {
       // Sekme içi script çalışamazsa bile sekme /Luca/luca.do ise oturum açıktır
-      if (mainTab.url && (mainTab.url.includes('/Luca/luca.do') || mainTab.url.includes('/Luca/menu.do'))) {
+      if (mainTab.url && (mainTab.url.includes('/Luca/luca.do') || mainTab.url.includes('/Luca/ssoGiris.do') || mainTab.url.includes('/Luca/menu.do'))) {
         return {
           isLoggedIn: true,
           userId: 'aktif',
@@ -957,15 +964,20 @@ function launchOrAttachLucaTab(options, sendResponse) {
 }
 
 function attachToMainLucaTab(options, sendResponse) {
-  chrome.tabs.query({ url: ["*://*.luca.com.tr/Luca/luca.do*", "*://*.luca.com.tr/Luca/menu.do*"] }, (tabs) => {
+  chrome.tabs.query({ url: "*://*.luca.com.tr/Luca/*" }, (tabs) => {
     let targetTab = null;
+    const candidates = [];
     (tabs || []).forEach((t) => {
       if (t.title && t.title.toUpperCase().includes("HATA")) {
         try { chrome.tabs.remove(t.id); } catch (e) {}
       } else if (t.url && !t.url.includes("hizliFisPopUp.do") && !t.url.includes("agiris.luca.com.tr") && !t.url.includes("www.luca.com.tr")) {
-        targetTab = t;
+        candidates.push(t);
       }
     });
+    targetTab =
+      candidates.find(t => t.url && (t.url.includes("/Luca/luca.do") || t.url.includes("/Luca/ssoGiris.do") || t.url.includes("/Luca/menu.do"))) ||
+      candidates[0] ||
+      null;
 
     if (targetTab) {
       let hostIp = "auygs.luca.com.tr";
@@ -978,23 +990,21 @@ function attachToMainLucaTab(options, sendResponse) {
         try { chrome.windows.update(targetTab.windowId, { focused: true }); } catch (e) {}
       }
       chrome.tabs.update(targetTab.id, { active: true });
-      chrome.tabs.sendMessage(targetTab.id, { actionKey: "RESET_LUCA_STATE" }, (res) => {
-        if (chrome.runtime.lastError || !res) {
-          chrome.scripting.executeScript(
-            {
-              target: { tabId: targetTab.id },
-              files: ["bugsnagConfig.js", "luca-app-content-script.js"]
-            },
-            () => {
-              setTimeout(() => {
-                chrome.tabs.connect(targetTab.id, { name: "TAB_LOADED" });
-              }, 150);
-            }
-          );
-        } else {
-          chrome.tabs.connect(targetTab.id, { name: "TAB_LOADED" });
+      chrome.scripting.executeScript(
+        {
+          target: { tabId: targetTab.id },
+          files: ["bugsnagConfig.js", "luca-app-content-script.js"]
+        },
+        () => {
+          setTimeout(() => {
+            chrome.tabs.sendMessage(targetTab.id, { actionKey: "START_STANDARD_TRANSFER" }, (res) => {
+              if (chrome.runtime.lastError || !res) {
+                try { chrome.tabs.connect(targetTab.id, { name: "TAB_LOADED" }); } catch (e) {}
+              }
+            });
+          }, 100);
         }
-      });
+      );
       sendResponse(targetTab.id);
     } else {
       const createUrl =
