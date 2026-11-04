@@ -575,24 +575,35 @@ export function BankaEkstreListesi() {
   };
 
   const handleTransferleriBul = () => {
-    let count = 0;
+    let codeUpdatedCount = 0;
+    let createdCounterpartsCount = 0;
+
     for (const h of cariHareketler) {
-      if (!h.aciklama) continue;
+      if (!h.bankaId) continue;
       
-      const aciklamaUpper = h.aciklama.toLocaleUpperCase('tr-TR');
+      const aciklamaUpper = (h.aciklama || '').toLocaleUpperCase('tr-TR');
       const aciklamaUpperNoSpace = aciklamaUpper.replace(/\s+/g, '');
       let matchedBank = null;
+
+      // 1. Öncelikle h.muhasebeKodu şirketimizin başka bir bankasının muhasebe kodu mu?
+      if (h.muhasebeKodu) {
+        const cleanKodu = h.muhasebeKodu.trim();
+        matchedBank = bankaHesaplari.find(b => b.id !== h.bankaId && b.muhasebeKodu && b.muhasebeKodu.trim() === cleanKodu);
+      }
       
-      for (const banka of bankaHesaplari) {
-        if (!banka.muhasebeKodu || banka.id === h.bankaId) continue;
-        const cleanIban = banka.iban ? banka.iban.replace(/\s+/g, '').toLocaleUpperCase('tr-TR') : '';
-        if (cleanIban && cleanIban.length > 5 && aciklamaUpperNoSpace.includes(cleanIban)) {
-          matchedBank = banka;
-          break;
+      // 2. Muhasebe kodundan bulunamadıysa IBAN veya Hesap No üzerinden ara
+      if (!matchedBank && h.aciklama) {
+        for (const banka of bankaHesaplari) {
+          if (!banka.muhasebeKodu || banka.id === h.bankaId) continue;
+          const cleanIban = banka.iban ? banka.iban.replace(/\s+/g, '').toLocaleUpperCase('tr-TR') : '';
+          if (cleanIban && cleanIban.length > 5 && aciklamaUpperNoSpace.includes(cleanIban)) {
+            matchedBank = banka;
+            break;
+          }
         }
       }
 
-      if (!matchedBank) {
+      if (!matchedBank && h.aciklama) {
         for (const banka of bankaHesaplari) {
           if (!banka.muhasebeKodu || banka.id === h.bankaId) continue;
           const cleanHesapNo = banka.hesapNo ? banka.hesapNo.replace(/\s+/g, '').toLocaleUpperCase('tr-TR') : '';
@@ -602,13 +613,164 @@ export function BankaEkstreListesi() {
           }
         }
       }
+
+      // 3. Banka Adı veya Hesap Adı üzerinden ara
+      if (!matchedBank && h.aciklama) {
+        for (const banka of bankaHesaplari) {
+          if (banka.id === h.bankaId) continue;
+          const bAdi = (banka.bankaAdi || '').toLocaleUpperCase('tr-TR');
+          const hAdi = (banka.hesapAdi || '').toLocaleUpperCase('tr-TR');
+          if ((bAdi && bAdi.length > 3 && aciklamaUpper.includes(bAdi)) || (hAdi && hAdi.length > 3 && aciklamaUpper.includes(hAdi))) {
+            matchedBank = banka;
+            break;
+          }
+        }
+      }
       
-      if (matchedBank && h.muhasebeKodu !== matchedBank.muhasebeKodu) {
-        updateCariHareket(h.id, { muhasebeKodu: matchedBank.muhasebeKodu });
-        count++;
+      if (matchedBank) {
+        const isSourceGiris = (h.islemTuru === 'tahsilat' || h.islemTuru === 'satis_faturasi' || h.islemTuru === 'diger_gelir' ||
+          (h.islemTuru === 'transfer' && (h.aciklama || '').toUpperCase().includes('GELEN')));
+        const expectedCounterpartDirection = isSourceGiris ? 'GİDEN' : 'GELEN';
+        const sourceDirection = isSourceGiris ? 'GELEN' : 'GİDEN';
+        const cleanDesc = (h.aciklama || '').replace(/\[.*?TRANSFER\]/gi, '').trim();
+        const updatedAciklama = `${cleanDesc} [${sourceDirection} TRANSFER]`;
+        const transferGroupId = h.bagliFaturaId || ('trf_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6));
+
+        let needsUpdate = false;
+        const updates: Partial<CariHareket> = {};
+
+        if (h.muhasebeKodu !== matchedBank.muhasebeKodu) {
+          updates.muhasebeKodu = matchedBank.muhasebeKodu;
+          needsUpdate = true;
+        }
+        if (h.islemTuru !== 'transfer') {
+          updates.islemTuru = 'transfer';
+          needsUpdate = true;
+        }
+        if (!h.aciklama?.includes('TRANSFER]')) {
+          updates.aciklama = updatedAciklama;
+          needsUpdate = true;
+        }
+        if (!h.bagliFaturaId) {
+          updates.bagliFaturaId = transferGroupId;
+          needsUpdate = true;
+        }
+
+        if (needsUpdate) {
+          updateCariHareket(h.id, updates);
+          codeUpdatedCount++;
+        }
+
+        // Karşı bankada hareket var mı kontrol et
+        const parseDate = (d: string) => {
+          if (!d) return 0;
+          if (d.includes('.')) {
+            const [day, month, year] = d.split(' ')[0].split('.');
+            return new Date(Number(year), Number(month) - 1, Number(day)).getTime();
+          }
+          return new Date(d).getTime() || 0;
+        };
+
+        const hasCounterpart = cariHareketler.some(other => {
+          if (other.id === h.id || other.bankaId !== matchedBank.id) return false;
+          if (h.bagliFaturaId && other.bagliFaturaId && other.bagliFaturaId === h.bagliFaturaId) return true;
+          if (other.bagliFaturaId === h.id || h.bagliFaturaId === other.id) return true;
+          
+          const amountMatches = Math.abs(other.tutar - h.tutar) < 0.01;
+          if (!amountMatches) return false;
+
+          const diffDays = Math.abs(parseDate(other.tarih) - parseDate(h.tarih)) / (1000 * 60 * 60 * 24);
+          if (diffDays > 3) return false;
+
+          const otherIsGiris = (other.islemTuru === 'tahsilat' || other.islemTuru === 'satis_faturasi' || other.islemTuru === 'diger_gelir' ||
+            (other.islemTuru === 'transfer' && (other.aciklama || '').toUpperCase().includes('GELEN')));
+          
+          return otherIsGiris !== isSourceGiris;
+        });
+
+        if (!hasCounterpart) {
+          const sourceBank = bankaHesaplari.find(b => b.id === h.bankaId);
+          const counterpartDesc = `${sourceBank?.hesapAdi || 'Banka'} Transferi: ${cleanDesc} [${expectedCounterpartDirection} TRANSFER]`;
+
+          addCariHareket({
+            cariId: 'sistem',
+            tarih: h.tarih,
+            islemTuru: 'transfer',
+            tutar: h.tutar,
+            aciklama: counterpartDesc,
+            bankaId: matchedBank.id,
+            muhasebeKodu: sourceBank?.muhasebeKodu || '',
+            kategoriId: h.kategoriId,
+            bagliFaturaId: transferGroupId,
+            dovizTuru: (matchedBank.dovizTuru || h.dovizTuru) as any,
+            dovizTutar: h.dovizTutar,
+            dovizKuru: h.dovizKuru
+          });
+          createdCounterpartsCount++;
+        }
       }
     }
-    toast.success(`${count} adet transfere otomatik Luca kodu atandı.`);
+
+    if (codeUpdatedCount > 0 || createdCounterpartsCount > 0) {
+      toast.success(`${codeUpdatedCount} transfer eşleşti, ${createdCounterpartsCount} adet karşı banka hareketi oluşturuldu.`);
+    } else {
+      toast.info('Yeni eşleştirilecek transfer bulunamadı.');
+    }
+  };
+
+  const handleAccountCodeChange = (h: CariHareket, code: string) => {
+    const cleanCode = (code || '').trim();
+    const targetBank = bankaHesaplari.find(b => b.id !== h.bankaId && b.muhasebeKodu && b.muhasebeKodu.trim() === cleanCode);
+
+    if (targetBank) {
+      const isSourceGiris = (h.islemTuru === 'tahsilat' || h.islemTuru === 'satis_faturasi' || h.islemTuru === 'diger_gelir' ||
+        (h.islemTuru === 'transfer' && (h.aciklama || '').toUpperCase().includes('GELEN')));
+      const sourceDirection = isSourceGiris ? 'GELEN' : 'GİDEN';
+      const cleanDesc = (h.aciklama || '').replace(/\[.*?TRANSFER\]/gi, '').trim();
+      const updatedAciklama = `${cleanDesc} [${sourceDirection} TRANSFER]`;
+      const transferGroupId = h.bagliFaturaId || ('trf_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6));
+
+      updateCariHareket(h.id, {
+        muhasebeKodu: code,
+        islemTuru: 'transfer',
+        aciklama: updatedAciklama,
+        bagliFaturaId: transferGroupId
+      });
+
+      // Karşı bankada hareket var mı?
+      const existingCounterpart = cariHareketler.find(other => 
+        other.id !== h.id &&
+        other.bankaId === targetBank.id &&
+        Math.abs(other.tutar - h.tutar) < 0.01 &&
+        (other.bagliFaturaId === transferGroupId || other.tarih === h.tarih)
+      );
+
+      if (!existingCounterpart) {
+        const sourceBank = bankaHesaplari.find(b => b.id === h.bankaId);
+        const counterpartDirection = isSourceGiris ? 'GİDEN' : 'GELEN';
+        const counterpartDesc = `${sourceBank?.hesapAdi || 'Banka'} Transferi: ${cleanDesc} [${counterpartDirection} TRANSFER]`;
+
+        addCariHareket({
+          cariId: 'sistem',
+          tarih: h.tarih,
+          islemTuru: 'transfer',
+          tutar: h.tutar,
+          aciklama: counterpartDesc,
+          bankaId: targetBank.id,
+          muhasebeKodu: sourceBank?.muhasebeKodu || '',
+          kategoriId: h.kategoriId,
+          bagliFaturaId: transferGroupId,
+          dovizTuru: (targetBank.dovizTuru || h.dovizTuru) as any,
+          dovizTutar: h.dovizTutar,
+          dovizKuru: h.dovizKuru
+        });
+        toast.success(`Transfer kaydedildi ve ${targetBank.hesapAdi} hesabına karşı bacak (${counterpartDirection === 'GELEN' ? 'Giriş' : 'Çıkış'}) hareketi eklendi.`);
+      } else {
+        toast.success('Transfer muhasebe kodu güncellendi.');
+      }
+    } else {
+      updateCariHareket(h.id, { muhasebeKodu: code });
+    }
   };
 
   const handleCarileriBul = () => {
@@ -992,7 +1154,7 @@ export function BankaEkstreListesi() {
                             <TableCell>
                               <LucaAccountSelect 
                                 value={h.muhasebeKodu || ''} 
-                                onChange={(code: string) => updateCariHareket(h.id, { muhasebeKodu: code })}
+                                onChange={(code: string) => handleAccountCodeChange(h, code)}
                                 className="h-8 text-[11px]"
                               />
                             </TableCell>
@@ -1504,9 +1666,63 @@ export function BankaEkstreListesi() {
             <Button variant="outline" onClick={() => setEditingId(null)}>Vazgeç</Button>
             <Button onClick={() => {
               if (editingId) {
-                updateCariHareket(editingId, editForm);
+                const currentItem = cariHareketler.find(h => h.id === editingId);
+                if (currentItem) {
+                  const targetCode = (editForm.muhasebeKodu !== undefined ? editForm.muhasebeKodu : currentItem.muhasebeKodu || '').trim();
+                  const currentBankId = editForm.bankaId !== undefined ? editForm.bankaId : currentItem.bankaId;
+                  const targetBank = bankaHesaplari.find(b => b.id !== currentBankId && b.muhasebeKodu && b.muhasebeKodu.trim() === targetCode);
+
+                  let updates = { ...editForm };
+                  if (targetBank) {
+                    updates.islemTuru = 'transfer';
+                    const isSourceGiris = ((updates.islemTuru || currentItem.islemTuru) === 'tahsilat' || 
+                      ((updates.islemTuru || currentItem.islemTuru) === 'transfer' && ((updates.aciklama || currentItem.aciklama) || '').toUpperCase().includes('GELEN')));
+                    const sourceDirection = isSourceGiris ? 'GELEN' : 'GİDEN';
+                    const cleanDesc = ((updates.aciklama !== undefined ? updates.aciklama : currentItem.aciklama) || '').replace(/\[.*?TRANSFER\]/gi, '').trim();
+                    updates.aciklama = `${cleanDesc} [${sourceDirection} TRANSFER]`;
+                    const transferGroupId = currentItem.bagliFaturaId || ('trf_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6));
+                    updates.bagliFaturaId = transferGroupId;
+
+                    updateCariHareket(editingId, updates);
+
+                    const tutar = typeof updates.tutar === 'number' ? updates.tutar : currentItem.tutar;
+                    const tarih = updates.tarih !== undefined ? updates.tarih : currentItem.tarih;
+                    const existingCounterpart = cariHareketler.find(other => 
+                      other.id !== editingId &&
+                      other.bankaId === targetBank.id &&
+                      Math.abs(other.tutar - tutar) < 0.01 &&
+                      (other.bagliFaturaId === transferGroupId || other.tarih === tarih)
+                    );
+
+                    if (!existingCounterpart) {
+                      const sourceBank = bankaHesaplari.find(b => b.id === currentBankId);
+                      const counterpartDirection = isSourceGiris ? 'GİDEN' : 'GELEN';
+                      const counterpartDesc = `${sourceBank?.hesapAdi || 'Banka'} Transferi: ${cleanDesc} [${counterpartDirection} TRANSFER]`;
+
+                      addCariHareket({
+                        cariId: 'sistem',
+                        tarih: tarih,
+                        islemTuru: 'transfer',
+                        tutar: tutar,
+                        aciklama: counterpartDesc,
+                        bankaId: targetBank.id,
+                        muhasebeKodu: sourceBank?.muhasebeKodu || '',
+                        kategoriId: updates.kategoriId !== undefined ? updates.kategoriId : currentItem.kategoriId,
+                        bagliFaturaId: transferGroupId,
+                        dovizTuru: (targetBank.dovizTuru || currentItem.dovizTuru) as any,
+                        dovizTutar: updates.dovizTutar !== undefined ? updates.dovizTutar : currentItem.dovizTutar,
+                        dovizKuru: updates.dovizKuru !== undefined ? updates.dovizKuru : currentItem.dovizKuru
+                      });
+                      toast.success(`Hareket güncellendi ve ${targetBank.hesapAdi} hesabına karşı bacak transfer hareketi eklendi.`);
+                    } else {
+                      toast.success('Hareket başarıyla güncellendi.');
+                    }
+                  } else {
+                    updateCariHareket(editingId, updates);
+                    toast.success('Hareket başarıyla güncellendi.');
+                  }
+                }
                 setEditingId(null);
-                toast.success('Hareket başarıyla güncellendi.');
               }
             }}>Kaydet</Button>
           </DialogFooter>

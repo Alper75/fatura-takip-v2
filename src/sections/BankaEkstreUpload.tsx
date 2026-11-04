@@ -173,14 +173,16 @@ export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploa
       }
     }
 
-    const isTransferKeyword = cleanDesc.includes('VIRMAN') || cleanDesc.includes('TRANSFER');
     for (const b of bankaHesaplari) {
       if (b.id === bankaId) continue;
       
       const bAdi = normalizeString(b.bankaAdi);
       const hAdi = normalizeString(b.hesapAdi);
       
-      if (isTransferKeyword && ((bAdi && bAdi.length > 3 && cleanDesc.includes(bAdi)) || (hAdi && hAdi.length > 3 && cleanDesc.includes(hAdi)))) {
+      const hasBankWord = (bAdi && bAdi.length > 3 && cleanDesc.includes(bAdi));
+      const hasAccountWord = (hAdi && hAdi.length > 3 && cleanDesc.includes(hAdi));
+
+      if (hasBankWord || hasAccountWord) {
         return { tur: 'transfer', cariId: null, transferBankaId: b.id, muhasebeKodu: b.muhasebeKodu };
       }
     }
@@ -427,29 +429,67 @@ export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploa
   const handleConfirm = (sendToLuca = false) => {
     const payloadRows: any[] = [];
     satirlar.forEach(s => {
-      const finalAciklama = s.önerilenTur === 'transfer' 
-        ? `${s.aciklama} [${s.tip === 'alacak' ? 'GELEN' : 'GİDEN'} TRANSFER]`
+      // Hedef transfer bankasını tespit et
+      const targetBank = bankaHesaplari.find(b => 
+        b.id !== bankaId && (
+          b.id === s.transferBankaId || 
+          (s.muhasebeKodu && b.muhasebeKodu && b.muhasebeKodu.trim() === s.muhasebeKodu.trim())
+        )
+      );
+
+      const isTransfer = s.önerilenTur === 'transfer' || !!targetBank;
+      const isSourceGiris = s.tip === 'alacak' || s.önerilenTur === 'tahsilat';
+      const sourceDirection = isSourceGiris ? 'GELEN' : 'GİDEN';
+      const cleanDesc = (s.aciklama || '').replace(/\[.*?TRANSFER\]/gi, '').trim();
+
+      const finalAciklama = isTransfer 
+        ? `${cleanDesc} [${sourceDirection} TRANSFER]`
         : s.aciklama;
 
+      const transferGroupId = isTransfer ? 'trf_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6) : null;
+
+      // 1. Kaynak Banka Hareketi
       addCariHareket({
         cariId: s.eslesenCariId || (s.önerilenTur === 'tahsilat' || s.önerilenTur === 'odeme' ? 'genel-cari' : 'sistem'),
         tarih: s.tarih,
-        islemTuru: s.önerilenTur,
+        islemTuru: isTransfer ? 'transfer' : s.önerilenTur,
         tutar: s.tutar,
         aciklama: finalAciklama,
         bankaId: bankaId,
-        muhasebeKodu: s.muhasebeKodu,
+        muhasebeKodu: s.muhasebeKodu || targetBank?.muhasebeKodu,
         kategoriId: s.kategoriId,
+        bagliFaturaId: transferGroupId,
         dovizTuru: s.dovizTuru as any,
         dovizTutar: s.dovizTutar,
         dovizKuru: s.dovizKuru
       });
 
+      // 2. Hedef Banka Karşı Bacak Hareketi (Virman - Karşı hesaba da giriş/çıkış oluşturulur)
+      if (isTransfer && targetBank) {
+        const counterpartGiris = !isSourceGiris;
+        const counterpartDirection = counterpartGiris ? 'GELEN' : 'GİDEN';
+        const counterpartDesc = `${banka?.hesapAdi || 'Banka'} Transferi: ${cleanDesc} [${counterpartDirection} TRANSFER]`;
+
+        addCariHareket({
+          cariId: 'sistem',
+          tarih: s.tarih,
+          islemTuru: 'transfer',
+          tutar: s.tutar,
+          aciklama: counterpartDesc,
+          bankaId: targetBank.id,
+          muhasebeKodu: banka?.muhasebeKodu || '', // Karşı bankada kaynak bankanın kodu yer alır
+          kategoriId: s.kategoriId,
+          bagliFaturaId: transferGroupId,
+          dovizTuru: (targetBank.dovizTuru || s.dovizTuru) as any,
+          dovizTutar: s.dovizTutar,
+          dovizKuru: s.dovizKuru
+        });
+      }
+
       if (sendToLuca) {
         const cari = cariler.find(c => c.id === s.eslesenCariId);
-        const isGiris = s.tip === 'alacak' || s.önerilenTur === 'tahsilat';
         const formattedTarih = formatDateForLuca(s.tarih);
-        const cleanAciklama = (finalAciklama || '')
+        const cleanLucaAciklama = (finalAciklama || '')
           .replace(/[\r\n\t]/g, ' ')
           .replace(/\s+/g, ' ')
           .trim()
@@ -459,13 +499,13 @@ export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploa
           {
             tarih: formattedTarih,
             evrakNo: '',
-            aciklama: cleanAciklama,
+            aciklama: cleanLucaAciklama,
             tutar: s.tutar,
-            tur: isGiris ? 'alacak' : 'borc',
-            islemTuru: s.önerilenTur,
+            tur: isSourceGiris ? 'alacak' : 'borc',
+            islemTuru: isTransfer ? 'transfer' : s.önerilenTur,
             banka: banka?.hesapAdi || '',
-            cari: cari?.unvan || '',
-            muhasebeKodu: s.muhasebeKodu || '',
+            cari: cari?.unvan || (targetBank ? targetBank.hesapAdi : ''),
+            muhasebeKodu: s.muhasebeKodu || targetBank?.muhasebeKodu || '',
             dovizTuru: s.dovizTuru,
             dovizTutar: s.dovizTutar,
             dovizKuru: s.dovizKuru
@@ -473,12 +513,12 @@ export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploa
           {
             tarih: formattedTarih,
             evrakNo: '',
-            aciklama: cleanAciklama,
+            aciklama: cleanLucaAciklama,
             tutar: s.tutar,
-            tur: isGiris ? 'borc' : 'alacak',
-            islemTuru: s.önerilenTur,
+            tur: isSourceGiris ? 'borc' : 'alacak',
+            islemTuru: isTransfer ? 'transfer' : s.önerilenTur,
             banka: banka?.hesapAdi || '',
-            cari: cari?.unvan || '',
+            cari: cari?.unvan || (targetBank ? targetBank.hesapAdi : ''),
             muhasebeKodu: banka?.muhasebeKodu || '',
             dovizTuru: s.dovizTuru,
             dovizTutar: s.dovizTutar,
@@ -992,11 +1032,20 @@ SADECE JSON döndür:
                             <div className="relative group">
                               <select 
                                 className="w-full h-8 text-[11px] bg-white border border-slate-200 rounded-md px-2 pr-6 outline-none focus:border-indigo-500 cursor-pointer hover:bg-slate-50 shadow-sm appearance-none transition-all"
-                                value={s.eslesenCariId ? s.eslesenCariId : s.kategoriId ? 'cat-' + s.kategoriId : s.transferBankaId ? 'transfer-' + s.transferBankaId : 'sistem'} 
+                                value={s.transferBankaId ? 'transfer-' + s.transferBankaId : s.eslesenCariId ? s.eslesenCariId : s.kategoriId ? 'cat-' + s.kategoriId : 'sistem'} 
                                 onChange={(e) => {
                                   const v = e.target.value;
                                   if (v.startsWith('transfer-')) {
-                                    updateSatir(idx, { eslesenCariId: null, kategoriId: null, transferBankaId: v.replace('transfer-', ''), önerilenTur: 'transfer' });
+                                    const tId = v.replace('transfer-', '');
+                                    const tBank = bankaHesaplari.find(b => b.id === tId);
+                                    updateSatir(idx, { 
+                                      eslesenCariId: null, 
+                                      kategoriId: null, 
+                                      transferBankaId: tId, 
+                                      önerilenTur: 'transfer', 
+                                      muhasebeKodu: tBank?.muhasebeKodu || s.muhasebeKodu,
+                                      durum: 'success'
+                                    });
                                   } else if (v.startsWith('cat-')) {
                                     const catId = v.replace('cat-', '');
                                     const cat = giderKategorileri.find(k => k.id === catId);
@@ -1080,7 +1129,22 @@ SADECE JSON döndür:
                           <div className="flex items-center gap-2 min-w-[170px]">
                             <LucaAccountSelect 
                               value={s.muhasebeKodu || ''} 
-                              onChange={(code: string) => updateSatir(idx, { muhasebeKodu: code })}
+                              onChange={(code: string) => {
+                                const cleanCode = (code || '').trim();
+                                const otherBank = bankaHesaplari.find(b => b.id !== bankaId && b.muhasebeKodu && b.muhasebeKodu.trim() === cleanCode);
+                                if (otherBank) {
+                                  updateSatir(idx, { 
+                                    muhasebeKodu: code, 
+                                    transferBankaId: otherBank.id, 
+                                    önerilenTur: 'transfer',
+                                    eslesenCariId: null,
+                                    kategoriId: null,
+                                    durum: 'success'
+                                  });
+                                } else {
+                                  updateSatir(idx, { muhasebeKodu: code });
+                                }
+                              }}
                               placeholder="Koda eşle..."
                               className="h-8 text-[11px]"
                             />
