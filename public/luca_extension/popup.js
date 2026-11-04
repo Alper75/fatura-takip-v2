@@ -276,7 +276,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // 1. Önce açık Luca sekmelerinde ara
     try {
-      const lucaTabs = await chrome.tabs.query({ url: "*://*.luca.com.tr/*" });
+      const lucaTabs = await chrome.tabs.query({ url: "*://*.luca.com.tr/Luca/*" });
       if (lucaTabs && lucaTabs.length > 0) {
         for (const lt of lucaTabs) {
           try {
@@ -614,7 +614,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     btn.textContent = activeText;
 
     try {
-      const tabs = await chrome.tabs.query({ url: "*://*.luca.com.tr/*" });
+      const allTabs = await chrome.tabs.query({ url: "*://*.luca.com.tr/Luca/*" });
+      const tabs = (allTabs || []).filter(t => t.url && !t.url.includes('www.luca.com.tr') && !t.url.includes('agiris.luca.com.tr'));
       if (!tabs || tabs.length === 0) {
         btn.disabled = false;
         btn.textContent = originalText;
@@ -622,7 +623,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
 
       // En uygun Luca sekmesini seç
-      const lucaTab = tabs.find(t => t.url && (t.url.includes('menu.do') || t.url.includes('luca.do'))) || tabs[0];
+      const lucaTab = tabs.find(t => t.url && (t.url.includes('luca.do') || t.url.includes('menu.do'))) || tabs[0];
 
       // Sekmeyi ve pencereyi öne getir
       await chrome.tabs.update(lucaTab.id, { active: true });
@@ -655,7 +656,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
           chrome.runtime.sendMessage({ actionKey: "SET_LUCA_BUCKET", bucket }, () => {
             chrome.runtime.sendMessage(
-              { actionKey: "CREATE_TAB", options: { url: lucaTab.url || "https://auygs.luca.com.tr/Luca/luca.do" } },
+              { actionKey: "CREATE_TAB", options: { url: "https://auygs.luca.com.tr/Luca/luca.do" } },
               () => {
                 btn.disabled = false;
                 btn.textContent = originalText;

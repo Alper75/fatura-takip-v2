@@ -1,49 +1,171 @@
-// background.js - Luca Aktarım & Hesap Planı Servisi (v3.0.0)
+// background.js - Luca Aktarım & Hesap Planı Servisi (v3.1.0)
 console.log('[Luca Service Worker] Başlatıldı.');
 
-// Aktif Luca Sunucusu Tespiti
+// Başlangıçta olası hatalı CURRENT_LUCA_WINDOW_IP ("www.luca.com.tr") kaydını temizle
+chrome.storage.sync.set({ CURRENT_LUCA_WINDOW_IP: "auygs.luca.com.tr" });
+
+function sanitizeLucaHost(h) {
+  if (!h || typeof h !== 'string') return "auygs.luca.com.tr";
+  const clean = h.trim().toLowerCase();
+  if (
+    !clean ||
+    clean === "www.luca.com.tr" ||
+    clean === "luca.com.tr" ||
+    clean === "agiris.luca.com.tr" ||
+    !clean.includes("luca.com.tr")
+  ) {
+    return "auygs.luca.com.tr";
+  }
+  return clean;
+}
+
+// Açık olan gerçek Luca uygulama sekmelerini (/Luca/...) bulur (www ve agiris hariç)
+async function getOpenLucaAppTabs() {
+  try {
+    const tabs = await chrome.tabs.query({ url: "*://*.luca.com.tr/Luca/*" });
+    return (tabs || []).filter(t => {
+      if (!t.url) return false;
+      if (t.title && t.title.toUpperCase().includes("HATA")) return false;
+      const u = t.url.toLowerCase();
+      if (u.includes("://www.luca.com.tr") || u.includes("://agiris.luca.com.tr")) return false;
+      return true;
+    });
+  } catch (e) {
+    return [];
+  }
+}
+
+// Aktif Luca Sunucusu Tespiti (Kesinlikle www.luca.com.tr döndürmez)
 async function getLucaHost() {
   try {
-    const tabs = await chrome.tabs.query({ url: "*://*.luca.com.tr/*" });
-    if (tabs && tabs.length > 0) {
-      for (const t of tabs) {
-        if (t.url) {
-          const u = new URL(t.url);
-          if (u.hostname && u.hostname.includes('luca.com.tr')) {
-            return u.hostname;
-          }
-        }
+    const tabs = await getOpenLucaAppTabs();
+    for (const t of tabs) {
+      if (t.url) {
+        const u = new URL(t.url);
+        const validHost = sanitizeLucaHost(u.hostname);
+        if (validHost) return validHost;
       }
     }
   } catch (e) {}
   return "auygs.luca.com.tr";
 }
 
-// 1. OTURUM SORGULAMA (GetSessionInfoServlet)
+function parseSessionXml(text) {
+  if (!text) return null;
+  const getTag = (tag) => {
+    const match = text.match(new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`, 'i'));
+    return match ? match[1].trim() : '';
+  };
+  const userId = getTag('cusimi1');
+  const username = getTag('cusika3');
+  const companyId = getTag('cusisi4');
+  const termId = getTag('cusidi5');
+  if (userId || username || companyId) {
+    return { userId, username, companyId, termId };
+  }
+  return null;
+}
+
+// 1. OTURUM SORGULAMA (Açık Luca Sekmesi + GetSessionInfoServlet)
 async function getLucaSessionInfo() {
   const host = await getLucaHost();
+  const appTabs = await getOpenLucaAppTabs();
+  const mainTab = appTabs.find(t => t.url && (t.url.includes('/Luca/luca.do') || t.url.includes('/Luca/menu.do'))) || appTabs[0];
+
+  // A. Önce açık Luca sekmesi içinden sorgula (Çerezler ve oturum %100 aktiftir)
+  if (mainTab && mainTab.id) {
+    try {
+      const execRes = await chrome.scripting.executeScript({
+        target: { tabId: mainTab.id },
+        func: async () => {
+          let xmlText = '';
+          try {
+            const r = await fetch(`/Luca/GetSessionInfoServlet?time=${Date.now()}`, { credentials: 'include' });
+            xmlText = await r.text();
+          } catch (e) {}
+
+          let domUser = '';
+          let domCompany = '';
+          try {
+            const docs = [document];
+            if (window.frames) {
+              for (let i = 0; i < window.frames.length; i++) {
+                try { if (window.frames[i]?.document) docs.push(window.frames[i].document); } catch (e) {}
+              }
+            }
+            for (const d of docs) {
+              const bodyTxt = (d.body?.innerText || '').trim();
+              if (!domCompany) {
+                const sel = d.querySelector('select[name*="sirket"], select[id*="sirket"], #sirketList, .sirketAdi');
+                if (sel) {
+                  domCompany = sel.options ? (sel.options[sel.selectedIndex]?.text || '').trim() : (sel.innerText || '').trim();
+                }
+              }
+              if (!domUser && bodyTxt) {
+                const m = bodyTxt.match(/Kullanıcı\s*[:\-]\s*([^\r\n|]+)/i);
+                if (m) domUser = m[1].trim();
+              }
+            }
+          } catch (e) {}
+
+          const isMainAppPage =
+            window.location.pathname.includes('/Luca/luca.do') ||
+            window.location.pathname.includes('/Luca/menu.do') ||
+            !!document.querySelector('#frm1, #frm2, #frm3, frame, iframe');
+
+          return { xmlText, domUser, domCompany, isMainAppPage, title: document.title || '' };
+        }
+      });
+
+      const tabData = execRes && execRes[0]?.result;
+      if (tabData) {
+        const parsed = parseSessionXml(tabData.xmlText);
+        if (parsed) {
+          return {
+            isLoggedIn: true,
+            userId: parsed.userId,
+            username: parsed.username || tabData.domUser || 'Aktif Kullanıcı',
+            companyId: parsed.companyId || tabData.domCompany || 'Aktif',
+            termId: parsed.termId,
+            host
+          };
+        }
+        if (tabData.isMainAppPage && !tabData.title.toUpperCase().includes('HATA')) {
+          return {
+            isLoggedIn: true,
+            userId: 'aktif',
+            username: tabData.domUser || 'Luca Oturumu Açık',
+            companyId: tabData.domCompany || 'Aktif',
+            termId: '',
+            host
+          };
+        }
+      }
+    } catch (e) {
+      // Sekme içi script çalışamazsa bile sekme /Luca/luca.do ise oturum açıktır
+      if (mainTab.url && (mainTab.url.includes('/Luca/luca.do') || mainTab.url.includes('/Luca/menu.do'))) {
+        return {
+          isLoggedIn: true,
+          userId: 'aktif',
+          username: 'Luca Oturumu Açık',
+          companyId: 'Aktif',
+          termId: '',
+          host
+        };
+      }
+    }
+  }
+
+  // B. Arka plan fetch ile dene (auygs.luca.com.tr)
   const url = `https://${host}/Luca/GetSessionInfoServlet?time=${Date.now()}`;
   try {
     const res = await fetch(url, { credentials: 'include' });
     const text = await res.text();
-    
-    const getTag = (tag) => {
-      const match = text.match(new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`, 'i'));
-      return match ? match[1].trim() : '';
-    };
-
-    const userId = getTag('cusimi1');
-    const username = getTag('cusika3');
-    const companyId = getTag('cusisi4');
-    const termId = getTag('cusidi5');
-
-    if (userId || username) {
+    const parsed = parseSessionXml(text);
+    if (parsed) {
       return {
         isLoggedIn: true,
-        userId,
-        username,
-        companyId,
-        termId,
+        ...parsed,
         host
       };
     }
@@ -157,7 +279,7 @@ async function fetchAccountsFromLuca(prefix = "") {
 
   // Yöntem 0: Açık Luca sekmelerinden sorgula (İçerik scripti veya executeScript)
   try {
-    const tabs = await chrome.tabs.query({ url: "*://*.luca.com.tr/*" });
+    const tabs = await getOpenLucaAppTabs();
     for (const t of tabs) {
       if (t.id) {
         // 0.a Mesaj ile dene
@@ -382,7 +504,7 @@ async function verifyVknTcknInLuca(taxNo) {
 
   // 1. Önce açık bir Luca sekmesinde sorgula (Oturum çerezleri kesinlikle aktiftir)
   try {
-    const tabs = await chrome.tabs.query({ url: "*://*.luca.com.tr/*" });
+    const tabs = await getOpenLucaAppTabs();
     if (tabs && tabs.length > 0) {
       const tabRes = await chrome.scripting.executeScript({
         target: { tabId: tabs[0].id },
@@ -474,7 +596,7 @@ async function createAccountInLuca(accData) {
 
   // 1. Önce açık Luca sekmesinden post et
   try {
-    const tabs = await chrome.tabs.query({ url: "*://*.luca.com.tr/*" });
+    const tabs = await getOpenLucaAppTabs();
     if (tabs && tabs.length > 0) {
       const tabRes = await chrome.scripting.executeScript({
         target: { tabId: tabs[0].id },
@@ -835,22 +957,20 @@ function launchOrAttachLucaTab(options, sendResponse) {
 }
 
 function attachToMainLucaTab(options, sendResponse) {
-  chrome.tabs.query({ url: "*://*.luca.com.tr/*" }, (tabs) => {
+  chrome.tabs.query({ url: ["*://*.luca.com.tr/Luca/luca.do*", "*://*.luca.com.tr/Luca/menu.do*"] }, (tabs) => {
     let targetTab = null;
     (tabs || []).forEach((t) => {
       if (t.title && t.title.toUpperCase().includes("HATA")) {
         try { chrome.tabs.remove(t.id); } catch (e) {}
-      } else if (t.url && !t.url.includes("hizliFisPopUp.do") && !t.url.includes("agiris.luca.com.tr")) {
-        if (!targetTab || t.url.includes("luca.do") || t.url.includes("menu.do")) {
-          targetTab = t;
-        }
+      } else if (t.url && !t.url.includes("hizliFisPopUp.do") && !t.url.includes("agiris.luca.com.tr") && !t.url.includes("www.luca.com.tr")) {
+        targetTab = t;
       }
     });
 
     if (targetTab) {
       let hostIp = "auygs.luca.com.tr";
       try {
-        if (targetTab.url) hostIp = new URL(targetTab.url).hostname || "auygs.luca.com.tr";
+        if (targetTab.url) hostIp = sanitizeLucaHost(new URL(targetTab.url).hostname);
       } catch (e) {}
       chrome.storage.sync.set({ CURRENT_LUCA_WINDOW_IP: hostIp });
       currentTabId = targetTab.id;
@@ -878,7 +998,7 @@ function attachToMainLucaTab(options, sendResponse) {
       sendResponse(targetTab.id);
     } else {
       const createUrl =
-        options && options.url && !options.url.endsWith("/Luca/luca.do")
+        options && options.url && !options.url.endsWith("/Luca/luca.do") && !options.url.includes("www.luca.com.tr")
           ? options.url
           : chrome.runtime.getURL("veri-aktarma.html");
       chrome.tabs.create({ url: createUrl }, (newTab) => {
@@ -891,7 +1011,7 @@ function attachToMainLucaTab(options, sendResponse) {
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   chrome.storage.sync.get(["CURRENT_LUCA_WINDOW_IP"], (res) => {
-    const hostIp = res.CURRENT_LUCA_WINDOW_IP || "auygs.luca.com.tr";
+    const hostIp = sanitizeLucaHost(res.CURRENT_LUCA_WINDOW_IP);
     if (
       currentTabId &&
       tabId === currentTabId &&
@@ -1010,7 +1130,7 @@ function handleExtensionMessage(message, sender, sendResponse) {
   }
 
   if (actionKey === 'GET_CURRENT_LUCA_WINDOW_IP') {
-    getLucaHost().then(host => sendResponse(host || 'auygs.luca.com.tr'));
+    getLucaHost().then(host => sendResponse(sanitizeLucaHost(host)));
     return true;
   }
 
