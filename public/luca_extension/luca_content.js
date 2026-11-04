@@ -455,13 +455,36 @@
       return;
     }
 
+    const formatDateTR = (dStr) => {
+      if (!dStr) return '';
+      const str = String(dStr).trim().split(' ')[0].split('T')[0];
+      if (str.includes('/')) {
+        const p = str.split('/');
+        if (p.length === 3) return p[0].length === 4 ? `${p[2].padStart(2, '0')}/${p[1].padStart(2, '0')}/${p[0]}` : `${p[0].padStart(2, '0')}/${p[1].padStart(2, '0')}/${p[2]}`;
+      }
+      if (str.includes('.')) {
+        const p = str.split('.');
+        if (p.length === 3) return p[0].length === 4 ? `${p[2].padStart(2, '0')}/${p[1].padStart(2, '0')}/${p[0]}` : `${p[0].padStart(2, '0')}/${p[1].padStart(2, '0')}/${p[2]}`;
+      }
+      if (str.includes('-')) {
+        const p = str.split('-');
+        if (p.length === 3) return `${p[2].padStart(2, '0')}/${p[1].padStart(2, '0')}/${p[0]}`;
+      }
+      return str;
+    };
+
+    const getFisDoc = () => {
+      if (window.frames && window.frames.frm3 && window.frames.frm3.document) {
+        return window.frames.frm3.document;
+      }
+      if (document.querySelector('#frm3') && document.querySelector('#frm3').contentDocument) {
+        return document.querySelector('#frm3').contentDocument;
+      }
+      return document;
+    };
+
     // Fiş çerçevesini bul (#frm3 veya aktif sayfa)
-    let doc = document;
-    if (window.frames && window.frames.frm3 && window.frames.frm3.document) {
-      doc = window.frames.frm3.document;
-    } else if (document.querySelector('#frm3') && document.querySelector('#frm3').contentDocument) {
-      doc = document.querySelector('#frm3').contentDocument;
-    }
+    let doc = getFisDoc();
 
     // 1. Fiş tablosu henüz yoksa (#scroll yoksa) ve addFis.do / kaydetHref varsa fişi otomatik başlat!
     let scrollEl = doc.getElementById('scroll') || doc.querySelector('input[name="HESAP_KODU"], input[name*="hesapKodu"]');
@@ -471,16 +494,15 @@
         showToast("Fiş başlatılıyor...");
         const firstRow = rows[0] || {};
         const firstDate = formatDateTR(firstRow.document_date || firstRow.evrakTarihi || firstRow.tarih || firstRow['Evrak Tarihi'] || '');
-        const dateInput = doc.querySelector('input[name="FIS_TARIHI"], input[id="FIS_TARIHI"], input[name*="fisTarih"]');
-        if (dateInput && firstDate) {
-          dateInput.value = firstDate;
-          dateInput.dispatchEvent(new Event('change', { bubbles: true }));
-        }
-
-        const fisTipiSelect = doc.querySelector('select[name="FIS_TIPI"], select[id="FIS_TIPI"]');
-        if (fisTipiSelect) {
-          fisTipiSelect.value = "3"; // 3: Mahsup
-          fisTipiSelect.dispatchEvent(new Event('change', { bubbles: true }));
+        const formEl = doc.querySelector('form');
+        if (formEl && formEl.FIS_TARIHI && firstDate) {
+          formEl.FIS_TARIHI.value = firstDate;
+        } else {
+          const dateInput = doc.querySelector('input[name="FIS_TARIHI"], input[id="FIS_TARIHI"], input[name*="fisTarih"]');
+          if (dateInput && firstDate) {
+            dateInput.value = firstDate;
+            dateInput.dispatchEvent(new Event('change', { bubbles: true }));
+          }
         }
 
         try {
@@ -491,16 +513,19 @@
           }
         }
 
-        // #scroll tablosunun yüklenmesini bekle (en fazla 25 x 200ms = 5 sn)
+        // #scroll tablosunun yeni yüklenen #frm3 dokümanında oluşmasını bekle (en fazla 30 x 200ms = 6 sn)
         let waitScroll = 0;
-        while (waitScroll < 25) {
+        while (waitScroll < 30) {
           await new Promise(r => setTimeout(r, 200));
+          doc = getFisDoc();
           scrollEl = doc.getElementById('scroll') || doc.querySelector('input[name="HESAP_KODU"], input[name*="hesapKodu"]');
           if (scrollEl) break;
           waitScroll++;
         }
       }
     }
+
+    doc = getFisDoc();
 
     const isFisPage = !!doc.querySelector('input[name="HESAP_KODU"], input[name*="hesapKodu"]') ||
                       !!doc.getElementById('scroll') ||
@@ -585,24 +610,6 @@
       const num = typeof val === 'number' ? val : parseFloat(String(val).replace(/\./g, '').replace(',', '.'));
       if (isNaN(num) || num === 0) return '';
       return num.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    };
-
-    const formatDateTR = (dStr) => {
-      if (!dStr) return '';
-      const str = String(dStr).trim().split(' ')[0].split('T')[0];
-      if (str.includes('/')) {
-        const p = str.split('/');
-        if (p.length === 3) return p[0].length === 4 ? `${p[2].padStart(2, '0')}/${p[1].padStart(2, '0')}/${p[0]}` : `${p[0].padStart(2, '0')}/${p[1].padStart(2, '0')}/${p[2]}`;
-      }
-      if (str.includes('.')) {
-        const p = str.split('.');
-        if (p.length === 3) return p[0].length === 4 ? `${p[2].padStart(2, '0')}/${p[1].padStart(2, '0')}/${p[0]}` : `${p[0].padStart(2, '0')}/${p[1].padStart(2, '0')}/${p[2]}`;
-      }
-      if (str.includes('-')) {
-        const p = str.split('-');
-        if (p.length === 3) return `${p[2].padStart(2, '0')}/${p[1].padStart(2, '0')}/${p[0]}`;
-      }
-      return str;
     };
 
     for (let i = 0; i < rows.length; i++) {

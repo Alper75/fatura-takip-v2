@@ -92,11 +92,11 @@
         <div class="panel-header">
           <div>
             <h2>1. Luca Toplu Fatura Girişi (Bilanço - BULK Modu)</h2>
-            <p>Fatura satırlarını (Cari + Matrah + KDV) dengeli yevmiye maddelerine dönüştürerek doğrudan <code>addFis.do</code> Mahsup Fişi ekranına yazar (Toplu fişe gitmez).</p>
+            <p><code>luca-app-content-script.js</code> içindeki <code>entry_method: "BULK"</code> bileşenini tetikler. Tek satırda Cari Hesap + Matrah Hesabı + KDV Hesabı açarak <code>addFis.do</code> ekranına yazar.</p>
           </div>
           <div class="header-actions">
             <button id="btnBulkAddSample" class="btn btn-secondary">+ Örnek Fatura Satırı Ekle</button>
-            <button id="btnBulkSend" class="btn btn-success btn-lg">🚀 Luca'ya Faturaları Aktar (Mahsup Fişi)</button>
+            <button id="btnBulkSend" class="btn btn-success btn-lg">🚀 Luca'ya Faturaları Aktar (BULK)</button>
           </div>
         </div>
 
@@ -114,7 +114,7 @@
           </div>
           <div class="form-group">
             <label>Giriş Şekli (<code>GIRIS_SEKLI</code>)</label>
-            <input type="text" value="1 (Standart Mahsup Fişi - Direkt Aktarım)" disabled />
+            <input type="text" value="2 (Toplu Alış/Satış Fişi - BULK)" disabled />
           </div>
         </div>
 

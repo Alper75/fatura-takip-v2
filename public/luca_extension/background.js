@@ -536,8 +536,379 @@ async function createAccountInLuca(accData) {
   return { success: true, message: "Hesap planı kaydedildi.", createdId, code, name };
 }
 
-// 6. MESAJ DİNLEYİCİ
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+// 6. DENEME EKLENTİSİ (ATLAS) BİREBİR FİŞ OLUŞTURMA & AKTARIM MOTORU
+let currentTabId = null;
+let currentBucket = null;
+
+function formatDateSlash(dStr) {
+  if (!dStr) {
+    const now = new Date();
+    return `${String(now.getDate()).padStart(2, '0')}/${String(now.getMonth() + 1).padStart(2, '0')}/${now.getFullYear()}`;
+  }
+  const str = String(dStr).trim().split(' ')[0].split('T')[0];
+  if (str.includes('/')) {
+    const p = str.split('/');
+    if (p.length === 3) {
+      return p[0].length === 4
+        ? `${p[2].padStart(2, '0')}/${p[1].padStart(2, '0')}/${p[0]}`
+        : `${p[0].padStart(2, '0')}/${p[1].padStart(2, '0')}/${p[2]}`;
+    }
+  }
+  if (str.includes('.')) {
+    const p = str.split('.');
+    if (p.length === 3) {
+      return p[0].length === 4
+        ? `${p[2].padStart(2, '0')}/${p[1].padStart(2, '0')}/${p[0]}`
+        : `${p[0].padStart(2, '0')}/${p[1].padStart(2, '0')}/${p[2]}`;
+    }
+  }
+  if (str.includes('-')) {
+    const p = str.split('-');
+    if (p.length === 3) {
+      return p[0].length === 4
+        ? `${p[2].padStart(2, '0')}/${p[1].padStart(2, '0')}/${p[0]}`
+        : `${p[0].padStart(2, '0')}/${p[1].padStart(2, '0')}/${p[2]}`;
+    }
+  }
+  return str;
+}
+
+function formatMoneyTR(val) {
+  if (val === undefined || val === null || val === '') return '0,00';
+  if (typeof val === 'string') {
+    const trimmed = val.trim();
+    if (/^\d{1,3}(\.\d{3})*,\d{2}$/.test(trimmed) || /^\d+,\d{2}$/.test(trimmed)) {
+      return trimmed;
+    }
+    const parsed = parseFloat(trimmed.replace(/\./g, '').replace(',', '.'));
+    if (isNaN(parsed)) return '0,00';
+    return parsed.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+  if (typeof val === 'number') {
+    if (isNaN(val)) return '0,00';
+    return val.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+  return '0,00';
+}
+
+// Her türlü BULK / Mahsup / Banka satırını doğrudan Standart Mahsup Fişi (SINGLE) formatına dönüştürür (Toplu fişe gitmez)
+function normalizeBucketToSingleMahsup(rawBucket) {
+  if (!rawBucket) return null;
+  if (rawBucket.accounting_type === 'basic') return rawBucket;
+
+  const isSatis = rawBucket.ledger_type_value ? Number(rawBucket.ledger_type_value) === 2 : true;
+  const rawRows = Array.isArray(rawBucket.ledger_rows) ? rawBucket.ledger_rows : [];
+  const expandedRows = [];
+
+  rawRows.forEach((r) => {
+    // Eğer satır BULK formatındaysa (invoice_account_code veya vat_account_code varsa) 3'lü mahsup maddesine aç
+    if (r.invoice_account_code || r.vat_account_code) {
+      const docNo = String(r.document_no || r.evrakNo || '').trim();
+      const docDate = formatDateSlash(r.document_date || r.evrakTarihi || r.tarih || rawBucket.ledger_date);
+      const docType = String(r.document_type || r.belgeTuru || 'FT').trim();
+      const desc = String(r.description || r.aciklama || (isSatis ? 'Satış Faturası' : 'Alış Faturası')).trim();
+      const qty = String(r.quantity !== undefined ? r.quantity : '1');
+      const curr = String(r.currency || 'TRY');
+      const rate = String(r.formatted_exchange_rate || '1,00');
+      const cariKod = String(r.contact_account_code || r.account_code || (isSatis ? '120.01.001' : '320.01.001')).trim();
+      const faturaKod = String(r.invoice_account_code || (isSatis ? '600.01.020' : '153.01.001')).trim();
+      const kdvKod = String(r.vat_account_code || (isSatis ? '391.01.020' : '191.01.020')).trim();
+      const netTotal = formatMoneyTR(r.formatted_net_total || r.tutar || '0,00');
+      const matrah = formatMoneyTR(r.formatted_net_total_without_vat || '0,00');
+      const vat = formatMoneyTR(r.formatted_vat || '0,00');
+
+      if (isSatis) {
+        expandedRows.push({
+          account_code: cariKod,
+          document_no: docNo,
+          document_date: docDate,
+          document_type: docType,
+          description: desc,
+          formatted_debit: netTotal,
+          formatted_credit: '0,00',
+          quantity: qty,
+          currency: curr,
+          formatted_exchange_rate: rate,
+          formatted_currency_debit: r.formatted_currency_net_total || '0,00',
+          formatted_currency_credit: '0,00',
+          babs: Boolean(r.babs),
+          contact_account_code: cariKod
+        });
+        expandedRows.push({
+          account_code: faturaKod,
+          document_no: docNo,
+          document_date: docDate,
+          document_type: docType,
+          description: `${desc} (Matrah)`,
+          formatted_debit: '0,00',
+          formatted_credit: matrah,
+          quantity: qty,
+          currency: curr,
+          formatted_exchange_rate: rate,
+          formatted_currency_debit: '0,00',
+          formatted_currency_credit: r.formatted_currency_net_total_without_vat || '0,00',
+          babs: false,
+          contact_account_code: cariKod
+        });
+        if (vat !== '0,00' && vat !== '0') {
+          expandedRows.push({
+            account_code: kdvKod,
+            document_no: docNo,
+            document_date: docDate,
+            document_type: docType,
+            description: `${desc} (KDV)`,
+            formatted_debit: '0,00',
+            formatted_credit: vat,
+            quantity: qty,
+            currency: curr,
+            formatted_exchange_rate: rate,
+            formatted_currency_debit: '0,00',
+            formatted_currency_credit: r.formatted_currency_vat || '0,00',
+            babs: false,
+            contact_account_code: cariKod
+          });
+        }
+      } else {
+        expandedRows.push({
+          account_code: cariKod,
+          document_no: docNo,
+          document_date: docDate,
+          document_type: docType,
+          description: desc,
+          formatted_debit: '0,00',
+          formatted_credit: netTotal,
+          quantity: qty,
+          currency: curr,
+          formatted_exchange_rate: rate,
+          formatted_currency_debit: '0,00',
+          formatted_currency_credit: r.formatted_currency_net_total || '0,00',
+          babs: Boolean(r.babs),
+          contact_account_code: cariKod
+        });
+        expandedRows.push({
+          account_code: faturaKod,
+          document_no: docNo,
+          document_date: docDate,
+          document_type: docType,
+          description: `${desc} (Matrah)`,
+          formatted_debit: matrah,
+          formatted_credit: '0,00',
+          quantity: qty,
+          currency: curr,
+          formatted_exchange_rate: rate,
+          formatted_currency_debit: r.formatted_currency_net_total_without_vat || '0,00',
+          formatted_currency_credit: '0,00',
+          babs: false,
+          contact_account_code: cariKod
+        });
+        if (vat !== '0,00' && vat !== '0') {
+          expandedRows.push({
+            account_code: kdvKod,
+            document_no: docNo,
+            document_date: docDate,
+            document_type: docType,
+            description: `${desc} (KDV)`,
+            formatted_debit: vat,
+            formatted_credit: '0,00',
+            quantity: qty,
+            currency: curr,
+            formatted_exchange_rate: rate,
+            formatted_currency_debit: r.formatted_currency_vat || '0,00',
+            formatted_currency_credit: '0,00',
+            babs: false,
+            contact_account_code: cariKod
+          });
+        }
+      }
+    } else {
+      // Standart Mahsup veya Banka satırı
+      const accCode = String(
+        r.account_code || r.hesapKodu || r.muhasebeKodu || r['Hesap Kodu'] || r.kod || r.contact_account_code || ''
+      ).trim();
+      const docNo = String(r.document_no || r.evrakNo || r['Evrak No'] || r.no || '').trim();
+      const docDate = formatDateSlash(r.document_date || r.evrakTarihi || r.tarih || r['Evrak Tarihi'] || rawBucket.ledger_date);
+      const docType = String(r.document_type || r.belgeTuru || r['Belge Türü'] || 'FT').trim();
+      const desc = String(r.description || r.aciklama || r['Detay Açıklama'] || '').trim();
+      const qty = String(r.quantity !== undefined ? r.quantity : (r.miktar !== undefined ? r.miktar : ''));
+
+      const debitRaw = (r.formatted_debit !== undefined && r.formatted_debit !== '')
+        ? r.formatted_debit
+        : (r.borc !== undefined && Number(r.borc) > 0 ? r.borc : (r.tur === 'borc' ? (r.tutar || r.formatted_net_total) : '0,00'));
+      const creditRaw = (r.formatted_credit !== undefined && r.formatted_credit !== '')
+        ? r.formatted_credit
+        : (r.alacak !== undefined && Number(r.alacak) > 0 ? r.alacak : (r.tur === 'alacak' ? (r.tutar || r.formatted_net_total) : '0,00'));
+
+      expandedRows.push({
+        account_code: accCode,
+        document_no: docNo,
+        document_date: docDate,
+        document_type: docType,
+        description: desc,
+        formatted_debit: formatMoneyTR(debitRaw),
+        formatted_credit: formatMoneyTR(creditRaw),
+        quantity: qty,
+        currency: String(r.currency || r.dovizTuru || 'TRY').trim(),
+        formatted_exchange_rate: String(r.formatted_exchange_rate || (r.dovizKuru ? formatMoneyTR(r.dovizKuru) : '1,00')),
+        formatted_currency_debit: String(r.formatted_currency_debit || '0,00'),
+        formatted_currency_credit: String(r.formatted_currency_credit || '0,00'),
+        babs: Boolean(r.babs),
+        contact_account_code: String(r.contact_account_code || accCode).trim()
+      });
+    }
+  });
+
+  const ledgerDate = formatDateSlash(
+    rawBucket.ledger_date || expandedRows[0]?.document_date
+  );
+
+  return {
+    ...rawBucket,
+    accounting_type: 'standard',
+    entry_method: 'SINGLE',
+    ledger_date: ledgerDate,
+    ledger_type_value: rawBucket.ledger_type_value || 2,
+    ledger_rows: expandedRows
+  };
+}
+
+function queryOpenHizliFisOptions(cb) {
+  chrome.tabs.query({ url: "*://*.luca.com.tr/Luca/hizliFisPopUp.do*" }, (tabs) => {
+    const hTab = (tabs || [])[0];
+    if (!hTab) return cb({ error: "Açık Hızlı Fiş (hizliFisPopUp.do) penceresi bulunamadı." });
+    chrome.tabs.sendMessage(hTab.id, { actionKey: "EXTRACT_HIZLI_FIS_OPTIONS" }, (res) => {
+      if (chrome.runtime.lastError || !res) {
+        chrome.scripting.executeScript(
+          {
+            target: { tabId: hTab.id },
+            files: ["bugsnagConfig.js", "luca-app-content-script-basic.js"]
+          },
+          () => {
+            setTimeout(() => {
+              chrome.tabs.sendMessage(hTab.id, { actionKey: "EXTRACT_HIZLI_FIS_OPTIONS" }, (res2) => {
+                cb(res2 || { error: "Seçenekler okunamadı." });
+              });
+            }, 200);
+          }
+        );
+      } else {
+        cb(res);
+      }
+    });
+  });
+}
+
+function launchOrAttachLucaTab(options, sendResponse) {
+  const proceed = (bkt) => {
+    if (bkt && bkt.accounting_type === "basic") {
+      chrome.tabs.query({ url: "*://*.luca.com.tr/Luca/hizliFisPopUp.do*" }, (hTabs) => {
+        const hTab = (hTabs || [])[0];
+        if (hTab) {
+          if (hTab.windowId) {
+            try { chrome.windows.update(hTab.windowId, { focused: true }); } catch (e) {}
+          }
+          chrome.tabs.update(hTab.id, { active: true });
+          chrome.tabs.sendMessage(hTab.id, { actionKey: "RUN_BASIC_TRANSFER" }, (res) => {
+            if (chrome.runtime.lastError || !res) {
+              chrome.scripting.executeScript({
+                target: { tabId: hTab.id },
+                files: ["bugsnagConfig.js", "luca-app-content-script-basic.js"]
+              });
+            }
+          });
+          return sendResponse(hTab.id);
+        }
+        attachToMainLucaTab(options, sendResponse);
+      });
+      return;
+    }
+    attachToMainLucaTab(options, sendResponse);
+  };
+
+  if (currentBucket) {
+    proceed(currentBucket);
+  } else {
+    chrome.storage.local.get(['lucaBucket'], (res) => {
+      currentBucket = res?.lucaBucket || null;
+      proceed(currentBucket);
+    });
+  }
+}
+
+function attachToMainLucaTab(options, sendResponse) {
+  chrome.tabs.query({ url: "*://*.luca.com.tr/*" }, (tabs) => {
+    let targetTab = null;
+    (tabs || []).forEach((t) => {
+      if (t.title && t.title.toUpperCase().includes("HATA")) {
+        try { chrome.tabs.remove(t.id); } catch (e) {}
+      } else if (t.url && !t.url.includes("hizliFisPopUp.do") && !t.url.includes("agiris.luca.com.tr")) {
+        if (!targetTab || t.url.includes("luca.do") || t.url.includes("menu.do")) {
+          targetTab = t;
+        }
+      }
+    });
+
+    if (targetTab) {
+      let hostIp = "auygs.luca.com.tr";
+      try {
+        if (targetTab.url) hostIp = new URL(targetTab.url).hostname || "auygs.luca.com.tr";
+      } catch (e) {}
+      chrome.storage.sync.set({ CURRENT_LUCA_WINDOW_IP: hostIp });
+      currentTabId = targetTab.id;
+      if (targetTab.windowId) {
+        try { chrome.windows.update(targetTab.windowId, { focused: true }); } catch (e) {}
+      }
+      chrome.tabs.update(targetTab.id, { active: true });
+      chrome.tabs.sendMessage(targetTab.id, { actionKey: "RESET_LUCA_STATE" }, (res) => {
+        if (chrome.runtime.lastError || !res) {
+          chrome.scripting.executeScript(
+            {
+              target: { tabId: targetTab.id },
+              files: ["bugsnagConfig.js", "luca-app-content-script.js"]
+            },
+            () => {
+              setTimeout(() => {
+                chrome.tabs.connect(targetTab.id, { name: "TAB_LOADED" });
+              }, 150);
+            }
+          );
+        } else {
+          chrome.tabs.connect(targetTab.id, { name: "TAB_LOADED" });
+        }
+      });
+      sendResponse(targetTab.id);
+    } else {
+      const createUrl =
+        options && options.url && !options.url.endsWith("/Luca/luca.do")
+          ? options.url
+          : chrome.runtime.getURL("veri-aktarma.html");
+      chrome.tabs.create({ url: createUrl }, (newTab) => {
+        currentTabId = newTab.id;
+        sendResponse(newTab.id);
+      });
+    }
+  });
+}
+
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  chrome.storage.sync.get(["CURRENT_LUCA_WINDOW_IP"], (res) => {
+    const hostIp = res.CURRENT_LUCA_WINDOW_IP || "auygs.luca.com.tr";
+    if (
+      currentTabId &&
+      tabId === currentTabId &&
+      changeInfo.status === "complete" &&
+      tab.url &&
+      (tab.url === `https://${hostIp}/Luca/luca.do` || tab.url.includes("/Luca/luca.do") || tab.url.includes("/Luca/menu.do"))
+    ) {
+      try {
+        chrome.tabs.connect(currentTabId, { name: "TAB_LOADED" });
+      } catch (e) {}
+    }
+  });
+});
+
+// 7. MESAJ DİNLEYİCİ (INTERNAL & EXTERNAL)
+function handleExtensionMessage(message, sender, sendResponse) {
+  if (!message || typeof message !== 'object') return false;
   const { type, actionKey } = message;
 
   // A. Transfer Verisi Yönetimi
@@ -545,7 +916,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     chrome.storage.local.get(['transferData'], (res) => {
       const current = res.transferData || {};
       const merged = { ...current, ...message.data };
-      chrome.storage.local.set({ transferData: merged }, () => {
+      const rowsForBucket = merged.mahsupRows || merged.bankTransactions || [];
+      let updatedBucket = currentBucket;
+      if (Array.isArray(rowsForBucket) && rowsForBucket.length > 0 && !message.data?.isIsletme) {
+        updatedBucket = normalizeBucketToSingleMahsup({
+          accounting_type: 'standard',
+          entry_method: 'SINGLE',
+          ledger_type_value: 2,
+          ledger_rows: rowsForBucket
+        });
+        currentBucket = updatedBucket;
+      }
+      const toSave = updatedBucket ? { transferData: merged, lucaBucket: updatedBucket } : { transferData: merged };
+      chrome.storage.local.set(toSave, () => {
         console.log('[Luca Background] transferData güncellendi:', Object.keys(merged));
         sendResponse({ status: 'ok', data: merged });
       });
@@ -596,7 +979,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-  // F. Atlas & Panel.js Uyumluluk Eylemleri
+  // F. Deneme Eklentisi (Atlas) & Panel.js Uyumluluk Eylemleri
   if (actionKey === 'FETCH_LUCA_URL_AS_HTML') {
     fetch(message.fetchUrl, { credentials: 'include' })
       .then(res => res.text())
@@ -622,7 +1005,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (actionKey === 'PING') {
-    sendResponse({ ok: true, version: '3.1.0' });
+    sendResponse(true);
     return true;
   }
 
@@ -639,18 +1022,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (actionKey === 'SET_LUCA_BUCKET') {
-    const bucket = message.bucket || {};
-    chrome.storage.local.set({ lucaBucket: bucket }, () => {
-      // Ayrıca transferData formatına da dönüştür
-      if (bucket.ledger_rows && Array.isArray(bucket.ledger_rows)) {
+    const rawBucket = message.bucket || {};
+    const normalized = rawBucket.accounting_type === 'basic'
+      ? rawBucket
+      : normalizeBucketToSingleMahsup(rawBucket);
+    currentBucket = normalized;
+
+    chrome.storage.local.set({ lucaBucket: normalized }, () => {
+      if (normalized && normalized.ledger_rows && Array.isArray(normalized.ledger_rows)) {
         chrome.storage.local.get(['transferData'], (tRes) => {
           const current = tRes.transferData || {};
-          const isBasic = bucket.accounting_type === 'basic';
+          const isBasic = normalized.accounting_type === 'basic';
           chrome.storage.local.set({
             transferData: {
               ...current,
-              invoices: isBasic ? bucket.ledger_rows : current.invoices,
-              mahsupRows: !isBasic ? bucket.ledger_rows : current.mahsupRows
+              invoices: isBasic ? normalized.ledger_rows : current.invoices,
+              mahsupRows: !isBasic ? normalized.ledger_rows : current.mahsupRows
             }
           });
         });
@@ -661,9 +1048,33 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (actionKey === 'GET_LUCA_BUCKET') {
+    if (currentBucket) {
+      sendResponse(currentBucket);
+      return true;
+    }
     chrome.storage.local.get(['lucaBucket'], (res) => {
-      sendResponse(res?.lucaBucket || null);
+      const bkt = res?.lucaBucket ? normalizeBucketToSingleMahsup(res.lucaBucket) : null;
+      currentBucket = bkt;
+      sendResponse(bkt);
     });
+    return true;
+  }
+
+  if (actionKey === 'GET_ACCOUNTING_TYPE') {
+    if (currentBucket && currentBucket.accounting_type) {
+      sendResponse(currentBucket.accounting_type);
+      return true;
+    }
+    chrome.storage.local.get(['lucaBucket'], (res) => {
+      const bkt = res?.lucaBucket;
+      if (bkt) currentBucket = bkt;
+      sendResponse(bkt?.accounting_type || 'standard');
+    });
+    return true;
+  }
+
+  if (actionKey === 'GET_HIZLI_FIS_OPTIONS') {
+    queryOpenHizliFisOptions(sendResponse);
     return true;
   }
 
@@ -673,13 +1084,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (actionKey === 'GET_USER_INFO') {
-    sendResponse({ userId: 'fatura_user', parasutCompanyId: 'fatura_company' });
+    sendResponse({ id: 'fatura_user', userId: 'fatura_user', parasutCompanyId: 'fatura_company' });
     return true;
   }
 
   if (actionKey === 'CLEAN_TEMPORARY_STORAGE') {
-    chrome.storage.local.remove(['lucaBucket']);
-    sendResponse({ ok: true });
+    currentBucket = undefined;
+    currentTabId = null;
+    chrome.storage.local.remove(['lucaBucket'], () => {
+      sendResponse({ ok: true });
+    });
     return true;
   }
 
@@ -689,39 +1103,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (actionKey === 'CREATE_TAB') {
-    (async () => {
-      try {
-        const tabs = await chrome.tabs.query({ url: "*://*.luca.com.tr/*" });
-        let lucaTab = null;
-        if (tabs && tabs.length > 0) {
-          lucaTab = tabs.find(t => t.url && (t.url.includes('luca.do') || t.url.includes('menu.do'))) || tabs[0];
-        }
-        if (lucaTab) {
-          await chrome.tabs.update(lucaTab.id, { active: true });
-          if (lucaTab.windowId) {
-            try { await chrome.windows.update(lucaTab.windowId, { focused: true }); } catch(e) {}
-          }
-
-          // Açık Luca sekmesine hem RESET_LUCA_STATE hem TRIGGER_MAHSUP_AKTAR ilet
-          chrome.tabs.sendMessage(lucaTab.id, { actionKey: 'RESET_LUCA_STATE' }, () => {});
-          setTimeout(() => {
-            chrome.tabs.sendMessage(lucaTab.id, { type: 'TRIGGER_MAHSUP_AKTAR' }, () => {});
-          }, 600);
-
-          sendResponse(lucaTab.id);
-        } else {
-          const newTab = await chrome.tabs.create({
-            url: message.options?.url || 'https://auygs.luca.com.tr/Luca/menu.do'
-          });
-          setTimeout(() => {
-            chrome.tabs.sendMessage(newTab.id, { type: 'TRIGGER_MAHSUP_AKTAR' }, () => {});
-          }, 3500);
-          sendResponse(newTab.id);
-        }
-      } catch(err) {
-        sendResponse(null);
-      }
-    })();
+    launchOrAttachLucaTab(message.options, sendResponse);
     return true;
   }
-});
+
+  return false;
+}
+
+chrome.runtime.onMessage.addListener(handleExtensionMessage);
+if (chrome.runtime.onMessageExternal) {
+  chrome.runtime.onMessageExternal.addListener(handleExtensionMessage);
+}
+

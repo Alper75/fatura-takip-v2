@@ -32,6 +32,38 @@
   },
   "content_scripts": [
     {
+      "js": [
+        "bugsnagConfig.js",
+        "luca-login-content-script.js"
+      ],
+      "matches": [
+        "*://agiris.luca.com.tr/*"
+      ]
+    },
+    {
+      "js": [
+        "bugsnagConfig.js",
+        "luca-app-content-script-basic.js"
+      ],
+      "matches": [
+        "*://*.luca.com.tr/Luca/hizliFisPopUp.do*"
+      ]
+    },
+    {
+      "exclude_matches": [
+        "*://*.luca.com.tr/Luca/hizliFisPopUp.do*",
+        "*://agiris.luca.com.tr/*"
+      ],
+      "js": [
+        "bugsnagConfig.js",
+        "luca-app-content-script.js"
+      ],
+      "matches": [
+        "http://*.luca.com.tr/*",
+        "https://*.luca.com.tr/*"
+      ]
+    },
+    {
       "matches": [
         "*://*.luca.com.tr/*"
       ],

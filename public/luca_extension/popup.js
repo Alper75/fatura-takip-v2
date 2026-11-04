@@ -630,31 +630,41 @@ document.addEventListener('DOMContentLoaded', async () => {
         try { await chrome.windows.update(lucaTab.windowId, { focused: true }); } catch (e) {}
       }
 
-      // Mahsup veya Banka ise addFis.do kontrolü ve otomatik yönlendirme
+      // Mahsup veya Banka ise Deneme Eklentisi (SET_LUCA_BUCKET + CREATE_TAB) akışı ile direkt Mahsup Fişi oluştur ve satırları yaz
       if (actionType === 'TRIGGER_MAHSUP_AKTAR' || actionType === 'TRIGGER_BANKA_AKTAR') {
-        try {
-          const navCheck = await chrome.scripting.executeScript({
-            target: { tabId: lucaTab.id },
-            func: () => {
-              try {
-                const frm3 = document.querySelector('#frm3') || window.frames?.frm3;
-                const cur = frm3?.contentWindow?.location?.href || frm3?.src || window.location.href;
-                if (frm3 && !cur.includes('addFis.do')) {
-                  frm3.src = '/Luca/addFis.do';
-                  return { navigated: true };
-                }
-                return { navigated: false, isAddFis: cur.includes('addFis.do') };
-              } catch (e) {
-                return { error: e.message };
-              }
-            }
-          });
+        const isBank = actionType === 'TRIGGER_BANKA_AKTAR';
+        chrome.storage.local.get(['transferData', 'lucaBucket'], (res) => {
+          const transfer = res.transferData || {};
+          const rows = isBank
+            ? (transfer.bankTransactions || transfer.mahsupRows || res.lucaBucket?.ledger_rows || [])
+            : (transfer.mahsupRows || res.lucaBucket?.ledger_rows || []);
 
-          if (navCheck && navCheck[0]?.result?.navigated) {
-            showAlert("Luca Fiş Girişi (addFis.do) açılıyor, lütfen bekleyin...", false);
-            await new Promise(r => setTimeout(r, 1600));
+          if (!rows || rows.length === 0) {
+            btn.disabled = false;
+            btn.textContent = originalText;
+            return showAlert("Aktarılacak satır bulunamadı!", true);
           }
-        } catch (e) {}
+
+          const bucket = {
+            accounting_type: "standard",
+            entry_method: "SINGLE",
+            ledger_date: rows[0]?.document_date || rows[0]?.evrakTarihi || rows[0]?.tarih || rows[0]?.['Evrak Tarihi'] || "",
+            ledger_type_value: 2,
+            ledger_rows: rows
+          };
+
+          chrome.runtime.sendMessage({ actionKey: "SET_LUCA_BUCKET", bucket }, () => {
+            chrome.runtime.sendMessage(
+              { actionKey: "CREATE_TAB", options: { url: lucaTab.url || "https://auygs.luca.com.tr/Luca/luca.do" } },
+              () => {
+                btn.disabled = false;
+                btn.textContent = originalText;
+                showAlert("Mahsup fişi oluşturuluyor ve satırlar aktarılıyor!", false);
+              }
+            );
+          });
+        });
+        return;
       }
 
       // İlgili aktarım emrini gönder
