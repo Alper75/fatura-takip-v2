@@ -27,7 +27,8 @@ import {
   Zap,
   Receipt,
   Users,
-  Sparkles
+  Sparkles,
+  Check
 } from 'lucide-react';
 import { AutoReconciliationModal } from '@/components/AutoReconciliationModal';
 import { 
@@ -106,6 +107,44 @@ export function BankaEkstreListesi() {
 
   // Toplu İşlem State'i
   const [selectedHareketIds, setSelectedHareketIds] = useState<string[]>([]);
+  const [transferredBankaMap, setTransferredBankaMap] = useState<Record<string, string>>(() => {
+    try {
+      const raw = localStorage.getItem('fatura_app_transferred_banka_v1');
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  });
+
+  const markBankaTransferred = (items: CariHareket[]) => {
+    const nowIso = new Date().toISOString();
+    setTransferredBankaMap(prev => {
+      const next = { ...prev };
+      items.forEach(h => {
+        next[h.id] = nowIso;
+      });
+      try {
+        localStorage.setItem('fatura_app_transferred_banka_v1', JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+  };
+
+  const toggleBankaTransferredStatus = (h: CariHareket) => {
+    setTransferredBankaMap(prev => {
+      const next = { ...prev };
+      if (next[h.id]) {
+        delete next[h.id];
+        toast.info('Banka hareketi için "Aktarıldı" işareti kaldırıldı.');
+      } else {
+        next[h.id] = new Date().toISOString();
+      }
+      try {
+        localStorage.setItem('fatura_app_transferred_banka_v1', JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+  };
 
   // Masraf Form State
   const [giderForm, setGiderForm] = useState({
@@ -307,10 +346,28 @@ export function BankaEkstreListesi() {
   };
 
   const handleBulkSendToLuca = () => {
-    const selected = filteredHareketler.filter(h => selectedHareketIds.includes(h.id));
+    let selected = filteredHareketler.filter(h => selectedHareketIds.includes(h.id));
     if (selected.length === 0) {
       toast.error('Lütfen aktarılacak en az bir banka hareketi seçin.');
       return;
+    }
+
+    // Mükerrer Aktarım Koruması
+    const alreadyTransferred = selected.filter(h => Boolean(transferredBankaMap[h.id]));
+    if (alreadyTransferred.length > 0) {
+      if (alreadyTransferred.length === selected.length) {
+        const proceedAll = window.confirm(
+          `Seçtiğiniz ${alreadyTransferred.length} banka hareketinin tamamı daha önce Luca'ya aktarılmış görünüyor.\n\nYine de tekrar aktarmak istiyor musunuz?`
+        );
+        if (!proceedAll) return;
+      } else {
+        const untransferred = selected.filter(h => !transferredBankaMap[h.id]);
+        const onlyNew = window.confirm(
+          `Seçilen ${selected.length} banka hareketinden ${alreadyTransferred.length} tanesi daha önce Luca'ya aktarılmış!\n\n• Sadece aktarılmamış olan ${untransferred.length} yeni hareketi aktarmak için "Tamam"a basın.\n• İşlemi iptal etmek için "İptal"e basın.`
+        );
+        if (!onlyNew) return;
+        selected = untransferred;
+      }
     }
 
     const payload = selected.flatMap(h => {
@@ -357,13 +414,17 @@ export function BankaEkstreListesi() {
           islemTuru: h.islemTuru,
           banka: banka?.hesapAdi || '',
           cari: cari?.unvan || '',
+          cariUnvan: cari?.unvan || '',
+          vknTckn: cari?.vknTckn || '',
+          vergiDairesi: (cari as any)?.vergiDairesi || '',
           hesapKodu: cariHesapKodu,
           muhasebeKodu: cariHesapKodu,
           account_code: cariHesapKodu,
           kod: cariHesapKodu,
           dovizTuru: h.dovizTuru,
           dovizTutar: h.dovizTutar,
-          dovizKuru: h.dovizKuru
+          dovizKuru: h.dovizKuru,
+          hareketId: h.id
         },
         {
           // 2. Banka Satırı (Ters Kayıt)
@@ -388,7 +449,8 @@ export function BankaEkstreListesi() {
           kod: bankaHesapKodu,
           dovizTuru: h.dovizTuru,
           dovizTutar: h.dovizTutar,
-          dovizKuru: h.dovizKuru
+          dovizKuru: h.dovizKuru,
+          hareketId: h.id
         }
       ];
     });
@@ -431,8 +493,9 @@ export function BankaEkstreListesi() {
       data: transferPayload
     }, '*');
 
-    toast.success(`${selected.length} hareket (${payload.length} satır) Luca'ya gönderildi.`, {
-      description: 'Luca eklentisi açık ise Banka / Mahsup kuyruğundan aktarabilirsiniz.'
+    markBankaTransferred(selected);
+    toast.success(`${selected.length} banka hareketi (${payload.length} satır) doğrudan Luca'ya gönderildi!`, {
+      description: 'Eksik cari kartlar kontrol edilip Luca sekmesinde Mahsup Fişi otomatik başlatılıyor.'
     });
   };
 
@@ -1106,9 +1169,22 @@ export function BankaEkstreListesi() {
                                   <span className="text-xs font-medium text-slate-700 truncate max-w-[250px]" title={h.aciklama}>
                                     {h.aciklama}
                                   </span>
-                                  <span className="text-[10px] text-slate-400 uppercase font-bold tracking-tight">
-                                    {(h.islemTuru || '').replace(/_/g, ' ')}
-                                  </span>
+                                  <div className="flex items-center gap-1.5 mt-0.5">
+                                    <span className="text-[10px] text-slate-400 uppercase font-bold tracking-tight">
+                                      {(h.islemTuru || '').replace(/_/g, ' ')}
+                                    </span>
+                                    {transferredBankaMap[h.id] && (
+                                      <button
+                                        type="button"
+                                        onClick={() => toggleBankaTransferredStatus(h)}
+                                        title={`Aktarım zamanı: ${new Date(transferredBankaMap[h.id]).toLocaleString('tr-TR')} (İşareti kaldırmak için tıklayın)`}
+                                        className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-800 border border-emerald-300 text-[9px] font-bold hover:bg-emerald-200 transition-colors"
+                                      >
+                                        <Check className="w-2.5 h-2.5 text-emerald-700" />
+                                        Luca'ya Aktarıldı
+                                      </button>
+                                    )}
+                                  </div>
                                 </div>
                               </div>
                             </TableCell>

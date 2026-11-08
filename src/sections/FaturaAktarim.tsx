@@ -29,11 +29,62 @@ export function FaturaAktarim() {
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [filterType, setFilterType] = useState<'ALL' | 'ALIS' | 'SATIS'>('ALL');
+  const [transferFilter, setTransferFilter] = useState<'ALL' | 'UNTRANSFERRED' | 'TRANSFERRED'>('ALL');
   const [aracGideriIds, setAracGideriIds] = useState<string[]>([]);
+  const [transferredMap, setTransferredMap] = useState<Record<string, string>>(() => {
+    try {
+      const raw = localStorage.getItem('fatura_app_transferred_invoices_v1');
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  });
+
+  const getInvoiceTransferKey = (inv: any) => `${inv._type || 'INV'}_${inv.id}`;
+
+  const markInvoicesTransferred = (invs: any[]) => {
+    const nowIso = new Date().toISOString();
+    setTransferredMap(prev => {
+      const next = { ...prev };
+      invs.forEach(inv => {
+        next[getInvoiceTransferKey(inv)] = nowIso;
+      });
+      try {
+        localStorage.setItem('fatura_app_transferred_invoices_v1', JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+  };
+
+  const toggleInvoiceTransferredStatus = (inv: any) => {
+    const key = getInvoiceTransferKey(inv);
+    setTransferredMap(prev => {
+      const next = { ...prev };
+      if (next[key]) {
+        delete next[key];
+        toast.info(`${inv.faturaNo || 'Fatura'} için "Aktarıldı" işareti kaldırıldı.`);
+      } else {
+        next[key] = new Date().toISOString();
+      }
+      try {
+        localStorage.setItem('fatura_app_transferred_invoices_v1', JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+  };
 
   useEffect(() => {
     fetchSettings();
     fetchInvoices();
+
+    const handleTransferStarted = (e: any) => {
+      const detail = e?.detail;
+      if (detail?.createdAccountsCount > 0) {
+        toast.success(`Luca'da olmayan ${detail.createdAccountsCount} cari kart otomatik açıldı ve fiş aktarımı başlatıldı!`);
+      }
+    };
+    window.addEventListener('FATURA_APP_LUCA_TRANSFER_STARTED', handleTransferStarted);
+    return () => window.removeEventListener('FATURA_APP_LUCA_TRANSFER_STARTED', handleTransferStarted);
   }, []);
 
   const fetchSettings = async () => {
@@ -170,7 +221,13 @@ export function FaturaAktarim() {
     }
   };
 
-  const filteredInvoices = invoices.filter(inv => filterType === 'ALL' || inv._type === filterType);
+  const filteredInvoices = invoices.filter(inv => {
+    if (filterType !== 'ALL' && inv._type !== filterType) return false;
+    const isTransferred = Boolean(transferredMap[getInvoiceTransferKey(inv)]);
+    if (transferFilter === 'UNTRANSFERRED' && isTransferred) return false;
+    if (transferFilter === 'TRANSFERRED' && !isTransferred) return false;
+    return true;
+  });
 
   const toggleSelection = (id: string) => {
     setSelectedIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
@@ -917,7 +974,8 @@ export function FaturaAktarim() {
     window.postMessage({ type: 'FATURA_APP_LUCA_SEND_ISLETME', detail: hizliFisItems, data: hizliFisItems, payload }, '*');
     window.postMessage({ type: 'FATURA_APP_LUCA_DATA', detail: payload, data: payload }, '*');
 
-    toast.success(`${selectedInvoices.length} fatura Luca Hızlı Fiş için hazırlandı! Luca sekmesine geçip eklenti ikonuna tıklayarak "Faturaları Aktar" diyebilirsiniz.`, { duration: 6000 });
+    markInvoicesTransferred(selectedInvoices);
+    toast.success(`${selectedInvoices.length} fatura doğrudan Luca Hızlı Fiş ekranına gönderildi!`, { duration: 5000 });
   };
 
   // BİLANÇO ESASI LUCA EKLENTİSİNE GÖNDERME
@@ -925,6 +983,10 @@ export function FaturaAktarim() {
     if (!settings) return toast.error('KDV Ayarları bulunamadı. Lütfen ayarları yapın.');
     let exportData: any[] = [];
     selectedInvoices.forEach(inv => {
+      const cariObj = cariler.find(c => c.id === inv.cariId);
+      const cariUnvan = getFaturaUnvan(inv) || cariObj?.unvan || '';
+      const vknTckn = getFaturaVkn(inv) || cariObj?.vknTckn || '';
+      const vergiDairesi = (cariObj as any)?.vergiDairesi || inv.vergiDairesi || '';
       const excelRows = getMuhasebeSatirlari(inv, aracGideriIds.includes(inv.id));
       const extRows = excelRows.map(row => ({
         tarih: row['Evrak Tarihi'],
@@ -933,7 +995,11 @@ export function FaturaAktarim() {
         tutar: row['Borç'] > 0 ? row['Borç'] : row['Alacak'],
         tur: row['Borç'] > 0 ? 'borc' : 'alacak',
         muhasebeKodu: row['Hesap Kodu'],
-        belgeTuru: row['Belge Türü']
+        belgeTuru: row['Belge Türü'],
+        cariUnvan,
+        vknTckn,
+        vergiDairesi,
+        faturaId: inv.id
       }));
       exportData = [...exportData, ...extRows];
     });
@@ -963,7 +1029,8 @@ export function FaturaAktarim() {
     window.postMessage({ type: 'FATURA_APP_LUCA_SEND_MAHSUP', detail: exportData, data: exportData }, '*');
     window.postMessage({ type: 'FATURA_APP_LUCA_DATA', detail: payload, data: payload }, '*');
 
-    toast.success(`${selectedInvoices.length} fatura (${exportData.length} yevmiye satırı) eklentiye gönderildi! Luca sekmesinde eklenti ikonuna tıklayıp "Mahsup Fişini Aktar" diyebilirsiniz.`, { duration: 6000 });
+    markInvoicesTransferred(selectedInvoices);
+    toast.success(`${selectedInvoices.length} fatura (${exportData.length} yevmiye satırı) doğrudan Luca'ya gönderildi! Eksik cari kartlar otomatik kontrol edilip Mahsup Fişi oluşturuluyor...`, { duration: 5000 });
   };
 
   // Buton Tetikleyicileri (Stopaj Kontrollü)
@@ -991,7 +1058,25 @@ export function FaturaAktarim() {
 
   const handleExtensionExportClick = () => {
     if (selectedIds.length === 0) return toast.error('Lütfen fatura seçin.');
-    const selectedInvoices = sortInvoicesChronologically(invoices.filter(inv => selectedIds.includes(inv.id)));
+    let selectedInvoices = sortInvoicesChronologically(invoices.filter(inv => selectedIds.includes(inv.id)));
+
+    // Mükerrer Aktarım Koruması
+    const alreadyTransferred = selectedInvoices.filter(inv => Boolean(transferredMap[getInvoiceTransferKey(inv)]));
+    if (alreadyTransferred.length > 0) {
+      if (alreadyTransferred.length === selectedInvoices.length) {
+        const proceedAll = window.confirm(
+          `Seçtiğiniz ${alreadyTransferred.length} faturanın tamamı daha önce Luca'ya aktarılmış görünüyor.\n\nMükerrer kayıt oluşmaması için kontrol edin. Yine de tekrar aktarmak istiyor musunuz?`
+        );
+        if (!proceedAll) return;
+      } else {
+        const untransferred = selectedInvoices.filter(inv => !transferredMap[getInvoiceTransferKey(inv)]);
+        const onlyNew = window.confirm(
+          `Seçilen ${selectedInvoices.length} faturadan ${alreadyTransferred.length} tanesi daha önce Luca'ya aktarılmış!\n\n• Sadece aktarılmamış olan ${untransferred.length} yeni faturayı aktarmak için "Tamam"a basın.\n• İşlemi iptal etmek için "İptal"e basın.`
+        );
+        if (!onlyNew) return;
+        selectedInvoices = untransferred;
+      }
+    }
 
     if (isIsletmeDefteri) {
       // Stopajlı faturaları tespit et (Sadece fiilen stopajı olanlar)
@@ -1084,6 +1169,18 @@ export function FaturaAktarim() {
                 <option value="ALL">Tümü (Alış + Satış)</option>
                 <option value="ALIS">Sadece Alışlar (Gider)</option>
                 <option value="SATIS">Sadece Satışlar (Gelir)</option>
+              </select>
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs text-slate-500">Aktarım Durumu</label>
+              <select 
+                value={transferFilter} 
+                onChange={(e: any) => setTransferFilter(e.target.value)}
+                className="h-9 border border-input rounded-md px-3 text-sm bg-background"
+              >
+                <option value="ALL">Tümü</option>
+                <option value="UNTRANSFERRED">Sadece Aktarılmayanlar</option>
+                <option value="TRANSFERRED">Luca'ya Aktarılanlar (✔)</option>
               </select>
             </div>
             <Button onClick={fetchInvoices} disabled={loading} variant="secondary" className="h-9 gap-1.5">
@@ -1202,7 +1299,22 @@ export function FaturaAktarim() {
                           <Checkbox checked={selectedIds.includes(inv.id)} onCheckedChange={() => toggleSelection(inv.id)} />
                         </TableCell>
                         <TableCell className="font-mono text-xs">{formatTarih(inv.faturaTarihi)}</TableCell>
-                        <TableCell className="font-medium text-xs">{inv.faturaNo || '-'}</TableCell>
+                        <TableCell className="font-medium text-xs">
+                          <div className="flex flex-col gap-1">
+                            <span>{inv.faturaNo || '-'}</span>
+                            {transferredMap[getInvoiceTransferKey(inv)] && (
+                              <button
+                                type="button"
+                                onClick={() => toggleInvoiceTransferredStatus(inv)}
+                                title={`Aktarım zamanı: ${new Date(transferredMap[getInvoiceTransferKey(inv)]).toLocaleString('tr-TR')} (İşareti kaldırmak için tıklayın)`}
+                                className="inline-flex items-center gap-1 w-fit px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-300 text-[10px] font-bold hover:bg-emerald-200 transition-colors"
+                              >
+                                <Check className="w-3 h-3 text-emerald-700" />
+                                Luca'ya Aktarıldı
+                              </button>
+                            )}
+                          </div>
+                        </TableCell>
                         <TableCell>
                           <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${isAlis ? 'bg-emerald-100 text-emerald-800' : 'bg-indigo-100 text-indigo-800'}`}>
                             {isAlis ? 'GİDER (ALIŞ)' : 'GELİR (SATIŞ)'}

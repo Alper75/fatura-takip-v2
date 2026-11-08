@@ -8,18 +8,28 @@ try {
   window.dispatchEvent(new CustomEvent('LUCA_EXTENSION_READY'));
 } catch (e) {}
 
-function sendToExtension(payload) {
+let lastSendTimestamp = 0;
+
+function sendToExtension(payload, autoTrigger = true) {
   try {
+    const now = Date.now();
+    if (now - lastSendTimestamp < 1200) {
+      return;
+    }
+    lastSendTimestamp = now;
+
     if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.id) {
       chrome.runtime.sendMessage({
         type: 'SET_TRANSFER_DATA',
-        data: payload
+        data: payload,
+        autoTrigger
       }, (res) => {
         if (chrome.runtime.lastError) {
           console.warn('[Luca Eklentisi] Transfer verisi iletilemedi:', chrome.runtime.lastError.message);
         } else {
           console.log('[Luca Eklentisi] Transfer verisi başarıyla eklentiye aktarıldı:', res);
-          window.postMessage({ type: 'FATURA_APP_LUCA_ACK', success: true }, '*');
+          window.postMessage({ type: 'FATURA_APP_LUCA_ACK', success: true, detail: res }, '*');
+          window.dispatchEvent(new CustomEvent('FATURA_APP_LUCA_TRANSFER_STARTED', { detail: res }));
         }
       });
     }

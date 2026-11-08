@@ -665,9 +665,136 @@ async function createAccountInLuca(accData) {
   return { success: true, message: "Hesap planı kaydedildi.", createdId, code, name };
 }
 
+// 5.B AKTARIM ÖNCESİ EKSİK CARİ KARTLARI (120 / 320) OTOMATİK AÇMA
+async function ensureMissingCariAccountsInLuca(rows) {
+  if (!Array.isArray(rows) || rows.length === 0) return [];
+
+  // Satırlardaki benzersiz 120.* ve 320.* alt hesaplarını topla
+  const candidates = new Map();
+  for (const r of rows) {
+    const code = String(
+      r.account_code || r.hesapKodu || r.muhasebeKodu || r['Hesap Kodu'] || r.kod || r.contact_account_code || ''
+    ).trim();
+
+    // Sadece 120.xx.xxx veya 320.xx.xxx gibi alt hesapları kontrol et
+    if (!/^(120|320)\.[0-9A-Za-z_.]+\.[0-9A-Za-z_]+/.test(code)) continue;
+
+    const rawVkn = String(r.vknTckn || r.vkn || r.vergiNo || r.tckn || '').replace(/\D/g, '');
+    const explicitUnvan = String(r.cariUnvan || r.unvan || r.hesapAdi || r.cariAdi || '').trim();
+    const rawDesc = String(r.description || r.aciklama || r['Detay Açıklama'] || '').trim();
+    const docNo = String(r.document_no || r.evrakNo || r['Evrak No'] || '').trim();
+
+    let fallbackName = explicitUnvan;
+    if (!fallbackName && rawDesc) {
+      fallbackName = docNo && rawDesc.startsWith(docNo)
+        ? rawDesc.slice(docNo.length).replace(/^\s*[-–:]\s*/, '').trim()
+        : rawDesc;
+      fallbackName = fallbackName.replace(/\s*\((Matrah|KDV)\)\s*$/i, '').trim();
+    }
+
+    if (!candidates.has(code)) {
+      candidates.set(code, {
+        code,
+        vkn: rawVkn,
+        name: fallbackName,
+        vdName: String(r.vergiDairesi || r.vdName || '').trim()
+      });
+    } else {
+      const existing = candidates.get(code);
+      if (!existing.vkn && rawVkn) existing.vkn = rawVkn;
+      if (!existing.name && fallbackName) existing.name = fallbackName;
+      if (!existing.vdName && r.vergiDairesi) existing.vdName = String(r.vergiDairesi).trim();
+    }
+  }
+
+  if (candidates.size === 0) return [];
+
+  // Mevcut Luca hesap planını kontrol et
+  let accounts = [];
+  try {
+    const stored = await chrome.storage.local.get(['lucaAccounts']);
+    if (Array.isArray(stored?.lucaAccounts) && stored.lucaAccounts.length > 0) {
+      accounts = stored.lucaAccounts;
+    } else {
+      accounts = await fetchAccountsFromLuca();
+    }
+  } catch (e) {
+    console.warn('[Luca Background] Hesap planı kontrol edilirken hata:', e.message);
+  }
+
+  const existingCodes = new Set(
+    (accounts || []).map((a) => String(a.kod || a.code || '').trim()).filter(Boolean)
+  );
+
+  const createdList = [];
+
+  for (const [code, cand] of candidates.entries()) {
+    if (existingCodes.has(code)) continue;
+    // Ünvan ve VKN ikisi de yoksa ve jenerik 120.01.001 / 320.01.001 ise atla
+    if (!cand.name && !cand.vkn) continue;
+
+    let finalName = cand.name || `Cari Hesap (${code})`;
+    let vdCode = '';
+    let vdName = cand.vdName || '';
+    let hesapId = '';
+    let adres = '';
+    let il_kodu = '0';
+    let ilce_kodu = '0';
+
+    if (cand.vkn && (cand.vkn.length === 10 || cand.vkn.length === 11)) {
+      try {
+        const verified = await verifyVknTcknInLuca(cand.vkn);
+        if (verified && !verified.error) {
+          if (verified.unvan) finalName = verified.unvan;
+          if (verified.vergiDairesi) vdCode = verified.vergiDairesi;
+          if (verified.vergiDairesiAd) vdName = verified.vergiDairesiAd;
+          if (verified.hesapId) hesapId = verified.hesapId;
+          if (verified.adres) adres = verified.adres;
+          if (verified.il_kodu) il_kodu = verified.il_kodu;
+          if (verified.ilce_kodu) ilce_kodu = verified.ilce_kodu;
+        }
+      } catch (e) {
+        console.warn('[Luca Background] VKN sorgulama hatası:', cand.vkn, e.message);
+      }
+    }
+
+    try {
+      const createRes = await createAccountInLuca({
+        code,
+        name: finalName,
+        vkn: cand.vkn.length === 10 ? cand.vkn : '',
+        tckn: cand.vkn.length === 11 ? cand.vkn : '',
+        vdCode,
+        vdName,
+        hesapId,
+        adres,
+        il_kodu,
+        ilce_kodu
+      });
+      if (createRes && createRes.success) {
+        createdList.push({ code, name: finalName, vkn: cand.vkn });
+        existingCodes.add(code);
+        accounts.push({ kod: code, code, ad: finalName, name: finalName });
+        console.log(`[Luca Background] Eksik cari kart otomatik açıldı: ${code} - ${finalName}`);
+      }
+    } catch (err) {
+      console.warn(`[Luca Background] Cari kart açılamadı (${code}):`, err.message);
+    }
+  }
+
+  if (createdList.length > 0) {
+    try {
+      await chrome.storage.local.set({ lucaAccounts: accounts, lastSync: Date.now() });
+    } catch (e) {}
+  }
+
+  return createdList;
+}
+
 // 6. DENEME EKLENTİSİ (ATLAS) BİREBİR FİŞ OLUŞTURMA & AKTARIM MOTORU
 let currentTabId = null;
 let currentBucket = null;
+let lastAutoTransferAt = 0;
 
 function formatDateSlash(dStr) {
   if (!dStr) {
@@ -1041,14 +1168,29 @@ function handleExtensionMessage(message, sender, sendResponse) {
   if (!message || typeof message !== 'object') return false;
   const { type, actionKey } = message;
 
-  // A. Transfer Verisi Yönetimi
+  // A. Transfer Verisi Yönetimi (Web App'ten Tek Tıkla Direkt Luca Aktarımı + Otomatik Cari Kart Açma)
   if (type === 'SET_TRANSFER_DATA') {
-    chrome.storage.local.get(['transferData'], (res) => {
+    chrome.storage.local.get(['transferData'], async (res) => {
       const current = res.transferData || {};
       const merged = { ...current, ...message.data };
       const rowsForBucket = merged.mahsupRows || merged.bankTransactions || [];
       let updatedBucket = currentBucket;
-      if (Array.isArray(rowsForBucket) && rowsForBucket.length > 0 && !message.data?.isIsletme) {
+      let createdAccounts = [];
+
+      if (message.data?.isIsletme && Array.isArray(merged.invoices) && merged.invoices.length > 0) {
+        updatedBucket = {
+          accounting_type: 'basic',
+          entry_method: 'SINGLE',
+          ledger_type_value: 2,
+          ledger_rows: merged.invoices
+        };
+        currentBucket = updatedBucket;
+      } else if (Array.isArray(rowsForBucket) && rowsForBucket.length > 0 && !message.data?.isIsletme) {
+        try {
+          createdAccounts = await ensureMissingCariAccountsInLuca(rowsForBucket);
+        } catch (err) {
+          console.warn('[Luca Background] Otomatik cari açma sırasında uyarı:', err.message);
+        }
         updatedBucket = normalizeBucketToSingleMahsup({
           accounting_type: 'standard',
           entry_method: 'SINGLE',
@@ -1057,10 +1199,30 @@ function handleExtensionMessage(message, sender, sendResponse) {
         });
         currentBucket = updatedBucket;
       }
+
       const toSave = updatedBucket ? { transferData: merged, lucaBucket: updatedBucket } : { transferData: merged };
       chrome.storage.local.set(toSave, () => {
         console.log('[Luca Background] transferData güncellendi:', Object.keys(merged));
-        sendResponse({ status: 'ok', data: merged });
+        const now = Date.now();
+        if (message.autoTrigger !== false && updatedBucket && (now - lastAutoTransferAt > 1500)) {
+          lastAutoTransferAt = now;
+          launchOrAttachLucaTab({ url: 'https://auygs.luca.com.tr/Luca/luca.do' }, (tabId) => {
+            sendResponse({
+              status: 'ok',
+              autoTriggered: true,
+              tabId,
+              createdAccounts,
+              createdAccountsCount: createdAccounts.length
+            });
+          });
+        } else {
+          sendResponse({
+            status: 'ok',
+            autoTriggered: false,
+            createdAccounts,
+            createdAccountsCount: createdAccounts.length
+          });
+        }
       });
     });
     return true;
@@ -1152,28 +1314,35 @@ function handleExtensionMessage(message, sender, sendResponse) {
   }
 
   if (actionKey === 'SET_LUCA_BUCKET') {
-    const rawBucket = message.bucket || {};
-    const normalized = rawBucket.accounting_type === 'basic'
-      ? rawBucket
-      : normalizeBucketToSingleMahsup(rawBucket);
-    currentBucket = normalized;
-
-    chrome.storage.local.set({ lucaBucket: normalized }, () => {
-      if (normalized && normalized.ledger_rows && Array.isArray(normalized.ledger_rows)) {
-        chrome.storage.local.get(['transferData'], (tRes) => {
-          const current = tRes.transferData || {};
-          const isBasic = normalized.accounting_type === 'basic';
-          chrome.storage.local.set({
-            transferData: {
-              ...current,
-              invoices: isBasic ? normalized.ledger_rows : current.invoices,
-              mahsupRows: !isBasic ? normalized.ledger_rows : current.mahsupRows
-            }
-          });
-        });
+    (async () => {
+      const rawBucket = message.bucket || {};
+      if (rawBucket.accounting_type !== 'basic' && Array.isArray(rawBucket.ledger_rows) && rawBucket.ledger_rows.length > 0) {
+        try {
+          await ensureMissingCariAccountsInLuca(rawBucket.ledger_rows);
+        } catch (e) {}
       }
-      sendResponse({ ok: true });
-    });
+      const normalized = rawBucket.accounting_type === 'basic'
+        ? rawBucket
+        : normalizeBucketToSingleMahsup(rawBucket);
+      currentBucket = normalized;
+
+      chrome.storage.local.set({ lucaBucket: normalized }, () => {
+        if (normalized && normalized.ledger_rows && Array.isArray(normalized.ledger_rows)) {
+          chrome.storage.local.get(['transferData'], (tRes) => {
+            const current = tRes.transferData || {};
+            const isBasic = normalized.accounting_type === 'basic';
+            chrome.storage.local.set({
+              transferData: {
+                ...current,
+                invoices: isBasic ? normalized.ledger_rows : current.invoices,
+                mahsupRows: !isBasic ? normalized.ledger_rows : current.mahsupRows
+              }
+            });
+          });
+        }
+        sendResponse({ ok: true });
+      });
+    })();
     return true;
   }
 
