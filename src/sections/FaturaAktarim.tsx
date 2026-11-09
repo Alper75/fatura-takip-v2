@@ -400,8 +400,8 @@ export function FaturaAktarim() {
       if (temizAciklama) {
         temizAciklama = temizAciklama
           .replace(/GİB\s*e-Arşiv\s*Portalından\s*aktarıldı\.?\s*(Alıcı:|Satıcı:)?\s*/gi, '')
-          .replace(/e-?Logo\s*üzerinden\s*(otomatik\s*)?içe\s*aktarıldı\.?\s*(\(UUID:[^\)]*\))?\s*/gi, '')
-          .replace(/Uyumsoft\s*üzerinden\s*(otomatik\s*)?içe\s*aktarıldı\.?\s*(\(UUID:[^\)]*\))?\s*/gi, '')
+          .replace(/e-?Logo\s*üzerinden\s*(otomatik\s*)?içe\s*aktarıldı\.?\s*(\(UUID:[^)]*\))?\s*/gi, '')
+          .replace(/Uyumsoft\s*üzerinden\s*(otomatik\s*)?içe\s*aktarıldı\.?\s*(\(UUID:[^)]*\))?\s*/gi, '')
           .replace(/Logodan\s*aktarılan\.?\s*/gi, '')
           .replace(/^Alıcı:\s*/gi, '')
           .replace(/^Satıcı:\s*/gi, '')
@@ -466,7 +466,7 @@ export function FaturaAktarim() {
     // Fiş denetimi ve mahsup kontrolünde kullanıcı satırları bölmüş/özelleştirmişse direkt o satırları kullan!
     let customRows = fatura.mahsupSatirlari;
     if (typeof customRows === 'string') {
-      try { customRows = JSON.parse(customRows); } catch (e) {}
+      try { customRows = JSON.parse(customRows); } catch {}
     }
     if (Array.isArray(customRows) && customRows.length > 0) {
       return customRows.map((m: any) => ({

@@ -515,7 +515,7 @@ export function BankaEkstreListesi() {
       } else {
         toast.error('Belirtilen tarihe ait kur bulunamadı.');
       }
-    } catch (e) {
+    } catch {
       toast.error('Kur çekilirken hata oluştu.');
     } finally {
       setIsFetchingKur(false);
@@ -1748,11 +1748,12 @@ export function BankaEkstreListesi() {
                   const currentBankId = editForm.bankaId !== undefined ? editForm.bankaId : currentItem.bankaId;
                   const targetBank = bankaHesaplari.find(b => b.id !== currentBankId && b.muhasebeKodu && b.muhasebeKodu.trim() === targetCode);
 
-                  let updates = { ...editForm };
+                  const updates = { ...editForm };
                   if (targetBank) {
+                    const originalIslemTuru = updates.islemTuru || currentItem.islemTuru;
+                    const isSourceGiris = (originalIslemTuru === 'tahsilat' || 
+                      (originalIslemTuru === 'transfer' && ((updates.aciklama || currentItem.aciklama) || '').toUpperCase().includes('GELEN')));
                     updates.islemTuru = 'transfer';
-                    const isSourceGiris = ((updates.islemTuru || currentItem.islemTuru) === 'tahsilat' || 
-                      ((updates.islemTuru || currentItem.islemTuru) === 'transfer' && ((updates.aciklama || currentItem.aciklama) || '').toUpperCase().includes('GELEN')));
                     const sourceDirection = isSourceGiris ? 'GELEN' : 'GİDEN';
                     const cleanDesc = ((updates.aciklama !== undefined ? updates.aciklama : currentItem.aciklama) || '').replace(/\[.*?TRANSFER\]/gi, '').trim();
                     updates.aciklama = `${cleanDesc} [${sourceDirection} TRANSFER]`;

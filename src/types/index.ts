@@ -475,12 +475,16 @@ export interface KesilecekFatura {
   il?: string;
   ilce?: string;
   tutar: number;
+  matrah?: number;
+  kdvTutari?: number;
   kdvDahil: boolean;
   kdvOrani?: number;
   faturaTarihi?: string;
   aciklama?: string;
   kalemler?: FaturaKalemi[];
   faturaTipi?: string;    // GİB portal değeri: SATIS, TEVKIFAT, IADE vb.
+  tevkifatOrani?: string | number;
+  tevkifatKodu?: string;
   stopajTipi?: string;    // 'V0011' (KV) | 'V0003' (GV)
   stopajOrani?: string;   // % Stopaj oranı
   olusturmaTarihi: string;

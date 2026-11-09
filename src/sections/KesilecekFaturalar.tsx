@@ -33,17 +33,11 @@ import {
   Calendar,
   LogOut,
   Undo2,
-  RefreshCw,
-  Filter,
   Sparkles,
   ChevronDown,
-  Eye,
   EyeOff,
   FileSpreadsheet,
-  Layers,
-  MoreHorizontal,
   GitCompare,
-  FileCheck2,
   UploadCloud,
   CheckCheck,
   AlertTriangle
@@ -53,8 +47,7 @@ import {
   DropdownMenuTrigger,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuLabel
+  DropdownMenuSeparator
 } from '@/components/ui/dropdown-menu';
 import { toast } from 'sonner';
 import { Label } from '@/components/ui/label';
@@ -67,18 +60,10 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 import { Checkbox } from '@/components/ui/checkbox';
 import * as XLSX from 'xlsx';
 import type { KesilecekFatura, FaturaKalemi } from '@/types';
-import { useUrunler } from '@/modules/stok/hooks/useStokQuery';
 
 const KDV_ORANLARI = [0, 1, 8, 10, 18, 20];
 
@@ -221,7 +206,6 @@ export function KesilecekFaturalar() {
     cariHareketler,
     deleteCariHareket
   } = useApp();
-  const { data: urunler } = useUrunler();
 
   const [searchTerm, setSearchTerm] = useState('');
   const [activeTab, setActiveTab] = useState<'bekleyen' | 'kesilenler'>('bekleyen');
@@ -333,7 +317,7 @@ export function KesilecekFaturalar() {
     }
     if (typeof rowDate === 'string') {
       const strDate = rowDate.trim();
-      const parts = strDate.split(/[.\/-]/);
+      const parts = strDate.split(/[./-]/);
       if (parts.length === 3) {
         if (parts[2].length === 4) {
           return `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
@@ -532,7 +516,7 @@ export function KesilecekFaturalar() {
   const [isVknLoading, setIsVknLoading] = useState(false);
   const [editingInvoiceId, setEditingInvoiceId] = useState<string | null>(null);
   const [isBulkLookupRunning, setIsBulkLookupRunning] = useState(false);
-  const [bulkLookupProgress, setBulkLookupProgress] = useState({ current: 0, total: 0 });
+  const [, setBulkLookupProgress] = useState({ current: 0, total: 0 });
 
   // Kalem hesaplamaları
   const kalemToplam = useMemo(() => {
@@ -789,6 +773,8 @@ export function KesilecekFaturalar() {
             ad: inv.ad,
             soyad: inv.soyad || '',
             vknTckn: inv.vknTckn || '',
+            adres: inv.adres || '',
+            kdvDahil: inv.kdvDahil ?? true,
             tutar: inv.tutar,
             faturaTarihi: inv.faturaTarihi || new Date().toISOString().split('T')[0],
             aciklama: inv.aciklama || 'Geri alınan fatura',
@@ -1307,23 +1293,6 @@ export function KesilecekFaturalar() {
   const updateKalem = (id: string, field: keyof FaturaKalemi, value: any) =>
     setKalemler(prev => prev.map(k => k.id === id ? { ...k, [field]: value } : k));
 
-  const selectUrunForKalem = (kalemId: string, urunId: string) => {
-    if (!urunId || urunId === 'none') {
-      updateKalem(kalemId, 'urunId', undefined);
-      return;
-    }
-    const urun = urunler?.find(u => u.id === urunId);
-    if (urun) {
-      setKalemler(prev => prev.map(k => k.id === kalemId ? {
-        ...k,
-        urunId: urun.id,
-        ad: urun.urunAdi || '',
-        birimFiyat: urun.birimFiyat || 0,
-        birim: urun.anaBirim || 'ADET',
-      } : k));
-    }
-  };
-
   const handleVknLookup = async () => {
     if (!form.vknTckn || form.vknTckn.length < 10) {
       toast.error('Lütfen geçerli bir VKN veya TCKN girin.');
@@ -1355,7 +1324,7 @@ export function KesilecekFaturalar() {
       } else {
         toast.error(result.message || 'Mükellef bulunamadı.');
       }
-    } catch (err) {
+    } catch {
       toast.error('Sorgulama hatası.');
     } finally {
       setIsVknLoading(false);
@@ -1537,7 +1506,7 @@ export function KesilecekFaturalar() {
     const currentGibList = gibInvoicesList || gibInvoices || [];
     currentGibList.forEach(g => {
       const gTutar = parseGibAmount(g.tutar || g.faturaTutari || g.toplamTutar || g.odenecekTutar || g.vergilerDahilToplamTutar);
-      const gParts = (g.belgeTarihi || '').split(/[.\/-]/);
+      const gParts = (g.belgeTarihi || '').split(/[./-]/);
       const gFormattedDate = gParts.length === 3 ? `${gParts[2]}-${gParts[1]}-${gParts[0]}` : (g.belgeTarihi || '');
       allCutPool.push({
         date: gFormattedDate,
@@ -1775,7 +1744,7 @@ export function KesilecekFaturalar() {
               parsedDate = `${yyyy}-${mm}-${dd}`;
             } else if (typeof rowDate === 'string') {
               const strDate = rowDate.trim();
-              const parts = strDate.split(/[.\/-]/);
+              const parts = strDate.split(/[./-]/);
               if (parts.length === 3) {
                 if (parts[2].length === 4) {
                   parsedDate = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
@@ -2864,7 +2833,7 @@ export function KesilecekFaturalar() {
                         <div className="text-right text-[10px] text-slate-500 pt-0.5">
                           {(() => {
                             const lineGross = (Number(k.birimFiyat) || 0) * (Number(k.miktar) || 1);
-                            const rate = (Number(k.kdvOrani) ?? 20) / 100;
+                            const rate = Number(k.kdvOrani ?? 20) / 100;
                             const lineMatrah = form.kdvHesaplamaTipi === 'DAHIL' ? +(lineGross / (1 + rate)).toFixed(2) : +lineGross.toFixed(2);
                             const lineKdv = form.kdvHesaplamaTipi === 'DAHIL' ? +(lineGross - lineMatrah).toFixed(2) : +(lineMatrah * rate).toFixed(2);
                             return (
@@ -3276,7 +3245,7 @@ export function KesilecekFaturalar() {
                             : (f.kalemler && f.kalemler.length > 0)
                               ? +f.kalemler.reduce((sum: number, k: any) => {
                                   const gross = Number(k.miktar || 1) * Number(k.birimFiyat || 0);
-                                  const r = (Number(k.kdvOrani) ?? (Number(f.kdvOrani) || 20)) / 100;
+                                  const r = Number(k.kdvOrani ?? (Number(f.kdvOrani) || 20)) / 100;
                                   return sum + (f.kdvDahil ? gross / (1 + r) : gross);
                                 }, 0).toFixed(2)
                               : (rowTutar > 0 ? +(rowTutar / (1 + fallbackRate)).toFixed(2) : 0);
