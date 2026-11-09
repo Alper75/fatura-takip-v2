@@ -772,11 +772,16 @@ app.get('/api/elogo/gelen-faturalar', authMiddleware, async (req, res) => {
         
         const payableAmount = parseFloat(getText(totals?.['PayableAmount'])) || 0;
         const currencyCode = (typeof totals?.['PayableAmount'] === 'object' ? totals['PayableAmount']['@_currencyID'] : 'TRY') || 'TRY';
-        const matrah = parseFloat(getText(totals?.['TaxExclusiveAmount'])) || 0;
+        let matrah = parseFloat(getText(totals?.['TaxExclusiveAmount'])) || 0;
         
         let kdvTutari = 0;
         let kdvOrani = 0;
         let oivTutari = 0;
+        let kdv1 = 0;
+        let kdv10 = 0;
+        let kdv20 = 0;
+        let kdvTaxableAmount = 0;
+        let kdvBucketCount = 0;
         let stopajTutari = 0;
         let stopajOrani = 0;
         let tevkifatTutari = 0;
@@ -791,16 +796,36 @@ app.get('/api/elogo/gelen-faturalar', authMiddleware, async (req, res) => {
           for (const sub of subArr) {
             const taxCat = sub['TaxCategory'];
             const taxScheme = taxCat?.['TaxScheme']?.['TaxTypeCode']?.['#text'] || taxCat?.['TaxScheme']?.['TaxTypeCode'];
-            const taxCode = getText(taxScheme);
+            const taxCode = String(getText(taxScheme) || '').trim();
             const percent = parseFloat(getText(sub['Percent'])) || parseFloat(getText(taxCat?.['Percent'])) || 0;
             const amount = parseFloat(getText(sub['TaxAmount'])) || 0;
+            const taxable = parseFloat(getText(sub['TaxableAmount'])) || 0;
             
-            if (taxCode === '0015' || taxCode === '15' || taxCode === 15 || !taxCode) {
+            if (taxCode === '0015' || taxCode === '15' || !taxCode) {
               kdvTutari += amount;
-              kdvOrani = percent; 
+              if (percent > 0) {
+                kdvOrani = percent;
+                kdvTaxableAmount += taxable;
+                kdvBucketCount++;
+                if (percent === 1) kdv1 += amount;
+                else if (percent === 8 || percent === 10) kdv10 += amount;
+                else if (percent === 18 || percent === 20) kdv20 += amount;
+              }
             } else {
               oivTutari += amount;
             }
+          }
+        }
+
+        // Vodafone / Telekom faturalarında KDV'den muaf Telsiz Kullanım Ücreti (TK Kullanım/Ruhsat)
+        // TaxExclusiveAmount veya PayableAmount içinde yer alabilir; mahsup dengesi için oivTutari'ye ekle
+        if (payableAmount > 0 && kdvTutari > 0 && tevkifatTutari === 0 && stopajTutari === 0) {
+          if (kdvBucketCount === 1 && kdvTaxableAmount > 0 && matrah > kdvTaxableAmount + 0.02) {
+            matrah = Math.round(kdvTaxableAmount * 100) / 100;
+          }
+          const fark = Math.round((payableAmount - matrah - kdvTutari - oivTutari) * 100) / 100;
+          if (fark > 0.02) {
+            oivTutari = Math.round((oivTutari + fark) * 100) / 100;
           }
         }
 
@@ -872,6 +897,9 @@ app.get('/api/elogo/gelen-faturalar', authMiddleware, async (req, res) => {
           matrah,
           kdvOrani,
           kdvTutari,
+          kdv1,
+          kdv10,
+          kdv20,
           oivTutari,
           stopajOrani,
           stopajTutari,
@@ -1009,11 +1037,16 @@ app.get('/api/elogo/giden-faturalar', authMiddleware, async (req, res) => {
         
         const payableAmount = parseFloat(getText(totals?.['PayableAmount'])) || 0;
         const currencyCode = (typeof totals?.['PayableAmount'] === 'object' ? totals['PayableAmount']['@_currencyID'] : 'TRY') || 'TRY';
-        const matrah = parseFloat(getText(totals?.['TaxExclusiveAmount'])) || 0;
+        let matrah = parseFloat(getText(totals?.['TaxExclusiveAmount'])) || 0;
         
         let kdvTutari = 0;
         let kdvOrani = 0;
         let oivTutari = 0;
+        let kdv1 = 0;
+        let kdv10 = 0;
+        let kdv20 = 0;
+        let kdvTaxableAmount = 0;
+        let kdvBucketCount = 0;
         let stopajTutari = 0;
         let stopajOrani = 0;
         let tevkifatTutari = 0;
@@ -1028,16 +1061,36 @@ app.get('/api/elogo/giden-faturalar', authMiddleware, async (req, res) => {
           for (const sub of subArr) {
             const taxCat = sub['TaxCategory'];
             const taxScheme = taxCat?.['TaxScheme']?.['TaxTypeCode']?.['#text'] || taxCat?.['TaxScheme']?.['TaxTypeCode'];
-            const taxCode = getText(taxScheme);
+            const taxCode = String(getText(taxScheme) || '').trim();
             const percent = parseFloat(getText(sub['Percent'])) || parseFloat(getText(taxCat?.['Percent'])) || 0;
             const amount = parseFloat(getText(sub['TaxAmount'])) || 0;
+            const taxable = parseFloat(getText(sub['TaxableAmount'])) || 0;
             
-            if (taxCode === '0015' || taxCode === '15' || taxCode === 15 || !taxCode) {
+            if (taxCode === '0015' || taxCode === '15' || !taxCode) {
               kdvTutari += amount;
-              kdvOrani = percent; 
+              if (percent > 0) {
+                kdvOrani = percent;
+                kdvTaxableAmount += taxable;
+                kdvBucketCount++;
+                if (percent === 1) kdv1 += amount;
+                else if (percent === 8 || percent === 10) kdv10 += amount;
+                else if (percent === 18 || percent === 20) kdv20 += amount;
+              }
             } else {
               oivTutari += amount;
             }
+          }
+        }
+
+        // Vodafone / Telekom faturalarında KDV'den muaf Telsiz Kullanım Ücreti (TK Kullanım/Ruhsat)
+        // TaxExclusiveAmount veya PayableAmount içinde yer alabilir; mahsup dengesi için oivTutari'ye ekle
+        if (payableAmount > 0 && kdvTutari > 0 && tevkifatTutari === 0 && stopajTutari === 0) {
+          if (kdvBucketCount === 1 && kdvTaxableAmount > 0 && matrah > kdvTaxableAmount + 0.02) {
+            matrah = Math.round(kdvTaxableAmount * 100) / 100;
+          }
+          const fark = Math.round((payableAmount - matrah - kdvTutari - oivTutari) * 100) / 100;
+          if (fark > 0.02) {
+            oivTutari = Math.round((oivTutari + fark) * 100) / 100;
           }
         }
 
@@ -1537,11 +1590,16 @@ app.get('/api/uyumsoft/gelen-faturalar', authMiddleware, async (req, res) => {
         
         const payableAmount = parseFloat(getText(totals?.['PayableAmount'])) || 0;
         const currencyCode = (typeof totals?.['PayableAmount'] === 'object' ? totals['PayableAmount']['@_currencyID'] : 'TRY') || 'TRY';
-        const matrah = parseFloat(getText(totals?.['TaxExclusiveAmount'])) || 0;
+        let matrah = parseFloat(getText(totals?.['TaxExclusiveAmount'])) || 0;
         
         let kdvTutari = 0;
         let kdvOrani = 0;
         let oivTutari = 0;
+        let kdv1 = 0;
+        let kdv10 = 0;
+        let kdv20 = 0;
+        let kdvTaxableAmount = 0;
+        let kdvBucketCount = 0;
         let stopajTutari = 0;
         let stopajOrani = 0;
         let tevkifatTutari = 0;
@@ -1556,17 +1614,35 @@ app.get('/api/uyumsoft/gelen-faturalar', authMiddleware, async (req, res) => {
           for (const sub of subArr) {
             const taxCat = sub['TaxCategory'];
             const taxScheme = taxCat?.['TaxScheme']?.['TaxTypeCode']?.['#text'] || taxCat?.['TaxScheme']?.['TaxTypeCode'];
-            const taxCode = getText(taxScheme);
+            const taxCode = String(getText(taxScheme) || '').trim();
             const percent = parseFloat(getText(sub['Percent'])) || parseFloat(getText(taxCat?.['Percent'])) || 0;
             const amount = parseFloat(getText(sub['TaxAmount'])) || 0;
+            const taxable = parseFloat(getText(sub['TaxableAmount'])) || 0;
             
-            if (taxCode === '0015' || taxCode === '15' || taxCode === 15 || !taxCode) { // 0015 KDV Kodudur
+            if (taxCode === '0015' || taxCode === '15' || !taxCode) { // 0015 KDV Kodudur
               kdvTutari += amount;
-              kdvOrani = percent; 
+              if (percent > 0) {
+                kdvOrani = percent;
+                kdvTaxableAmount += taxable;
+                kdvBucketCount++;
+                if (percent === 1) kdv1 += amount;
+                else if (percent === 8 || percent === 10) kdv10 += amount;
+                else if (percent === 18 || percent === 20) kdv20 += amount;
+              }
             } else {
               // ÖİV (4080), ÖTV (0071), TK (8001, 8002) vb. tüm diğer vergiler
               oivTutari += amount;
             }
+          }
+        }
+
+        if (payableAmount > 0 && kdvTutari > 0 && tevkifatTutari === 0 && stopajTutari === 0) {
+          if (kdvBucketCount === 1 && kdvTaxableAmount > 0 && matrah > kdvTaxableAmount + 0.02) {
+            matrah = Math.round(kdvTaxableAmount * 100) / 100;
+          }
+          const fark = Math.round((payableAmount - matrah - kdvTutari - oivTutari) * 100) / 100;
+          if (fark > 0.02) {
+            oivTutari = Math.round((oivTutari + fark) * 100) / 100;
           }
         }
 
@@ -1638,6 +1714,9 @@ app.get('/api/uyumsoft/gelen-faturalar', authMiddleware, async (req, res) => {
           matrah,
           kdvOrani,
           kdvTutari,
+          kdv1,
+          kdv10,
+          kdv20,
           oivTutari,
           stopajOrani,
           stopajTutari,
@@ -1968,7 +2047,7 @@ app.post('/api/invoices/import-from-logo', authMiddleware, async (req, res) => {
   }
   
   try {
-    const { faturaNo, senderName, senderVkn, issueDate, payableAmount, currencyCode, uuid, matrah, kdvOrani, kdvTutari, oivTutari, faturaAciklama, muhasebeKodu, cariId } = invoice;
+    const { faturaNo, senderName, senderVkn, issueDate, payableAmount, currencyCode, uuid, matrah, kdvOrani, kdvTutari, kdv1, kdv10, kdv20, oivTutari, faturaAciklama, muhasebeKodu, cariId } = invoice;
     const islemTarihi = issueDate ? issueDate.split('T')[0] : new Date().toISOString().split('T')[0];
     
     // Check if invoice already exists
@@ -2055,7 +2134,10 @@ app.post('/api/invoices/import-from-logo', authMiddleware, async (req, res) => {
         '0', 0, finalMuhasebeKodu, null, pdfDosyaBase64, pdfDosyaAdi,
         null, 'odenmedi', null, null, finalCariId, null,
         cleanAciklama, new Date().toISOString().split('T')[0], req.user.companyId,
-        (kdvOrani === 1 ? kdvTutari : 0), (kdvOrani === 10 ? kdvTutari : 0), (kdvOrani === 20 ? kdvTutari : 0), oivTutari || 0
+        Number(kdv1) || (kdvOrani === 1 ? kdvTutari : 0),
+        Number(kdv10) || (kdvOrani === 10 || kdvOrani === 8 ? kdvTutari : 0),
+        Number(kdv20) || (kdvOrani === 20 || kdvOrani === 18 ? kdvTutari : 0),
+        oivTutari || 0
       ]
     });
 
@@ -3984,6 +4066,9 @@ app.put('/api/alis-faturalari/:id', authMiddleware, async (req, res) => {
         tevkifat_tutari=COALESCE(?,tevkifat_tutari),
         stopaj_orani=COALESCE(?,stopaj_orani),
         stopaj_tutari=COALESCE(?,stopaj_tutari),
+        kdv1=COALESCE(?,kdv1),
+        kdv10=COALESCE(?,kdv10),
+        kdv20=COALESCE(?,kdv20),
         oiv_tutari=COALESCE(?,oiv_tutari),
         muhasebe_kodu=COALESCE(?,muhasebe_kodu),
         karsi_hesap_kodu=COALESCE(?,karsi_hesap_kodu),
@@ -3999,6 +4084,7 @@ app.put('/api/alis-faturalari/:id', authMiddleware, async (req, res) => {
         n(f.faturaTarihi), n(f.tedarikciAdi), n(f.tedarikciVkn), n(f.malHizmetAdi),
         n(f.toplamTutar), n(f.kdvOrani), n(f.kdvTutari), n(f.matrah),
         n(f.tevkifatOrani), n(f.tevkifatTutari), n(f.stopajOrani), n(f.stopajTutari),
+        n(f.kdv1), n(f.kdv10), n(f.kdv20),
         n(f.oivTutari), n(f.muhasebeKodu), n(f.karsiHesapKodu), n(f.kdvHesapKodu), n(f.aciklama), n(f.vadeTarihi),
         mahsupJson !== undefined ? n(mahsupJson) : null,
         hasKkegVal !== undefined ? n(hasKkegVal) : null,

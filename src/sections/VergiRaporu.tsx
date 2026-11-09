@@ -35,9 +35,35 @@ import {
 } from '@/components/ui/tooltip';
 
 export function VergiRaporu() {
-  const { satisFaturalari, alisFaturalari, getVergiRaporu, openAlisDrawer, isIsletmeDefteri } = useApp();
+  const { satisFaturalari, alisFaturalari, getVergiRaporu, openAlisDrawer, updateAlisFatura, isIsletmeDefteri } = useApp();
   const [selectedYil, setSelectedYil] = useState(new Date().getFullYear());
   const [selectedAy, setSelectedAy] = useState(new Date().getMonth() + 1);
+
+  const handleAutoSplitTelecomOiv = async (fatura: any, onerilenMatrah: number, onerilenOiv: number) => {
+    try {
+      await updateAlisFatura(fatura.id, {
+        faturaNo: fatura.faturaNo || '',
+        faturaTarihi: fatura.faturaTarihi || '',
+        tedarikciAdi: fatura.tedarikciAdi || '',
+        tedarikciVkn: fatura.tedarikciVkn || '',
+        malHizmetAdi: fatura.malHizmetAdi || '',
+        toplamTutar: String(fatura.toplamTutar || 0),
+        kdvOrani: String(fatura.kdvOrani || 20),
+        matrah: onerilenMatrah,
+        kdvTutari: Number(fatura.kdvTutari) || 0,
+        oivTutari: String(onerilenOiv),
+        muhasebeKodu: fatura.muhasebeKodu || '770.03.001',
+        karsiHesapKodu: fatura.karsiHesapKodu,
+        kdvHesapKodu: fatura.kdvHesapKodu,
+        cariId: fatura.cariId,
+        vadeTarihi: fatura.vadeTarihi || undefined,
+        aciklama: fatura.aciklama
+      });
+      toast.success(`${fatura.tedarikciAdi || 'Fatura'} için Matrah (${onerilenMatrah.toFixed(2)} TL) ve ÖİV/Telsiz (${onerilenOiv.toFixed(2)} TL) otomatik ayrıştırıldı!`);
+    } catch {
+      toast.error('ÖİV / Telsiz ayrıştırması kaydedilirken hata oluştu.');
+    }
+  };
 
   // Ay Sonu Beyanname & Muhasebe Denetim Asistanı (Seçili Ay Analizi)
   const denetimBulgulari = useMemo(() => {
@@ -47,7 +73,14 @@ export function VergiRaporu() {
 
     const tevsikIhlalleri: Array<{ fatura: any; aciklama: string }> = [];
     const eksikMuhasebeKodlari: Array<{ fatura: any; tur: 'Alış' | 'Satış'; aciklama: string }> = [];
-    const kdvUyumsuzluklari: Array<{ fatura: any; tur: 'Alış' | 'Satış'; beklenenKdv: number; mevcutKdv: number }> = [];
+    const kdvUyumsuzluklari: Array<{
+      fatura: any;
+      tur: 'Alış' | 'Satış';
+      beklenenKdv: number;
+      mevcutKdv: number;
+      onerilenMatrah?: number;
+      onerilenOiv?: number;
+    }> = [];
     const mukerrerKayitlar: Array<{ fatura: any; sebep: string }> = [];
     const binekKkegUyarilari: Array<{ fatura: any; aciklama: string }> = [];
 
@@ -60,6 +93,10 @@ export function VergiRaporu() {
       const kdv = Number(f.kdvTutari) || 0;
       const oran = Number(f.kdvOrani) || 0;
       const oiv = Number(f.oivTutari) || 0;
+      const k1 = Number(f.kdv1) || 0;
+      const k10 = Number(f.kdv10) || 0;
+      const k20 = Number(f.kdv20) || 0;
+      const hasMultiKdv = [k1 > 0.009, k10 > 0.009, k20 > 0.009].filter(Boolean).length > 1;
       const karsiKod = String(f.karsiHesapKodu || '').trim();
       const anaKod = String(f.muhasebeKodu || '').trim();
 
@@ -80,15 +117,20 @@ export function VergiRaporu() {
         });
       }
 
-      // 3. Matrah x KDV Oranı Uyumsuzluğu (ÖİV hariç > 1.50 TL sapma)
-      if (matrah > 0 && oran > 0 && oiv === 0) {
+      // 3. Matrah x KDV Oranı Uyumsuzluğu veya Ayrıştırılmamış ÖİV / Telsiz Ücreti Kontrolü
+      if (!hasMultiKdv && matrah > 0 && oran > 0) {
         const beklenen = Math.round((matrah * oran) / 100 * 100) / 100;
-        if (Math.abs(beklenen - kdv) > 1.5) {
+        const bakiyeFarki = Math.round((toplam - matrah - kdv - oiv) * 100) / 100;
+        if ((oiv === 0 && Math.abs(beklenen - kdv) > 1.5) || Math.abs(bakiyeFarki) > 0.5) {
+          const gercekMatrah = kdv > 0 ? Math.round((kdv / (oran / 100)) * 100) / 100 : matrah;
+          const hesaplananOiv = Math.round((toplam - gercekMatrah - kdv) * 100) / 100;
           kdvUyumsuzluklari.push({
             fatura: f,
             tur: 'Alış',
             beklenenKdv: beklenen,
-            mevcutKdv: kdv
+            mevcutKdv: kdv,
+            onerilenMatrah: hesaplananOiv > 0 ? gercekMatrah : undefined,
+            onerilenOiv: hesaplananOiv > 0 ? hesaplananOiv : undefined
           });
         }
       }
@@ -241,15 +283,25 @@ export function VergiRaporu() {
 
   // Excel indirme
   const downloadExcel = () => {
+    const d1 = rapor.kdvDagilimi?.find(d => d.oran === 1);
+    const d10 = rapor.kdvDagilimi?.find(d => d.oran === 10);
+    const d20 = rapor.kdvDagilimi?.find(d => d.oran === 20);
+
     const excelData = [{
       'Dönem': `${rapor.ayAdi} ${rapor.yil}`,
       'Satış Adedi': rapor.satisAdet,
       'Alış Adedi': rapor.alisAdet,
+      'Aylık Satış Matrahı (TL)': rapor.aylikSatisMatrah || 0,
       'Hesaplanan Brüt KDV (TL)': rapor.hesaplananKDV,
       'Satış Tevkifatı (TL)': rapor.toplamSatisTevkifat,
       'Hesaplanan Net KDV (TL)': rapor.netHesaplananKDV,
+      'Aylık Alış Matrahı (TL)': rapor.aylikAlisMatrah || 0,
       'İndirilecek KDV (TL)': rapor.indirilecekKDV,
       'Ödenecek KDV (TL)': rapor.odenecekKDV,
+      '%1 Alış KDV (TL)': d1?.alisKdv || 0,
+      '%10 Alış KDV (TL)': d10?.alisKdv || 0,
+      '%20 Alış KDV (TL)': d20?.alisKdv || 0,
+      'ÖİV / Telsiz KKEG 689.01 (TL)': rapor.toplamOivTutari || 0,
       'Kümülatif Matrah (TL)': rapor.toplamMatrah,
       'Gelir Vergisi Oranı (%)': rapor.gelirVergisiOrani,
       'Hesaplanan Gelir Vergisi (TL)': rapor.hesaplananGelirVergisi,
@@ -390,17 +442,35 @@ export function VergiRaporu() {
               <div className="bg-white border border-purple-200 rounded-lg p-3 space-y-1.5">
                 <div className="font-bold text-purple-900 flex items-center gap-1.5">
                   <AlertTriangle className="w-4 h-4 text-purple-600 shrink-0" />
-                  3. Matrah × KDV Oranı Uyumsuzluğu / ÖİV Şüphesi ({denetimBulgulari.kdvUyumsuzluklari.length} Adet)
+                  3. Matrah × KDV Oranı Uyumsuzluğu / Vodafone-Telekom ÖİV & Telsiz Ücreti ({denetimBulgulari.kdvUyumsuzluklari.length} Adet)
                 </div>
                 {denetimBulgulari.kdvUyumsuzluklari.slice(0, 5).map((item, i) => (
-                  <div key={i} className="flex items-center justify-between gap-2 text-slate-700 pl-5 py-0.5 border-b last:border-0 border-slate-100">
-                    <span>
-                      • [{item.tur}] <b>{item.fatura.tedarikciAdi || item.fatura.musteriAdi || 'Belge'}</b> ({item.fatura.faturaNo || '-'}) — Beklenen KDV: {formatCurrency(item.beklenenKdv)}, Kayıtlı KDV: {formatCurrency(item.mevcutKdv)}
-                    </span>
+                  <div key={i} className="flex flex-wrap items-center justify-between gap-2 text-slate-700 pl-5 py-1 border-b last:border-0 border-slate-100">
+                    <div>
+                      <span>
+                        • [{item.tur}] <b>{item.fatura.tedarikciAdi || item.fatura.musteriAdi || 'Belge'}</b> ({item.fatura.faturaNo || '-'}) — Beklenen KDV: {formatCurrency(item.beklenenKdv)}, Kayıtlı KDV: {formatCurrency(item.mevcutKdv)}
+                      </span>
+                      {item.onerilenMatrah !== undefined && item.onerilenOiv !== undefined && (
+                        <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded bg-purple-50 text-purple-800 border border-purple-200 font-semibold text-[11px]">
+                          Öneri: Gerçek Matrah {formatCurrency(item.onerilenMatrah)} + ÖİV/Telsiz (689.01) {formatCurrency(item.onerilenOiv)}
+                        </span>
+                      )}
+                    </div>
                     {item.tur === 'Alış' && (
-                      <Button size="sm" variant="outline" className="h-6 text-[11px] px-2 shrink-0" onClick={() => openAlisDrawer(item.fatura)}>
-                        <Wrench className="w-3 h-3 mr-1" /> İncele
-                      </Button>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {item.onerilenMatrah !== undefined && item.onerilenOiv !== undefined && (
+                          <Button
+                            size="sm"
+                            className="h-6 text-[11px] px-2 bg-purple-600 hover:bg-purple-700 text-white"
+                            onClick={() => handleAutoSplitTelecomOiv(item.fatura, item.onerilenMatrah!, item.onerilenOiv!)}
+                          >
+                            ⚡ Otomatik Ayrıştır (ÖİV/Telsiz)
+                          </Button>
+                        )}
+                        <Button size="sm" variant="outline" className="h-6 text-[11px] px-2 shrink-0" onClick={() => openAlisDrawer(item.fatura)}>
+                          <Wrench className="w-3 h-3 mr-1" /> İncele
+                        </Button>
+                      </div>
                     )}
                   </div>
                 ))}
@@ -540,6 +610,61 @@ export function VergiRaporu() {
             </CardContent>
           </Card>
         </div>
+
+        {/* KDV-1 Beyanname Oran Bazlı (%1, %10, %20) ve ÖİV / Telsiz (689.01) Mutabakat Tablosu */}
+        {rapor.kdvDagilimi && (
+          <Card className="border border-slate-200 shadow-sm bg-white mt-3">
+            <CardHeader className="py-3 px-4 border-b border-slate-100 bg-slate-50/60">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                <CardTitle className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                  <Calculator className="w-4 h-4 text-indigo-600" />
+                  KDV-1 Beyanname & Luca Mizan Mutabakat Tablosu (%1 / %10 / %20 Oran Dağılımı)
+                </CardTitle>
+                {(rapor.toplamOivTutari || 0) > 0 && (
+                  <Badge variant="outline" className="bg-amber-50 text-amber-900 border-amber-300 font-mono text-xs w-fit">
+                    689.01 ÖİV / Telsiz (KKEG) Toplamı: {formatCurrency(rapor.toplamOivTutari || 0)}
+                  </Badge>
+                )}
+              </div>
+            </CardHeader>
+            <CardContent className="p-0 overflow-x-auto">
+              <table className="w-full text-xs text-left">
+                <thead className="bg-slate-50 text-slate-600 border-b border-slate-200">
+                  <tr>
+                    <th className="py-2.5 px-4 font-semibold">KDV Oranı</th>
+                    <th className="py-2.5 px-4 font-semibold text-right">Satış Matrahı (600)</th>
+                    <th className="py-2.5 px-4 font-semibold text-right">Hesaplanan KDV (391)</th>
+                    <th className="py-2.5 px-4 font-semibold text-right">Alış Matrahı (153/770)</th>
+                    <th className="py-2.5 px-4 font-semibold text-right">İndirilecek KDV (191)</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 font-mono">
+                  {rapor.kdvDagilimi.map((row) => (
+                    <tr key={row.oran} className="hover:bg-slate-50/70">
+                      <td className="py-2 px-4 font-sans font-bold text-slate-800">
+                        %{row.oran} KDV Dilimi
+                        <span className="ml-1.5 text-[10px] font-mono text-slate-400">
+                          (391.{String(row.oran).padStart(2, '0')} / 191.{String(row.oran).padStart(2, '0')})
+                        </span>
+                      </td>
+                      <td className="py-2 px-4 text-right text-slate-700">{formatCurrency(row.satisMatrah)}</td>
+                      <td className="py-2 px-4 text-right font-semibold text-blue-700">{formatCurrency(row.satisKdv)}</td>
+                      <td className="py-2 px-4 text-right text-slate-700">{formatCurrency(row.alisMatrah)}</td>
+                      <td className="py-2 px-4 text-right font-semibold text-orange-700">{formatCurrency(row.alisKdv)}</td>
+                    </tr>
+                  ))}
+                  <tr className="bg-slate-50 font-bold text-slate-900 border-t-2 border-slate-200">
+                    <td className="py-2.5 px-4 font-sans">DÖNEM TOPLAMI</td>
+                    <td className="py-2.5 px-4 text-right">{formatCurrency(rapor.aylikSatisMatrah || 0)}</td>
+                    <td className="py-2.5 px-4 text-right text-blue-800">{formatCurrency(rapor.hesaplananKDV)}</td>
+                    <td className="py-2.5 px-4 text-right">{formatCurrency(rapor.aylikAlisMatrah || 0)}</td>
+                    <td className="py-2.5 px-4 text-right text-orange-800">{formatCurrency(rapor.indirilecekKDV)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </CardContent>
+          </Card>
+        )}
       </div>
 
       {/* Tevkifat ve Stopaj Raporu */}

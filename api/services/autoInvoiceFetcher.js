@@ -614,10 +614,17 @@ class AutoInvoiceFetcherService {
     const issueDate = getText(inv['IssueDate']) || new Date().toISOString().split('T')[0];
     const totals = inv['LegalMonetaryTotal'];
     const totalAmount = parseFloat(getText(totals?.['PayableAmount'])) || 0;
-    const matrah = parseFloat(getText(totals?.['TaxExclusiveAmount'])) || 0;
+    let matrah = parseFloat(getText(totals?.['TaxExclusiveAmount'])) || 0;
 
     let kdvTutari = 0;
     let kdvOrani = 20;
+    let oivTutari = 0;
+    let kdv1 = 0;
+    let kdv10 = 0;
+    let kdv20 = 0;
+    let kdvTaxableAmount = 0;
+    let kdvBucketCount = 0;
+
     const taxTotal = inv['TaxTotal'];
     const taxTotalArray = Array.isArray(taxTotal) ? taxTotal : (taxTotal ? [taxTotal] : []);
     for (const tt of taxTotalArray) {
@@ -625,10 +632,39 @@ class AutoInvoiceFetcherService {
       if (!subtotals) continue;
       const subArr = Array.isArray(subtotals) ? subtotals : [subtotals];
       for (const sub of subArr) {
+        const taxCat = sub['TaxCategory'];
+        const taxScheme = taxCat?.['TaxScheme']?.['TaxTypeCode']?.['#text'] || taxCat?.['TaxScheme']?.['TaxTypeCode'];
+        const taxCode = String(getText(taxScheme) || '').trim();
         const amount = parseFloat(getText(sub['TaxAmount'])) || 0;
-        const percent = parseFloat(getText(sub['Percent'])) || 0;
-        kdvTutari += amount;
-        if (percent > 0) kdvOrani = percent;
+        const percent = parseFloat(getText(sub['Percent'])) || parseFloat(getText(taxCat?.['Percent'])) || 0;
+        const taxable = parseFloat(getText(sub['TaxableAmount'])) || 0;
+
+        if (taxCode === '0015' || taxCode === '15' || !taxCode) {
+          kdvTutari += amount;
+          if (percent > 0) {
+            kdvOrani = percent;
+            kdvTaxableAmount += taxable;
+            kdvBucketCount++;
+            if (percent === 1) kdv1 += amount;
+            else if (percent === 8 || percent === 10) kdv10 += amount;
+            else if (percent === 18 || percent === 20) kdv20 += amount;
+          }
+        } else {
+          // ÖİV (4080), Telsiz (8001/8002), ÖTV (0071) vb.
+          oivTutari += amount;
+        }
+      }
+    }
+
+    // Vodafone / Telekom faturalarında KDV'den muaf Telsiz Kullanım Ücreti (TK Ruhsat/Kullanım)
+    // bazen TaxExclusiveAmount (matrah) içine veya doğrudan PayableAmount içine eklenir.
+    if (direction === 'incoming' && totalAmount > 0 && kdvTutari > 0) {
+      if (kdvBucketCount === 1 && kdvTaxableAmount > 0 && matrah > kdvTaxableAmount + 0.02) {
+        matrah = Math.round(kdvTaxableAmount * 100) / 100;
+      }
+      const fark = Math.round((totalAmount - matrah - kdvTutari - oivTutari) * 100) / 100;
+      if (fark > 0.02) {
+        oivTutari = Math.round((oivTutari + fark) * 100) / 100;
       }
     }
 
@@ -673,6 +709,10 @@ class AutoInvoiceFetcherService {
       matrah,
       kdvOrani,
       kdvTutari,
+      oivTutari,
+      kdv1,
+      kdv10,
+      kdv20,
       faturaAciklama: itemsText || (direction === 'outgoing' ? 'Otomatik Satış Faturası' : 'Otomatik Alış Faturası'),
       items: rawItems,
       direction
@@ -728,14 +768,22 @@ class AutoInvoiceFetcherService {
       : `Otomatik Alış Faturası (${data.faturaNo})`;
 
     // Alış Faturalarına Ekle
+    const oivVal = Number(data.oivTutari) || 0;
+    const kdvVal = Number(data.kdvTutari) || 0;
+    const kdvOranVal = Number(data.kdvOrani) || 20;
+    const matrahVal = Number(data.matrah) || Math.max(0, Math.round((payable - kdvVal - oivVal) * 100) / 100);
+    const kdv1Val = Number(data.kdv1) || (kdvOranVal === 1 ? kdvVal : 0);
+    const kdv10Val = Number(data.kdv10) || (kdvOranVal === 10 || kdvOranVal === 8 ? kdvVal : 0);
+    const kdv20Val = Number(data.kdv20) || (kdvOranVal === 20 || kdvOranVal === 18 ? kdvVal : 0);
+
     await client.execute({
       sql: `INSERT INTO alis_faturalari 
         (id, fatura_no, fatura_tarihi, tedarikci_adi, tedarikci_vkn, mal_hizmet_adi, 
          toplam_tutar, kdv_orani, kdv_tutari, matrah, tevkifat_orani, tevkifat_tutari, 
          stopaj_orani, stopaj_tutari, muhasebe_kodu, karsi_hesap_kodu, pdf_dosya, pdf_dosya_adi, 
          odeme_tarihi, odeme_durumu, odenen_tutar, kalan_tutar, cari_id, vade_tarihi, 
-         aciklama, olusturma_tarihi, company_id, gib_uuid) 
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '0', 0, '0', 0, ?, null, null, null, null, 'odenmedi', 0, ?, ?, null, ?, ?, ?, ?)`,
+         aciklama, olusturma_tarihi, company_id, gib_uuid, kdv1, kdv10, kdv20, oiv_tutari) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '0', 0, '0', 0, ?, null, null, null, null, 'odenmedi', 0, ?, ?, null, ?, ?, ?, ?, ?, ?, ?, ?)`,
       args: [
         id,
         data.faturaNo,
@@ -744,16 +792,20 @@ class AutoInvoiceFetcherService {
         data.tedarikciVkn,
         data.faturaAciklama,
         payable,
-        data.kdvOrani || 20,
-        data.kdvTutari || 0,
-        data.matrah || (payable - (data.kdvTutari || 0)),
+        kdvOranVal,
+        kdvVal,
+        matrahVal,
         muhasebeKodu,
         payable,
         cariId,
         desc,
         new Date().toISOString().split('T')[0],
         companyId,
-        data.uuid
+        data.uuid,
+        kdv1Val,
+        kdv10Val,
+        kdv20Val,
+        oivVal
       ]
     });
 

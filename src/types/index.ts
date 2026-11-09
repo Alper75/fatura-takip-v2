@@ -412,6 +412,14 @@ export interface Announcement {
 }
 
 // ==================== VERGI HESAPLAMA ====================
+export interface KdvOranDagilimi {
+  oran: number;
+  satisMatrah: number;
+  satisKdv: number;
+  alisMatrah: number;
+  alisKdv: number;
+}
+
 export interface VergiRaporu {
   ay: number;
   ayAdi: string;
@@ -425,6 +433,10 @@ export interface VergiRaporu {
   toplamAlisTevkifat: number;
   toplamSatisStopaj: number;
   toplamAlisStopaj: number;
+  toplamOivTutari?: number;
+  aylikSatisMatrah?: number;
+  aylikAlisMatrah?: number;
+  kdvDagilimi?: KdvOranDagilimi[];
   // Gelir Vergisi (Kümülatif)
   toplamMatrah: number;
   gelirVergisiOrani: number;

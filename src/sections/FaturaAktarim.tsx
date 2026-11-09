@@ -543,13 +543,50 @@ export function FaturaAktarim() {
     }
     if (!kdvKodu) kdvKodu = isAlis ? (isIade ? '391' : '191') : (isIade ? '191' : '391');
 
-    const oivTutar = isAlis ? (parseFloat(fatura.oivTutari) || 0) : 0;
-    const toplam = isAlis ? (parseFloat(fatura.toplamTutar) || 0) : (parseFloat(fatura.alinanUcret) || 0);
+    const oivRaw = isAlis ? (parseFloat(fatura.oivTutari ?? fatura.oiv_tutari) || 0) : 0;
+    const toplamRaw = isAlis ? (parseFloat(fatura.toplamTutar) || 0) : (parseFloat(fatura.alinanUcret) || 0);
+
+    // Çoklu KDV (kdv1, kdv10, kdv20) analizi
+    const kdv1Val = isAlis ? (parseFloat(fatura.kdv1) || 0) : 0;
+    const kdv10Val = isAlis ? (parseFloat(fatura.kdv10) || 0) : 0;
+    const kdv20Val = isAlis ? (parseFloat(fatura.kdv20) || 0) : 0;
+    const multiKdvBuckets = [
+      { oran: '1', tutar: kdv1Val, kod: (isIade ? settings?.alis_iade?.['1'] : settings?.alis?.['1']) || '191.01' },
+      { oran: '10', tutar: kdv10Val, kod: (isIade ? settings?.alis_iade?.['10'] : settings?.alis?.['10']) || '191.10' },
+      { oran: '20', tutar: kdv20Val, kod: (isIade ? settings?.alis_iade?.['20'] : settings?.alis?.['20']) || '191.20' },
+    ].filter(b => b.tutar > 0.009);
+    const hasMultiKdv = isAlis && multiKdvBuckets.length > 1;
+
+    // Vodafone / Telekom (ÖİV + Telsiz Kullanım Ücreti) ve Mahsup Fişi Dengeleme
+    let effectiveMatrah = matrah;
+    let effectiveOiv = oivRaw;
+    if (isAlis && toplamRaw > 0) {
+      const textCheck = `${fatura.tedarikciAdi || fatura.ad || ''} ${fatura.malHizmetAdi || ''} ${fatura.aciklama || ''}`.toUpperCase();
+      const isTelecom = /VODAFONE|TURKCELL|TELEKOM|SUPERONLINE|TTNET|TÜRKSAT|TURKSAT|NETGSM|MILLENICOM|TURKNET|İLETİŞİM|ILETISIM|TELSİZ|TELSIZ|ÖİV/.test(textCheck);
+      const oranNum = parseFloat(kdvOrani) || 20;
+
+      // Eğer eski kayıtlarda ÖİV ayrıştırılmamış ve matrah = toplam - kdv olarak kaydedilmişse (Matrah * Oran > KDV)
+      if (!hasMultiKdv && effectiveOiv === 0 && isTelecom && oranNum > 0 && kdvTutar > 0) {
+        const gercekMatrah = Math.round((kdvTutar / (oranNum / 100)) * 100) / 100;
+        if (effectiveMatrah > gercekMatrah + 1.0 && toplamRaw >= gercekMatrah + kdvTutar) {
+          effectiveMatrah = gercekMatrah;
+          effectiveOiv = Math.round((toplamRaw - effectiveMatrah - kdvTutar) * 100) / 100;
+        }
+      }
+
+      // Toplam Tutar > Matrah + KDV + ÖİV ise (ör. KDV'siz Telsiz Kullanım Ücreti veya Damga/Yuvarlama farkı)
+      const bakiyeFarki = Math.round((toplamRaw - effectiveMatrah - kdvTutar - effectiveOiv) * 100) / 100;
+      if (bakiyeFarki > 0.02) {
+        effectiveOiv = Math.round((effectiveOiv + bakiyeFarki) * 100) / 100;
+      }
+    }
+
+    const toplam = toplamRaw > 0 ? toplamRaw : Math.round((effectiveMatrah + kdvTutar + effectiveOiv) * 100) / 100;
     
     const evrakNo = fatura.faturaNo || '';
-    const aciklama = fatura.aciklama || (isAlis ? `Alış Faturası - ${fatura.ad || ''}` : `Satış Faturası - ${fatura.ad || ''}`);
+    const aciklama = fatura.aciklama || (isAlis ? `Alış Faturası - ${fatura.ad || fatura.tedarikciAdi || ''}` : `Satış Faturası - ${fatura.ad || ''}`);
 
-    const createRow = (kod: string, borc: number, alacak: number, detayAciklama: string) => ({
+    const createRow = (kod: string, borc: number, alacak: number, detayAciklama: string, rowKdvOrani: string = kdvOrani) => ({
       'Evrak Tarihi': formatTarih(fatura.faturaTarihi),
       'Evrak No': evrakNo,
       'Belge Türü': 'FT',
@@ -557,14 +594,14 @@ export function FaturaAktarim() {
       'Borç': Math.round(borc * 100) / 100,
       'Alacak': Math.round(alacak * 100) / 100,
       'Detay Açıklama': detayAciklama,
-      'KDV Oranı': kdvOrani
+      'KDV Oranı': rowKdvOrani
     });
 
     if (isAlis) {
         if (!isIade) {
             if (isAracGideri) {
-                const matrahGider = Math.round(matrah * 0.70 * 100) / 100;
-                const matrahKkeg = Math.round((matrah - matrahGider) * 100) / 100;
+                const matrahGider = Math.round(effectiveMatrah * 0.70 * 100) / 100;
+                const matrahKkeg = Math.round((effectiveMatrah - matrahGider) * 100) / 100;
                 const kdvGider = Math.round(kdvTutar * 0.70 * 100) / 100;
                 const kdvKkeg = Math.round((kdvTutar - kdvGider) * 100) / 100;
                 const kkegHesapKodu = settings?.aracGiderKkegKodu || '689.02';
@@ -573,12 +610,18 @@ export function FaturaAktarim() {
                 satirListesi.push(createRow(kdvKodu, kdvGider, 0, aciklama + ' (%70 İndirilecek KDV)'));
                 satirListesi.push(createRow(kkegHesapKodu, Math.round((matrahKkeg + kdvKkeg) * 100) / 100, 0, aciklama + ' (%30 KKEG ve İndirilemeyen KDV)'));
             } else {
-                satirListesi.push(createRow(gelirGiderKod, matrah, 0, aciklama));
-                satirListesi.push(createRow(kdvKodu, kdvTutar, 0, aciklama));
+                satirListesi.push(createRow(gelirGiderKod, effectiveMatrah, 0, aciklama));
+                if (hasMultiKdv) {
+                  multiKdvBuckets.forEach(b => {
+                    satirListesi.push(createRow(b.kod, b.tutar, 0, `${aciklama} (%${b.oran} KDV)`, b.oran));
+                  });
+                } else if (kdvTutar > 0) {
+                  satirListesi.push(createRow(kdvKodu, kdvTutar, 0, aciklama));
+                }
             }
 
-            if (oivTutar > 0) {
-              satirListesi.push(createRow(settings?.oivKodu || '689.01', oivTutar, 0, aciklama + ' (ÖİV Tutarı)'));
+            if (effectiveOiv > 0) {
+              satirListesi.push(createRow(settings?.oivKodu || '689.01', effectiveOiv, 0, aciklama + ' (ÖİV / Telsiz Ücreti KKEG)', '0'));
             }
 
             if (tevkifatTutar > 0) {
@@ -592,9 +635,15 @@ export function FaturaAktarim() {
             satirListesi.push(createRow(cariKod, 0, netAlisCariAlacak, aciklama));
         } else {
             satirListesi.push(createRow(cariKod, toplam, 0, aciklama));
-            satirListesi.push(createRow(gelirGiderKod, 0, matrah, aciklama));
-            satirListesi.push(createRow(kdvKodu, 0, kdvTutar, aciklama));
-            if (oivTutar > 0) satirListesi.push(createRow(settings?.oivKodu || '689.01', 0, oivTutar, aciklama + ' (ÖİV İade)'));
+            satirListesi.push(createRow(gelirGiderKod, 0, effectiveMatrah, aciklama));
+            if (hasMultiKdv) {
+              multiKdvBuckets.forEach(b => {
+                satirListesi.push(createRow(b.kod, 0, b.tutar, `${aciklama} (%${b.oran} KDV İade)`, b.oran));
+              });
+            } else if (kdvTutar > 0) {
+              satirListesi.push(createRow(kdvKodu, 0, kdvTutar, aciklama));
+            }
+            if (effectiveOiv > 0) satirListesi.push(createRow(settings?.oivKodu || '689.01', 0, effectiveOiv, aciklama + ' (ÖİV İade)', '0'));
         }
     } else {
         if (!isIade) {
@@ -1253,8 +1302,11 @@ export function FaturaAktarim() {
                     const isAlis = inv._type === 'ALIS';
                     const matrah = parseFloat(inv.matrah) || 0;
                     const kdvTutar = parseFloat(inv.kdvTutari) || 0;
-                    const kdvDahil = Math.round((matrah + kdvTutar) * 100) / 100;
-                    const toplam = (matrah > 0 || kdvTutar > 0) ? kdvDahil : (isAlis ? (parseFloat(inv.toplamTutar) || 0) : (parseFloat(inv.alinanUcret) || 0));
+                    const oivTutar = isAlis ? (parseFloat(inv.oivTutari ?? inv.oiv_tutari) || 0) : 0;
+                    const rawToplam = isAlis ? (parseFloat(inv.toplamTutar) || 0) : (parseFloat(inv.alinanUcret) || 0);
+                    const kdvDahil = Math.round((matrah + kdvTutar + oivTutar) * 100) / 100;
+                    const toplam = rawToplam >= kdvDahil ? rawToplam : ((matrah > 0 || kdvTutar > 0) ? kdvDahil : rawToplam);
+                    const ekOivTelsiz = isAlis ? Math.max(oivTutar, Math.round((toplam - matrah - kdvTutar) * 100) / 100) : 0;
                     const isArac = isAlis && aracGideriIds.includes(inv.id);
                     const stopajTutar = typeof inv.stopajTutari === 'number'
                       ? inv.stopajTutari
@@ -1359,7 +1411,12 @@ export function FaturaAktarim() {
                           </div>
                         </TableCell>
                         <TableCell className="text-right font-mono text-xs text-indigo-600 font-medium">
-                          {kdvTutar.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺
+                          <div>{kdvTutar.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺</div>
+                          {ekOivTelsiz > 0.02 && (
+                            <div className="text-[10px] text-amber-700 font-semibold mt-0.5" title="Özel İletişim Vergisi / Telsiz Kullanım Ücreti (KKEG - 689.01)">
+                              +ÖİV/Telsiz: {ekOivTelsiz.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺
+                            </div>
+                          )}
                         </TableCell>
                         <TableCell className="text-right font-mono text-xs font-bold text-slate-800">
                           {toplam.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺

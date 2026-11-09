@@ -1600,6 +1600,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       tevkifatTutari: hesaplanan.tevkifatTutari || 0,
       stopajOrani: formData.stopajOrani !== undefined ? formData.stopajOrani : (existing?.stopajOrani || '0'),
       stopajTutari: hesaplanan.stopajTutari || 0,
+      oivTutari: pre.oivTutari !== undefined ? (parseFloat(String(pre.oivTutari)) || 0) : (existing?.oivTutari || 0),
+      kdv1: pre.kdv1 !== undefined ? (Number(pre.kdv1) || 0) : (existing?.kdv1 || 0),
+      kdv10: pre.kdv10 !== undefined ? (Number(pre.kdv10) || 0) : (existing?.kdv10 || 0),
+      kdv20: pre.kdv20 !== undefined ? (Number(pre.kdv20) || 0) : (existing?.kdv20 || 0),
       muhasebeKodu: pre.muhasebeKodu !== undefined ? pre.muhasebeKodu : ((existing as any)?.muhasebeKodu || ''),
       karsiHesapKodu: pre.karsiHesapKodu !== undefined ? pre.karsiHesapKodu : ((existing as any)?.karsiHesapKodu || ''),
       kdvHesapKodu: pre.kdvHesapKodu !== undefined ? pre.kdvHesapKodu : ((existing as any)?.kdvHesapKodu || ''),
@@ -1796,6 +1800,58 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const toplamAlisTevkifat = aylikAlislar.reduce((acc, f) => acc + (Number(f.tevkifatTutari) || 0), 0);
     const toplamSatisStopaj = aylikSatislar.reduce((acc, f) => acc + (Number(f.stopajTutari) || 0), 0);
     const toplamAlisStopaj = aylikAlislar.reduce((acc, f) => acc + (Number(f.stopajTutari) || 0), 0);
+    const toplamOivTutari = aylikAlislar.reduce((acc, f) => acc + (Number(f.oivTutari) || 0), 0);
+    const aylikSatisMatrah = aylikSatislar.reduce((acc, f) => acc + (Number(f.matrah) || 0), 0);
+    const aylikAlisMatrah = aylikAlislar.reduce((acc, f) => acc + (Number(f.matrah) || 0), 0);
+
+    // Oran Bazlı (%1, %10, %20) KDV-1 Beyanname Mutabakat Dağılımı
+    const buckets: Record<number, { satisMatrah: number; satisKdv: number; alisMatrah: number; alisKdv: number }> = {
+      1: { satisMatrah: 0, satisKdv: 0, alisMatrah: 0, alisKdv: 0 },
+      10: { satisMatrah: 0, satisKdv: 0, alisMatrah: 0, alisKdv: 0 },
+      20: { satisMatrah: 0, satisKdv: 0, alisMatrah: 0, alisKdv: 0 }
+    };
+
+    aylikSatislar.forEach(f => {
+      const oranRaw = Number(f.kdvOrani) || 20;
+      const key = oranRaw === 1 ? 1 : (oranRaw === 8 || oranRaw === 10 ? 10 : 20);
+      buckets[key].satisMatrah += Number(f.matrah) || 0;
+      buckets[key].satisKdv += Number(f.kdvTutari) || 0;
+    });
+
+    aylikAlislar.forEach(f => {
+      const k1 = Number(f.kdv1) || 0;
+      const k10 = Number(f.kdv10) || 0;
+      const k20 = Number(f.kdv20) || 0;
+      const nonZeroCount = [k1 > 0.009, k10 > 0.009, k20 > 0.009].filter(Boolean).length;
+
+      if (nonZeroCount > 1) {
+        if (k1 > 0) {
+          buckets[1].alisKdv += k1;
+          buckets[1].alisMatrah += k1 / 0.01;
+        }
+        if (k10 > 0) {
+          buckets[10].alisKdv += k10;
+          buckets[10].alisMatrah += k10 / 0.10;
+        }
+        if (k20 > 0) {
+          buckets[20].alisKdv += k20;
+          buckets[20].alisMatrah += k20 / 0.20;
+        }
+      } else {
+        const oranRaw = Number(f.kdvOrani) || 20;
+        const key = oranRaw === 1 ? 1 : (oranRaw === 8 || oranRaw === 10 ? 10 : 20);
+        buckets[key].alisMatrah += Number(f.matrah) || 0;
+        buckets[key].alisKdv += Number(f.kdvTutari) || 0;
+      }
+    });
+
+    const kdvDagilimi = [1, 10, 20].map(oran => ({
+      oran,
+      satisMatrah: Math.round(buckets[oran].satisMatrah * 100) / 100,
+      satisKdv: Math.round(buckets[oran].satisKdv * 100) / 100,
+      alisMatrah: Math.round(buckets[oran].alisMatrah * 100) / 100,
+      alisKdv: Math.round(buckets[oran].alisKdv * 100) / 100,
+    }));
 
     // KDV Hesaplamaları (Tevkifat düşülmüş Net Hesaplanan KDV = Satıcının Tahsil Ettiği / Beyan Ettiği KDV)
     const hesaplananKDV = aylikSatislar.reduce((acc, f) => acc + (Number(f.kdvTutari) || 0), 0);
@@ -1826,6 +1882,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       toplamAlisTevkifat: Math.round(toplamAlisTevkifat * 100) / 100,
       toplamSatisStopaj: Math.round(toplamSatisStopaj * 100) / 100,
       toplamAlisStopaj: Math.round(toplamAlisStopaj * 100) / 100,
+      toplamOivTutari: Math.round(toplamOivTutari * 100) / 100,
+      aylikSatisMatrah: Math.round(aylikSatisMatrah * 100) / 100,
+      aylikAlisMatrah: Math.round(aylikAlisMatrah * 100) / 100,
+      kdvDagilimi,
       toplamMatrah: Math.round(toplamMatrah * 100) / 100,
       gelirVergisiOrani: gelirVergisiHesabi.oran,
       hesaplananGelirVergisi: gelirVergisiHesabi.vergi,
