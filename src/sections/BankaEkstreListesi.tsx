@@ -30,10 +30,14 @@ import {
   Sparkles,
   Check,
   Eye,
-  Link2
+  Link2,
+  DollarSign,
+  ShieldAlert
 } from 'lucide-react';
 import { AutoReconciliationModal } from '@/components/AutoReconciliationModal';
 import { LucaYevmiyePreviewModal, type PreviewYevmiyeRow } from '@/components/LucaYevmiyePreviewModal';
+import { KurFarkiHesapModal } from '@/components/KurFarkiHesapModal';
+import { MuhasebeDenetimModal } from '@/components/MuhasebeDenetimModal';
 import { 
   Select, 
   SelectContent, 
@@ -95,7 +99,8 @@ export function BankaEkstreListesi() {
     addGiderKategorisi,
     updateGiderKategorisi,
     deleteGiderKategorisi,
-    lucaAccounts
+    lucaAccounts,
+    personnel
   } = useApp();
   
   // Ekstre Filtre State'leri
@@ -117,6 +122,8 @@ export function BankaEkstreListesi() {
   const [isPreviewModalOpen, setIsPreviewModalOpen] = useState(false);
   const [previewRows, setPreviewRows] = useState<PreviewYevmiyeRow[]>([]);
   const [previewItems, setPreviewItems] = useState<CariHareket[]>([]);
+  const [isKurFarkiOpen, setIsKurFarkiOpen] = useState(false);
+  const [isDenetimOpen, setIsDenetimOpen] = useState(false);
   const [transferredBankaMap, setTransferredBankaMap] = useState<Record<string, string>>(() => {
     try {
       const raw = localStorage.getItem('fatura_app_transferred_banka_v1');
@@ -385,6 +392,42 @@ export function BankaEkstreListesi() {
     setSelectedHareketIds([]);
   };
 
+  // Personel Maaş (335), Avans (196), SGK (361) ve Vergi (360) Otomatik Hesap Kodu Çıkarımı
+  const inferPayrollOrTaxAccount = (h: CariHareket): { kod: string; unvan: string } | null => {
+    const descUpper = (h.aciklama || '').toLocaleUpperCase('tr-TR');
+    if (!descUpper) return null;
+
+    // 1. Aktif personellerin Ad Soyad veya TC'si geçiyor mu?
+    const activePersonnel = (personnel || []).filter(p => p.status === 'Active');
+    for (let idx = 0; idx < activePersonnel.length; idx++) {
+      const p = activePersonnel[idx];
+      const fullName = `${p.first_name || ''} ${p.last_name || ''}`.trim().toLocaleUpperCase('tr-TR');
+      const tc = String(p.tc || '').trim();
+      if ((fullName.length > 4 && descUpper.includes(fullName)) || (tc.length === 11 && descUpper.includes(tc))) {
+        const suffix = String(idx + 1).padStart(3, '0');
+        if (descUpper.includes('AVANS') || descUpper.includes('İŞ AVANSI')) {
+          return { kod: `196.01.${suffix}`, unvan: `Personel Avansı - ${fullName}` };
+        }
+        return { kod: `335.01.${suffix}`, unvan: `Personele Borçlar - ${fullName}` };
+      }
+    }
+
+    // 2. Genel Maaş / Avans / SGK / Vergi Anahtar Kelimeleri
+    if (descUpper.includes('MAAŞ AVANS') || descUpper.includes('PERSONEL AVANS') || (descUpper.includes('AVANS') && descUpper.includes('PERSONEL'))) {
+      return { kod: '196.01.001', unvan: 'Personel Maaş Avansları' };
+    }
+    if (descUpper.includes('MAAŞ ÖDEME') || descUpper.includes('ÜCRET ÖDEME') || descUpper.includes('PERSONEL MAAŞ') || h.kategoriId === 'maas_odemesi') {
+      return { kod: '335.01.001', unvan: 'Personele Borçlar (Net Maaş Ödemesi)' };
+    }
+    if (descUpper.includes('SGK') || descUpper.includes('BAĞKUR') || descUpper.includes('BAĞ-KUR') || descUpper.includes('SOSYAL GÜVENLİK') || h.kategoriId === 'ssk_odemesi') {
+      return { kod: '361.01.001', unvan: 'Ödenecek SGK / Sosyal Güvenlik Kesintileri' };
+    }
+    if (descUpper.includes('MUHTASAR') || descUpper.includes('VERGİ DAİRESİ') || descUpper.includes('KDV ÖDEME') || descUpper.includes('DAMGA VERGİSİ') || descUpper.includes('GEÇİCİ VERGİ') || descUpper.includes('KURUMLAR VERGİSİ') || h.kategoriId === 'vergi_kdv') {
+      return { kod: '360.01.001', unvan: 'Ödenecek Vergi ve Fonlar' };
+    }
+    return null;
+  };
+
   const buildBankaPreviewRows = (selected: CariHareket[]): PreviewYevmiyeRow[] => {
     return selected.flatMap((h) => {
       const banka = bankaHesaplari.find((b) => b.id === h.bankaId);
@@ -402,8 +445,9 @@ export function BankaEkstreListesi() {
         .trim()
         .substring(0, 50);
 
+      const inferredPayrollOrTax = !cari ? inferPayrollOrTaxAccount(h) : null;
       const cariHesapKodu =
-        (cari?.muhasebeKodu || (h as any).muhasebeKodu || (h as any).hesapKodu || '').trim() ||
+        (cari?.muhasebeKodu || (h as any).muhasebeKodu || (h as any).hesapKodu || inferredPayrollOrTax?.kod || '').trim() ||
         (isGiris ? '120.01.001' : '320.01.001');
       const bankaHesapKodu =
         (banka?.muhasebeKodu || (h as any).bankaMuhasebeKodu || '').trim() || '102.01.001';
@@ -422,7 +466,7 @@ export function BankaEkstreListesi() {
           aciklama: cleanAciklama,
           borc: isGiris ? 0 : tutarNum,
           alacak: isGiris ? tutarNum : 0,
-          cariUnvan: cari?.unvan || '',
+          cariUnvan: cari?.unvan || inferredPayrollOrTax?.unvan || '',
           vknTckn: cari?.vknTckn || '',
           vergiDairesi: (cari as any)?.vergiDairesi || '',
           hareketId: h.id,
@@ -943,10 +987,18 @@ export function BankaEkstreListesi() {
             muhasebeKodu: matchedLuca.kod
           });
           lucaCount++;
+        } else if (!matchedLuca && !h.muhasebeKodu) {
+          const inferred = inferPayrollOrTaxAccount(h);
+          if (inferred) {
+            updateCariHareket(h.id, {
+              muhasebeKodu: inferred.kod
+            });
+            lucaCount++;
+          }
         }
       }
     }
-    toast.success(`${cariCount} Cariye, ${lucaCount} Luca Hesabına otomatik eşleşme yapıldı.`);
+    toast.success(`${cariCount} Cariye, ${lucaCount} Luca / Maaş-SGK-Vergi Hesabına otomatik eşleşme yapıldı.`);
   };
 
   return (
@@ -975,6 +1027,22 @@ export function BankaEkstreListesi() {
           >
             <Sparkles className="w-4 h-4 text-yellow-300 animate-pulse" />
             ⚡ Akıllı Fatura Eşle & Kapat
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => setIsKurFarkiOpen(true)}
+            className="gap-1.5 border-indigo-200 text-indigo-700 bg-indigo-50/70 hover:bg-indigo-100 font-semibold"
+          >
+            <DollarSign className="w-4 h-4" />
+            💱 Kur Farkı (646/656)
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => setIsDenetimOpen(true)}
+            className="gap-1.5 border-amber-300 text-amber-800 bg-amber-50 hover:bg-amber-100 font-semibold"
+          >
+            <ShieldAlert className="w-4 h-4" />
+            🛡️ Muhasebe Denetimi
           </Button>
           <Button 
             variant="outline" 
@@ -2064,10 +2132,25 @@ export function BankaEkstreListesi() {
         isOpen={isPreviewModalOpen}
         onClose={() => setIsPreviewModalOpen(false)}
         title="Banka Mahsup Fişi Yevmiye Önizleme & Bakiye Kontrolü"
-        subtitle="Luca'ya göndermeden önce 102 Bankalar ve 120/320/770 karşı hesap yevmiye satırlarını kontrol edin veya düzenleyin."
-        documentCount={previewItems.length}
+        subtitle="Luca'ya göndermeden önce 102 Bankalar ve 120/320/335/360/361/770 karşı hesap yevmiye satırlarını kontrol edin veya düzenleyin."
+        documentCount={previewItems.length || 1}
         initialRows={previewRows}
         onConfirmSend={(finalRows) => sendBankaRowsToLuca(previewItems, finalRows)}
+      />
+
+      <KurFarkiHesapModal
+        open={isKurFarkiOpen}
+        onOpenChange={setIsKurFarkiOpen}
+        onOpenYevmiyePreview={(lines) => {
+          setPreviewItems([]);
+          setPreviewRows(lines);
+          setIsPreviewModalOpen(true);
+        }}
+      />
+
+      <MuhasebeDenetimModal
+        open={isDenetimOpen}
+        onOpenChange={setIsDenetimOpen}
       />
     </div>
   );

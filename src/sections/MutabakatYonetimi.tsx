@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label';
 import { 
   FileSignature, FileUp, Download, CheckCircle2, XCircle, 
   Clock, FileText, UploadCloud, Loader2, Sparkles, AlertTriangle,
-  Trash2, Eye, Save
+  Trash2, Eye, Save, Mail, MessageSquare, Printer, Copy, Send, Calculator
 } from 'lucide-react';
 import { 
   Dialog, DialogContent, DialogHeader, DialogTitle, 
@@ -22,7 +22,8 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 export function MutabakatYonetimi() {
-  const { apiFetch } = useApp();
+  const { apiFetch, cariler, satisFaturalari, alisFaturalari, cariHareketler, companies, user } = useApp();
+  const activeCompany = companies?.find(c => c.id === (user?.companyId || 1));
   const [mutabakatlar, setMutabakatlar] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState<string | null>(null);
@@ -45,6 +46,28 @@ export function MutabakatYonetimi() {
   const [isCustomXai, setIsCustomXai] = useState(false);
   const [isSavingKey, setIsSavingKey] = useState(false);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
+
+  // SMTP / E-Posta Tanımlama State'leri
+  const [smtpCompanyName, setSmtpCompanyName] = useState('');
+  const [smtpHost, setSmtpHost] = useState('');
+  const [smtpPort, setSmtpPort] = useState('465');
+  const [smtpSecure, setSmtpSecure] = useState('true');
+  const [smtpUser, setSmtpUser] = useState('');
+  const [smtpPass, setSmtpPass] = useState('');
+  const [testEmailTo, setTestEmailTo] = useState('');
+  const [isSavingSmtp, setIsSavingSmtp] = useState(false);
+  const [isTestingSmtp, setIsTestingSmtp] = useState(false);
+  const [sendingMailId, setSendingMailId] = useState<string | null>(null);
+
+  // Sistemden Otomatik BA/BS & Cari Bakiye Hesaplama State'leri
+  const [sendSourceMode, setSendSourceMode] = useState<'sistem' | 'excel'>('sistem');
+  const [selectedDonem, setSelectedDonem] = useState(() => {
+    const now = new Date();
+    return `${now.getFullYear()}/${String(now.getMonth() + 1).padStart(2, '0')}`;
+  });
+  const [systemCariContacts, setSystemCariContacts] = useState<Record<string, { eposta: string; telefon: string }>>({});
+  const [selectedSystemCariIds, setSelectedSystemCariIds] = useState<string[]>([]);
+  const [editingContactRow, setEditingContactRow] = useState<{ id: string; unvan: string; eposta: string; telefon: string } | null>(null);
 
   const PRESET_EVREN_MODELS = [
     { value: 'dots-ocr', label: 'dots-ocr (🇹🇷 Adanmış OCR - Fiş, Fatura, Termal Kağıt & Tablo Ayrıştırma - Önerilen)' },
@@ -127,7 +150,10 @@ export function MutabakatYonetimi() {
 
   const fetchSettings = async () => {
     try {
-      const [resProvider, resKey, resModel, resNvidiaKey, resNvidiaModel, resOpenaiKey, resOpenaiModel, resXaiKey, resXaiModel, resEvrenKey, resEvrenModel] = await Promise.all([
+      const [
+        resProvider, resKey, resModel, resNvidiaKey, resNvidiaModel, resOpenaiKey, resOpenaiModel, resXaiKey, resXaiModel, resEvrenKey, resEvrenModel,
+        resSmtpCompany, resSmtpHost, resSmtpPort, resSmtpSecure, resSmtpUser, resSmtpPass
+      ] = await Promise.all([
         apiFetch('/api/settings/ai_provider').catch(() => null),
         apiFetch('/api/settings/gemini_api_key').catch(() => null),
         apiFetch('/api/settings/gemini_model').catch(() => null),
@@ -139,6 +165,12 @@ export function MutabakatYonetimi() {
         apiFetch('/api/settings/xai_model').catch(() => null),
         apiFetch('/api/settings/evren_api_key').catch(() => null),
         apiFetch('/api/settings/evren_model').catch(() => null),
+        apiFetch('/api/settings/company_name').catch(() => null),
+        apiFetch('/api/settings/smtp_host').catch(() => null),
+        apiFetch('/api/settings/smtp_port').catch(() => null),
+        apiFetch('/api/settings/smtp_secure').catch(() => null),
+        apiFetch('/api/settings/smtp_user').catch(() => null),
+        apiFetch('/api/settings/smtp_pass').catch(() => null),
       ]);
 
       if (resProvider?.success && resProvider.value) setAiProvider(resProvider.value as any);
@@ -172,7 +204,391 @@ export function MutabakatYonetimi() {
           setIsCustomXai(true);
         }
       }
+      if (resSmtpCompany?.success && resSmtpCompany.value) setSmtpCompanyName(resSmtpCompany.value);
+      else if (activeCompany?.name) setSmtpCompanyName(activeCompany.name);
+      if (resSmtpHost?.success) setSmtpHost(resSmtpHost.value || '');
+      if (resSmtpPort?.success && resSmtpPort.value) setSmtpPort(resSmtpPort.value);
+      if (resSmtpSecure?.success && resSmtpSecure.value) setSmtpSecure(resSmtpSecure.value);
+      if (resSmtpUser?.success) {
+        setSmtpUser(resSmtpUser.value || '');
+        if (!testEmailTo && resSmtpUser.value) setTestEmailTo(resSmtpUser.value);
+      }
+      if (resSmtpPass?.success) setSmtpPass(resSmtpPass.value || '');
     } catch (e) {}
+  };
+
+  const handleSaveSmtpSettings = async () => {
+    setIsSavingSmtp(true);
+    try {
+      await Promise.all([
+        apiFetch('/api/settings/company_name', { method: 'POST', body: JSON.stringify({ value: smtpCompanyName }) }),
+        apiFetch('/api/settings/smtp_host', { method: 'POST', body: JSON.stringify({ value: smtpHost.trim() }) }),
+        apiFetch('/api/settings/smtp_port', { method: 'POST', body: JSON.stringify({ value: smtpPort.trim() }) }),
+        apiFetch('/api/settings/smtp_secure', { method: 'POST', body: JSON.stringify({ value: smtpSecure }) }),
+        apiFetch('/api/settings/smtp_user', { method: 'POST', body: JSON.stringify({ value: smtpUser.trim() }) }),
+        apiFetch('/api/settings/smtp_pass', { method: 'POST', body: JSON.stringify({ value: smtpPass }) }),
+      ]);
+      toast.success('E-Posta (SMTP) ayarları başarıyla kaydedildi.');
+    } catch (e: any) {
+      toast.error('E-Posta ayarları kaydedilemedi: ' + e.message);
+    } finally {
+      setIsSavingSmtp(false);
+    }
+  };
+
+  const handleTestSmtp = async () => {
+    setIsTestingSmtp(true);
+    try {
+      await handleSaveSmtpSettings();
+      const res = await apiFetch('/api/mutabakatlar/test-smtp', {
+        method: 'POST',
+        body: JSON.stringify({
+          company_name: smtpCompanyName,
+          smtp_host: smtpHost.trim(),
+          smtp_port: smtpPort.trim(),
+          smtp_secure: smtpSecure,
+          smtp_user: smtpUser.trim(),
+          smtp_pass: smtpPass,
+          test_to: testEmailTo.trim() || smtpUser.trim()
+        })
+      });
+      if (res.success) {
+        toast.success(res.message || 'Test maili başarıyla gönderildi!');
+      } else {
+        toast.error(res.message || 'SMTP testi başarısız.');
+      }
+    } catch (e: any) {
+      toast.error('SMTP Test Hatası: ' + e.message);
+    } finally {
+      setIsTestingSmtp(false);
+    }
+  };
+
+  const getPublicMutabakatUrl = (token: string) => `${window.location.origin}/?mutabakat=${token}`;
+
+  const handleSendSmtpMail = async (m: any, customEmail?: string) => {
+    const email = (customEmail || m.cariEposta || '').trim();
+    if (!email) {
+      setEditingContactRow({ id: m.id, unvan: m.cariUnvan, eposta: m.cariEposta || '', telefon: m.cariTelefon || '' });
+      toast.info('Lütfen önce müşterinin e-posta adresini tanımlayın.');
+      return;
+    }
+    setSendingMailId(m.id);
+    try {
+      const res = await apiFetch(`/api/mutabakatlar/${m.id}/send-mail`, {
+        method: 'POST',
+        body: JSON.stringify({ toEmail: email })
+      });
+      if (res.success) {
+        toast.success(`${m.cariUnvan} (${email}) adresine mutabakat e-postası gönderildi!`);
+        fetchMutabakatlar();
+      } else {
+        toast.error(res.message || 'Mail gönderilemedi.');
+      }
+    } catch (e: any) {
+      toast.error('Mail gönderim hatası: ' + e.message);
+    } finally {
+      setSendingMailId(null);
+    }
+  };
+
+  const handleSendMailto = (m: any) => {
+    const url = getPublicMutabakatUrl(m.token);
+    const bakiyeFormatted = new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(Math.abs(Number(m.bakiye) || 0));
+    const yon = Number(m.bakiye) >= 0 ? 'BORÇLU (Alacağımız)' : 'ALACAKLI (Borcumuz)';
+    const companyTitle = smtpCompanyName || activeCompany?.name || 'Şirketimiz';
+    const subject = encodeURIComponent(`${companyTitle} - ${m.donem} Dönemi Cari & BA/BS Mutabakat Mektubu`);
+    const body = encodeURIComponent(
+      `Sayın ${m.cariUnvan},\n\n` +
+      `Şirketimiz kayıtlarına göre ${m.donem} dönemi itibarıyla cari hesap mutabakat bilgilerimiz aşağıdadır:\n\n` +
+      `• Dönem: ${m.donem}\n` +
+      `• Toplam Borç: ${new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(Number(m.borc) || 0)}\n` +
+      `• Toplam Alacak: ${new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(Number(m.alacak) || 0)}\n` +
+      `• Net Bakiye: ${bakiyeFormatted} (${yon})\n` +
+      (m.aciklama ? `• Detay / BA-BS: ${m.aciklama}\n` : '') +
+      `\nMutabakatı tek tıkla ONAYLAMAK veya REDDETMEK için aşağıdaki bağlantıya tıklayabilirsiniz:\n${url}\n\n` +
+      `İyi çalışmalar dileriz.\n${companyTitle}`
+    );
+    window.open(`mailto:${m.cariEposta || ''}?subject=${subject}&body=${body}`, '_blank');
+  };
+
+  const handleSendWhatsApp = (m: any) => {
+    const url = getPublicMutabakatUrl(m.token);
+    const bakiyeFormatted = new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(Math.abs(Number(m.bakiye) || 0));
+    const yon = Number(m.bakiye) >= 0 ? 'BORÇLU' : 'ALACAKLI';
+    const companyTitle = smtpCompanyName || activeCompany?.name || 'Şirketimiz';
+    const text = encodeURIComponent(
+      `📄 *CARİ & BA/BS MUTABAKAT BİLDİRİMİ*\n\n` +
+      `Sayın *${m.cariUnvan}*,\n` +
+      `*${companyTitle}* kayıtlarına göre *${m.donem}* dönemi cari mutabakat özetiniz:\n\n` +
+      `🔹 *Borç:* ${new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(Number(m.borc) || 0)}\n` +
+      `🔸 *Alacak:* ${new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(Number(m.alacak) || 0)}\n` +
+      `💰 *Net Bakiye:* *${bakiyeFormatted} (${yon})*\n` +
+      (m.aciklama ? `📌 *Detay:* ${m.aciklama}\n` : '') +
+      `\n👇 Mutabakatı tek tıkla *Onaylamak* veya *Yanıtlamak* için tıklayın:\n${url}`
+    );
+    const rawPhone = String(m.cariTelefon || '').replace(/\D/g, '');
+    const normalizedPhone = rawPhone.startsWith('0') ? '90' + rawPhone.slice(1) : (rawPhone.length === 10 ? '90' + rawPhone : rawPhone);
+    const waUrl = normalizedPhone.length >= 10
+      ? `https://wa.me/${normalizedPhone}?text=${text}`
+      : `https://wa.me/?text=${text}`;
+    window.open(waUrl, '_blank');
+  };
+
+  const handleCopyLink = (m: any) => {
+    const url = getPublicMutabakatUrl(m.token);
+    navigator.clipboard.writeText(url);
+    toast.success('Canlı mutabakat onay linki panoya kopyalandı!');
+  };
+
+  const handlePrintPdfMektup = (m: any) => {
+    const url = getPublicMutabakatUrl(m.token);
+    const companyTitle = smtpCompanyName || activeCompany?.name || 'ŞİRKET UNVANI';
+    const bakiyeFormatted = new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(Math.abs(Number(m.bakiye) || 0));
+    const yon = Number(m.bakiye) >= 0 ? 'BORÇLU (Alacağımız)' : 'ALACAKLI (Borcumuz)';
+    const w = window.open('', '_blank');
+    if (!w) return;
+    w.document.write(`
+      <html>
+        <head>
+          <title>Cari & BA/BS Mutabakat Mektubu - ${m.cariUnvan}</title>
+          <style>
+            body { font-family: Arial, sans-serif; color: #1e293b; padding: 36px; max-width: 800px; margin: 0 auto; }
+            .header { display: flex; justify-content: space-between; border-bottom: 3px solid #4f46e5; padding-bottom: 16px; margin-bottom: 24px; }
+            .box { border: 1px solid #cbd5e1; border-radius: 8px; padding: 16px; margin-bottom: 20px; background: #f8fafc; }
+            table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+            th, td { border: 1px solid #cbd5e1; padding: 12px; text-align: left; font-size: 13px; }
+            th { background: #eef2ff; color: #312e81; }
+            .signatures { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; margin-top: 48px; }
+            .sig-box { border: 1px dashed #94a3b8; border-radius: 8px; padding: 20px; height: 110px; text-align: center; }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <div>
+              <h2 style="margin:0;color:#312e81;">CARİ HESAP & BA/BS MUTABAKAT MEKTUBU</h2>
+              <p style="margin:4px 0 0 0;font-size:13px;color:#64748b;">Dönem: <b>${m.donem}</b> | Tarih: ${new Date().toLocaleDateString('tr-TR')}</p>
+            </div>
+            <div style="text-align:right;">
+              <div style="font-weight:bold;font-size:15px;">${companyTitle}</div>
+              <div style="font-size:12px;color:#64748b;">Durum: ${m.durum}</div>
+            </div>
+          </div>
+          <div class="box">
+            <p style="margin:0 0 6px 0;"><b>Sayın:</b> ${m.cariUnvan}</p>
+            <p style="margin:0 0 6px 0;font-size:13px;"><b>VKN / TCKN:</b> ${m.cariVkn || '-'} | <b>Muhasebe Kodu:</b> ${m.cariMuhasebeKodu || '-'}</p>
+            <p style="margin:0;font-size:13px;"><b>E-Posta:</b> ${m.cariEposta || '-'} | <b>Telefon:</b> ${m.cariTelefon || '-'}</p>
+          </div>
+          <p style="font-size:14px;line-height:1.6;">
+            Şirketimiz nezdinizdeki cari hesabınızın <b>${m.donem}</b> dönemi itibarıyla bakiyesi ve BA/BS belge özetimiz aşağıda belirtilmiştir. Mutabık olup olmadığınızı kaşe/imza ile veya dijital onay linkimiz üzerinden bildirmenizi rica ederiz.
+          </p>
+          <table>
+            <thead>
+              <tr>
+                <th>Dönem</th>
+                <th>Toplam Borç</th>
+                <th>Toplam Alacak</th>
+                <th>Net Bakiye</th>
+                <th>Bakiye Yönü</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><b>${m.donem}</b></td>
+                <td>${new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(Number(m.borc) || 0)}</td>
+                <td>${new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(Number(m.alacak) || 0)}</td>
+                <td><b>${bakiyeFormatted}</b></td>
+                <td><b>${yon}</b></td>
+              </tr>
+            </tbody>
+          </table>
+          ${m.aciklama ? `<div class="box" style="font-size:13px;"><b>Detay / BA-BS Fatura Özeti:</b><br/>${m.aciklama}</div>` : ''}
+          <div style="font-size:12px;color:#475569;margin-top:16px;">
+            <b>Dijital Onay Linki:</b> ${url}
+          </div>
+          <div class="signatures">
+            <div class="sig-box">
+              <b>${companyTitle}</b><br/><span style="font-size:12px;color:#64748b;">Kaşe / İmza</span>
+            </div>
+            <div class="sig-box">
+              <b>${m.cariUnvan}</b><br/><span style="font-size:12px;color:#64748b;">Mutabıkız / Mutabık Değiliz (Kaşe / İmza)</span>
+            </div>
+          </div>
+          <script>window.onload = () => window.print();</script>
+        </body>
+      </html>
+    `);
+    w.document.close();
+  };
+
+  const handleSaveCariContact = async () => {
+    if (!editingContactRow) return;
+    try {
+      const res = await apiFetch(`/api/mutabakatlar/${editingContactRow.id}/update-contact`, {
+        method: 'POST',
+        body: JSON.stringify({
+          eposta: editingContactRow.eposta.trim(),
+          telefon: editingContactRow.telefon.trim()
+        })
+      });
+      if (res.success) {
+        toast.success('Cari iletişim bilgileri güncellendi.');
+        setMutabakatlar(prev => prev.map(m => m.id === editingContactRow.id ? {
+          ...m,
+          cariEposta: editingContactRow.eposta.trim(),
+          cariTelefon: editingContactRow.telefon.trim()
+        } : m));
+        setEditingContactRow(null);
+      }
+    } catch (e: any) {
+      toast.error('Güncelleme hatası: ' + e.message);
+    }
+  };
+
+  // Sistemdeki Cari, Fatura ve Banka Hareketlerinden Otomatik BA/BS & Bakiye Özeti
+  const systemCalculatedRows = useMemo(() => {
+    const normDonem = selectedDonem.replace('/', '-'); // e.g. 2026-11
+    return (cariler || []).map(c => {
+      const cVkn = String(c.vknTckn || '').trim();
+      const cName = String(c.unvan || '').toLocaleLowerCase('tr-TR').trim();
+
+      // Satış Faturaları (BS - Müşteri Borçlanır)
+      const matchedSatis = (satisFaturalari || []).filter(sf => {
+        if (sf.durum === 'iptal') return false;
+        const fMatch = (sf.cariId && sf.cariId === c.id) || (cVkn && sf.tcVkn && String(sf.tcVkn).trim() === cVkn) ||
+          (`${sf.ad || ''} ${sf.soyad || ''}`.toLocaleLowerCase('tr-TR').trim() === cName && cName.length > 3);
+        if (!fMatch) return false;
+        if (selectedDonem === 'TUMU') return true;
+        return String(sf.faturaTarihi || '').startsWith(normDonem);
+      });
+
+      // Alış Faturaları (BA - Tedarikçi Alacaklanır)
+      const matchedAlis = (alisFaturalari || []).filter(af => {
+        if (af.durum === 'iptal') return false;
+        const fMatch = (af.cariId && af.cariId === c.id) || (cVkn && af.tedarikciVkn && String(af.tedarikciVkn).trim() === cVkn) ||
+          (String(af.tedarikciAdi || '').toLocaleLowerCase('tr-TR').trim() === cName && cName.length > 3);
+        if (!fMatch) return false;
+        if (selectedDonem === 'TUMU') return true;
+        return String(af.faturaTarihi || '').startsWith(normDonem);
+      });
+
+      // Banka / Cari Hareketler
+      const matchedHareket = (cariHareketler || []).filter(ch => {
+        if (ch.cariId !== c.id) return false;
+        if (selectedDonem === 'TUMU') return true;
+        return String(ch.tarih || '').startsWith(normDonem);
+      });
+
+      const satisToplam = matchedSatis.reduce((s, f) => s + (Number(f.alinanUcret) || 0), 0);
+      const satisMatrah = matchedSatis.reduce((s, f) => s + (Number(f.matrah) || ((Number(f.alinanUcret) || 0) - (Number(f.kdvTutari) || 0))), 0);
+      const alisToplam = matchedAlis.reduce((s, f) => s + (Number(f.toplamTutar) || 0), 0);
+      const alisMatrah = matchedAlis.reduce((s, f) => s + (Number(f.matrah) || 0), 0);
+
+      let bankaBorc = 0; // Bizden çıkan ödeme
+      let bankaAlacak = 0; // Bize gelen tahsilat
+      for (const h of matchedHareket) {
+        if (h.islemTuru === 'tahsilat') bankaAlacak += Number(h.tutar) || 0;
+        else if (h.islemTuru === 'odeme') bankaBorc += Number(h.tutar) || 0;
+      }
+
+      const borc = Math.round((satisToplam + bankaBorc) * 100) / 100;
+      const alacak = Math.round((alisToplam + bankaAlacak) * 100) / 100;
+      const bakiye = Math.round((borc - alacak) * 100) / 100;
+
+      const baBsParts: string[] = [];
+      if (matchedSatis.length > 0) {
+        baBsParts.push(`BS (Satış): ${matchedSatis.length} Adet Fatura - KDV Hariç ${satisMatrah.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} TL`);
+      }
+      if (matchedAlis.length > 0) {
+        baBsParts.push(`BA (Alış): ${matchedAlis.length} Adet Fatura - KDV Hariç ${alisMatrah.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} TL`);
+      }
+
+      const override = systemCariContacts[c.id];
+      return {
+        cariId: c.id,
+        unvan: c.unvan,
+        vknTckn: c.vknTckn || '',
+        muhasebeKodu: c.muhasebeKodu || '',
+        eposta: override?.eposta !== undefined ? override.eposta : (c.eposta || ''),
+        telefon: override?.telefon !== undefined ? override.telefon : (c.telefon || ''),
+        satisAdet: matchedSatis.length,
+        alisAdet: matchedAlis.length,
+        borc,
+        alacak,
+        bakiye,
+        aciklama: baBsParts.join(' | ') || `${selectedDonem} Dönemi Cari Hesap Mutabakatı`
+      };
+    }).filter(r => r.borc > 0 || r.alacak > 0 || Math.abs(r.bakiye) > 0);
+  }, [cariler, satisFaturalari, alisFaturalari, cariHareketler, selectedDonem, systemCariContacts]);
+
+  const handleCreateFromSystem = async (autoSendSmtp: boolean) => {
+    const selectedRows = systemCalculatedRows.filter(r => selectedSystemCariIds.includes(r.cariId));
+    if (selectedRows.length === 0) {
+      toast.warning('Lütfen listeden en az 1 cari seçin.');
+      return;
+    }
+    setIsLoading(true);
+    try {
+      const payload = selectedRows.map(r => ({
+        cariId: r.cariId,
+        muhasebeKodu: r.muhasebeKodu,
+        vknTckn: r.vknTckn,
+        eposta: r.eposta,
+        telefon: r.telefon,
+        donem: selectedDonem,
+        borc: r.borc,
+        alacak: r.alacak,
+        bakiye: r.bakiye,
+        aciklama: r.aciklama
+      }));
+
+      const res = await apiFetch('/api/mutabakatlar/bulk', {
+        method: 'POST',
+        body: JSON.stringify({
+          mutabakatlar: payload,
+          allowWithoutEmail: true
+        })
+      });
+
+      if (res.success && res.created?.length > 0) {
+        if (autoSendSmtp) {
+          const withEmails = res.created.filter((c: any) => c.eposta);
+          if (withEmails.length > 0) {
+            setSendProgress({ total: withEmails.length, current: 0, logs: [] });
+            for (let i = 0; i < withEmails.length; i++) {
+              const item = withEmails[i];
+              setSendProgress(prev => ({
+                ...prev!,
+                current: i + 1,
+                logs: [`${item.unvan} (${item.eposta}) için mail gönderiliyor...`, ...(prev?.logs || [])]
+              }));
+              try {
+                await apiFetch(`/api/mutabakatlar/${item.id}/send-mail`, {
+                  method: 'POST',
+                  body: JSON.stringify({ toEmail: item.eposta })
+                });
+              } catch {
+                setSendProgress(prev => ({
+                  ...prev!,
+                  logs: [`HATA: ${item.unvan} maili gönderilemedi.`, ...(prev?.logs || [])]
+                }));
+              }
+            }
+            setTimeout(() => setSendProgress(null), 1500);
+          }
+        }
+        toast.success(`${res.created.length} cari için mutabakat kaydı oluşturuldu! Listeden E-Posta, Mail Uygulaması, WhatsApp veya PDF ile gönderebilirsiniz.`);
+        setSelectedSystemCariIds([]);
+        setActiveTab('liste');
+        fetchMutabakatlar();
+      } else {
+        toast.error(res.message || 'Mutabakat oluşturulamadı.');
+      }
+    } catch (e: any) {
+      toast.error('Hata: ' + e.message);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleSaveAiSettings = async () => {
@@ -434,16 +850,24 @@ export function MutabakatYonetimi() {
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
         <TabsList className="bg-white border p-1 rounded-xl shadow-sm">
           <TabsTrigger value="liste" className="rounded-lg data-[state=active]:bg-indigo-50 data-[state=active]:text-indigo-700">Aktif Mutabakatlar</TabsTrigger>
-          <TabsTrigger value="gonder" className="rounded-lg data-[state=active]:bg-indigo-50 data-[state=active]:text-indigo-700">Mutabakat Gönder</TabsTrigger>
+          <TabsTrigger value="gonder" className="rounded-lg data-[state=active]:bg-indigo-50 data-[state=active]:text-indigo-700">BA/BS & Bakiye Mutabakatı Oluştur</TabsTrigger>
           <TabsTrigger value="sablon" className="rounded-lg data-[state=active]:bg-indigo-50 data-[state=active]:text-indigo-700">Şablonlar</TabsTrigger>
-          <TabsTrigger value="ayarlar" className="rounded-lg data-[state=active]:bg-indigo-50 data-[state=active]:text-indigo-700">Ayarlar</TabsTrigger>
+          <TabsTrigger value="ayarlar" className="rounded-lg data-[state=active]:bg-indigo-50 data-[state=active]:text-indigo-700">✉️ E-Posta (SMTP) & AI Ayarları</TabsTrigger>
         </TabsList>
 
         <TabsContent value="liste" className="space-y-4">
           <Card className="border-0 shadow-sm">
             <CardHeader className="pb-3 border-b flex flex-row items-center justify-between">
-              <CardTitle className="text-lg">Gönderilen Mutabakatlar</CardTitle>
+              <div>
+                <CardTitle className="text-lg">Gönderilen Mutabakatlar</CardTitle>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  İstediğiniz cariye <b>Sistemden Otomatik Mail (SMTP)</b>, <b>Mail Programı (Outlook/Gmail)</b>, <b>WhatsApp</b> veya <b>PDF Mektup</b> ile gönderebilirsiniz.
+                </p>
+              </div>
               <div className="flex gap-2">
+                <Button variant="outline" size="sm" onClick={() => setActiveTab('ayarlar')} className="text-xs border-indigo-200 text-indigo-700 bg-indigo-50/50">
+                  <Mail className="w-3.5 h-3.5 mr-1.5" /> E-Posta Tanımla
+                </Button>
                 <Button variant="outline" size="sm" onClick={fetchMutabakatlar} disabled={isLoading}>
                   {isLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2"/> : null}
                   Yenile
@@ -462,10 +886,10 @@ export function MutabakatYonetimi() {
                     </TableHead>
                     <TableHead>Tarih & Dönem</TableHead>
                     <TableHead>Cari (Muhatap)</TableHead>
-                    <TableHead>E-Posta</TableHead>
-                    <TableHead className="text-right">Bakiye Bildirimi</TableHead>
+                    <TableHead>İletişim (Mail & Tel)</TableHead>
+                    <TableHead className="text-right">Bakiye & BA/BS</TableHead>
                     <TableHead className="text-right">Durum</TableHead>
-                    <TableHead className="text-right">İşlemler</TableHead>
+                    <TableHead className="text-right">Gönderim Kanalları & İşlemler</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -489,9 +913,43 @@ export function MutabakatYonetimi() {
                         <div className="font-medium text-slate-800">{m.cariUnvan}</div>
                         <div className="text-xs text-slate-400">VKN: {m.cariVkn || '-'}</div>
                       </TableCell>
-                      <TableCell className="text-sm text-slate-600">{m.cariEposta}</TableCell>
-                      <TableCell className="text-right font-medium text-slate-800">
-                        {new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(m.bakiye)}
+                      <TableCell>
+                        <div className="flex items-center gap-1.5">
+                          <div className="text-xs">
+                            <div className={m.cariEposta ? 'text-slate-700 font-medium' : 'text-amber-600 italic'}>
+                              ✉️ {m.cariEposta || 'E-posta tanımlanmamış'}
+                            </div>
+                            <div className="text-slate-400 text-[11px]">
+                              📞 {m.cariTelefon || 'Telefon yok'}
+                            </div>
+                          </div>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-6 px-1.5 text-[10px] text-indigo-600 hover:bg-indigo-50"
+                            onClick={() => setEditingContactRow({
+                              id: m.id,
+                              unvan: m.cariUnvan,
+                              eposta: m.cariEposta || '',
+                              telefon: m.cariTelefon || ''
+                            })}
+                          >
+                            Tanımla
+                          </Button>
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="font-bold text-slate-800">
+                          {new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(Math.abs(Number(m.bakiye) || 0))}
+                          <span className={`ml-1 text-[10px] font-bold px-1.5 py-0.5 rounded ${Number(m.bakiye) >= 0 ? 'bg-blue-50 text-blue-700' : 'bg-amber-50 text-amber-700'}`}>
+                            {Number(m.bakiye) >= 0 ? 'B' : 'A'}
+                          </span>
+                        </div>
+                        {m.aciklama && (
+                          <div className="text-[10px] text-slate-500 max-w-[210px] ml-auto truncate" title={m.aciklama}>
+                            {m.aciklama}
+                          </div>
+                        )}
                       </TableCell>
                       <TableCell className="text-right">
                         {getDurumBadge(m.durum)}
@@ -502,11 +960,60 @@ export function MutabakatYonetimi() {
                         )}
                       </TableCell>
                       <TableCell className="text-right">
-                        <div className="flex justify-end gap-1.5">
+                        <div className="flex justify-end items-center gap-1 flex-wrap">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={sendingMailId === m.id}
+                            onClick={() => handleSendSmtpMail(m)}
+                            className="h-7 px-2 text-[11px] border-indigo-200 text-indigo-700 bg-indigo-50/70 hover:bg-indigo-100"
+                            title="Sistem üzerinden doğrudan e-posta (SMTP) gönder"
+                          >
+                            {sendingMailId === m.id ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Send className="w-3 h-3 mr-1" />}
+                            Mail Gönder
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleSendMailto(m)}
+                            className="h-7 px-2 text-[11px] border-sky-200 text-sky-700 bg-sky-50/70 hover:bg-sky-100"
+                            title="Bilgisayardaki varsayılan Mail Programıyla (Outlook / Gmail) aç"
+                          >
+                            <Mail className="w-3 h-3 mr-1" />
+                            Mail App
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleSendWhatsApp(m)}
+                            className="h-7 px-2 text-[11px] border-emerald-200 text-emerald-700 bg-emerald-50/70 hover:bg-emerald-100"
+                            title="WhatsApp üzerinden canlı onay linkli mutabakat mesajı gönder"
+                          >
+                            <MessageSquare className="w-3 h-3 mr-1" />
+                            WhatsApp
+                          </Button>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-7 w-7 text-slate-600 hover:text-indigo-700"
+                            onClick={() => handlePrintPdfMektup(m)}
+                            title="Resmi PDF Mutabakat Mektubu Yazdır / İndir"
+                          >
+                            <Printer className="w-3.5 h-3.5" />
+                          </Button>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-7 w-7 text-slate-600 hover:text-indigo-700"
+                            onClick={() => handleCopyLink(m)}
+                            title="Canlı Onay Linkini Kopyala"
+                          >
+                            <Copy className="w-3.5 h-3.5" />
+                          </Button>
                           <Button 
                             size="icon" 
                             variant="ghost" 
-                            className="h-8 w-8 text-slate-400 hover:text-indigo-600" 
+                            className="h-7 w-7 text-slate-400 hover:text-indigo-600" 
                             onClick={() => setViewDetail(m)}
                             title="Detayları Gör"
                           >
@@ -517,14 +1024,14 @@ export function MutabakatYonetimi() {
                             <Button 
                               size="icon" 
                               variant="ghost" 
-                              className="h-8 w-8 text-emerald-600 hover:bg-emerald-50"
+                              className="h-7 w-7 text-emerald-600 hover:bg-emerald-50"
                               disabled={downloadingId === m.id}
                               onClick={() => downloadMuavin(m.id, m.karsi_muavin_filename || 'muavin.xlsx')}
                               title="Muavin İndir"
                             >
                               {downloadingId === m.id 
-                                ? <Loader2 className="w-4 h-4 animate-spin" />
-                                : <Download className="w-4 h-4" />}
+                                ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                : <Download className="w-3.5 h-3.5" />}
                             </Button>
                           )}
 
@@ -534,15 +1041,15 @@ export function MutabakatYonetimi() {
                               variant="outline" 
                               disabled={isAnalyzing === m.id}
                               onClick={() => handleAIAnalyze(m.id, m.ai_analiz_sonucu)}
-                              className="text-xs h-8 border-indigo-200 text-indigo-700 bg-indigo-50 hover:bg-indigo-100"
+                              className="text-xs h-7 border-indigo-200 text-indigo-700 bg-indigo-50 hover:bg-indigo-100"
                             >
                               {isAnalyzing === m.id ? <Loader2 className="w-3 h-3 animate-spin"/> : <Sparkles className="w-3 h-3 mr-1"/>}
                               {m.ai_analiz_sonucu ? 'Analizi Gör' : 'AI Analiz'}
                             </Button>
                           )}
 
-                          <Button size="icon" variant="ghost" className="h-8 w-8 text-slate-400 hover:text-red-600" onClick={() => handleDelete(m.id)} title="Sil">
-                            <Trash2 className="w-4 h-4" />
+                          <Button size="icon" variant="ghost" className="h-7 w-7 text-slate-400 hover:text-red-600" onClick={() => handleDelete(m.id)} title="Sil">
+                            <Trash2 className="w-3.5 h-3.5" />
                           </Button>
                         </div>
                       </TableCell>
@@ -554,63 +1061,250 @@ export function MutabakatYonetimi() {
           </Card>
         </TabsContent>
 
-        <TabsContent value="gonder">
-          <Card className="border-0 shadow-sm max-w-4xl mx-auto">
-            <CardHeader className="border-b">
-              <CardTitle>Toplu Mutabakat Gönderimi</CardTitle>
-              <CardDescription>
-                Mizan (toplam bakiye) dosyanızı yükleyerek tüm carilere tek tuşla mutabakat e-postası yollayabilirsiniz.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="p-6 space-y-6">
-               <div className="grid grid-cols-2 gap-4">
-                 <div onClick={() => setImportMode('basit')} className={`border rounded-xl p-4 cursor-pointer ${importMode === 'basit' ? 'border-indigo-500 bg-indigo-50 shadow-sm' : 'border-slate-200 hover:border-indigo-300'}`}>
-                   <div className="flex items-center gap-3 mb-2 font-semibold text-slate-900">
-                     <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${importMode === 'basit' ? 'border-indigo-600' : 'border-slate-300'}`}>
-                        {importMode === 'basit' && <div className="w-2 h-2 bg-indigo-600 rounded-full"/>}
-                     </div>
-                     Basit Gönderim
-                   </div>
-                   <p className="text-xs text-slate-500 ml-7">Sadece bakiye bildirimi yapılır.</p>
-                 </div>
-                 <div onClick={() => setImportMode('detayli')} className={`border rounded-xl p-4 cursor-pointer ${importMode === 'detayli' ? 'border-primary bg-primary/5 shadow-sm' : 'border-slate-200 hover:border-primary/50'}`}>
-                   <div className="flex items-center gap-3 mb-2 font-semibold text-slate-900">
-                     <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${importMode === 'detayli' ? 'border-primary' : 'border-slate-300'}`}>
-                        {importMode === 'detayli' && <div className="w-2 h-2 bg-primary rounded-full"/>}
-                     </div>
-                     Detaylı (AI Destekli)
-                   </div>
-                   <p className="text-xs text-slate-500 ml-7">Muavin yükleyerek uyuşmazlık analizini aktifleştirin.</p>
-                 </div>
-               </div>
+        <TabsContent value="gonder" className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-w-5xl mx-auto">
+            <button
+              type="button"
+              onClick={() => setSendSourceMode('sistem')}
+              className={`p-4 rounded-xl border-2 text-left transition-all ${
+                sendSourceMode === 'sistem'
+                  ? 'border-indigo-600 bg-indigo-50/70 shadow-sm'
+                  : 'border-slate-200 bg-white hover:border-indigo-200'
+              }`}
+            >
+              <div className="font-bold text-slate-900 flex items-center gap-2">
+                <Calculator className="w-4 h-4 text-indigo-600" />
+                ⚡ Sistemdeki Kayıtlardan Otomatik BA/BS & Bakiye Hesapla
+              </div>
+              <p className="text-xs text-slate-500 mt-1">
+                Excel yüklemeden, sistemdeki Satış/Alış faturalarınız ve Banka hareketlerinizden cari bakiyeleri ve BA/BS fatura adetlerini otomatik çıkarır.
+              </p>
+            </button>
 
-               <div className="space-y-4 pt-4 border-t">
-                 <div>
-                   <Label className="text-sm font-medium mb-1.5 block">1. Mizan Dosyası (Zorunlu)</Label>
-                   <Button type="button" variant="outline" onClick={() => mizanFileRef.current?.click()} className="w-full flex justify-between border-dashed border-2 px-4 h-11">
-                     <span className="flex items-center"><UploadCloud className="w-4 h-4 mr-2"/> {mizanFile ? mizanFile.name : 'Mizan Seç (.xlsx)'}</span>
-                     {mizanFile && <CheckCircle2 className="w-4 h-4 text-emerald-500" />}
-                   </Button>
-                   <input type="file" ref={mizanFileRef} onChange={(e) => setMizanFile(e.target.files?.[0] || null)} accept=".xlsx,.xls" className="hidden" />
+            <button
+              type="button"
+              onClick={() => setSendSourceMode('excel')}
+              className={`p-4 rounded-xl border-2 text-left transition-all ${
+                sendSourceMode === 'excel'
+                  ? 'border-indigo-600 bg-indigo-50/70 shadow-sm'
+                  : 'border-slate-200 bg-white hover:border-indigo-200'
+              }`}
+            >
+              <div className="font-bold text-slate-900 flex items-center gap-2">
+                <FileUp className="w-4 h-4 text-indigo-600" />
+                📂 Dışarıdan Mizan / Muavin Excel Dosyası Yükle
+              </div>
+              <p className="text-xs text-slate-500 mt-1">
+                Luca veya başka bir muhasebe programından aldığınız Mizan (.xlsx) dosyasını yükleyerek toplu mutabakat oluşturun.
+              </p>
+            </button>
+          </div>
+
+          {sendSourceMode === 'sistem' ? (
+            <Card className="border-0 shadow-sm max-w-5xl mx-auto">
+              <CardHeader className="border-b flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                <div>
+                  <CardTitle className="text-lg">Otomatik BA/BS & Cari Bakiye Mutabakat Hazırlayıcı</CardTitle>
+                  <CardDescription>
+                    Müşteri/tedarikçi e-posta veya telefon bilgilerini tablodan doğrudan tanımlayabilir, istediğiniz kanaldan gönderebilirsiniz.
+                  </CardDescription>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Label className="text-xs font-semibold whitespace-nowrap">Dönem:</Label>
+                  <Input
+                    value={selectedDonem}
+                    onChange={(e) => setSelectedDonem(e.target.value)}
+                    placeholder="2026/11 veya TUMU"
+                    className="w-32 h-9 text-xs font-mono"
+                  />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setSelectedDonem('TUMU')}
+                    className="h-9 text-xs"
+                  >
+                    Tüm Dönemler
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent className="p-4 space-y-4">
+                <div className="flex items-center justify-between bg-slate-50 p-3 rounded-xl border">
+                  <div className="text-xs text-slate-600">
+                    Hareket gören <b>{systemCalculatedRows.length}</b> cari bulundu • Seçili: <b>{selectedSystemCariIds.length}</b>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-8 text-xs"
+                      onClick={() => {
+                        if (selectedSystemCariIds.length === systemCalculatedRows.length) {
+                          setSelectedSystemCariIds([]);
+                        } else {
+                          setSelectedSystemCariIds(systemCalculatedRows.map(r => r.cariId));
+                        }
+                      }}
+                    >
+                      {selectedSystemCariIds.length === systemCalculatedRows.length ? 'Seçimi Kaldır' : 'Tümünü Seç'}
+                    </Button>
+                    <Button
+                      size="sm"
+                      disabled={isLoading || selectedSystemCariIds.length === 0}
+                      onClick={() => handleCreateFromSystem(false)}
+                      variant="outline"
+                      className="h-8 text-xs border-emerald-300 text-emerald-800 bg-emerald-50 hover:bg-emerald-100"
+                    >
+                      💬 Oluştur (WhatsApp / Mail App / PDF İçin)
+                    </Button>
+                    <Button
+                      size="sm"
+                      disabled={isLoading || selectedSystemCariIds.length === 0}
+                      onClick={() => handleCreateFromSystem(true)}
+                      className="h-8 text-xs bg-indigo-600 hover:bg-indigo-700 text-white"
+                    >
+                      📧 Oluştur ve Otomatik Mail (SMTP) Gönder
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="border rounded-xl overflow-hidden max-h-[440px] overflow-y-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-slate-50">
+                        <TableHead className="w-10">
+                          <Checkbox
+                            checked={systemCalculatedRows.length > 0 && selectedSystemCariIds.length === systemCalculatedRows.length}
+                            onCheckedChange={() => {
+                              if (selectedSystemCariIds.length === systemCalculatedRows.length) setSelectedSystemCariIds([]);
+                              else setSelectedSystemCariIds(systemCalculatedRows.map(r => r.cariId));
+                            }}
+                          />
+                        </TableHead>
+                        <TableHead>Cari Unvan & VKN</TableHead>
+                        <TableHead>Müşteri E-Posta (Tanımla)</TableHead>
+                        <TableHead>WhatsApp Telefon</TableHead>
+                        <TableHead className="text-center">BA / BS Adet</TableHead>
+                        <TableHead className="text-right">Net Bakiye</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {systemCalculatedRows.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={6} className="h-24 text-center text-slate-400 text-xs">
+                            Seçilen dönemde fatura veya banka hareketi olan cari bulunamadı. "Tüm Dönemler" butonuna tıklayabilirsiniz.
+                          </TableCell>
+                        </TableRow>
+                      ) : systemCalculatedRows.map(r => (
+                        <TableRow key={r.cariId}>
+                          <TableCell>
+                            <Checkbox
+                              checked={selectedSystemCariIds.includes(r.cariId)}
+                              onCheckedChange={(checked) => {
+                                setSelectedSystemCariIds(prev => checked ? [...prev, r.cariId] : prev.filter(id => id !== r.cariId));
+                              }}
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <div className="font-semibold text-xs text-slate-800">{r.unvan}</div>
+                            <div className="text-[10px] text-slate-400">VKN: {r.vknTckn || '-'} | Kod: {r.muhasebeKodu || '-'}</div>
+                          </TableCell>
+                          <TableCell>
+                            <Input
+                              value={r.eposta}
+                              onChange={(e) => setSystemCariContacts(prev => ({
+                                ...prev,
+                                [r.cariId]: { eposta: e.target.value, telefon: r.telefon }
+                              }))}
+                              placeholder="ornek@firma.com"
+                              className="h-7 text-xs w-44"
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <Input
+                              value={r.telefon}
+                              onChange={(e) => setSystemCariContacts(prev => ({
+                                ...prev,
+                                [r.cariId]: { eposta: r.eposta, telefon: e.target.value }
+                              }))}
+                              placeholder="05XX XXX XX XX"
+                              className="h-7 text-xs w-36"
+                            />
+                          </TableCell>
+                          <TableCell className="text-center text-xs">
+                            <span className="px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 font-medium mr-1">BS: {r.satisAdet}</span>
+                            <span className="px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 font-medium">BA: {r.alisAdet}</span>
+                          </TableCell>
+                          <TableCell className="text-right font-bold text-xs">
+                            {Math.abs(r.bakiye).toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺{' '}
+                            <span className={r.bakiye >= 0 ? 'text-blue-600' : 'text-amber-600'}>
+                              ({r.bakiye >= 0 ? 'Borçlu' : 'Alacaklı'})
+                            </span>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </CardContent>
+            </Card>
+          ) : (
+            <Card className="border-0 shadow-sm max-w-4xl mx-auto">
+              <CardHeader className="border-b">
+                <CardTitle>Excel Mizan ile Toplu Mutabakat Gönderimi</CardTitle>
+                <CardDescription>
+                  Mizan (toplam bakiye) dosyanızı yükleyerek tüm carilere tek tuşla mutabakat oluşturabilirsiniz.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="p-6 space-y-6">
+                 <div className="grid grid-cols-2 gap-4">
+                   <div onClick={() => setImportMode('basit')} className={`border rounded-xl p-4 cursor-pointer ${importMode === 'basit' ? 'border-indigo-500 bg-indigo-50 shadow-sm' : 'border-slate-200 hover:border-indigo-300'}`}>
+                     <div className="flex items-center gap-3 mb-2 font-semibold text-slate-900">
+                       <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${importMode === 'basit' ? 'border-indigo-600' : 'border-slate-300'}`}>
+                          {importMode === 'basit' && <div className="w-2 h-2 bg-indigo-600 rounded-full"/>}
+                       </div>
+                       Basit Gönderim
+                     </div>
+                     <p className="text-xs text-slate-500 ml-7">Sadece bakiye bildirimi yapılır.</p>
+                   </div>
+                   <div onClick={() => setImportMode('detayli')} className={`border rounded-xl p-4 cursor-pointer ${importMode === 'detayli' ? 'border-primary bg-primary/5 shadow-sm' : 'border-slate-200 hover:border-primary/50'}`}>
+                     <div className="flex items-center gap-3 mb-2 font-semibold text-slate-900">
+                       <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${importMode === 'detayli' ? 'border-primary' : 'border-slate-300'}`}>
+                          {importMode === 'detayli' && <div className="w-2 h-2 bg-primary rounded-full"/>}
+                       </div>
+                       Detaylı (AI Destekli)
+                     </div>
+                     <p className="text-xs text-slate-500 ml-7">Muavin yükleyerek uyuşmazlık analizini aktifleştirin.</p>
+                   </div>
                  </div>
-                 {importMode === 'detayli' && (
+
+                 <div className="space-y-4 pt-4 border-t">
                    <div>
-                     <Label className="text-sm font-medium mb-1.5 block text-primary">2. Kendi Muavin Dosyanız (Zorunlu)</Label>
-                     <Button type="button" variant="outline" onClick={() => muavinFileRef.current?.click()} className="w-full flex justify-between border-primary/30 border-dashed border-2 px-4 h-11 bg-primary/5 text-primary">
-                       <span className="flex items-center"><FileText className="w-4 h-4 mr-2"/> {muavinFile ? muavinFile.name : 'Muavin Seç (.xlsx)'}</span>
-                       {muavinFile && <CheckCircle2 className="w-4 h-4 text-emerald-500" />}
+                     <Label className="text-sm font-medium mb-1.5 block">1. Mizan Dosyası (Zorunlu)</Label>
+                     <Button type="button" variant="outline" onClick={() => mizanFileRef.current?.click()} className="w-full flex justify-between border-dashed border-2 px-4 h-11">
+                       <span className="flex items-center"><UploadCloud className="w-4 h-4 mr-2"/> {mizanFile ? mizanFile.name : 'Mizan Seç (.xlsx)'}</span>
+                       {mizanFile && <CheckCircle2 className="w-4 h-4 text-emerald-500" />}
                      </Button>
-                     <input type="file" ref={muavinFileRef} onChange={(e) => setMuavinFile(e.target.files?.[0] || null)} accept=".xlsx,.xls" className="hidden" />
+                     <input type="file" ref={mizanFileRef} onChange={(e) => setMizanFile(e.target.files?.[0] || null)} accept=".xlsx,.xls" className="hidden" />
                    </div>
-                 )}
-               </div>
+                   {importMode === 'detayli' && (
+                     <div>
+                       <Label className="text-sm font-medium mb-1.5 block text-primary">2. Kendi Muavin Dosyanız (Zorunlu)</Label>
+                       <Button type="button" variant="outline" onClick={() => muavinFileRef.current?.click()} className="w-full flex justify-between border-primary/30 border-dashed border-2 px-4 h-11 bg-primary/5 text-primary">
+                         <span className="flex items-center"><FileText className="w-4 h-4 mr-2"/> {muavinFile ? muavinFile.name : 'Muavin Seç (.xlsx)'}</span>
+                         {muavinFile && <CheckCircle2 className="w-4 h-4 text-emerald-500" />}
+                       </Button>
+                       <input type="file" ref={muavinFileRef} onChange={(e) => setMuavinFile(e.target.files?.[0] || null)} accept=".xlsx,.xls" className="hidden" />
+                     </div>
+                   )}
+                 </div>
 
-               <Button onClick={processAndSendMutabakat} disabled={isLoading} className="w-full h-12 text-base font-bold bg-indigo-600 hover:bg-indigo-700 shadow-md">
-                 {isLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2"/> : <FileUp className="w-4 h-4 mr-2" />}
-                 Mutabakat Mail'lerini Başlat
-               </Button>
-            </CardContent>
-          </Card>
+                 <Button onClick={processAndSendMutabakat} disabled={isLoading} className="w-full h-12 text-base font-bold bg-indigo-600 hover:bg-indigo-700 shadow-md">
+                   {isLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2"/> : <FileUp className="w-4 h-4 mr-2" />}
+                   Mutabakat Mail'lerini Başlat
+                 </Button>
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
 
         <TabsContent value="sablon">
@@ -630,7 +1324,146 @@ export function MutabakatYonetimi() {
            </Card>
         </TabsContent>
         
-        <TabsContent value="ayarlar">
+        <TabsContent value="ayarlar" className="space-y-6">
+           {/* E-POSTA (SMTP) TANIMLAMA KARTI */}
+           <Card className="border-0 shadow-sm max-w-2xl mx-auto">
+             <CardHeader className="border-b bg-indigo-50/40">
+               <CardTitle className="flex items-center gap-2 text-indigo-900">
+                 <Mail className="w-5 h-5 text-indigo-600" />
+                 Kurumsal E-Posta (SMTP) Gönderim Ayarları
+               </CardTitle>
+               <CardDescription>
+                 Mutabakat mektuplarını doğrudan kendi e-posta adresinizden göndermek için SMTP bilgilerinizi tanımlayın. (Tanımlamadan da Mail Uygulaması veya WhatsApp seçeneklerini kullanabilirsiniz.)
+               </CardDescription>
+             </CardHeader>
+             <CardContent className="p-6 space-y-4">
+               <div className="flex flex-wrap gap-2">
+                 <span className="text-xs font-semibold text-slate-500 self-center mr-1">Hızlı Şablon:</span>
+                 <Button
+                   type="button"
+                   size="sm"
+                   variant="outline"
+                   className="h-7 text-xs"
+                   onClick={() => { setSmtpHost('smtp.gmail.com'); setSmtpPort('465'); setSmtpSecure('true'); }}
+                 >
+                   Gmail (smtp.gmail.com)
+                 </Button>
+                 <Button
+                   type="button"
+                   size="sm"
+                   variant="outline"
+                   className="h-7 text-xs"
+                   onClick={() => { setSmtpHost('smtp.office365.com'); setSmtpPort('587'); setSmtpSecure('false'); }}
+                 >
+                   Outlook / Office 365
+                 </Button>
+                 <Button
+                   type="button"
+                   size="sm"
+                   variant="outline"
+                   className="h-7 text-xs"
+                   onClick={() => { setSmtpHost('smtp.yandex.com.tr'); setSmtpPort('465'); setSmtpSecure('true'); }}
+                 >
+                   Yandex Kurumsal
+                 </Button>
+               </div>
+
+               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                 <div className="space-y-1.5 sm:col-span-2">
+                   <Label className="text-xs font-semibold">Gönderici Şirket Unvanı (Mail Başlığı)</Label>
+                   <Input
+                     value={smtpCompanyName}
+                     onChange={(e) => setSmtpCompanyName(e.target.value)}
+                     placeholder="Örn: ABC Muhasebe ve Danışmanlık Ltd. Şti."
+                     className="text-xs"
+                   />
+                 </div>
+                 <div className="space-y-1.5">
+                   <Label className="text-xs font-semibold">SMTP Sunucusu (Host)</Label>
+                   <Input
+                     value={smtpHost}
+                     onChange={(e) => setSmtpHost(e.target.value)}
+                     placeholder="smtp.gmail.com veya mail.sirketiniz.com"
+                     className="text-xs font-mono"
+                   />
+                 </div>
+                 <div className="grid grid-cols-2 gap-2">
+                   <div className="space-y-1.5">
+                     <Label className="text-xs font-semibold">Port</Label>
+                     <Input
+                       value={smtpPort}
+                       onChange={(e) => setSmtpPort(e.target.value)}
+                       placeholder="465 veya 587"
+                       className="text-xs font-mono"
+                     />
+                   </div>
+                   <div className="space-y-1.5">
+                     <Label className="text-xs font-semibold">Güvenlik (SSL)</Label>
+                     <Select value={smtpSecure} onValueChange={setSmtpSecure}>
+                       <SelectTrigger className="text-xs">
+                         <SelectValue />
+                       </SelectTrigger>
+                       <SelectContent>
+                         <SelectItem value="true">SSL (Port 465)</SelectItem>
+                         <SelectItem value="false">TLS / STARTTLS (587)</SelectItem>
+                       </SelectContent>
+                     </Select>
+                   </div>
+                 </div>
+                 <div className="space-y-1.5">
+                   <Label className="text-xs font-semibold">E-Posta Adresi (Kullanıcı Adı)</Label>
+                   <Input
+                     value={smtpUser}
+                     onChange={(e) => setSmtpUser(e.target.value)}
+                     placeholder="muhasebe@sirketiniz.com"
+                     className="text-xs"
+                   />
+                 </div>
+                 <div className="space-y-1.5">
+                   <Label className="text-xs font-semibold">E-Posta Şifresi / Uygulama Şifresi</Label>
+                   <Input
+                     type="password"
+                     value={smtpPass}
+                     onChange={(e) => setSmtpPass(e.target.value)}
+                     placeholder="••••••••••••"
+                     className="text-xs font-mono"
+                   />
+                 </div>
+               </div>
+
+               <div className="pt-3 border-t flex flex-col sm:flex-row items-center justify-between gap-3">
+                 <div className="flex items-center gap-2 w-full sm:w-auto">
+                   <Input
+                     value={testEmailTo}
+                     onChange={(e) => setTestEmailTo(e.target.value)}
+                     placeholder="Test alıcı e-posta..."
+                     className="h-9 text-xs w-48"
+                   />
+                   <Button
+                     type="button"
+                     variant="outline"
+                     size="sm"
+                     disabled={isTestingSmtp}
+                     onClick={handleTestSmtp}
+                     className="h-9 text-xs border-emerald-200 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 whitespace-nowrap"
+                   >
+                     {isTestingSmtp ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" /> : <Send className="w-3.5 h-3.5 mr-1.5" />}
+                     Test Maili Gönder
+                   </Button>
+                 </div>
+                 <Button
+                   type="button"
+                   onClick={handleSaveSmtpSettings}
+                   disabled={isSavingSmtp}
+                   className="h-9 bg-indigo-600 hover:bg-indigo-700 text-white text-xs w-full sm:w-auto"
+                 >
+                   {isSavingSmtp ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" /> : <Save className="w-3.5 h-3.5 mr-1.5" />}
+                   E-Posta Ayarlarını Kaydet
+                 </Button>
+               </div>
+             </CardContent>
+           </Card>
+
            <Card className="border-0 shadow-sm max-w-2xl mx-auto">
              <CardHeader className="border-b">
                <CardTitle className="flex items-center gap-2">
@@ -1187,6 +2020,48 @@ export function MutabakatYonetimi() {
 
           <DialogFooter>
             <Button onClick={() => setSelectedAnalysis(null)} className="w-full bg-slate-900">Anladım, Kapat</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Cari İletişim (E-Posta & Telefon) Tanımlama Modalı */}
+      <Dialog open={!!editingContactRow} onOpenChange={(open) => !open && setEditingContactRow(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Mail className="w-5 h-5 text-indigo-600" />
+              Müşteri / Tedarikçi İletişim Bilgisi Tanımla
+            </DialogTitle>
+            <DialogDescription>
+              <b>{editingContactRow?.unvan}</b> için e-posta veya WhatsApp telefon numarasını kaydedin.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold">E-Posta Adresi (Mail Gönderimi İçin)</Label>
+              <Input
+                type="email"
+                value={editingContactRow?.eposta || ''}
+                onChange={(e) => setEditingContactRow(prev => prev ? { ...prev, eposta: e.target.value } : null)}
+                placeholder="muhasebe@musterifirma.com"
+                className="text-xs"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold">Telefon Numarası (WhatsApp Gönderimi İçin)</Label>
+              <Input
+                value={editingContactRow?.telefon || ''}
+                onChange={(e) => setEditingContactRow(prev => prev ? { ...prev, telefon: e.target.value } : null)}
+                placeholder="0532 XXX XX XX"
+                className="text-xs"
+              />
+            </div>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setEditingContactRow(null)}>Vazgeç</Button>
+            <Button onClick={handleSaveCariContact} className="bg-indigo-600 hover:bg-indigo-700 text-white">
+              <Save className="w-4 h-4 mr-1.5" /> Kaydet
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

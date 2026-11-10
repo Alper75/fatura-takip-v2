@@ -6765,7 +6765,7 @@ app.get('/api/mutabakatlar', authMiddleware, async (req, res) => {
   try {
     const rs = await client.execute({
       sql: `
-        SELECT m.*, c.unvan as cariUnvan, c.vkn_tckn as cariVkn, c.eposta as cariEposta 
+        SELECT m.*, c.unvan as cariUnvan, c.vkn_tckn as cariVkn, c.eposta as cariEposta, c.telefon as cariTelefon, c.muhasebe_kodu as cariMuhasebeKodu
         FROM mutabakatlar m
         LEFT JOIN cariler c ON m.cari_id = c.id
         WHERE m.company_id = ?
@@ -6774,6 +6774,75 @@ app.get('/api/mutabakatlar', authMiddleware, async (req, res) => {
       args: [req.user.companyId]
     });
     res.json({ success: true, data: rs.rows });
+  } catch (e) {
+    res.status(500).json({ success: false, message: e.message });
+  }
+});
+
+app.post('/api/mutabakatlar/test-smtp', authMiddleware, async (req, res) => {
+  try {
+    const { smtp_host, smtp_port, smtp_secure, smtp_user, smtp_pass, company_name, test_to } = req.body || {};
+    const rsSettings = await client.execute({
+      sql: 'SELECT * FROM company_settings WHERE company_id = ?',
+      args: [req.user.companyId]
+    });
+    const config = {};
+    rsSettings.rows.forEach(r => { config[r.setting_key] = r.setting_value; });
+
+    const host = smtp_host || config.smtp_host;
+    const port = parseInt(smtp_port || config.smtp_port) || 465;
+    const user = smtp_user || config.smtp_user;
+    const pass = smtp_pass || config.smtp_pass;
+    const secure = smtp_secure !== undefined ? (smtp_secure === true || smtp_secure === 'true') : (config.smtp_secure === 'true' || String(port) === '465');
+    const recipient = test_to || user;
+
+    if (!host || !user || !pass) {
+      return res.status(400).json({ success: false, message: 'Lütfen SMTP Sunucu (Host), E-Posta ve Şifre alanlarını doldurun.' });
+    }
+
+    const transporter = nodemailer.createTransport({
+      host,
+      port,
+      secure,
+      auth: { user, pass }
+    });
+
+    await transporter.verify();
+    await transporter.sendMail({
+      from: `"${company_name || config.company_name || 'Mutabakat Servisi'}" <${user}>`,
+      to: recipient,
+      subject: `${company_name || config.company_name || 'Şirket'} - E-Mutabakat SMTP Test Maili`,
+      html: `
+        <div style="font-family: sans-serif; padding: 20px; color: #334155; border: 1px solid #e2e8f0; border-radius: 12px;">
+          <h2 style="color: #4f46e5; margin-top: 0;">✅ E-Posta Bağlantısı Başarılı!</h2>
+          <p>Mutabakat e-posta (SMTP) ayarlarınız başarıyla doğrulandı. Artık müşterilerinize ve tedarikçilerinize doğrudan sistem üzerinden mutabakat mektubu gönderebilirsiniz.</p>
+          <p style="font-size: 12px; color: #64748b;">Gönderen: ${user} (${host}:${port})</p>
+        </div>
+      `
+    });
+
+    res.json({ success: true, message: `Test e-postası başarıyla ${recipient} adresine gönderildi.` });
+  } catch (e) {
+    res.status(500).json({ success: false, message: 'SMTP bağlantı hatası: ' + e.message });
+  }
+});
+
+app.post('/api/mutabakatlar/:id/update-contact', authMiddleware, async (req, res) => {
+  try {
+    const { eposta, telefon } = req.body || {};
+    const rs = await client.execute({
+      sql: 'SELECT cari_id FROM mutabakatlar WHERE id = ? AND company_id = ?',
+      args: [req.params.id, req.user.companyId]
+    });
+    if (rs.rows.length === 0) return res.status(404).json({ success: false, message: 'Mutabakat bulunamadı.' });
+    const cariId = rs.rows[0].cari_id;
+    if (cariId) {
+      await client.execute({
+        sql: 'UPDATE cariler SET eposta = COALESCE(?, eposta), telefon = COALESCE(?, telefon) WHERE id = ? AND company_id = ?',
+        args: [eposta !== undefined ? eposta : null, telefon !== undefined ? telefon : null, cariId, req.user.companyId]
+      });
+    }
+    res.json({ success: true });
   } catch (e) {
     res.status(500).json({ success: false, message: e.message });
   }
@@ -6808,13 +6877,26 @@ app.post('/api/mutabakatlar/bulk-delete', authMiddleware, async (req, res) => {
 
 app.post('/api/mutabakatlar/:id/send-mail', authMiddleware, async (req, res) => {
   try {
+    const { toEmail } = req.body || {};
     const rs = await client.execute({
-      sql: 'SELECT m.*, c.unvan, c.eposta FROM mutabakatlar m JOIN cariler c ON m.cari_id = c.id WHERE m.id = ? AND m.company_id = ?',
+      sql: 'SELECT m.*, c.unvan, c.eposta, c.vkn_tckn FROM mutabakatlar m JOIN cariler c ON m.cari_id = c.id WHERE m.id = ? AND m.company_id = ?',
       args: [req.params.id, req.user.companyId]
     });
 
     if (rs.rows.length === 0) return res.status(404).json({ success: false, message: 'Bulunamadı.' });
     const mutabakat = rs.rows[0];
+    const targetEmail = (toEmail || mutabakat.eposta || '').trim();
+
+    if (!targetEmail) {
+      return res.status(400).json({ success: false, message: 'Alıcı e-posta adresi tanımlı değil. Lütfen cariye e-posta ekleyin.' });
+    }
+
+    if (toEmail && toEmail.trim() !== mutabakat.eposta && mutabakat.cari_id) {
+      await client.execute({
+        sql: 'UPDATE cariler SET eposta = ? WHERE id = ? AND company_id = ?',
+        args: [toEmail.trim(), mutabakat.cari_id, req.user.companyId]
+      });
+    }
 
     const rsSettings = await client.execute({
       sql: 'SELECT * FROM company_settings WHERE company_id = ?',
@@ -6823,29 +6905,44 @@ app.post('/api/mutabakatlar/:id/send-mail', authMiddleware, async (req, res) => 
     const config = {};
     rsSettings.rows.forEach(r => { config[r.setting_key] = r.setting_value; });
 
+    if (!config.smtp_host || !config.smtp_user || !config.smtp_pass) {
+      return res.status(400).json({
+        success: false,
+        message: 'SMTP e-posta ayarları henüz yapılmamış. Ayarlar sekmesinden SMTP bilgilerinizi kaydedebilir veya Mail Uygulaması / WhatsApp ile gönderebilirsiniz.'
+      });
+    }
+
+    const port = parseInt(config.smtp_port) || 465;
     const transporter = nodemailer.createTransport({
       host: config.smtp_host,
-      port: parseInt(config.smtp_port) || 465,
-      secure: config.smtp_secure === 'true' || config.smtp_port == '465',
+      port,
+      secure: config.smtp_secure === 'true' || String(port) === '465',
       auth: { user: config.smtp_user, pass: config.smtp_pass }
     });
 
     const publicUrl = `${req.get('origin') || 'http://localhost:5173'}/?mutabakat=${mutabakat.token}`;
+    const bakiyeFormatted = new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(Math.abs(Number(mutabakat.bakiye) || 0));
+    const bakiyeYonu = Number(mutabakat.bakiye) >= 0 ? 'BORÇLU (Alacağımız)' : 'ALACAKLI (Borcumuz)';
+
     await transporter.sendMail({
-      from: config.smtp_user,
-      to: mutabakat.eposta,
-      subject: `${config.company_name || 'Şirket'} - Mutabakat Formu (${mutabakat.donem})`,
+      from: `"${config.company_name || 'Mutabakat Servisi'}" <${config.smtp_user}>`,
+      to: targetEmail,
+      subject: `${config.company_name || 'Şirket'} - Cari & BA/BS Mutabakat Formu (${mutabakat.donem})`,
       html: `
-        <div style="font-family: sans-serif; padding: 20px; color: #334155;">
-          <h2 style="color: #4f46e5;">Mutabakat Talebi</h2>
-          <p>Sayın <b>${mutabakat.unvan}</b>,</p>
-          <p>Sizlerle olan <b>${mutabakat.donem}</b> dönemine ait cari hesap bakiyemiz aşağıdadır:</p>
-          <div style="background: #f8fafc; padding: 15px; border-radius: 8px; border: 1px solid #e2e8f0; margin: 20px 0;">
-            <p style="margin: 5px 0;"><b>Bakiye:</b> ${new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(mutabakat.bakiye)}</p>
+        <div style="font-family: sans-serif; padding: 24px; color: #334155; max-width: 620px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px;">
+          <h2 style="color: #4f46e5; margin-top: 0;">Cari Hesap & BA/BS Mutabakat Talebi</h2>
+          <p>Sayın <b>${mutabakat.unvan}</b> ${mutabakat.vkn_tckn ? `(VKN: ${mutabakat.vkn_tckn})` : ''},</p>
+          <p>Şirketimiz kayıtlarına göre <b>${mutabakat.donem}</b> dönemi itibarıyla cari hesap bakiyemiz ve detaylarımız aşağıda bilgilerinize sunulmuştur:</p>
+          <div style="background: #f8fafc; padding: 16px; border-radius: 10px; border: 1px solid #e2e8f0; margin: 20px 0;">
+            <p style="margin: 6px 0;"><b>Dönem:</b> ${mutabakat.donem}</p>
+            <p style="margin: 6px 0;"><b>Toplam Borç:</b> ${new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(Number(mutabakat.borc) || 0)}</p>
+            <p style="margin: 6px 0;"><b>Toplam Alacak:</b> ${new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(Number(mutabakat.alacak) || 0)}</p>
+            <p style="margin: 8px 0; font-size: 16px; color: #0f172a;"><b>Net Bakiye:</b> ${bakiyeFormatted} (${bakiyeYonu})</p>
+            ${mutabakat.aciklama ? `<p style="margin: 6px 0; font-size: 13px; color: #475569;"><b>Detay / BA-BS Bilgisi:</b> ${mutabakat.aciklama}</p>` : ''}
           </div>
-          <p>Mutabakat işlemini onaylamak veya reddetmek için lütfen aşağıdaki butona tıklayınız:</p>
-          <a href="${publicUrl}" style="display: inline-block; background: #4f46e5; color: white; padding: 12px 25px; border-radius: 6px; text-decoration: none; font-weight: bold; margin-top: 10px;">Mutabakatı Görüntüle</a>
-          <p style="margin-top: 30px; font-size: 12px; color: #64748b;">Bu e-posta otomatik olarak gönderilmiştir.</p>
+          <p>Mutabakat işlemini tek tıkla <b>Onaylamak (Mutabıkız)</b> veya <b>Reddetmek (Mutabık Değiliz)</b> için lütfen aşağıdaki butona tıklayınız:</p>
+          <a href="${publicUrl}" style="display: inline-block; background: #4f46e5; color: white; padding: 12px 28px; border-radius: 8px; text-decoration: none; font-weight: bold; margin-top: 10px;">Mutabakatı Görüntüle ve Yanıtla</a>
+          <p style="margin-top: 28px; font-size: 12px; color: #64748b;">Bu e-posta ${config.company_name || 'Şirketimiz'} tarafından e-Mutabakat sistemi üzerinden gönderilmiştir.</p>
         </div>
       `
     });
@@ -6862,7 +6959,7 @@ app.post('/api/mutabakatlar/:id/send-mail', authMiddleware, async (req, res) => 
 });
 
 app.post('/api/mutabakatlar/bulk', authMiddleware, async (req, res) => {
-  const { mutabakatlar, bizeAitMuavinBase64 } = req.body;
+  const { mutabakatlar, bizeAitMuavinBase64, allowWithoutEmail } = req.body;
   if (!mutabakatlar || !Array.isArray(mutabakatlar)) {
     return res.status(400).json({ success: false, message: 'Veri geçersiz.' });
   }
@@ -6888,16 +6985,37 @@ app.post('/api/mutabakatlar/bulk', authMiddleware, async (req, res) => {
     let noEmailCount = 0;
 
     for (const row of mutabakatlar) {
-      const rsCari = await client.execute({
-        sql: 'SELECT id, unvan, eposta FROM cariler WHERE (muhasebe_kodu = ? OR vkn_tckn = ? OR vkn_tckn = ?) AND company_id = ?',
-        args: [row.muhasebeKodu, row.muhasebeKodu, row.vknTckn || '', req.user.companyId]
-      });
+      let rsCari;
+      if (row.cariId) {
+        rsCari = await client.execute({
+          sql: 'SELECT id, unvan, eposta, telefon FROM cariler WHERE id = ? AND company_id = ?',
+          args: [row.cariId, req.user.companyId]
+        });
+      } else {
+        rsCari = await client.execute({
+          sql: 'SELECT id, unvan, eposta, telefon FROM cariler WHERE (muhasebe_kodu = ? OR vkn_tckn = ? OR vkn_tckn = ?) AND company_id = ?',
+          args: [row.muhasebeKodu || '', row.muhasebeKodu || '', row.vknTckn || '', req.user.companyId]
+        });
+      }
 
       if (rsCari.rows.length > 0) {
         const cari = rsCari.rows[0];
-        if (!cari.eposta) {
+        const finalEmail = (row.eposta !== undefined ? row.eposta : cari.eposta) || '';
+        const finalPhone = (row.telefon !== undefined ? row.telefon : cari.telefon) || '';
+
+        if ((row.eposta && row.eposta !== cari.eposta) || (row.telefon && row.telefon !== cari.telefon)) {
+          await client.execute({
+            sql: 'UPDATE cariler SET eposta = COALESCE(?, eposta), telefon = COALESCE(?, telefon) WHERE id = ? AND company_id = ?',
+            args: [row.eposta || null, row.telefon || null, cari.id, req.user.companyId]
+          });
+        }
+
+        if (!finalEmail && !allowWithoutEmail) {
           noEmailCount++;
           continue;
+        }
+        if (!finalEmail) {
+          noEmailCount++;
         }
 
         const token = crypto.randomBytes(32).toString('hex');
@@ -6906,10 +7024,10 @@ app.post('/api/mutabakatlar/bulk', authMiddleware, async (req, res) => {
         await client.execute({
           sql: `INSERT INTO mutabakatlar (id, company_id, cari_id, donem, tip, borc, alacak, bakiye, token, aciklama, kullanici_muavin_data, durum) 
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          args: [id, req.user.companyId, cari.id, row.donem, 'CARI', row.borc, row.alacak, row.bakiye, token, row.aciklama || '', muavinData, 'Bekliyor']
+          args: [id, req.user.companyId, cari.id, row.donem, row.tip || 'CARI', row.borc || 0, row.alacak || 0, row.bakiye || 0, token, row.aciklama || '', muavinData, 'Bekliyor']
         });
 
-        created.push({ id, unvan: cari.unvan, eposta: cari.eposta });
+        created.push({ id, unvan: cari.unvan, eposta: finalEmail, telefon: finalPhone, token });
       } else {
         notFoundCount++;
       }

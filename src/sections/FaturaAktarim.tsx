@@ -6,10 +6,12 @@ import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
-import { FileSpreadsheet, RefreshCw, Send, BookOpen, Layers, Copy, Check, Eye } from 'lucide-react';
+import { FileSpreadsheet, RefreshCw, Send, BookOpen, Layers, Copy, Check, Eye, ShieldAlert, DollarSign } from 'lucide-react';
 import { toast } from 'sonner';
 import { StopajKoduModal } from '@/components/StopajKoduModal';
 import { LucaYevmiyePreviewModal, type PreviewYevmiyeRow } from '@/components/LucaYevmiyePreviewModal';
+import { KurFarkiHesapModal } from '@/components/KurFarkiHesapModal';
+import { MuhasebeDenetimModal } from '@/components/MuhasebeDenetimModal';
 import { deduceStopajKodu } from '@/constants/lucaStopajKodlari';
 
 export function FaturaAktarim() {
@@ -30,6 +32,8 @@ export function FaturaAktarim() {
   const [isPreviewModalOpen, setIsPreviewModalOpen] = useState(false);
   const [previewRows, setPreviewRows] = useState<PreviewYevmiyeRow[]>([]);
   const [previewInvoices, setPreviewInvoices] = useState<any[]>([]);
+  const [isKurFarkiOpen, setIsKurFarkiOpen] = useState(false);
+  const [isDenetimOpen, setIsDenetimOpen] = useState(false);
 
   // Filters
   const [startDate, setStartDate] = useState('');
@@ -1258,9 +1262,26 @@ export function FaturaAktarim() {
         onClose={() => setIsPreviewModalOpen(false)}
         title="Bilanço Mahsup Fişi Önizleme & Bakiye Kontrolü"
         subtitle="Luca'ya göndermeden önce 600/153/770/191/391/689/120/320 yevmiye satırlarını inceleyin veya düzenleyin."
-        documentCount={previewInvoices.length}
+        documentCount={previewInvoices.length || 1}
         initialRows={previewRows}
         onConfirmSend={(finalRows) => sendBilancoRowsToLuca(previewInvoices, finalRows)}
+      />
+
+      {/* Kur Farkı (646 / 656) Hesaplama Modalı */}
+      <KurFarkiHesapModal
+        open={isKurFarkiOpen}
+        onOpenChange={setIsKurFarkiOpen}
+        onOpenYevmiyePreview={(lines) => {
+          setPreviewInvoices([]);
+          setPreviewRows(lines);
+          setIsPreviewModalOpen(true);
+        }}
+      />
+
+      {/* Muhasebe Denetim & Kontrol Paneli Modalı */}
+      <MuhasebeDenetimModal
+        open={isDenetimOpen}
+        onOpenChange={setIsDenetimOpen}
       />
 
       {/* Header & Mode Badge */}
@@ -1285,6 +1306,26 @@ export function FaturaAktarim() {
               ? '2. Sınıf işletme defteri için faturalarınızı hesap kodu olmadan doğrudan Gelir / Gider ve KDV Matrah dökümü olarak aktarın.' 
               : '1. Sınıf tüccarlar için faturaları 600 Gelir, 153/770 Gider ve 391/191 KDV hesap kodlarıyla Luca Mahsup Fişi formatında aktarın.'}
           </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setIsKurFarkiOpen(true)}
+            className="h-9 gap-1.5 border-indigo-200 text-indigo-700 bg-indigo-50/70 hover:bg-indigo-100 font-semibold"
+          >
+            <DollarSign className="w-4 h-4" />
+            💱 Kur Farkı (646/656)
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setIsDenetimOpen(true)}
+            className="h-9 gap-1.5 border-amber-300 text-amber-800 bg-amber-50 hover:bg-amber-100 font-semibold"
+          >
+            <ShieldAlert className="w-4 h-4" />
+            🛡️ Muhasebe Denetimi
+          </Button>
         </div>
       </div>
 

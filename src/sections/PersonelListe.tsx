@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useApp } from '@/context/AppContext';
 import { 
   Table, 
@@ -15,6 +15,7 @@ import {
   DialogTitle,
   DialogTrigger,
   DialogFooter,
+  DialogDescription,
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
@@ -25,16 +26,28 @@ import {
   FileSpreadsheet,
   ChevronRight,
   Edit,
-  Trash2
+  Trash2,
+  Calculator,
+  Send
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { toast } from 'sonner';
+import { LucaYevmiyePreviewModal, type PreviewYevmiyeRow } from '@/components/LucaYevmiyePreviewModal';
 
 export default function PersonelListe() {
   const { personnel, fetchPersonnel, bulkUploadPersonnel, addPersonnel, updatePersonnel, deletePersonnel } = useApp();
   const [searchTerm, setSearchTerm] = useState('');
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [isPayrollModalOpen, setIsPayrollModalOpen] = useState(false);
+  const [isYevmiyePreviewOpen, setIsYevmiyePreviewOpen] = useState(false);
+  const [yevmiyeLines, setYevmiyeLines] = useState<PreviewYevmiyeRow[]>([]);
+  const [payrollPeriod, setPayrollPeriod] = useState(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  });
+  const [payrollSplitByPerson, setPayrollSplitByPerson] = useState(true);
+  const [payrollOverrides, setPayrollOverrides] = useState<Record<number, { net?: number; avans?: number; gv?: number; dv?: number }>>({});
   const [newPerson, setNewPerson] = useState({
     tc: '',
     first_name: '',
@@ -124,6 +137,259 @@ export default function PersonelListe() {
     p.department?.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+  // Aktif personeller için Maaş & SGK Tahakkuk Hesaplaması
+  const payrollRows = useMemo(() => {
+    return personnel
+      .filter(p => p.status === 'Active')
+      .map((p, idx) => {
+        const ov = payrollOverrides[p.id] || {};
+        const net = ov.net !== undefined ? ov.net : (Number(p.salary) || 0);
+        const avans = ov.avans !== undefined ? ov.avans : 0;
+        const gv = ov.gv !== undefined ? ov.gv : 0;
+        const dv = ov.dv !== undefined ? ov.dv : 0;
+        // Brüt Maaş: (Net + GV + DV) / 0.85 (SGK İşçi %14 + İşsizlik %1 = %15)
+        const brut = Math.round(((net + gv + dv) / 0.85) * 100) / 100;
+        const sgkIsci = Math.round(brut * 0.14 * 100) / 100;
+        const issizlikIsci = Math.round(brut * 0.01 * 100) / 100;
+        // 5510 sayılı kanun %5 indirimli SGK İşveren Payı (%15.5) + İşsizlik İşveren (%2)
+        const sgkIsveren = Math.round(brut * 0.155 * 100) / 100;
+        const issizlikIsveren = Math.round(brut * 0.02 * 100) / 100;
+        const odenecekNet = Math.max(0, Math.round((net - avans) * 100) / 100);
+        const hesapKodu = `335.01.${String(idx + 1).padStart(3, '0')}`;
+        return {
+          id: p.id,
+          adSoyad: `${p.first_name} ${p.last_name}`.trim(),
+          tc: p.tc || '',
+          departman: p.department || 'Genel Yönetim',
+          hesapKodu,
+          net,
+          avans,
+          gv,
+          dv,
+          brut,
+          sgkIsci,
+          issizlikIsci,
+          sgkIsveren,
+          issizlikIsveren,
+          odenecekNet,
+          toplamMaliyet: Math.round((brut + sgkIsveren + issizlikIsveren) * 100) / 100
+        };
+      });
+  }, [personnel, payrollOverrides]);
+
+  const buildPayrollYevmiyeLines = (): PreviewYevmiyeRow[] => {
+    const valid = payrollRows.filter(r => r.net > 0);
+    if (valid.length === 0) return [];
+    const lines: PreviewYevmiyeRow[] = [];
+    const fisNo = `MAAS-${payrollPeriod}`;
+    const [y, m] = payrollPeriod.split('-');
+    const lastDay = new Date(Number(y), Number(m), 0).getDate();
+    const tarih = `${String(lastDay).padStart(2, '0')}.${m}.${y}`;
+
+    const topBrut = Math.round(valid.reduce((s, r) => s + r.brut, 0) * 100) / 100;
+    const topSgkIsveren = Math.round(valid.reduce((s, r) => s + r.sgkIsveren, 0) * 100) / 100;
+    const topIssizlikIsveren = Math.round(valid.reduce((s, r) => s + r.issizlikIsveren, 0) * 100) / 100;
+    const topSgkPrimi = Math.round(valid.reduce((s, r) => s + r.sgkIsci + r.sgkIsveren, 0) * 100) / 100;
+    const topIssizlikPrimi = Math.round(valid.reduce((s, r) => s + r.issizlikIsci + r.issizlikIsveren, 0) * 100) / 100;
+    const topGv = Math.round(valid.reduce((s, r) => s + r.gv, 0) * 100) / 100;
+    const topDv = Math.round(valid.reduce((s, r) => s + r.dv, 0) * 100) / 100;
+    const topAvans = Math.round(valid.reduce((s, r) => s + r.avans, 0) * 100) / 100;
+    const topOdenecekNet = Math.round(valid.reduce((s, r) => s + r.odenecekNet, 0) * 100) / 100;
+
+    // BORÇ SATIRLARI (770)
+    lines.push({
+      id: '770_brut',
+      tarih,
+      evrakNo: fisNo,
+      belgeTuru: 'M',
+      muhasebeKodu: '770.01.001',
+      cariUnvan: 'Brüt Ücret Giderleri',
+      aciklama: `${payrollPeriod} Dönemi Personel Brüt Ücret Tahakkuku (${valid.length} Personel)`,
+      borc: topBrut,
+      alacak: 0
+    });
+    lines.push({
+      id: '770_sgk',
+      tarih,
+      evrakNo: fisNo,
+      belgeTuru: 'M',
+      muhasebeKodu: '770.01.002',
+      cariUnvan: 'SGK İşveren Payı Giderleri',
+      aciklama: `${payrollPeriod} Dönemi SGK İşveren Hissesi Tahakkuku`,
+      borc: topSgkIsveren,
+      alacak: 0
+    });
+    lines.push({
+      id: '770_issizlik',
+      tarih,
+      evrakNo: fisNo,
+      belgeTuru: 'M',
+      muhasebeKodu: '770.01.003',
+      cariUnvan: 'İşsizlik Sigortası İşveren Payı',
+      aciklama: `${payrollPeriod} Dönemi İşsizlik İşveren Hissesi Tahakkuku`,
+      borc: topIssizlikIsveren,
+      alacak: 0
+    });
+
+    // ALACAK SATIRLARI (335, 196, 360, 361)
+    if (payrollSplitByPerson) {
+      valid.forEach((r, i) => {
+        if (r.odenecekNet > 0) {
+          lines.push({
+            id: `335_${r.id}_${i}`,
+            tarih,
+            evrakNo: fisNo,
+            belgeTuru: 'M',
+            muhasebeKodu: r.hesapKodu,
+            cariUnvan: `Personele Borçlar - ${r.adSoyad}`,
+            vknTckn: r.tc,
+            aciklama: `${payrollPeriod} Net Maaş Tahakkuku - ${r.adSoyad} (TC: ${r.tc})`,
+            borc: 0,
+            alacak: r.odenecekNet
+          });
+        }
+      });
+    } else if (topOdenecekNet > 0) {
+      lines.push({
+        id: '335_toplu',
+        tarih,
+        evrakNo: fisNo,
+        belgeTuru: 'M',
+        muhasebeKodu: '335.01.001',
+        cariUnvan: 'Personele Borçlar (Net Ücretler)',
+        aciklama: `${payrollPeriod} Dönemi Net Maaş Tahakkuku (${valid.length} Personel)`,
+        borc: 0,
+        alacak: topOdenecekNet
+      });
+    }
+
+    if (topAvans > 0) {
+      lines.push({
+        id: '196_avans',
+        tarih,
+        evrakNo: fisNo,
+        belgeTuru: 'M',
+        muhasebeKodu: '196.01.001',
+        cariUnvan: 'Personel Maaş Avansları Mahsubu',
+        aciklama: `${payrollPeriod} Dönemi Personel Avans Kesintisi`,
+        borc: 0,
+        alacak: topAvans
+      });
+    }
+
+    if (topGv > 0) {
+      lines.push({
+        id: '360_gv',
+        tarih,
+        evrakNo: fisNo,
+        belgeTuru: 'M',
+        muhasebeKodu: '360.01.001',
+        cariUnvan: 'Ödenecek Gelir Vergisi (Muhtasar)',
+        aciklama: `${payrollPeriod} Dönemi Ücret Gelir Vergisi Kesintisi`,
+        borc: 0,
+        alacak: topGv
+      });
+    }
+
+    if (topDv > 0) {
+      lines.push({
+        id: '360_dv',
+        tarih,
+        evrakNo: fisNo,
+        belgeTuru: 'M',
+        muhasebeKodu: '360.01.002',
+        cariUnvan: 'Ödenecek Damga Vergisi',
+        aciklama: `${payrollPeriod} Dönemi Ücret Damga Vergisi Kesintisi`,
+        borc: 0,
+        alacak: topDv
+      });
+    }
+
+    lines.push({
+      id: '361_sgk',
+      tarih,
+      evrakNo: fisNo,
+      belgeTuru: 'M',
+      muhasebeKodu: '361.01.001',
+      cariUnvan: 'Ödenecek SGK Primleri (İşçi + İşveren)',
+      aciklama: `${payrollPeriod} Dönemi Ödenecek SGK Primleri`,
+      borc: 0,
+      alacak: topSgkPrimi
+    });
+
+    lines.push({
+      id: '361_issizlik',
+      tarih,
+      evrakNo: fisNo,
+      belgeTuru: 'M',
+      muhasebeKodu: '361.01.002',
+      cariUnvan: 'Ödenecek İşsizlik Sigortası Primleri',
+      aciklama: `${payrollPeriod} Dönemi Ödenecek İşsizlik Primleri`,
+      borc: 0,
+      alacak: topIssizlikPrimi
+    });
+
+    // Kuruş farkı dengelemesi
+    const totalB = lines.reduce((s, l) => s + l.borc, 0);
+    const totalA = lines.reduce((s, l) => s + l.alacak, 0);
+    const diff = Math.round((totalB - totalA) * 100) / 100;
+    if (Math.abs(diff) > 0 && Math.abs(diff) <= 0.5 && lines.length > 0) {
+      const sgkLine = lines.find(l => l.id === '361_sgk');
+      if (sgkLine) sgkLine.alacak = Math.round((sgkLine.alacak + diff) * 100) / 100;
+    }
+
+    return lines;
+  };
+
+  const handleOpenPayrollYevmiyePreview = () => {
+    const lines = buildPayrollYevmiyeLines();
+    if (lines.length === 0) {
+      toast.warning('Maaş tutarı tanımlı aktif personel bulunamadı.');
+      return;
+    }
+    setYevmiyeLines(lines);
+    setIsYevmiyePreviewOpen(true);
+  };
+
+  const handleSendPayrollToLuca = (editedLines: PreviewYevmiyeRow[]) => {
+    const first = editedLines[0];
+    const fisPayload = [{
+      tarih: first?.tarih || new Date().toLocaleDateString('tr-TR'),
+      aciklama: `${payrollPeriod} Dönemi Personel Maaş ve SGK Tahakkuk Fişi`,
+      satirlar: editedLines.map(l => ({
+        hesapKodu: l.muhasebeKodu,
+        evrakTarihi: l.tarih,
+        evrakNo: l.evrakNo,
+        aciklama: l.aciklama,
+        borc: l.borc,
+        alacak: l.alacak
+      }))
+    }];
+
+    let responded = false;
+    const listener = (event: MessageEvent) => {
+      if (event.data?.type === 'LUCA_MAHSUP_FISI_RESULT') {
+        responded = true;
+        window.removeEventListener('message', listener);
+        setIsYevmiyePreviewOpen(false);
+        if (event.data.success) {
+          toast.success(`${payrollPeriod} maaş tahakkuk fişi doğrudan Luca'ya aktarıldı!`);
+        } else {
+          toast.error(event.data.message || 'Luca aktarımı sırasında hata oluştu.');
+        }
+      }
+    };
+    window.addEventListener('message', listener);
+    window.postMessage({ type: 'LUCA_CREATE_MAHSUP_FISI', fisList: fisPayload }, '*');
+
+    setTimeout(() => {
+      if (!responded) {
+        window.removeEventListener('message', listener);
+        toast.info('Maaş tahakkuk fişi Luca Eklentisine iletildi. Sağ üstteki Luca Eklenti panelini kontrol edin.');
+      }
+    }, 3500);
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
@@ -134,6 +400,14 @@ export default function PersonelListe() {
           </p>
         </div>
         <div className="flex gap-2">
+          <Button
+            variant="outline"
+            onClick={() => setIsPayrollModalOpen(true)}
+            className="border-indigo-300 text-indigo-700 bg-indigo-50 hover:bg-indigo-100 font-semibold"
+          >
+            <Calculator className="mr-2 h-4 w-4" />
+            💼 Maaş Tahakkuk Fişi & Luca Aktarım
+          </Button>
           <div className="relative">
             <input
               type="file"
@@ -503,6 +777,160 @@ export default function PersonelListe() {
           onOpenChange={setIsDetailDialogOpen} 
         />
       )}
+
+      {/* Aylık Maaş & SGK Tahakkuk Fişi Modalı */}
+      <Dialog open={isPayrollModalOpen} onOpenChange={setIsPayrollModalOpen}>
+        <DialogContent className="sm:max-w-[960px] max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-indigo-900">
+              <Calculator className="w-5 h-5 text-indigo-600" />
+              Aylık Personel Maaş, Avans ve SGK Tahakkuk Fişi (Luca)
+            </DialogTitle>
+            <DialogDescription>
+              Aktif personellerin net maaşlarından 770 Brüt Ücret / SGK İşveren ve 335 Personele Borçlar / 196 Avans / 360 Vergi / 361 SGK tahakkuk yevmiye fişini otomatik oluşturur.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-50 p-3 rounded-xl border">
+              <div className="flex items-center gap-3">
+                <Label className="text-xs font-bold">Tahakkuk Dönemi:</Label>
+                <Input
+                  type="month"
+                  value={payrollPeriod}
+                  onChange={(e) => setPayrollPeriod(e.target.value)}
+                  className="h-8 w-40 text-xs font-mono bg-white"
+                />
+                <label className="flex items-center gap-1.5 text-xs font-medium text-slate-700 cursor-pointer ml-2">
+                  <input
+                    type="checkbox"
+                    checked={payrollSplitByPerson}
+                    onChange={(e) => setPayrollSplitByPerson(e.target.checked)}
+                    className="rounded border-slate-300"
+                  />
+                  335 Personele Borçlar hesabını kişi bazlı ayrı aç (335.01.001, 002...)
+                </label>
+              </div>
+              <div className="text-xs text-slate-600">
+                Toplam Net Ödenecek: <b className="text-emerald-700">{payrollRows.reduce((s, r) => s + r.odenecekNet, 0).toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺</b>
+                {' • '}
+                Toplam İşveren Maliyeti: <b className="text-indigo-700">{payrollRows.reduce((s, r) => s + r.toplamMaliyet, 0).toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺</b>
+              </div>
+            </div>
+
+            <div className="border rounded-xl overflow-hidden max-h-[380px] overflow-y-auto">
+              <Table>
+                <TableHeader className="bg-slate-100">
+                  <TableRow>
+                    <TableHead className="text-xs">Personel & 335 Kodu</TableHead>
+                    <TableHead className="text-xs text-right">Net Maaş (₺)</TableHead>
+                    <TableHead className="text-xs text-right">Avans (196)</TableHead>
+                    <TableHead className="text-xs text-right">GV / DV (360)</TableHead>
+                    <TableHead className="text-xs text-right">Brüt Ücret (770)</TableHead>
+                    <TableHead className="text-xs text-right">SGK+İşs. Toplam (361)</TableHead>
+                    <TableHead className="text-xs text-right">Ödenecek Net (335)</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {payrollRows.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={7} className="text-center py-8 text-xs text-slate-500">
+                        Aktif personel bulunamadı.
+                      </TableCell>
+                    </TableRow>
+                  ) : payrollRows.map(r => (
+                    <TableRow key={r.id}>
+                      <TableCell className="py-2">
+                        <div className="font-semibold text-xs text-slate-800">{r.adSoyad}</div>
+                        <div className="text-[10px] text-slate-400 font-mono">{r.hesapKodu} • TC: {r.tc || '-'}</div>
+                      </TableCell>
+                      <TableCell className="py-2 text-right">
+                        <Input
+                          type="number"
+                          value={r.net}
+                          onChange={(e) => setPayrollOverrides(prev => ({
+                            ...prev,
+                            [r.id]: { ...prev[r.id], net: parseFloat(e.target.value) || 0 }
+                          }))}
+                          className="h-7 w-28 text-xs text-right font-mono ml-auto"
+                        />
+                      </TableCell>
+                      <TableCell className="py-2 text-right">
+                        <Input
+                          type="number"
+                          value={r.avans}
+                          onChange={(e) => setPayrollOverrides(prev => ({
+                            ...prev,
+                            [r.id]: { ...prev[r.id], avans: parseFloat(e.target.value) || 0 }
+                          }))}
+                          placeholder="0"
+                          className="h-7 w-24 text-xs text-right font-mono ml-auto"
+                        />
+                      </TableCell>
+                      <TableCell className="py-2 text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          <Input
+                            type="number"
+                            value={r.gv}
+                            onChange={(e) => setPayrollOverrides(prev => ({
+                              ...prev,
+                              [r.id]: { ...prev[r.id], gv: parseFloat(e.target.value) || 0 }
+                            }))}
+                            placeholder="GV"
+                            title="Gelir Vergisi"
+                            className="h-7 w-16 text-xs text-right font-mono"
+                          />
+                          <Input
+                            type="number"
+                            value={r.dv}
+                            onChange={(e) => setPayrollOverrides(prev => ({
+                              ...prev,
+                              [r.id]: { ...prev[r.id], dv: parseFloat(e.target.value) || 0 }
+                            }))}
+                            placeholder="DV"
+                            title="Damga Vergisi"
+                            className="h-7 w-16 text-xs text-right font-mono"
+                          />
+                        </div>
+                      </TableCell>
+                      <TableCell className="py-2 text-right text-xs font-mono text-slate-700">
+                        {r.brut.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
+                      </TableCell>
+                      <TableCell className="py-2 text-right text-xs font-mono text-slate-600">
+                        {(r.sgkIsci + r.sgkIsveren + r.issizlikIsci + r.issizlikIsveren).toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
+                      </TableCell>
+                      <TableCell className="py-2 text-right text-xs font-bold font-mono text-emerald-700">
+                        {r.odenecekNet.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setIsPayrollModalOpen(false)}>Kapat</Button>
+            <Button
+              onClick={handleOpenPayrollYevmiyePreview}
+              className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold"
+            >
+              <Send className="w-4 h-4 mr-2" />
+              🔍 Yevmiye Fişini Önizle & Luca'ya Gönder
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <LucaYevmiyePreviewModal
+        isOpen={isYevmiyePreviewOpen}
+        onClose={() => setIsYevmiyePreviewOpen(false)}
+        title={`${payrollPeriod} Dönemi Personel Maaş & SGK Tahakkuk Fişi`}
+        subtitle="770 Brüt Ücret & SGK İşveren / 335 Personele Borçlar / 196 Avans / 360 Vergi / 361 SGK Yevmiye Önizlemesi"
+        documentCount={payrollRows.filter(r => r.net > 0).length}
+        initialRows={yevmiyeLines}
+        onConfirmSend={handleSendPayrollToLuca}
+      />
     </div>
   );
 }
