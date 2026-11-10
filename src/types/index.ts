@@ -39,6 +39,11 @@ export interface SatisFatura {
   stokKalemleri?: any[];
   gibUuid?: string;
   lucaTransferredAt?: string | null;
+  durum?: string;
+  paraBirimi?: string;
+  dovizTuru?: string;
+  dovizKuru?: number;
+  dovizTutar?: number;
 }
 
 export interface SatisFaturaFormData {
@@ -140,6 +145,12 @@ export interface AlisFatura {
   mahsupSatirlari?: any[];
   hasKkeg?: boolean;
   lucaTransferredAt?: string | null;
+  durum?: string;
+  paraBirimi?: string;
+  dovizTuru?: string;
+  dovizKuru?: number;
+  dovizTutar?: number;
+  telsizKullanimUcreti?: number;
 }
 
 export interface AlisFaturaFormData {
@@ -175,6 +186,12 @@ export interface AlisFaturaFormData {
   mahsupSatirlari?: any[];
   hasKkeg?: boolean;
   lucaTransferredAt?: string | null;
+  durum?: string;
+  paraBirimi?: string;
+  dovizTuru?: string;
+  dovizKuru?: number;
+  dovizTutar?: number;
+  telsizKullanimUcreti?: number;
 }
 
 // ==================== CARİ HAREKET (Bakiye / Ekstre İşlemleri) ====================

@@ -214,7 +214,7 @@ export function MutabakatYonetimi() {
         if (!testEmailTo && resSmtpUser.value) setTestEmailTo(resSmtpUser.value);
       }
       if (resSmtpPass?.success) setSmtpPass(resSmtpPass.value || '');
-    } catch (e) {}
+    } catch {}
   };
 
   const handleSaveSmtpSettings = async () => {
@@ -767,7 +767,7 @@ export function MutabakatYonetimi() {
 
           try {
             await apiFetch(`/api/mutabakatlar/${item.id}/send-mail`, { method: 'POST' });
-          } catch (err: any) {
+          } catch {
              setSendProgress(prev => ({
                ...prev!,
                logs: [`HATA: ${item.unvan} maili gönderilemedi.`, ...(prev?.logs || [])]
