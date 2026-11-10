@@ -573,6 +573,9 @@ export async function initDb() {
       if (!sfCols.rows.some(col => col.name === 'kalan_tutar')) {
         await client.execute(`ALTER TABLE satis_faturalari ADD COLUMN kalan_tutar REAL DEFAULT 0`);
       }
+      if (!sfCols.rows.some(col => col.name === 'luca_transferred_at')) {
+        await client.execute(`ALTER TABLE satis_faturalari ADD COLUMN luca_transferred_at TEXT`);
+      }
 
       const afCols = await client.execute(`PRAGMA table_info(alis_faturalari)`);
       if (!afCols.rows.some(col => col.name === 'odenen_tutar')) {
@@ -580,6 +583,14 @@ export async function initDb() {
       }
       if (!afCols.rows.some(col => col.name === 'kalan_tutar')) {
         await client.execute(`ALTER TABLE alis_faturalari ADD COLUMN kalan_tutar REAL DEFAULT 0`);
+      }
+      if (!afCols.rows.some(col => col.name === 'luca_transferred_at')) {
+        await client.execute(`ALTER TABLE alis_faturalari ADD COLUMN luca_transferred_at TEXT`);
+      }
+
+      const chCols = await client.execute(`PRAGMA table_info(cari_hareketler)`);
+      if (!chCols.rows.some(col => col.name === 'luca_transferred_at')) {
+        await client.execute(`ALTER TABLE cari_hareketler ADD COLUMN luca_transferred_at TEXT`);
       }
     } catch (e) {
       console.warn('Fatura tahsilat kolonları senkronize edilirken uyarı:', e.message);

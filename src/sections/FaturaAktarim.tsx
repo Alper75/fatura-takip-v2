@@ -6,9 +6,10 @@ import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
-import { FileSpreadsheet, RefreshCw, Send, BookOpen, Layers, Copy, Check } from 'lucide-react';
+import { FileSpreadsheet, RefreshCw, Send, BookOpen, Layers, Copy, Check, Eye } from 'lucide-react';
 import { toast } from 'sonner';
 import { StopajKoduModal } from '@/components/StopajKoduModal';
+import { LucaYevmiyePreviewModal, type PreviewYevmiyeRow } from '@/components/LucaYevmiyePreviewModal';
 import { deduceStopajKodu } from '@/constants/lucaStopajKodlari';
 
 export function FaturaAktarim() {
@@ -24,6 +25,11 @@ export function FaturaAktarim() {
   const [stopajModalAction, setStopajModalAction] = useState<'export' | 'copy_script'>('export');
   const [stopajInvoices, setStopajInvoices] = useState<any[]>([]);
   const [stopajKodMap, setStopajKodMap] = useState<Record<string, string>>({});
+
+  // Yevmiye Önizleme Modal State
+  const [isPreviewModalOpen, setIsPreviewModalOpen] = useState(false);
+  const [previewRows, setPreviewRows] = useState<PreviewYevmiyeRow[]>([]);
+  const [previewInvoices, setPreviewInvoices] = useState<any[]>([]);
 
   // Filters
   const [startDate, setStartDate] = useState('');
@@ -54,23 +60,48 @@ export function FaturaAktarim() {
       } catch {}
       return next;
     });
+
+    // Kalıcı olarak veritabanına kaydet
+    const dbItems = invs.map(inv => ({
+      id: inv.id,
+      type: inv._type === 'SATIS' ? 'SATIS' : 'ALIS',
+      transferredAt: nowIso
+    }));
+    apiFetch('/api/luca/mark-transferred', {
+      method: 'POST',
+      body: JSON.stringify({ items: dbItems })
+    }).catch(() => {});
   };
 
   const toggleInvoiceTransferredStatus = (inv: any) => {
     const key = getInvoiceTransferKey(inv);
+    const isCurrentlyTransferred = Boolean(transferredMap[key]);
+    const newTimestamp = isCurrentlyTransferred ? null : new Date().toISOString();
+
     setTransferredMap(prev => {
       const next = { ...prev };
-      if (next[key]) {
+      if (!newTimestamp) {
         delete next[key];
         toast.info(`${inv.faturaNo || 'Fatura'} için "Aktarıldı" işareti kaldırıldı.`);
       } else {
-        next[key] = new Date().toISOString();
+        next[key] = newTimestamp;
       }
       try {
         localStorage.setItem('fatura_app_transferred_invoices_v1', JSON.stringify(next));
       } catch {}
       return next;
     });
+
+    apiFetch('/api/luca/mark-transferred', {
+      method: 'POST',
+      body: JSON.stringify({
+        items: [{
+          id: inv.id,
+          type: inv._type === 'SATIS' ? 'SATIS' : 'ALIS',
+          transferredAt: newTimestamp
+        }]
+      })
+    }).catch(() => {});
   };
 
   useEffect(() => {
@@ -208,6 +239,20 @@ export function FaturaAktarim() {
       allInvoices.sort((a, b) => new Date(a.faturaTarihi).getTime() - new Date(b.faturaTarihi).getTime());
       
       setInvoices(allInvoices);
+
+      // Veritabanındaki lucaTransferredAt kayıtlarını transferredMap ile birleştir
+      setTransferredMap(prev => {
+        const merged = { ...prev };
+        allInvoices.forEach(inv => {
+          if (inv.lucaTransferredAt) {
+            merged[`${inv._type || 'INV'}_${inv.id}`] = inv.lucaTransferredAt;
+          }
+        });
+        try {
+          localStorage.setItem('fatura_app_transferred_invoices_v1', JSON.stringify(merged));
+        } catch {}
+        return merged;
+      });
       
       // KKEG / Araç giderlerini otomatik tespit edip işaretle
       const autoAracIds = allInvoices.filter(inv => isInvoiceKkegOrArac(inv)).map(inv => inv.id);
@@ -1028,30 +1073,48 @@ export function FaturaAktarim() {
   };
 
   // BİLANÇO ESASI LUCA EKLENTİSİNE GÖNDERME
-  const executeExtensionExportBilanco = (selectedInvoices: any[]) => {
-    if (!settings) return toast.error('KDV Ayarları bulunamadı. Lütfen ayarları yapın.');
-    let exportData: any[] = [];
-    selectedInvoices.forEach(inv => {
-      const cariObj = cariler.find(c => c.id === inv.cariId);
+  const buildBilancoPreviewRows = (selectedInvoices: any[]): PreviewYevmiyeRow[] => {
+    const rows: PreviewYevmiyeRow[] = [];
+    selectedInvoices.forEach((inv) => {
+      const cariObj = cariler.find((c) => c.id === inv.cariId);
       const cariUnvan = getFaturaUnvan(inv) || cariObj?.unvan || '';
       const vknTckn = getFaturaVkn(inv) || cariObj?.vknTckn || '';
       const vergiDairesi = (cariObj as any)?.vergiDairesi || inv.vergiDairesi || '';
       const excelRows = getMuhasebeSatirlari(inv, aracGideriIds.includes(inv.id));
-      const extRows = excelRows.map(row => ({
-        tarih: row['Evrak Tarihi'],
-        evrakNo: row['Evrak No'],
-        aciklama: row['Detay Açıklama'],
-        tutar: row['Borç'] > 0 ? row['Borç'] : row['Alacak'],
-        tur: row['Borç'] > 0 ? 'borc' : 'alacak',
-        muhasebeKodu: row['Hesap Kodu'],
-        belgeTuru: row['Belge Türü'],
-        cariUnvan,
-        vknTckn,
-        vergiDairesi,
-        faturaId: inv.id
-      }));
-      exportData = [...exportData, ...extRows];
+      excelRows.forEach((row, idx) => {
+        rows.push({
+          id: `${inv.id}_${idx}`,
+          tarih: row['Evrak Tarihi'],
+          evrakNo: row['Evrak No'],
+          belgeTuru: row['Belge Türü'] || 'FT',
+          muhasebeKodu: row['Hesap Kodu'],
+          aciklama: row['Detay Açıklama'],
+          borc: Number(row['Borç']) || 0,
+          alacak: Number(row['Alacak']) || 0,
+          cariUnvan,
+          vknTckn,
+          vergiDairesi,
+          faturaId: inv.id,
+        });
+      });
     });
+    return rows;
+  };
+
+  const sendBilancoRowsToLuca = (selectedInvoices: any[], previewedRows: PreviewYevmiyeRow[]) => {
+    const exportData = previewedRows.map((row) => ({
+      tarih: row.tarih,
+      evrakNo: row.evrakNo,
+      aciklama: row.aciklama,
+      tutar: row.borc > 0 ? row.borc : row.alacak,
+      tur: row.borc > 0 ? 'borc' : 'alacak',
+      muhasebeKodu: row.muhasebeKodu,
+      belgeTuru: row.belgeTuru || 'FT',
+      cariUnvan: row.cariUnvan || '',
+      vknTckn: row.vknTckn || '',
+      vergiDairesi: row.vergiDairesi || '',
+      faturaId: row.faturaId,
+    }));
 
     const activeComp = companies.find(c => c.id === (user?.companyId || 1));
     const targetCompany = {
@@ -1079,7 +1142,24 @@ export function FaturaAktarim() {
     window.postMessage({ type: 'FATURA_APP_LUCA_DATA', detail: payload, data: payload }, '*');
 
     markInvoicesTransferred(selectedInvoices);
+    setIsPreviewModalOpen(false);
     toast.success(`${selectedInvoices.length} fatura (${exportData.length} yevmiye satırı) doğrudan Luca'ya gönderildi! Eksik cari kartlar otomatik kontrol edilip Mahsup Fişi oluşturuluyor...`, { duration: 5000 });
+  };
+
+  const executeExtensionExportBilanco = (selectedInvoices: any[]) => {
+    if (!settings) return toast.error('KDV Ayarları bulunamadı. Lütfen ayarları yapın.');
+    const initialRows = buildBilancoPreviewRows(selectedInvoices);
+    sendBilancoRowsToLuca(selectedInvoices, initialRows);
+  };
+
+  const handleOpenPreviewModal = () => {
+    if (selectedIds.length === 0) return toast.error('Lütfen önizlenecek faturaları seçin.');
+    if (!settings) return toast.error('KDV Ayarları bulunamadı. Lütfen ayarları yapın.');
+    const selectedInvoices = sortInvoicesChronologically(invoices.filter(inv => selectedIds.includes(inv.id)));
+    const rows = buildBilancoPreviewRows(selectedInvoices);
+    setPreviewInvoices(selectedInvoices);
+    setPreviewRows(rows);
+    setIsPreviewModalOpen(true);
   };
 
   // Buton Tetikleyicileri (Stopaj Kontrollü)
@@ -1172,6 +1252,17 @@ export function FaturaAktarim() {
         onConfirm={handleStopajModalConfirm}
       />
 
+      {/* Yevmiye Fişi Önizleme & Bakiye Kontrol Modalı */}
+      <LucaYevmiyePreviewModal
+        isOpen={isPreviewModalOpen}
+        onClose={() => setIsPreviewModalOpen(false)}
+        title="Bilanço Mahsup Fişi Önizleme & Bakiye Kontrolü"
+        subtitle="Luca'ya göndermeden önce 600/153/770/191/391/689/120/320 yevmiye satırlarını inceleyin veya düzenleyin."
+        documentCount={previewInvoices.length}
+        initialRows={previewRows}
+        onConfirmSend={(finalRows) => sendBilancoRowsToLuca(previewInvoices, finalRows)}
+      />
+
       {/* Header & Mode Badge */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
@@ -1257,6 +1348,19 @@ export function FaturaAktarim() {
                 >
                   {copied ? <Check className="w-4 h-4 text-green-600" /> : <Copy className="w-4 h-4 text-amber-600" />}
                   {copied ? "Kopyalandı!" : "📋 Hızlı Fiş Kodu Kopyala"}
+                </Button>
+              )}
+
+              {!isIsletmeDefteri && (
+                <Button
+                  onClick={handleOpenPreviewModal}
+                  disabled={selectedIds.length === 0}
+                  variant="outline"
+                  className="h-9 gap-1.5 border-indigo-300 text-indigo-700 bg-indigo-50/50 hover:bg-indigo-100"
+                  title="Oluşacak yevmiye maddelerini ve Borç/Alacak dengesini Luca'ya göndermeden önce kontrol edin"
+                >
+                  <Eye className="w-4 h-4 text-indigo-600" />
+                  Yevmiye Önizle
                 </Button>
               )}
 

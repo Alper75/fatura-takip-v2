@@ -312,7 +312,7 @@ app.get('/api/auto-sync/logs', authMiddleware, async (req, res) => {
 // --- RECONCILIATION / OTOMATIK BANKA-FATURA ESLEME ---
 // ==========================================
 app.post('/api/reconciliation/batch-close', authMiddleware, async (req, res) => {
-  const { matches } = req.body; // Array of { hareketId, faturaId, faturaTipi: 'satis'|'alis', odemeTarihi }
+  const { matches } = req.body; // Array of { hareketId, faturaId, faturaTipi: 'satis'|'alis', odemeTarihi, tutar }
   if (!Array.isArray(matches) || matches.length === 0) {
     return res.status(400).json({ success: false, message: 'Eşleşme listesi boş.' });
   }
@@ -320,20 +320,55 @@ app.post('/api/reconciliation/batch-close', authMiddleware, async (req, res) => 
   let closedCount = 0;
   for (const m of matches) {
     try {
-      const table = m.faturaTipi === 'satis' ? 'satis_faturalari' : 'alis_faturalari';
+      const isSatis = m.faturaTipi === 'satis';
+      const table = isSatis ? 'satis_faturalari' : 'alis_faturalari';
+      const totalCol = isSatis ? 'alinan_ucret' : 'toplam_tutar';
       const odemeTarihi = m.odemeTarihi || new Date().toISOString().split('T')[0];
 
-      // Faturayı ödendi yap
+      // Mevcut fatura bilgilerini çek (Tam / Kısmi ödeme ve cari_id kontrolü için)
+      const invRs = await client.execute({
+        sql: `SELECT id, ${totalCol} as total_amount, COALESCE(odenen_tutar, 0) as odenen_tutar, cari_id, muhasebe_kodu FROM ${table} WHERE id = ? AND company_id = ?`,
+        args: [m.faturaId, req.user.companyId]
+      });
+      const invRow = invRs.rows[0];
+      const totalAmount = Number(invRow?.total_amount) || 0;
+      const currentPaid = Number(invRow?.odenen_tutar) || 0;
+      const paymentAmount = Number(m.tutar) > 0 ? Number(m.tutar) : Math.max(0, totalAmount - currentPaid);
+
+      const newPaid = Math.min(totalAmount, Math.round((currentPaid + paymentAmount) * 100) / 100);
+      const newRemaining = Math.max(0, Math.round((totalAmount - newPaid) * 100) / 100);
+      const newStatus = newRemaining <= 0.05 ? 'odendi' : 'kismi_odendi';
+
+      // Faturayı ödendi / kısmi ödendi yap
       await client.execute({
-        sql: `UPDATE ${table} SET odeme_durumu = 'odendi', odeme_tarihi = ? WHERE id = ? AND company_id = ?`,
-        args: [odemeTarihi, m.faturaId, req.user.companyId]
+        sql: `UPDATE ${table} SET odeme_durumu = ?, odeme_tarihi = ?, odenen_tutar = ?, kalan_tutar = ? WHERE id = ? AND company_id = ?`,
+        args: [newStatus, odemeTarihi, newPaid, newRemaining, m.faturaId, req.user.companyId]
       });
 
-      // Banka hareketine bağlı fatura ID'sini bağla
+      // Banka hareketine bağlı fatura ID'sini ve eksikse cari_id'sini bağla
       if (m.hareketId) {
         await client.execute({
-          sql: `UPDATE cari_hareketler SET bagli_fatura_id = ? WHERE id = ? AND company_id = ?`,
-          args: [m.faturaId, m.hareketId, req.user.companyId]
+          sql: `UPDATE cari_hareketler SET bagli_fatura_id = ?, cari_id = COALESCE(NULLIF(cari_id, ''), ?) WHERE id = ? AND company_id = ?`,
+          args: [m.faturaId, invRow?.cari_id || null, m.hareketId, req.user.companyId]
+        }).catch(() => {});
+      }
+
+      // Fatura tahsilat/ödeme geçmişine kaydet
+      if (paymentAmount > 0) {
+        const ftId = 'ft_rec_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
+        await client.execute({
+          sql: `INSERT INTO fatura_tahsilatlar (id, company_id, fatura_id, fatura_tipi, tarih, tutar, aciklama, cari_hareket_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          args: [
+            ftId,
+            req.user.companyId,
+            m.faturaId,
+            isSatis ? 'satis' : 'alis',
+            odemeTarihi,
+            paymentAmount,
+            newStatus === 'odendi' ? 'Otomatik Banka Eşleştirme (Tam Kapama)' : 'Otomatik Banka Eşleştirme (Kısmi Ödeme)',
+            m.hareketId || null
+          ]
         }).catch(() => {});
       }
 
@@ -343,7 +378,40 @@ app.post('/api/reconciliation/batch-close', authMiddleware, async (req, res) => 
     }
   }
 
-  res.json({ success: true, message: `${closedCount} adet fatura ve banka hareketi başarıyla kapatıldı.`, closedCount });
+  res.json({ success: true, message: `${closedCount} adet fatura ve banka hareketi başarıyla eşleştirilip kapatıldı.`, closedCount });
+});
+
+// ==========================================
+// --- LUCA AKTARIM DURUMU (KALICI VERİTABANI KAYDI) ---
+// ==========================================
+app.post('/api/luca/mark-transferred', authMiddleware, async (req, res) => {
+  const { items } = req.body; // Array of { id, type: 'ALIS'|'SATIS'|'BANKA', transferredAt: string | null }
+  if (!Array.isArray(items) || items.length === 0) {
+    return res.status(400).json({ success: false, message: 'Güncellenecek kayıt listesi boş.' });
+  }
+
+  try {
+    let updatedCount = 0;
+    for (const item of items) {
+      if (!item || !item.id) continue;
+      const tType = String(item.type || '').toUpperCase();
+      const table = tType === 'SATIS'
+        ? 'satis_faturalari'
+        : tType === 'BANKA'
+          ? 'cari_hareketler'
+          : 'alis_faturalari';
+      const val = item.transferredAt || null;
+
+      await client.execute({
+        sql: `UPDATE ${table} SET luca_transferred_at = ? WHERE id = ? AND company_id = ?`,
+        args: [val, item.id, req.user.companyId]
+      });
+      updatedCount++;
+    }
+    res.json({ success: true, updatedCount });
+  } catch (e) {
+    res.status(500).json({ success: false, message: e.message });
+  }
 });
 
 // ==========================================
@@ -3495,7 +3563,8 @@ app.get('/api/cari-hareketler', authMiddleware, async (req, res) => {
       muhasebeKodu: r.muhasebe_kodu,
       dovizTuru: r.doviz_turu,
       dovizTutar: r.doviz_tutar,
-      dovizKuru: r.doviz_kuru
+      dovizKuru: r.doviz_kuru,
+      lucaTransferredAt: r.luca_transferred_at || null
     }));
     res.json({ success: true, data: mapped });
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }
@@ -3644,7 +3713,7 @@ app.delete('/api/cari-hareketler/:id', authMiddleware, async (req, res) => {
 app.get('/api/satis-faturalari', authMiddleware, async (req, res) => {
   try {
     const rs = await client.execute({
-      sql: 'SELECT id, fatura_no, fatura_tarihi, ad, soyad, tc_vkn, adres, alinan_ucret, kdv_orani, kdv_tutari, matrah, tevkifat_orani, tevkifat_tutari, tevkifat_kodu, stopaj_orani, stopaj_tutari, stopaj_kodu, muhasebe_kodu, pdf_dosya, pdf_dosya_adi, odeme_tarihi, odeme_durumu, odeme_dekontu, odeme_dekontu_adi, cari_id, vade_tarihi, aciklama, olusturma_tarihi, urun_id, depo_id, gib_uuid, COALESCE(odenen_tutar, 0) as odenen_tutar, kalan_tutar FROM satis_faturalari WHERE company_id = ? ORDER BY olusturma_tarihi DESC',
+      sql: 'SELECT id, fatura_no, fatura_tarihi, ad, soyad, tc_vkn, adres, alinan_ucret, kdv_orani, kdv_tutari, matrah, tevkifat_orani, tevkifat_tutari, tevkifat_kodu, stopaj_orani, stopaj_tutari, stopaj_kodu, muhasebe_kodu, pdf_dosya, pdf_dosya_adi, odeme_tarihi, odeme_durumu, odeme_dekontu, odeme_dekontu_adi, cari_id, vade_tarihi, aciklama, olusturma_tarihi, urun_id, depo_id, gib_uuid, luca_transferred_at, COALESCE(odenen_tutar, 0) as odenen_tutar, kalan_tutar FROM satis_faturalari WHERE company_id = ? ORDER BY olusturma_tarihi DESC',
       args: [req.user.companyId]
     });
     
@@ -3706,6 +3775,7 @@ app.get('/api/satis-faturalari', authMiddleware, async (req, res) => {
         vadeTarihi: r.vade_tarihi, aciklama: r.aciklama, olusturmaTarihi: r.olusturma_tarihi, 
         urunId: r.urun_id, depoId: r.depo_id,
         gibUuid: r.gib_uuid,
+        lucaTransferredAt: r.luca_transferred_at || null,
         odenenTutar: odenen,
         kalanTutar: kalan,
         stokKalemleri: bagliStoklar.length > 0 ? bagliStoklar : undefined
@@ -3843,7 +3913,7 @@ app.delete('/api/satis-faturalari/:id', authMiddleware, async (req, res) => {
 app.get('/api/alis-faturalari', authMiddleware, async (req, res) => {
   try {
     const rs = await client.execute({
-      sql: 'SELECT id, fatura_no, fatura_tarihi, tedarikci_adi, tedarikci_vkn, mal_hizmet_adi, toplam_tutar, kdv_orani, kdv_tutari, matrah, tevkifat_orani, tevkifat_tutari, stopaj_orani, stopaj_tutari, kdv1, kdv10, kdv20, oiv_tutari, muhasebe_kodu, karsi_hesap_kodu, kdv_hesap_kodu, pdf_dosya, pdf_dosya_adi, odeme_tarihi, odeme_durumu, odeme_dekontu, odeme_dekontu_adi, cari_id, vade_tarihi, aciklama, olusturma_tarihi, urun_id, depo_id, vehicle_plate, gib_uuid, mahsup_satirlari, has_kkeg, COALESCE(odenen_tutar, 0) as odenen_tutar, kalan_tutar FROM alis_faturalari WHERE company_id = ? ORDER BY olusturma_tarihi DESC',
+      sql: 'SELECT id, fatura_no, fatura_tarihi, tedarikci_adi, tedarikci_vkn, mal_hizmet_adi, toplam_tutar, kdv_orani, kdv_tutari, matrah, tevkifat_orani, tevkifat_tutari, stopaj_orani, stopaj_tutari, kdv1, kdv10, kdv20, oiv_tutari, muhasebe_kodu, karsi_hesap_kodu, kdv_hesap_kodu, pdf_dosya, pdf_dosya_adi, odeme_tarihi, odeme_durumu, odeme_dekontu, odeme_dekontu_adi, cari_id, vade_tarihi, aciklama, olusturma_tarihi, urun_id, depo_id, vehicle_plate, gib_uuid, mahsup_satirlari, has_kkeg, luca_transferred_at, COALESCE(odenen_tutar, 0) as odenen_tutar, kalan_tutar FROM alis_faturalari WHERE company_id = ? ORDER BY olusturma_tarihi DESC',
       args: [req.user.companyId]
     });
     
@@ -3921,7 +3991,8 @@ app.get('/api/alis-faturalari', authMiddleware, async (req, res) => {
         kalanTutar: kalan,
         stokKalemleri: bagliStoklar.length > 0 ? bagliStoklar : undefined,
         mahsupSatirlari: parsedMahsup,
-        hasKkeg: r.has_kkeg === 1 || r.has_kkeg === true
+        hasKkeg: r.has_kkeg === 1 || r.has_kkeg === true,
+        lucaTransferredAt: r.luca_transferred_at || null
       };
     });
     res.json({ success: true, data: mapped });

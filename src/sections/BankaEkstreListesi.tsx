@@ -28,9 +28,12 @@ import {
   Receipt,
   Users,
   Sparkles,
-  Check
+  Check,
+  Eye,
+  Link2
 } from 'lucide-react';
 import { AutoReconciliationModal } from '@/components/AutoReconciliationModal';
+import { LucaYevmiyePreviewModal, type PreviewYevmiyeRow } from '@/components/LucaYevmiyePreviewModal';
 import { 
   Select, 
   SelectContent, 
@@ -76,9 +79,12 @@ const SYSTEM_CATEGORIES = [
 
 export function BankaEkstreListesi() {
   const { 
+    apiFetch,
     cariHareketler, 
     bankaHesaplari, 
     cariler, 
+    alisFaturalari,
+    satisFaturalari,
     deleteCariHareket, 
     updateCariHareket,
     addCariHareket,
@@ -100,13 +106,17 @@ export function BankaEkstreListesi() {
   const [minAmount, setMinAmount] = useState('');
   const [maxAmount, setMaxAmount] = useState('');
   const [selectedKategori, setSelectedKategori] = useState<string>('all');
+  const [transferFilter, setTransferFilter] = useState<'ALL' | 'UNTRANSFERRED' | 'TRANSFERRED'>('ALL');
 
   // Düzenleme State'leri
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<Partial<CariHareket>>({});
 
-  // Toplu İşlem State'i
+  // Toplu İşlem & Önizleme State'i
   const [selectedHareketIds, setSelectedHareketIds] = useState<string[]>([]);
+  const [isPreviewModalOpen, setIsPreviewModalOpen] = useState(false);
+  const [previewRows, setPreviewRows] = useState<PreviewYevmiyeRow[]>([]);
+  const [previewItems, setPreviewItems] = useState<CariHareket[]>([]);
   const [transferredBankaMap, setTransferredBankaMap] = useState<Record<string, string>>(() => {
     try {
       const raw = localStorage.getItem('fatura_app_transferred_banka_v1');
@@ -115,6 +125,10 @@ export function BankaEkstreListesi() {
       return {};
     }
   });
+
+  const getBankaTransferredAt = (h: CariHareket): string | null => {
+    return h.lucaTransferredAt || transferredBankaMap[h.id] || null;
+  };
 
   const markBankaTransferred = (items: CariHareket[]) => {
     const nowIso = new Date().toISOString();
@@ -128,22 +142,44 @@ export function BankaEkstreListesi() {
       } catch {}
       return next;
     });
+
+    items.forEach(h => {
+      updateCariHareket(h.id, { lucaTransferredAt: nowIso });
+    });
+
+    apiFetch('/api/luca/mark-transferred', {
+      method: 'POST',
+      body: JSON.stringify({
+        items: items.map(h => ({ id: h.id, type: 'BANKA', transferredAt: nowIso }))
+      })
+    }).catch(() => {});
   };
 
   const toggleBankaTransferredStatus = (h: CariHareket) => {
+    const current = getBankaTransferredAt(h);
+    const nextIso = current ? null : new Date().toISOString();
+
     setTransferredBankaMap(prev => {
       const next = { ...prev };
-      if (next[h.id]) {
+      if (!nextIso) {
         delete next[h.id];
         toast.info('Banka hareketi için "Aktarıldı" işareti kaldırıldı.');
       } else {
-        next[h.id] = new Date().toISOString();
+        next[h.id] = nextIso;
       }
       try {
         localStorage.setItem('fatura_app_transferred_banka_v1', JSON.stringify(next));
       } catch {}
       return next;
     });
+
+    updateCariHareket(h.id, { lucaTransferredAt: nextIso });
+    apiFetch('/api/luca/mark-transferred', {
+      method: 'POST',
+      body: JSON.stringify({
+        items: [{ id: h.id, type: 'BANKA', transferredAt: nextIso }]
+      })
+    }).catch(() => {});
   };
 
   // Masraf Form State
@@ -211,7 +247,11 @@ export function BankaEkstreListesi() {
         const matchesKategori = selectedKategori === 'all' || 
                                 (selectedKategori === 'none' ? !h.kategoriId : h.kategoriId === selectedKategori);
 
-        return matchesSearch && matchesBanka && matchesStartDate && matchesEndDate && matchesMinVal && matchesMaxVal && matchesKategori;
+        const isTransferred = Boolean(h.lucaTransferredAt || transferredBankaMap[h.id]);
+        const matchesTransfer = transferFilter === 'ALL' ||
+          (transferFilter === 'UNTRANSFERRED' ? !isTransferred : isTransferred);
+
+        return matchesSearch && matchesBanka && matchesStartDate && matchesEndDate && matchesMinVal && matchesMaxVal && matchesKategori && matchesTransfer;
       })
       .sort((a, b) => {
         const timeDiff = parseDateString(b.tarih) - parseDateString(a.tarih);
@@ -220,7 +260,7 @@ export function BankaEkstreListesi() {
         }
         return timeDiff;
       });
-  }, [cariHareketler, searchTerm, selectedBanka, startDate, endDate, minAmount, maxAmount, selectedKategori]);
+  }, [cariHareketler, searchTerm, selectedBanka, startDate, endDate, minAmount, maxAmount, selectedKategori, transferFilter, transferredBankaMap]);
 
   const exportToExcel = () => {
     const exportData = filteredHareketler.map(h => {
@@ -345,124 +385,117 @@ export function BankaEkstreListesi() {
     setSelectedHareketIds([]);
   };
 
-  const handleBulkSendToLuca = () => {
-    let selected = filteredHareketler.filter(h => selectedHareketIds.includes(h.id));
-    if (selected.length === 0) {
-      toast.error('Lütfen aktarılacak en az bir banka hareketi seçin.');
-      return;
-    }
+  const buildBankaPreviewRows = (selected: CariHareket[]): PreviewYevmiyeRow[] => {
+    return selected.flatMap((h) => {
+      const banka = bankaHesaplari.find((b) => b.id === h.bankaId);
+      const cari = cariler.find((c) => c.id === h.cariId);
+      const isGiris =
+        h.islemTuru === 'tahsilat' ||
+        h.islemTuru === 'satis_faturasi' ||
+        h.islemTuru === 'diger_gelir' ||
+        (h.islemTuru === 'transfer' && (h.aciklama || '').toUpperCase().includes('GELEN'));
 
-    // Mükerrer Aktarım Koruması
-    const alreadyTransferred = selected.filter(h => Boolean(transferredBankaMap[h.id]));
-    if (alreadyTransferred.length > 0) {
-      if (alreadyTransferred.length === selected.length) {
-        const proceedAll = window.confirm(
-          `Seçtiğiniz ${alreadyTransferred.length} banka hareketinin tamamı daha önce Luca'ya aktarılmış görünüyor.\n\nYine de tekrar aktarmak istiyor musunuz?`
-        );
-        if (!proceedAll) return;
-      } else {
-        const untransferred = selected.filter(h => !transferredBankaMap[h.id]);
-        const onlyNew = window.confirm(
-          `Seçilen ${selected.length} banka hareketinden ${alreadyTransferred.length} tanesi daha önce Luca'ya aktarılmış!\n\n• Sadece aktarılmamış olan ${untransferred.length} yeni hareketi aktarmak için "Tamam"a basın.\n• İşlemi iptal etmek için "İptal"e basın.`
-        );
-        if (!onlyNew) return;
-        selected = untransferred;
-      }
-    }
-
-    const payload = selected.flatMap(h => {
-      const banka = bankaHesaplari.find(b => b.id === h.bankaId);
-      const cari = cariler.find(c => c.id === h.cariId);
-      const isGiris = (h.islemTuru === 'tahsilat' || h.islemTuru === 'satis_faturasi' || h.islemTuru === 'diger_gelir' ||
-        (h.islemTuru === 'transfer' && (h.aciklama || '').toUpperCase().includes('GELEN')));
-      
       const formattedTarih = formatDateForLuca(h.tarih);
-      const evrakNo = '';
-      
-      // Luca Detay Açıklama alanı max 50-60 karakterdir ve özel karakterler hata verdirebilir
       const cleanAciklama = (h.aciklama || '')
         .replace(/[\r\n\t]/g, ' ')
         .replace(/\s+/g, ' ')
         .trim()
         .substring(0, 50);
 
-      // Cari / Karşı Hesap Kodu: Cari karttaki muhasebe kodu -> hareketteki muhasebe kodu -> varsayılan (120/320)
-      const cariHesapKodu = (cari?.muhasebeKodu || (h as any).muhasebeKodu || (h as any).hesapKodu || '').trim() ||
+      const cariHesapKodu =
+        (cari?.muhasebeKodu || (h as any).muhasebeKodu || (h as any).hesapKodu || '').trim() ||
         (isGiris ? '120.01.001' : '320.01.001');
-
-      // Banka Hesap Kodu: Banka tanımındaki muhasebe kodu -> hareketteki banka kodu -> varsayılan (102)
-      const bankaHesapKodu = (banka?.muhasebeKodu || (h as any).bankaMuhasebeKodu || '').trim() || '102.01.001';
-
-      const tutarNum = typeof h.tutar === 'number' ? h.tutar : parseFloat(String(h.tutar).replace(/\./g, '').replace(',', '.')) || 0;
-      const formattedTutarStr = tutarNum.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      const bankaHesapKodu =
+        (banka?.muhasebeKodu || (h as any).bankaMuhasebeKodu || '').trim() || '102.01.001';
+      const tutarNum =
+        typeof h.tutar === 'number'
+          ? h.tutar
+          : parseFloat(String(h.tutar).replace(/\./g, '').replace(',', '.')) || 0;
 
       return [
         {
-          // 1. Cari / Karşı Hesap Satırı
+          id: `${h.id}_cari`,
           tarih: formattedTarih,
-          document_date: formattedTarih,
-          evrakNo: evrakNo,
-          document_no: evrakNo,
+          evrakNo: '',
+          belgeTuru: 'BA',
+          muhasebeKodu: cariHesapKodu,
           aciklama: cleanAciklama,
-          description: cleanAciklama,
-          tutar: tutarNum,
-          tur: isGiris ? 'alacak' : 'borc',
           borc: isGiris ? 0 : tutarNum,
           alacak: isGiris ? tutarNum : 0,
-          formatted_debit: !isGiris ? formattedTutarStr : '',
-          formatted_credit: isGiris ? formattedTutarStr : '',
-          islemTuru: h.islemTuru,
-          banka: banka?.hesapAdi || '',
-          cari: cari?.unvan || '',
           cariUnvan: cari?.unvan || '',
           vknTckn: cari?.vknTckn || '',
           vergiDairesi: (cari as any)?.vergiDairesi || '',
-          hesapKodu: cariHesapKodu,
-          muhasebeKodu: cariHesapKodu,
-          account_code: cariHesapKodu,
-          kod: cariHesapKodu,
+          hareketId: h.id,
           dovizTuru: h.dovizTuru,
           dovizTutar: h.dovizTutar,
           dovizKuru: h.dovizKuru,
-          hareketId: h.id
+          raw: { islemTuru: h.islemTuru, banka: banka?.hesapAdi || '', cari: cari?.unvan || '' },
         },
         {
-          // 2. Banka Satırı (Ters Kayıt)
+          id: `${h.id}_banka`,
           tarih: formattedTarih,
-          document_date: formattedTarih,
-          evrakNo: evrakNo,
-          document_no: evrakNo,
+          evrakNo: '',
+          belgeTuru: 'BA',
+          muhasebeKodu: bankaHesapKodu,
           aciklama: cleanAciklama,
-          description: cleanAciklama,
-          tutar: tutarNum,
-          tur: isGiris ? 'borc' : 'alacak',
           borc: isGiris ? tutarNum : 0,
           alacak: isGiris ? 0 : tutarNum,
-          formatted_debit: isGiris ? formattedTutarStr : '',
-          formatted_credit: !isGiris ? formattedTutarStr : '',
-          islemTuru: h.islemTuru,
-          banka: banka?.hesapAdi || '',
-          cari: cari?.unvan || '',
-          hesapKodu: bankaHesapKodu,
-          muhasebeKodu: bankaHesapKodu,
-          account_code: bankaHesapKodu,
-          kod: bankaHesapKodu,
+          cariUnvan: banka?.hesapAdi || '',
+          hareketId: h.id,
           dovizTuru: h.dovizTuru,
           dovizTutar: h.dovizTutar,
           dovizKuru: h.dovizKuru,
-          hareketId: h.id
-        }
+          raw: { islemTuru: h.islemTuru, banka: banka?.hesapAdi || '', cari: cari?.unvan || '' },
+        },
       ];
+    });
+  };
+
+  const sendBankaRowsToLuca = (selected: CariHareket[], finalRows: PreviewYevmiyeRow[]) => {
+    const payload = finalRows.map((row) => {
+      const tutarNum = row.borc > 0 ? row.borc : row.alacak;
+      const formattedTutarStr = tutarNum.toLocaleString('tr-TR', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      });
+      const isBorc = row.borc > 0;
+      return {
+        tarih: row.tarih,
+        document_date: row.tarih,
+        evrakNo: row.evrakNo || '',
+        document_no: row.evrakNo || '',
+        aciklama: row.aciklama,
+        description: row.aciklama,
+        tutar: tutarNum,
+        tur: isBorc ? 'borc' : 'alacak',
+        borc: row.borc,
+        alacak: row.alacak,
+        formatted_debit: isBorc ? formattedTutarStr : '',
+        formatted_credit: !isBorc ? formattedTutarStr : '',
+        islemTuru: row.raw?.islemTuru || '',
+        banka: row.raw?.banka || '',
+        cari: row.raw?.cari || '',
+        cariUnvan: row.cariUnvan || '',
+        vknTckn: row.vknTckn || '',
+        vergiDairesi: row.vergiDairesi || '',
+        hesapKodu: row.muhasebeKodu,
+        muhasebeKodu: row.muhasebeKodu,
+        account_code: row.muhasebeKodu,
+        kod: row.muhasebeKodu,
+        dovizTuru: row.dovizTuru,
+        dovizTutar: row.dovizTutar,
+        dovizKuru: row.dovizKuru,
+        hareketId: row.hareketId,
+      };
     });
 
     const transferPayload = {
       isIsletme: false,
       bankTransactions: payload,
       mahsupRows: payload,
-      count: selected.length
+      count: selected.length,
     };
 
-    // A) LocalStorage kaydı (Eklenti ve diğer sekmeler için yedekli)
     try {
       localStorage.setItem('fatura_app_luca_banka', JSON.stringify(payload));
       localStorage.setItem('fatura_app_luca_mahsup', JSON.stringify(payload));
@@ -472,31 +505,57 @@ export function BankaEkstreListesi() {
       console.error('LocalStorage banka transfer kaydı hatası:', e);
     }
 
-    // B) Event ve PostMessage ile Eklentiye Gönderme
-    window.dispatchEvent(new CustomEvent('FATURA_APP_LUCA_SEND_BANKA_HAREKETLERI', {
-      detail: transferPayload
-    }));
-    document.dispatchEvent(new CustomEvent('FATURA_APP_LUCA_SEND_BANKA_HAREKETLERI', {
-      detail: transferPayload
-    }));
-    window.dispatchEvent(new CustomEvent('FATURA_APP_LUCA_DATA', {
-      detail: transferPayload
-    }));
-    window.postMessage({
-      type: 'FATURA_APP_LUCA_SEND_BANKA_HAREKETLERI',
-      detail: transferPayload,
-      data: transferPayload
-    }, '*');
-    window.postMessage({
-      type: 'FATURA_APP_LUCA_DATA',
-      detail: transferPayload,
-      data: transferPayload
-    }, '*');
+    window.dispatchEvent(new CustomEvent('FATURA_APP_LUCA_SEND_BANKA_HAREKETLERI', { detail: transferPayload }));
+    document.dispatchEvent(new CustomEvent('FATURA_APP_LUCA_SEND_BANKA_HAREKETLERI', { detail: transferPayload }));
+    window.dispatchEvent(new CustomEvent('FATURA_APP_LUCA_DATA', { detail: transferPayload }));
+    window.postMessage({ type: 'FATURA_APP_LUCA_SEND_BANKA_HAREKETLERI', detail: transferPayload, data: transferPayload }, '*');
+    window.postMessage({ type: 'FATURA_APP_LUCA_DATA', detail: transferPayload, data: transferPayload }, '*');
 
     markBankaTransferred(selected);
+    setIsPreviewModalOpen(false);
     toast.success(`${selected.length} banka hareketi (${payload.length} satır) doğrudan Luca'ya gönderildi!`, {
       description: 'Eksik cari kartlar kontrol edilip Luca sekmesinde Mahsup Fişi otomatik başlatılıyor.'
     });
+  };
+
+  const handleOpenBankaPreviewModal = () => {
+    const selected = filteredHareketler.filter((h) => selectedHareketIds.includes(h.id));
+    if (selected.length === 0) {
+      toast.error('Lütfen önizlenecek en az bir banka hareketi seçin.');
+      return;
+    }
+    setPreviewItems(selected);
+    setPreviewRows(buildBankaPreviewRows(selected));
+    setIsPreviewModalOpen(true);
+  };
+
+  const handleBulkSendToLuca = () => {
+    let selected = filteredHareketler.filter(h => selectedHareketIds.includes(h.id));
+    if (selected.length === 0) {
+      toast.error('Lütfen aktarılacak en az bir banka hareketi seçin.');
+      return;
+    }
+
+    // Mükerrer Aktarım Koruması
+    const alreadyTransferred = selected.filter(h => Boolean(getBankaTransferredAt(h)));
+    if (alreadyTransferred.length > 0) {
+      if (alreadyTransferred.length === selected.length) {
+        const proceedAll = window.confirm(
+          `Seçtiğiniz ${alreadyTransferred.length} banka hareketinin tamamı daha önce Luca'ya aktarılmış görünüyor.\n\nYine de tekrar aktarmak istiyor musunuz?`
+        );
+        if (!proceedAll) return;
+      } else {
+        const untransferred = selected.filter(h => !getBankaTransferredAt(h));
+        const onlyNew = window.confirm(
+          `Seçilen ${selected.length} banka hareketinden ${alreadyTransferred.length} tanesi daha önce Luca'ya aktarılmış!\n\n• Sadece aktarılmamış olan ${untransferred.length} yeni hareketi aktarmak için "Tamam"a basın.\n• İşlemi iptal etmek için "İptal"e basın.`
+        );
+        if (!onlyNew) return;
+        selected = untransferred;
+      }
+    }
+
+    const rows = buildBankaPreviewRows(selected);
+    sendBankaRowsToLuca(selected, rows);
   };
 
   const [isFetchingKur, setIsFetchingKur] = useState(false);
@@ -958,7 +1017,14 @@ export function BankaEkstreListesi() {
                   <h3 className="font-semibold text-slate-800">Hareket Listesi</h3>
                   <p className="text-xs text-slate-500">Bankalardan gelen veya manuel eklenen işlemleriniz.</p>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
+                  <Button 
+                    variant="outline" 
+                    onClick={() => setIsAutoReconciliationOpen(true)}
+                    className="gap-1.5 border-teal-200 bg-teal-50/60 text-teal-800 hover:bg-teal-100 text-xs h-8 font-semibold"
+                  >
+                    <Sparkles className="w-3.5 h-3.5 text-teal-600" /> Faturalarla Eşleştir & Kapat
+                  </Button>
                   <Button 
                     variant="outline" 
                     onClick={handleCarileriBul}
@@ -1033,7 +1099,21 @@ export function BankaEkstreListesi() {
                   <Input type="number" placeholder="Max ₺" value={maxAmount} onChange={(e) => setMaxAmount(e.target.value)} className="w-24 h-10" />
                 </div>
 
-                {(searchTerm || selectedBanka !== 'all' || startDate || endDate || minAmount || maxAmount || selectedKategori !== 'all') && (
+                {/* Aktarım Durumu Filtresi */}
+                <div className="w-full md:w-44">
+                  <Select value={transferFilter} onValueChange={(v: any) => setTransferFilter(v)}>
+                    <SelectTrigger className="h-10 text-xs">
+                      <SelectValue placeholder="Aktarım Durumu" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="ALL">Tüm Hareketler</SelectItem>
+                      <SelectItem value="UNTRANSFERRED">Sadece Aktarılmayanlar</SelectItem>
+                      <SelectItem value="TRANSFERRED">Luca'ya Aktarılanlar (✔)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {(searchTerm || selectedBanka !== 'all' || startDate || endDate || minAmount || maxAmount || selectedKategori !== 'all' || transferFilter !== 'ALL') && (
                   <Button variant="ghost" onClick={() => { 
                     setSearchTerm(''); 
                     setSelectedBanka('all'); 
@@ -1042,6 +1122,7 @@ export function BankaEkstreListesi() {
                     setEndDate('');
                     setMinAmount('');
                     setMaxAmount('');
+                    setTransferFilter('ALL');
                   }} className="text-slate-500 h-10">
                     <FilterX className="w-4 h-4 mr-2" /> Sıfırla
                   </Button>
@@ -1056,7 +1137,15 @@ export function BankaEkstreListesi() {
                   <Button
                     variant="outline"
                     size="sm"
-                    className="gap-2 h-8 border-indigo-200 text-indigo-700 hover:bg-indigo-100"
+                    className="gap-1.5 h-8 border-indigo-300 text-indigo-700 bg-white hover:bg-indigo-100"
+                    onClick={handleOpenBankaPreviewModal}
+                  >
+                    <Eye className="w-3.5 h-3.5" /> Yevmiye Önizle
+                  </Button>
+                  <Button
+                    variant="default"
+                    size="sm"
+                    className="gap-2 h-8 bg-indigo-600 hover:bg-indigo-700 text-white"
                     onClick={handleBulkSendToLuca}
                   >
                     <ExternalLink className="w-3.5 h-3.5" /> Luca'ya Gönder
@@ -1169,15 +1258,29 @@ export function BankaEkstreListesi() {
                                   <span className="text-xs font-medium text-slate-700 truncate max-w-[250px]" title={h.aciklama}>
                                     {h.aciklama}
                                   </span>
-                                  <div className="flex items-center gap-1.5 mt-0.5">
+                                  <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
                                     <span className="text-[10px] text-slate-400 uppercase font-bold tracking-tight">
                                       {(h.islemTuru || '').replace(/_/g, ' ')}
                                     </span>
-                                    {transferredBankaMap[h.id] && (
+                                    {h.bagliFaturaId && !String(h.bagliFaturaId).startsWith('trf_') && (() => {
+                                      const linkedFatura =
+                                        (alisFaturalari || []).find(f => f.id === h.bagliFaturaId) ||
+                                        (satisFaturalari || []).find(f => f.id === h.bagliFaturaId);
+                                      return (
+                                        <span
+                                          title={linkedFatura ? `Eşleşen Fatura: ${linkedFatura.faturaNo || linkedFatura.id}` : `Bağlı Fatura ID: ${h.bagliFaturaId}`}
+                                          className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded bg-teal-50 text-teal-800 border border-teal-200 text-[9px] font-bold"
+                                        >
+                                          <Link2 className="w-2.5 h-2.5 text-teal-600" />
+                                          {linkedFatura?.faturaNo ? `Fatura: ${linkedFatura.faturaNo}` : 'Fatura Kapandı'}
+                                        </span>
+                                      );
+                                    })()}
+                                    {getBankaTransferredAt(h) && (
                                       <button
                                         type="button"
                                         onClick={() => toggleBankaTransferredStatus(h)}
-                                        title={`Aktarım zamanı: ${new Date(transferredBankaMap[h.id]).toLocaleString('tr-TR')} (İşareti kaldırmak için tıklayın)`}
+                                        title={`Aktarım zamanı: ${new Date(getBankaTransferredAt(h)!).toLocaleString('tr-TR')} (İşareti kaldırmak için tıklayın)`}
                                         className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-800 border border-emerald-300 text-[9px] font-bold hover:bg-emerald-200 transition-colors"
                                       >
                                         <Check className="w-2.5 h-2.5 text-emerald-700" />
@@ -1955,6 +2058,16 @@ export function BankaEkstreListesi() {
       <AutoReconciliationModal 
         isOpen={isAutoReconciliationOpen} 
         onClose={() => setIsAutoReconciliationOpen(false)} 
+      />
+
+      <LucaYevmiyePreviewModal
+        isOpen={isPreviewModalOpen}
+        onClose={() => setIsPreviewModalOpen(false)}
+        title="Banka Mahsup Fişi Yevmiye Önizleme & Bakiye Kontrolü"
+        subtitle="Luca'ya göndermeden önce 102 Bankalar ve 120/320/770 karşı hesap yevmiye satırlarını kontrol edin veya düzenleyin."
+        documentCount={previewItems.length}
+        initialRows={previewRows}
+        onConfirmSend={(finalRows) => sendBankaRowsToLuca(previewItems, finalRows)}
       />
     </div>
   );

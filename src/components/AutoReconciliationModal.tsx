@@ -3,7 +3,6 @@ import { useApp } from '@/context/AppContext';
 import { 
   Dialog, 
   DialogContent, 
-  DialogHeader, 
   DialogTitle, 
   DialogDescription,
   DialogFooter
@@ -17,10 +16,8 @@ import {
   ArrowRight, 
   Landmark, 
   FileText, 
-  Filter, 
   ShieldCheck, 
   Clock, 
-  AlertCircle,
   Search,
   Sparkles,
   Check
@@ -39,6 +36,9 @@ interface MatchCandidate {
   hareket: CariHareket;
   fatura: SatisFatura | AlisFatura;
   faturaTipi: 'satis' | 'alis';
+  faturaToplam: number;
+  faturaKalan: number;
+  isPartial: boolean;
   score: number;
   matchReasons: string[];
   confidence: 'high' | 'medium' | 'low';
@@ -61,144 +61,279 @@ export function AutoReconciliationModal({ isOpen, onClose }: AutoReconciliationM
   const [processing, setProcessing] = useState(false);
   const [closedIds, setClosedIds] = useState<Set<string>>(new Set());
 
-  // 1. Akıllı Eşleştirme Motoru
+  const getSatisMusteriAdi = (sf: SatisFatura) => {
+    const anySf = sf as any;
+    const adSoyad = [sf.ad, sf.soyad].filter(Boolean).join(' ').trim();
+    return adSoyad || anySf.musteriAdi || anySf.unvan || 'Müşteri';
+  };
+
+  const getSatisVkn = (sf: SatisFatura) => {
+    const anySf = sf as any;
+    return String(sf.tcVkn || anySf.musteriVkn || '').trim();
+  };
+
+  const getSatisToplam = (sf: SatisFatura) => {
+    const anySf = sf as any;
+    return Number(sf.alinanUcret ?? anySf.toplamTutar) || 0;
+  };
+
+  const getKalanTutar = (f: SatisFatura | AlisFatura, toplam: number) => {
+    if (f.kalanTutar !== undefined && f.kalanTutar !== null && Number(f.kalanTutar) > 0) {
+      return Number(f.kalanTutar);
+    }
+    const odenen = Number(f.odenenTutar) || 0;
+    return Math.max(0, Math.round((toplam - odenen) * 100) / 100);
+  };
+
+  const parseDateMs = (dStr: string) => {
+    if (!dStr) return 0;
+    if (dStr.includes('.')) {
+      const [day, month, year] = dStr.split(' ')[0].split('.');
+      return new Date(Number(year), Number(month) - 1, Number(day)).getTime();
+    }
+    return new Date(dStr).getTime() || 0;
+  };
+
+  // 1. Akıllı Eşleştirme Motoru (Tam + Kısmi Ödeme + Cari Kart + VKN + Fatura No)
   const matches = useMemo<MatchCandidate[]>(() => {
     const list: MatchCandidate[] = [];
 
     // Açık faturalar
-    const openSatis = satisFaturalari.filter(f => f.odemeDurumu !== 'ODENDI' && f.odemeDurumu !== 'odendi' as any);
-    const openAlis = alisFaturalari.filter(f => f.odemeDurumu !== 'odendi');
+    const openSatis = satisFaturalari.filter(f => {
+      const st = String(f.odemeDurumu || '').toLowerCase();
+      return st !== 'odendi';
+    });
+    const openAlis = alisFaturalari.filter(f => {
+      const st = String(f.odemeDurumu || '').toLowerCase();
+      return st !== 'odendi';
+    });
 
-    // Henüz faturaya bağlanmamış banka hareketleri
-    const unlinkedHareketler = cariHareketler.filter(h => !h.bagliFaturaId && !closedIds.has(h.id));
+    // Henüz faturaya bağlanmamış gerçek banka tahsilat/ödeme hareketleri
+    const ignoredTypes = new Set([
+      'transfer',
+      'banka_masrafi',
+      'satis_faturasi',
+      'alis_faturasi',
+      'vergi_kdv',
+      'vergi_muhtasar',
+      'vergi_gecici',
+      'vergi_damga',
+      'ssk_odemesi',
+      'maas_odemesi'
+    ]);
+
+    const unlinkedHareketler = cariHareketler.filter(h =>
+      Boolean(h.bankaId) &&
+      !h.bagliFaturaId &&
+      !closedIds.has(h.id) &&
+      !ignoredTypes.has(h.islemTuru)
+    );
+
+    const stopWords = new Set(['ltd', 'şti', 'sti', 'a.ş', 'aş', 'as', 'tic', 'san', 've', 'anonim', 'şirketi', 'sirketi', 'ticaret', 'sanayi']);
 
     for (const h of unlinkedHareketler) {
-      const hAmount = Math.abs(h.tutar);
-      const hDesc = (h.aciklama || '').toLowerCase();
-      const hDate = new Date(h.tarih).getTime();
+      const hAmount = Math.abs(Number(h.tutar) || 0);
+      if (hAmount <= 0) continue;
+
+      const hDesc = (h.aciklama || '').toLocaleLowerCase('tr-TR');
+      const hDate = parseDateMs(h.tarih);
+      const hCari = h.cariId ? cariler.find(c => c.id === h.cariId) : undefined;
+      const hCariName = (hCari?.unvan || '').toLocaleLowerCase('tr-TR');
 
       // Gelen Para (Tahsilat) -> Satış Faturaları ile Eşle
-      const isIncoming = h.islemTuru === 'tahsilat' || h.islemTuru === 'gelen_havale' || (h.tutar > 0 && h.islemTuru !== 'odeme');
-      
+      const isIncoming = h.islemTuru === 'tahsilat' || h.islemTuru === 'diger_gelir' || h.islemTuru === 'cek_senet_alinan';
+
       if (isIncoming) {
-        let bestCandidate: { fatura: SatisFatura; score: number; reasons: string[] } | null = null;
+        let bestCandidate: { fatura: SatisFatura; score: number; reasons: string[]; toplam: number; kalan: number; isPartial: boolean } | null = null;
 
         for (const sf of openSatis) {
+          const toplam = getSatisToplam(sf);
+          const kalan = getKalanTutar(sf, toplam);
+          if (kalan <= 0) continue;
+
           let score = 0;
+          let identityScore = 0;
           const reasons: string[] = [];
 
-          // Tutar kontrolü (Tam eşleşme veya 5 kuruş tolerans)
-          const diff = Math.abs(sf.toplamTutar - hAmount);
+          // 1) Cari Kart Eşleşmesi
+          if (h.cariId && sf.cariId && h.cariId === sf.cariId) {
+            score += 40;
+            identityScore += 40;
+            reasons.push('Cari Kart Eşleşti');
+          }
+
+          // 2) Fatura Numarası açıklamada geçiyor mu?
+          const cleanFaturaNo = String(sf.faturaNo || '').trim().toLocaleLowerCase('tr-TR');
+          if (cleanFaturaNo.length >= 4 && (hDesc.includes(cleanFaturaNo) || (cleanFaturaNo.length >= 8 && hDesc.includes(cleanFaturaNo.slice(-6))))) {
+            score += 45;
+            identityScore += 45;
+            reasons.push(`Fatura No Eşleşti (${sf.faturaNo})`);
+          }
+
+          // 3) VKN / TCKN açıklamada geçiyor mu?
+          const vkn = getSatisVkn(sf);
+          if (vkn.length >= 8 && (hDesc.includes(vkn) || (hCari?.vknTckn && hCari.vknTckn === vkn))) {
+            score += 35;
+            identityScore += 35;
+            reasons.push(`VKN/TCKN Eşleşti (${vkn})`);
+          }
+
+          // 4) Müşteri Ünvanı kontrolü
+          const musteriAdi = getSatisMusteriAdi(sf);
+          const musteriWords = musteriAdi
+            .toLocaleLowerCase('tr-TR')
+            .split(/[\s,.-]+/)
+            .filter((w: string) => w.length > 3 && !stopWords.has(w));
+          const nameMatched = musteriWords.some((w: string) => hDesc.includes(w) || (hCariName && hCariName.includes(w)));
+          if (nameMatched) {
+            score += 25;
+            identityScore += 25;
+            reasons.push('Müşteri Ünvanı Eşleşti');
+          }
+
+          // 5) Tutar kontrolü (Kalan tutar veya toplam tutar ile)
+          const diffKalan = Math.abs(kalan - hAmount);
+          const diffToplam = Math.abs(toplam - hAmount);
+          const diff = Math.min(diffKalan, diffToplam);
+          let isPartial = false;
+
           if (diff < 0.05) {
             score += 50;
             reasons.push('Tutar Birebir Eşleşti');
-          } else if (diff <= 1.0) {
+          } else if (diff <= 2.5) {
             score += 35;
-            reasons.push('Tutar Kuruş Farkıyla Eşleşti (±1 TL)');
-          }
-
-          // Fatura Numarası açıklamada geçiyor mu?
-          if (sf.faturaNo && sf.faturaNo.length >= 4 && hDesc.includes(sf.faturaNo.toLowerCase())) {
-            score += 40;
-            reasons.push(`Açıklamada Fatura No Geçiyor (${sf.faturaNo})`);
-          }
-
-          // VKN / TCKN açıklamada geçiyor mu?
-          if (sf.musteriVkn && sf.musteriVkn.length >= 8 && hDesc.includes(sf.musteriVkn)) {
-            score += 30;
-            reasons.push(`Açıklamada VKN/TCKN Geçiyor (${sf.musteriVkn})`);
-          }
-
-          // Müşteri Ünvanı kontrolü
-          const musteriNameWords = (sf.musteriAdi || '').toLowerCase().split(/[\s,.-]+/).filter(w => w.length > 3 && !['ltd', 'şti', 'a.ş', 'as', 'tic', 'san'].includes(w));
-          const nameMatched = musteriNameWords.some(w => hDesc.includes(w));
-          if (nameMatched) {
+            reasons.push('Tutar Kuruş/Masraf Farkıyla Eşleşti');
+          } else if (hAmount < kalan - 2.5 && identityScore >= 35) {
             score += 25;
-            reasons.push('Cari / Firma Adı Eşleşti');
+            isPartial = true;
+            reasons.push('Kısmi Tahsilat / Mahsup');
           }
 
-          // Tarih Yakınlığı (±30 gün)
-          const fDate = new Date(sf.faturaTarihi).getTime();
-          const dayDiff = Math.abs(hDate - fDate) / (1000 * 60 * 60 * 24);
-          if (dayDiff <= 15) {
-            score += 15;
-            reasons.push(`Tarih Çok Yakın (${Math.round(dayDiff)} gün)`);
-          } else if (dayDiff <= 45) {
-            score += 5;
+          // 6) Tarih Yakınlığı
+          const fDate = parseDateMs(sf.faturaTarihi);
+          if (hDate > 0 && fDate > 0) {
+            const dayDiff = Math.abs(hDate - fDate) / (1000 * 60 * 60 * 24);
+            if (dayDiff <= 15) {
+              score += 15;
+              reasons.push(`Tarih Yakın (${Math.round(dayDiff)} gün)`);
+            } else if (dayDiff <= 45) {
+              score += 5;
+            }
           }
 
-          if (score >= 50 && (!bestCandidate || score > bestCandidate.score)) {
-            bestCandidate = { fatura: sf, score, reasons };
+          if (score >= 55 && (!bestCandidate || score > bestCandidate.score)) {
+            bestCandidate = { fatura: sf, score, reasons, toplam, kalan, isPartial };
           }
         }
 
         if (bestCandidate) {
-          const confidence = bestCandidate.score >= 80 ? 'high' : bestCandidate.score >= 60 ? 'medium' : 'low';
+          const confidence = bestCandidate.score >= 80 ? 'high' : bestCandidate.score >= 65 ? 'medium' : 'low';
           list.push({
             id: `satis_${h.id}_${bestCandidate.fatura.id}`,
             hareket: h,
             fatura: bestCandidate.fatura,
             faturaTipi: 'satis',
+            faturaToplam: bestCandidate.toplam,
+            faturaKalan: bestCandidate.kalan,
+            isPartial: bestCandidate.isPartial,
             score: Math.min(bestCandidate.score, 100),
             matchReasons: bestCandidate.reasons,
             confidence
           });
         }
       } else {
-        // Giden Para (Tediye / Harcama) -> Alış Faturaları ile Eşle
-        let bestCandidate: { fatura: AlisFatura; score: number; reasons: string[] } | null = null;
+        // Giden Para (Ödeme / Harcama) -> Alış Faturaları ile Eşle
+        let bestCandidate: { fatura: AlisFatura; score: number; reasons: string[]; toplam: number; kalan: number; isPartial: boolean } | null = null;
 
         for (const af of openAlis) {
+          const toplam = Number(af.toplamTutar) || 0;
+          const kalan = getKalanTutar(af, toplam);
+          if (kalan <= 0) continue;
+
           let score = 0;
+          let identityScore = 0;
           const reasons: string[] = [];
 
-          const diff = Math.abs(af.toplamTutar - hAmount);
-          if (diff < 0.05) {
-            score += 50;
-            reasons.push('Tutar Birebir Eşleşti');
-          } else if (diff <= 1.0) {
-            score += 35;
-            reasons.push('Tutar Kuruş Farkıyla Eşleşti (±1 TL)');
-          }
-
-          if (af.faturaNo && af.faturaNo.length >= 4 && hDesc.includes(af.faturaNo.toLowerCase())) {
+          // 1) Cari Kart Eşleşmesi
+          if (h.cariId && af.cariId && h.cariId === af.cariId) {
             score += 40;
-            reasons.push(`Açıklamada Fatura No Geçiyor (${af.faturaNo})`);
+            identityScore += 40;
+            reasons.push('Cari Kart Eşleşti');
           }
 
-          if (af.tedarikciVkn && af.tedarikciVkn.length >= 8 && hDesc.includes(af.tedarikciVkn)) {
-            score += 30;
-            reasons.push(`Açıklamada VKN/TCKN Geçiyor (${af.tedarikciVkn})`);
+          // 2) Fatura No
+          const cleanFaturaNo = String(af.faturaNo || '').trim().toLocaleLowerCase('tr-TR');
+          if (cleanFaturaNo.length >= 4 && (hDesc.includes(cleanFaturaNo) || (cleanFaturaNo.length >= 8 && hDesc.includes(cleanFaturaNo.slice(-6))))) {
+            score += 45;
+            identityScore += 45;
+            reasons.push(`Fatura No Eşleşti (${af.faturaNo})`);
           }
 
-          const tedarikciWords = (af.tedarikciAdi || '').toLowerCase().split(/[\s,.-]+/).filter(w => w.length > 3 && !['ltd', 'şti', 'a.ş', 'as', 'tic', 'san'].includes(w));
-          const nameMatched = tedarikciWords.some(w => hDesc.includes(w));
+          // 3) VKN / TCKN
+          const vkn = String(af.tedarikciVkn || '').trim();
+          if (vkn.length >= 8 && (hDesc.includes(vkn) || (hCari?.vknTckn && hCari.vknTckn === vkn))) {
+            score += 35;
+            identityScore += 35;
+            reasons.push(`VKN/TCKN Eşleşti (${vkn})`);
+          }
+
+          // 4) Tedarikçi Firma Adı
+          const tedarikciWords = (af.tedarikciAdi || '')
+            .toLocaleLowerCase('tr-TR')
+            .split(/[\s,.-]+/)
+            .filter((w: string) => w.length > 3 && !stopWords.has(w));
+          const nameMatched = tedarikciWords.some((w: string) => hDesc.includes(w) || (hCariName && hCariName.includes(w)));
           if (nameMatched) {
             score += 25;
+            identityScore += 25;
             reasons.push('Tedarikçi Firma Adı Eşleşti');
           }
 
-          const fDate = new Date(af.faturaTarihi).getTime();
-          const dayDiff = Math.abs(hDate - fDate) / (1000 * 60 * 60 * 24);
-          if (dayDiff <= 15) {
-            score += 15;
-            reasons.push(`Tarih Çok Yakın (${Math.round(dayDiff)} gün)`);
-          } else if (dayDiff <= 45) {
-            score += 5;
+          // 5) Tutar Kontrolü
+          const diffKalan = Math.abs(kalan - hAmount);
+          const diffToplam = Math.abs(toplam - hAmount);
+          const diff = Math.min(diffKalan, diffToplam);
+          let isPartial = false;
+
+          if (diff < 0.05) {
+            score += 50;
+            reasons.push('Tutar Birebir Eşleşti');
+          } else if (diff <= 2.5) {
+            score += 35;
+            reasons.push('Tutar Kuruş/Masraf Farkıyla Eşleşti');
+          } else if (hAmount < kalan - 2.5 && identityScore >= 35) {
+            score += 25;
+            isPartial = true;
+            reasons.push('Kısmi Ödeme / Mahsup');
           }
 
-          if (score >= 50 && (!bestCandidate || score > bestCandidate.score)) {
-            bestCandidate = { fatura: af, score, reasons };
+          // 6) Tarih Yakınlığı
+          const fDate = parseDateMs(af.faturaTarihi);
+          if (hDate > 0 && fDate > 0) {
+            const dayDiff = Math.abs(hDate - fDate) / (1000 * 60 * 60 * 24);
+            if (dayDiff <= 15) {
+              score += 15;
+              reasons.push(`Tarih Yakın (${Math.round(dayDiff)} gün)`);
+            } else if (dayDiff <= 45) {
+              score += 5;
+            }
+          }
+
+          if (score >= 55 && (!bestCandidate || score > bestCandidate.score)) {
+            bestCandidate = { fatura: af, score, reasons, toplam, kalan, isPartial };
           }
         }
 
         if (bestCandidate) {
-          const confidence = bestCandidate.score >= 80 ? 'high' : bestCandidate.score >= 60 ? 'medium' : 'low';
+          const confidence = bestCandidate.score >= 80 ? 'high' : bestCandidate.score >= 65 ? 'medium' : 'low';
           list.push({
             id: `alis_${h.id}_${bestCandidate.fatura.id}`,
             hareket: h,
             fatura: bestCandidate.fatura,
             faturaTipi: 'alis',
+            faturaToplam: bestCandidate.toplam,
+            faturaKalan: bestCandidate.kalan,
+            isPartial: bestCandidate.isPartial,
             score: Math.min(bestCandidate.score, 100),
             matchReasons: bestCandidate.reasons,
             confidence
@@ -207,11 +342,9 @@ export function AutoReconciliationModal({ isOpen, onClose }: AutoReconciliationM
       }
     }
 
-    // Skora göre sırala (en yüksekler en üstte)
     return list.sort((a, b) => b.score - a.score);
-  }, [cariHareketler, satisFaturalari, alisFaturalari, closedIds]);
+  }, [cariHareketler, satisFaturalari, alisFaturalari, cariler, closedIds]);
 
-  // Filtrelenmiş liste
   const filteredMatches = useMemo(() => {
     return matches.filter(m => {
       if (activeTab === 'high' && m.confidence !== 'high') return false;
@@ -219,11 +352,11 @@ export function AutoReconciliationModal({ isOpen, onClose }: AutoReconciliationM
       if (activeTab === 'alis' && m.faturaTipi !== 'alis') return false;
 
       if (searchTerm) {
-        const q = searchTerm.toLowerCase();
-        const fName = m.faturaTipi === 'satis' ? (m.fatura as SatisFatura).musteriAdi : (m.fatura as AlisFatura).tedarikciAdi;
+        const q = searchTerm.toLocaleLowerCase('tr-TR');
+        const fName = m.faturaTipi === 'satis' ? getSatisMusteriAdi(m.fatura as SatisFatura) : (m.fatura as AlisFatura).tedarikciAdi;
         const fNo = m.fatura.faturaNo || '';
         const hDesc = m.hareket.aciklama || '';
-        if (!fName?.toLowerCase().includes(q) && !fNo.toLowerCase().includes(q) && !hDesc.toLowerCase().includes(q)) {
+        if (!fName?.toLocaleLowerCase('tr-TR').includes(q) && !fNo.toLocaleLowerCase('tr-TR').includes(q) && !hDesc.toLocaleLowerCase('tr-TR').includes(q)) {
           return false;
         }
       }
@@ -231,11 +364,10 @@ export function AutoReconciliationModal({ isOpen, onClose }: AutoReconciliationM
     });
   }, [matches, activeTab, searchTerm]);
 
-  // Tekli Eşleme ve Fatura Kapama
   const handleCloseSingle = async (candidate: MatchCandidate) => {
     setProcessing(true);
     try {
-      // Backend çağrısı
+      const hAmount = Math.abs(Number(candidate.hareket.tutar) || 0);
       await apiFetch('/api/reconciliation/batch-close', {
         method: 'POST',
         body: JSON.stringify({
@@ -243,24 +375,26 @@ export function AutoReconciliationModal({ isOpen, onClose }: AutoReconciliationM
             hareketId: candidate.hareket.id,
             faturaId: candidate.fatura.id,
             faturaTipi: candidate.faturaTipi,
-            odemeTarihi: candidate.hareket.tarih
+            odemeTarihi: candidate.hareket.tarih,
+            tutar: hAmount
           }]
         })
       });
 
-      // AppContext State Güncelleme
+      const newStatus = candidate.isPartial ? ('kismi_odendi' as any) : ('odendi' as any);
       if (candidate.faturaTipi === 'satis') {
-        updateSatisFaturaOdeme(candidate.fatura.id, candidate.hareket.tarih, 'ODENDI' as any, candidate.hareket.bankaId || undefined);
+        updateSatisFaturaOdeme(candidate.fatura.id, candidate.hareket.tarih, newStatus);
       } else {
-        updateAlisFaturaOdeme(candidate.fatura.id, candidate.hareket.tarih, 'odendi', candidate.hareket.bankaId || undefined);
+        updateAlisFaturaOdeme(candidate.fatura.id, candidate.hareket.tarih, newStatus);
       }
 
       updateCariHareket(candidate.hareket.id, {
-        bagliFaturaId: candidate.fatura.id
+        bagliFaturaId: candidate.fatura.id,
+        cariId: candidate.hareket.cariId || candidate.fatura.cariId || candidate.hareket.cariId
       });
 
       setClosedIds(prev => new Set([...prev, candidate.hareket.id]));
-      toast.success(`Fatura (${candidate.fatura.faturaNo}) ve banka hareketi başarıyla kapatıldı!`);
+      toast.success(`Fatura (${candidate.fatura.faturaNo || '-'}) ve banka hareketi başarıyla eşleştirilip ${candidate.isPartial ? 'kısmi ödendi' : 'ödendi'} olarak güncellendi!`);
     } catch (e: any) {
       toast.error('Eşleştirme kapatılırken hata: ' + (e.message || 'Bilinmeyen hata'));
     } finally {
@@ -268,9 +402,16 @@ export function AutoReconciliationModal({ isOpen, onClose }: AutoReconciliationM
     }
   };
 
-  // Toplu Yüksek Güvenilirlikli Eşleşmeleri Kapatma
   const handleBatchCloseHighConfidence = async () => {
-    const highMatches = matches.filter(m => m.confidence === 'high');
+    // Aynı faturanın tam kapamada mükerrer kapatılmasını önle
+    const usedFaturaIds = new Set<string>();
+    const highMatches = matches.filter(m => {
+      if (m.confidence !== 'high') return false;
+      if (!m.isPartial && usedFaturaIds.has(m.fatura.id)) return false;
+      usedFaturaIds.add(m.fatura.id);
+      return true;
+    });
+
     if (highMatches.length === 0) {
       toast.info('Yüksek güvenilirlikte kapatılacak eşleşme bulunamadı.');
       return;
@@ -282,7 +423,8 @@ export function AutoReconciliationModal({ isOpen, onClose }: AutoReconciliationM
         hareketId: m.hareket.id,
         faturaId: m.fatura.id,
         faturaTipi: m.faturaTipi,
-        odemeTarihi: m.hareket.tarih
+        odemeTarihi: m.hareket.tarih,
+        tutar: Math.abs(Number(m.hareket.tutar) || 0)
       }));
 
       const res = await apiFetch('/api/reconciliation/batch-close', {
@@ -290,14 +432,17 @@ export function AutoReconciliationModal({ isOpen, onClose }: AutoReconciliationM
         body: JSON.stringify({ matches: payload })
       });
 
-      // React State Güncelleme
       highMatches.forEach(m => {
+        const newStatus = m.isPartial ? ('kismi_odendi' as any) : ('odendi' as any);
         if (m.faturaTipi === 'satis') {
-          updateSatisFaturaOdeme(m.fatura.id, m.hareket.tarih, 'ODENDI' as any, m.hareket.bankaId || undefined);
+          updateSatisFaturaOdeme(m.fatura.id, m.hareket.tarih, newStatus);
         } else {
-          updateAlisFaturaOdeme(m.fatura.id, m.hareket.tarih, 'odendi', m.hareket.bankaId || undefined);
+          updateAlisFaturaOdeme(m.fatura.id, m.hareket.tarih, newStatus);
         }
-        updateCariHareket(m.hareket.id, { bagliFaturaId: m.fatura.id });
+        updateCariHareket(m.hareket.id, {
+          bagliFaturaId: m.fatura.id,
+          cariId: m.hareket.cariId || m.fatura.cariId || m.hareket.cariId
+        });
       });
 
       setClosedIds(prev => new Set([...prev, ...highMatches.map(m => m.hareket.id)]));
@@ -310,7 +455,7 @@ export function AutoReconciliationModal({ isOpen, onClose }: AutoReconciliationM
   };
 
   const highCount = matches.filter(m => m.confidence === 'high').length;
-  const totalAmount = matches.reduce((acc, m) => acc + Math.abs(m.hareket.tutar), 0);
+  const totalAmount = matches.reduce((acc, m) => acc + Math.abs(Number(m.hareket.tutar) || 0), 0);
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
@@ -324,18 +469,17 @@ export function AutoReconciliationModal({ isOpen, onClose }: AutoReconciliationM
             </div>
             <div>
               <DialogTitle className="text-xl font-bold text-white flex items-center gap-2">
-                Otomatik Banka - Fatura Eşleştirme Motoru
+                Otomatik Banka - Fatura Eşleştirme & Ödeme Kapama Motoru
                 <Badge className="bg-yellow-400/20 text-yellow-200 border-yellow-300/40 text-xs font-semibold">
-                  Yapay Zeka Destekli
+                  Tam & Kısmi Ödeme Destekli
                 </Badge>
               </DialogTitle>
               <DialogDescription className="text-emerald-100 text-sm mt-0.5">
-                Banka ekstrelerindeki hareketler ile açık satış ve alış faturalarınızı otomatik eşleyip tek tıkla kapatın.
+                Banka ekstrelerindeki EFT/Havale hareketleri ile açık satış ve alış faturalarınızı otomatik eşleyip tek tıkla kapatın.
               </DialogDescription>
             </div>
           </div>
 
-          {/* İstatistik Çubuğu */}
           <div className="grid grid-cols-3 gap-3 mt-4 pt-4 border-t border-white/15">
             <div className="bg-white/10 backdrop-blur-sm rounded-lg p-2.5">
               <div className="text-xs text-emerald-100">Önerilen Eşleşmeler</div>
@@ -431,7 +575,7 @@ export function AutoReconciliationModal({ isOpen, onClose }: AutoReconciliationM
           ) : (
             filteredMatches.map(item => {
               const fName = item.faturaTipi === 'satis' 
-                ? (item.fatura as SatisFatura).musteriAdi 
+                ? getSatisMusteriAdi(item.fatura as SatisFatura)
                 : (item.fatura as AlisFatura).tedarikciAdi;
               const fNo = item.fatura.faturaNo || 'No Belirtilmemiş';
               const hBank = bankaHesaplari.find(b => b.id === item.hareket.bankaId);
@@ -447,7 +591,7 @@ export function AutoReconciliationModal({ isOpen, onClose }: AutoReconciliationM
                       <div className="flex items-center gap-1.5">
                         <Landmark className="w-3.5 h-3.5 text-blue-600" />
                         <span className="text-xs font-semibold text-slate-700">
-                          {hBank ? hBank.bankaAdi : 'Banka Hareketi'}
+                          {hBank ? hBank.hesapAdi || hBank.bankaAdi : 'Banka Hareketi'}
                         </span>
                       </div>
                       <span className="text-xs font-mono text-slate-500">{item.hareket.tarih}</span>
@@ -456,7 +600,7 @@ export function AutoReconciliationModal({ isOpen, onClose }: AutoReconciliationM
                       {item.hareket.aciklama || 'Açıklama yok'}
                     </div>
                     <div className="mt-2 text-sm font-bold text-blue-700">
-                      {Math.abs(item.hareket.tutar).toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺
+                      {Math.abs(Number(item.hareket.tutar) || 0).toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺
                     </div>
                   </div>
 
@@ -474,7 +618,12 @@ export function AutoReconciliationModal({ isOpen, onClose }: AutoReconciliationM
                         %{item.score} Uyum
                       </Badge>
                     </div>
-                    <div className="text-[10px] text-slate-500 mt-1 max-w-[140px] leading-tight">
+                    {item.isPartial && (
+                      <span className="mt-1 px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 text-[10px] font-bold">
+                        Kısmi Ödeme
+                      </span>
+                    )}
+                    <div className="text-[10px] text-slate-500 mt-1 max-w-[150px] leading-tight">
                       {item.matchReasons.slice(0, 2).join(' • ')}
                     </div>
                   </div>
@@ -495,9 +644,16 @@ export function AutoReconciliationModal({ isOpen, onClose }: AutoReconciliationM
                     </div>
                     <div className="flex items-center justify-between mt-2">
                       <span className="text-xs text-slate-500">{item.fatura.faturaTarihi}</span>
-                      <span className="text-sm font-bold text-emerald-700">
-                        {item.fatura.toplamTutar.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺
-                      </span>
+                      <div className="text-right">
+                        <span className="text-sm font-bold text-emerald-700">
+                          {item.faturaKalan.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺
+                        </span>
+                        {item.faturaKalan < item.faturaToplam - 0.05 && (
+                          <div className="text-[10px] text-slate-400">
+                            Toplam: {item.faturaToplam.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
 
@@ -510,7 +666,7 @@ export function AutoReconciliationModal({ isOpen, onClose }: AutoReconciliationM
                       className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs h-9 px-3.5 rounded-lg shadow-sm font-medium gap-1.5"
                     >
                       <Check className="w-3.5 h-3.5" />
-                      Eşle & Kapat
+                      {item.isPartial ? 'Kısmi Kapat' : 'Eşle & Kapat'}
                     </Button>
                   </div>
                 </div>
@@ -523,7 +679,7 @@ export function AutoReconciliationModal({ isOpen, onClose }: AutoReconciliationM
         <DialogFooter className="p-4 bg-slate-50 border-t border-slate-100 flex items-center justify-between sm:justify-between">
           <div className="text-xs text-slate-500 flex items-center gap-1.5">
             <Clock className="w-3.5 h-3.5" />
-            Eşlenen faturalar otomatik olarak <strong>'Ödendi'</strong> durumuna geçer ve dekont bağlanır.
+            Eşlenen faturalar otomatik olarak <strong>'Ödendi / Kısmi Ödendi'</strong> durumuna geçer ve banka hareketiyle bağlanır.
           </div>
           <Button variant="outline" size="sm" onClick={onClose} className="text-xs">
             Kapat

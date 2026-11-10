@@ -38,6 +38,7 @@ export interface SatisFatura {
   aciklama?: string;
   stokKalemleri?: any[];
   gibUuid?: string;
+  lucaTransferredAt?: string | null;
 }
 
 export interface SatisFaturaFormData {
@@ -138,6 +139,7 @@ export interface AlisFatura {
   vehiclePlate?: string;
   mahsupSatirlari?: any[];
   hasKkeg?: boolean;
+  lucaTransferredAt?: string | null;
 }
 
 export interface AlisFaturaFormData {
@@ -172,6 +174,7 @@ export interface AlisFaturaFormData {
   kdvHesapKodu?: string;
   mahsupSatirlari?: any[];
   hasKkeg?: boolean;
+  lucaTransferredAt?: string | null;
 }
 
 // ==================== CARİ HAREKET (Bakiye / Ekstre İşlemleri) ====================
@@ -193,6 +196,7 @@ export interface CariHareket {
   dovizTuru?: 'TRY' | 'USD' | 'EUR';
   dovizTutar?: number;
   dovizKuru?: number;
+  lucaTransferredAt?: string | null;
 }
 
 export interface CariBakiyeOzet {
