@@ -1,6 +1,7 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { AlertCircle, RotateCcw, ShieldAlert } from "lucide-react";
+import { isChunkLoadError, triggerSafeChunkReload } from "@/lib/lazyWithRetry";
 
 interface Props {
   children: ReactNode;
@@ -26,6 +27,9 @@ class ErrorBoundary extends Component<Props, State> {
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     console.error("Uncaught error:", error, errorInfo);
+    if (isChunkLoadError(error)) {
+      triggerSafeChunkReload();
+    }
     this.setState({ error, errorInfo });
   }
 

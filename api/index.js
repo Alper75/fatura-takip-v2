@@ -7868,11 +7868,34 @@ app.use('/uploads', express.static(uploadsDir));
 // Frontend Production build dosyalarını sun (Google Cloud / Standalone için)
 const distDir = path.join(__dirname, '..', 'dist');
 if (fs.existsSync(distDir)) {
-  app.use(express.static(distDir));
+  // Hash'li asset dosyalarını uzun süre önbellekle
+  app.use('/assets', express.static(path.join(distDir, 'assets'), {
+    maxAge: '1y',
+    immutable: true
+  }));
+
+  // Diğer statik dosyalar (index.html hariç veya no-cache ile)
+  app.use(express.static(distDir, {
+    setHeaders: (res, filePath) => {
+      if (filePath.endsWith('index.html')) {
+        res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+        res.setHeader('Pragma', 'no-cache');
+        res.setHeader('Expires', '0');
+      }
+    }
+  }));
+
   app.get('*', (req, res, next) => {
     if (req.path.startsWith('/api/') || req.path.startsWith('/uploads/')) {
       return next();
     }
+    // Eksik .js / .css / /assets/ dosyaları için index.html döndürme (MIME hatasını önle)
+    if (req.path.startsWith('/assets/') || /\.(js|css|map|woff2?|png|jpe?g|svg|ico)$/i.test(req.path)) {
+      return res.status(404).send('Asset not found');
+    }
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
     res.sendFile(path.join(distDir, 'index.html'));
   });
 }
