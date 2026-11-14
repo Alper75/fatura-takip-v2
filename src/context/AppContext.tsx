@@ -1,5 +1,9 @@
-import React, { createContext, useContext, useState, useCallback, useMemo, useEffect } from 'react';
-import { toast } from 'sonner';
+import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
+import { useAuthAndCompanies } from './hooks/useAuthAndCompanies';
+import { usePersonelIK } from './hooks/usePersonelIK';
+import { useCariBanka } from './hooks/useCariBanka';
+import { useFaturalar } from './hooks/useFaturalar';
+import { useTeklifSiparisLuca } from './hooks/useTeklifSiparisLuca';
 
 import { apiFetch } from '@/lib/api';
 import type {
@@ -18,7 +22,6 @@ import type {
   User,
   Vehicle,
   ViewType,
-  IslemTuru,
   OdemeDurumu,
   VergiRaporu,
   MasrafKurali,
@@ -29,7 +32,7 @@ import type {
   Teklif,
   Siparis
 } from '@/types';
-import { AYLAR, GELIR_VERGISI_DILIMLERI } from '@/types';
+
 
 interface AppContextType {
   // ==================== AUTH ====================
@@ -223,30 +226,8 @@ const AppContext = createContext<AppContextType | undefined>(undefined);
 
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
-
-  // ==================== AUTH STATE ====================
-  const [isAuthenticated, setIsAuthenticated] = useState(() => !!localStorage.getItem('token'));
-  const [user, setUser] = useState<User | null>(() => {
-    const saved = localStorage.getItem('user');
-    return saved ? JSON.parse(saved) : null;
-  });
-
-  // ==================== PERSONEL STATE ====================
-  const [personnel, setPersonnel] = useState<Personnel[]>([]);
-  const [currentPersonnel, setCurrentPersonnel] = useState<Personnel | null>(null);
-
-  // ==================== VIEW STATE ====================
+  // ==================== VIEW & DRAWER STATE ====================
   const [currentView, setCurrentView] = useState<ViewType>('dashboard');
-
-  // ==================== CARÄ° STATE ====================
-  const [cariler, setCariler] = useState<Cari[]>([]);
-  const [cariHareketler, setCariHareketler] = useState<CariHareket[]>([]);
-
-  // ==================== FATURA STATE ====================
-  const [satisFaturalari, setSatisFaturalari] = useState<SatisFatura[]>([]);
-  const [alisFaturalari, setAlisFaturalari] = useState<AlisFatura[]>([]);
-
-  // ==================== DRAWER STATE ====================
   const [isSatisDrawerOpen, setIsSatisDrawerOpen] = useState(false);
   const [isAlisDrawerOpen, setIsAlisDrawerOpen] = useState(false);
   const [isCariDrawerOpen, setIsCariDrawerOpen] = useState(false);
@@ -255,887 +236,51 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [selectedCariId, setSelectedCariId] = useState<string | null>(null);
   const [satisInitialData, setSatisInitialData] = useState<Partial<SatisFaturaFormData> | null>(null);
   const [alisInitialData, setAlisInitialData] = useState<Partial<AlisFaturaFormData> | null>(null);
-
-  // ==================== Ã‡EK SENET STATE ====================
-  const [cekSenetler, setCekSenetler] = useState<CekSenet[]>([]);
   const [isCekSenetDrawerOpen, setIsCekSenetDrawerOpen] = useState(false);
   const [selectedCekSenetId, setSelectedCekSenetId] = useState<string | null>(null);
-
-  // ==================== BANKA STATE ====================
-  const [bankaHesaplari, setBankaHesaplari] = useState<BankaHesabi[]>([]);
-  const [masrafKurallari, setMasrafKurallari] = useState<MasrafKurali[]>([]);
-  const [kesilecekFaturalar, setKesilecekFaturalar] = useState<KesilecekFatura[]>([]);
-  const [giderKategorileri, setGiderKategorileri] = useState<GiderKategorisi[]>([]);
   const [isBankaDrawerOpen, setIsBankaDrawerOpen] = useState(false);
   const [selectedBankaId, setSelectedBankaId] = useState<string | null>(null);
 
-  // ==================== SUPER ADMIN STATE ====================
-  const [companies, setCompanies] = useState<Company[]>(() => {
-    try {
-      const saved = localStorage.getItem('companies');
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
+  const fetchMyPersonnelRef = useRef<() => void>(() => {});
+  const resetAllRef = useRef<() => void>(() => {});
+
+  const authHook = useAuthAndCompanies({
+    onNavigate: setCurrentView,
+    onFetchMyPersonnel: () => fetchMyPersonnelRef.current(),
+    onReset: () => resetAllRef.current(),
   });
 
-  // ==================== LUCA STATE ====================
-  const [lucaAccounts, setLucaAccounts] = useState<{ kod: string; ad: string; tur?: string }[]>([]);
+  const personelHook = usePersonelIK({ user: authHook.user });
+  fetchMyPersonnelRef.current = personelHook.fetchMyPersonnel;
 
-  // ==================== TEKLİF & SİPARİŞ STATE ====================
-  const [teklifler, setTeklifler] = useState<Teklif[]>([]);
-  const [siparisler, setSiparisler] = useState<Siparis[]>([]);
+  const cariBankaHook = useCariBanka({
+    isAuthenticated: authHook.isAuthenticated,
+  });
 
-  // ==================== RBAC COMPANY USERS STATE ====================
-  const [companyUsers, setCompanyUsers] = useState<User[]>([]);
+  const faturaHook = useFaturalar({
+    isAuthenticated: authHook.isAuthenticated,
+    setCariHareketler: cariBankaHook.setCariHareketler,
+  });
 
-  const fetchLucaAccounts = useCallback(async () => {
-    try {
-      const data = await apiFetch('/api/luca/hesap-plani');
-      if (data.success) setLucaAccounts(data.data);
-    } catch (e) {
-      console.error('Fetch Luca accounts error:', e);
-    }
-  }, []);
+  const teklifLucaHook = useTeklifSiparisLuca();
 
-  const syncLucaAccounts = useCallback(() => {
-    // Eklentiye sinyal gönder
-    window.dispatchEvent(new CustomEvent('FATURA_APP_LUCA_SYNC_REQUEST'));
-  }, []);
-
-  const autoSyncLucaAccounts = useCallback((): Promise<{ success: boolean; message?: string; count?: number }> => {
-    return new Promise((resolve) => {
-      const handleResponse = (e: any) => {
-        window.removeEventListener('FATURA_APP_LUCA_AUTO_SYNC_RESPONSE', handleResponse);
-        const res = e.detail;
-        if (res && res.status === 'success') {
-          resolve({ success: true, count: res.count });
-        } else {
-          resolve({ success: false, message: res?.message || 'Bilinmeyen hata oluştu.' });
-        }
-      };
-      
-      window.addEventListener('FATURA_APP_LUCA_AUTO_SYNC_RESPONSE', handleResponse);
-      window.dispatchEvent(new CustomEvent('FATURA_APP_LUCA_AUTO_SYNC'));
-      
-      // Safety timeout
-      setTimeout(() => {
-        window.removeEventListener('FATURA_APP_LUCA_AUTO_SYNC_RESPONSE', handleResponse);
-        resolve({ success: false, message: 'Eklenti yanıt vermedi. Süre aşımı.' });
-      }, 15000);
-    });
-  }, []);
-
-  useEffect(() => {
-    const handleLucaResponse = async (e: any) => {
-      const response = e.detail;
-      console.log("[Luca Sync] Response received in AppContext:", response);
-      if (response && response.status === 'success' && response.data) {
-        // Gelen veriyi normalize et ve mükerrer kayıtları temizle
-        const uniqueMap = new Map();
-        (response.data || []).forEach((acc: any) => {
-          const kod = (acc.kod || acc.code || '').trim();
-          const ad = (acc.ad || acc.name || '').trim();
-          const tur = acc.tur || '';
-          if (kod && ad) {
-            uniqueMap.set(kod, { kod, ad, tur });
-          }
-        });
-        const normalizedData = Array.from(uniqueMap.values());
-
-        toast.success(`${normalizedData.length} hesap Luca'dan alındı. Kaydediliyor...`);
-        
-        // Önce yerel durumu güncelle ki anında görünsün
-        setLucaAccounts(normalizedData);
-
-        // Arka plana senkronize et
-        try {
-          const res = await apiFetch('/api/luca/hesap-plani/sync', {
-            method: 'POST',
-            body: JSON.stringify({ accounts: normalizedData })
-          });
-          if (res.success) {
-            toast.success("Hesap planı sunucuya başarıyla kaydedildi.");
-          } else {
-            toast.error("Sunucu kaydı başarısız: " + (res.message || "Bilinmeyen hata"));
-          }
-        } catch (err: any) {
-          console.error('Sync to backend failed:', err);
-          toast.error("Sunucu kaydı sırasında hata oluştu.");
-        }
-      } else if (response && response.status === 'error') {
-        console.error('Extension sync error:', response.message);
-        toast.error("Luca Senkronizasyon Hatası: " + response.message);
-      }
-    };
-    window.addEventListener('FATURA_APP_LUCA_ACCOUNTS_RECEIVED', handleLucaResponse);
-    return () => window.removeEventListener('FATURA_APP_LUCA_ACCOUNTS_RECEIVED', handleLucaResponse);
-  }, [fetchLucaAccounts]);
-
-  // ==================== VERÄ° YÃœKLEME (API'DAN) ====================
-
-  // ==================== CARÄ° CRUD ====================
-  const addCari = useCallback(async (data: CariFormData) => {
-    const yeniCari: Cari = { ...data, id: 'c' + Date.now().toString() + Math.random().toString(36).substr(2, 5), olusturmaTarihi: new Date().toISOString().split('T')[0] };
-    setCariler(prev => [yeniCari, ...prev]);
-    try { 
-      const res = await apiFetch('/api/cariler', { method: 'POST', body: JSON.stringify(yeniCari) }); 
-      if (!res.success) toast.error("Cari sunucuya kaydedilemedi: " + res.message);
-    }
-    catch (e) { console.error('Cari eklenemedi:', e); }
-  }, []);
-
-  const updateCari = useCallback(async (id: string, data: Partial<CariFormData>) => {
-    setCariler(prev => prev.map(c => c.id === id ? { ...c, ...data } : c));
-    try { 
-      const res = await apiFetch(`/api/cariler/${id}`, { method: 'PUT', body: JSON.stringify(data) }); 
-      if (!res.success) toast.error("Güncelleme sunucuya kaydedilemedi.");
-    }
-    catch (e) { console.error('Cari güncellenemedi:', e); }
-  }, []);
-
-  const deleteCari = useCallback(async (id: string) => {
-    setCariler(prev => prev.filter(c => c.id !== id));
-    setCariHareketler(prev => prev.filter(h => h.cariId !== id));
-    try { await apiFetch(`/api/cariler/${id}`, { method: 'DELETE' }); }
-    catch (e) { console.error('Cari silinemedi:', e); }
-  }, []);
-
-  // ==================== CARÄ° HAREKET CRUD ====================
-  const addCariHareket = useCallback(async (data: Omit<CariHareket, 'id' | 'olusturmaTarihi'>) => {
-    const yeniHareket: CariHareket = {
-      ...data,
-      id: 'ch' + Date.now().toString() + Math.random().toString(36).substr(2, 5),
-      olusturmaTarihi: new Date().toISOString().split('T')[0]
-    };
-    setCariHareketler(prev => [yeniHareket, ...prev]);
-    try { await apiFetch('/api/cari-hareketler', { method: 'POST', body: JSON.stringify(yeniHareket) }); }
-    catch (e) { console.error('Cari hareket eklenemedi:', e); }
-
-    // Banka bakiyesini gÃ¼ncelle
-    if (data.bankaId) {
-      setBankaHesaplari(prev => prev.map(b => {
-        if (b.id === data.bankaId) {
-          // ARTALACAKLAR (+)
-          const ArtisTurleri: IslemTuru[] = [
-            'tahsilat', 
-            'satis_faturasi', 
-            'cek_senet_alinan',
-            'diger_gelir'
-          ];
-          
-          // AZALACAKLAR (-)
-          const AzalisTurleri: IslemTuru[] = [
-            'odeme', 
-            'alis_faturasi', 
-            'vergi_kdv', 
-            'vergi_muhtasar', 
-            'vergi_gecici', 
-            'vergi_damga', 
-            'maas_odemesi', 
-            'kira_odemesi', 
-            'banka_masrafi', 
-            'ssk_odemesi', 
-            'genel_gider', 
-            'kredi_karti_odemesi',
-            'cek_senet_verilen'
-          ];
-
-          // Transfer Ã–zel Durumu: CariHareket metninde "GELEN" veya "GÄ°DEN" aramasÄ±?
-          // Åžimdilik transfer'i data iÃ§inde ek bir flag olarak dÃ¼ÅŸÃ¼nelim veya aÃ§Ä±klamaya bakalÄ±m.
-          // BasitÃ§e: EÄŸer tutar pozitifse artÄ±ÅŸ, negatifse azalÄ±ÅŸ desek daha mÄ± iyi?
-          // Ama addCariHareket tutarÄ± mutlak deÄŸer bekliyor genelde.
-          
-          let degisim = 0;
-          const amount = data.dovizTutar ? data.dovizTutar : data.tutar;
-          if (ArtisTurleri.includes(data.islemTuru)) {
-            degisim = amount;
-          } else if (AzalisTurleri.includes(data.islemTuru)) {
-            degisim = -amount;
-          } else if (data.islemTuru === 'transfer') {
-              if (data.aciklama && data.aciklama.toUpperCase().includes('GELEN')) degisim = amount;
-              else degisim = -amount;
-          }
-
-          if (degisim !== 0) {
-            return { 
-              ...b, 
-              guncelBakiye: Number(( (Number(b.guncelBakiye) || 0) + degisim).toFixed(2)) 
-            };
-          }
-        }
-        return b;
-      }));
-    }
-  }, []);
-
-  const updateCariHareket = useCallback(async (id: string, data: Partial<CariHareket>) => {
-    setCariHareketler(prev => {
-      const eski = prev.find(h => h.id === id);
-      if (!eski) return prev;
-
-      // Banka bakiye dÃ¼zeltmesi
-      const ArtisTurleri: IslemTuru[] = ['tahsilat', 'satis_faturasi', 'cek_senet_alinan', 'diger_gelir'];
-      const AzalisTurleri: IslemTuru[] = [
-        'odeme', 'alis_faturasi', 'vergi_kdv', 'vergi_muhtasar', 'vergi_gecici', 
-        'vergi_damga', 'maas_odemesi', 'kira_odemesi', 'banka_masrafi', 
-        'ssk_odemesi', 'genel_gider', 'kredi_karti_odemesi', 'cek_senet_verilen'
-      ];
-
-      setBankaHesaplari(bankalar => bankalar.map(b => {
-        let bakiye = b.guncelBakiye;
-        
-        // Eskinin etkisini geri al
-        if (b.id === eski.bankaId) {
-          let degisim = 0;
-          const amount = eski.dovizTutar ? eski.dovizTutar : eski.tutar;
-          if (ArtisTurleri.includes(eski.islemTuru)) degisim = -amount;
-          else if (AzalisTurleri.includes(eski.islemTuru)) degisim = amount;
-          else if (eski.islemTuru === 'transfer') {
-            if (eski.aciklama && eski.aciklama.toUpperCase().includes('GELEN')) degisim = -amount;
-            else degisim = amount;
-          }
-          bakiye += degisim;
-        }
-
-        // Yeninin etkisini uygula
-        const yeniTutar = data.tutar !== undefined ? data.tutar : eski.tutar;
-        const yeniTur = data.islemTuru !== undefined ? data.islemTuru : eski.islemTuru;
-        const yeniAciklama = data.aciklama !== undefined ? data.aciklama : eski.aciklama;
-        const yeniBankaId = data.bankaId !== undefined ? data.bankaId : (eski.bankaId || null);
-
-        if (b.id === yeniBankaId) {
-          let degisim = 0;
-          const yeniDovizTutar = data.dovizTutar !== undefined ? data.dovizTutar : eski.dovizTutar;
-          const newAmount = yeniDovizTutar ? yeniDovizTutar : yeniTutar;
-          if (ArtisTurleri.includes(yeniTur)) degisim = newAmount;
-          else if (AzalisTurleri.includes(yeniTur)) degisim = -newAmount;
-          else if (yeniTur === 'transfer') {
-            if (yeniAciklama && yeniAciklama.toUpperCase().includes('GELEN')) degisim = newAmount;
-            else degisim = -newAmount;
-          }
-          bakiye += degisim;
-        }
-
-        return { ...b, guncelBakiye: Number(bakiye.toFixed(2)) };
-      }));
-
-      return prev.map(h => h.id === id ? { ...h, ...data } : h);
-    });
-    try { await apiFetch(`/api/cari-hareketler/${id}`, { method: 'PUT', body: JSON.stringify(data) }); }
-    catch (e) { console.error('Cari hareket gÃ¼ncellenemedi:', e); }
-  }, []);
-
-  const deleteCariHareket = useCallback(async (id: string) => {
-    const silinecek = cariHareketler.find(h => h.id === id);
-    if (silinecek && silinecek.bankaId) {
-       setBankaHesaplari(prev => prev.map(b => {
-         if (b.id === silinecek.bankaId) {
-           const ArtisTurleri: IslemTuru[] = ['tahsilat', 'satis_faturasi', 'cek_senet_alinan', 'diger_gelir'];
-           const AzalisTurleri: IslemTuru[] = [
-             'odeme', 'alis_faturasi', 'vergi_kdv', 'vergi_muhtasar', 
-             'vergi_gecici', 'vergi_damga', 'maas_odemesi', 'kira_odemesi', 
-             'banka_masrafi', 'ssk_odemesi', 'genel_gider', 'kredi_karti_odemesi',
-             'cek_senet_verilen'
-           ];
-
-           let degisim = 0;
-           const amount = silinecek.dovizTutar ? silinecek.dovizTutar : silinecek.tutar;
-           if (ArtisTurleri.includes(silinecek.islemTuru)) {
-             degisim = -amount; // Eklenen gelir silinirse bakiye dÃ¼ÅŸer
-           } else if (AzalisTurleri.includes(silinecek.islemTuru)) {
-             degisim = amount; // Eklenen gider silinirse bakiye artar
-           } else if (silinecek.islemTuru === 'transfer') {
-              if (silinecek.aciklama && silinecek.aciklama.toUpperCase().includes('GELEN')) degisim = -amount;
-              else degisim = amount;
-           }
-
-           if (degisim !== 0) {
-             return { ...b, guncelBakiye: Number((b.guncelBakiye + degisim).toFixed(2)) };
-           }
-         }
-         return b;
-       }));
-    }
-    setCariHareketler(prev => prev.filter(h => h.id !== id));
-    try { await apiFetch(`/api/cari-hareketler/${id}`, { method: 'DELETE' }); }
-    catch (e) { console.error('Cari hareket silinemedi:', e); }
-  }, [cariHareketler]);
-
-  const hesaplaCariBakiye = useCallback((cariId: string): CariBakiyeOzet => {
-    const hareketler = cariHareketler.filter(h => h.cariId === cariId);
-    let toplamBorc = 0;
-    let toplamAlacak = 0;
-    let tahsilEdilen = 0;
-    let odenen = 0;
-
-    hareketler.forEach(h => {
-      const val = Number(h.tutar) || 0;
-      if (h.islemTuru === 'satis_faturasi') {
-        toplamBorc += val;
-      } else if (h.islemTuru === 'alis_faturasi') {
-        toplamAlacak += val;
-      } else if (['tahsilat', 'cek_senet_alinan', 'diger_gelir'].includes(h.islemTuru)) {
-        tahsilEdilen += val;
-      } else if (['odeme', 'cek_senet_verilen', 'genel_gider', 'banka_masrafi', 'vergi_kdv', 'vergi_muhtasar', 'vergi_gecici', 'vergi_damga', 'maas_odemesi', 'kira_odemesi', 'ssk_odemesi', 'kredi_karti_odemesi'].includes(h.islemTuru)) {
-        odenen += val;
-      } else if (h.islemTuru === 'transfer') {
-        if (h.aciklama && h.aciklama.toUpperCase().includes('GELEN')) {
-          tahsilEdilen += val;
-        } else {
-          odenen += val;
-        }
-      }
-    });
-
-    const guncelBakiye = (toplamBorc - tahsilEdilen) - (toplamAlacak - odenen);
-    let bakiyeDurumu: 'borclu' | 'alacakli' | 'kapali' = 'kapali';
-    
-    if (guncelBakiye > 0) bakiyeDurumu = 'borclu'; // MÃ¼ÅŸteri borÃ§lu (Biz alacaklÄ±yÄ±z)
-    else if (guncelBakiye < 0) bakiyeDurumu = 'alacakli'; // Biz borÃ§luyuz (TedarikÃ§i alacaklÄ±)
-
-    return { 
-      toplamBorc, 
-      toplamAlacak, 
-      tahsilEdilen, 
-      odenen, 
-      guncelBakiye: Math.abs(guncelBakiye), 
-      bakiyeDurumu 
-    };
-  }, [cariHareketler]);
-
-
-  
-  const login = useCallback(async (tc: string, password: string) => {
-    try {
-      const response = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tc, password })
-      });
-      const data = await response.json();
-      if (data.success) {
-        localStorage.setItem('token', data.token);
-        localStorage.setItem('user', JSON.stringify(data.user));
-        setIsAuthenticated(true);
-        setUser(data.user);
-        if (data.company) {
-          const compList = [data.company];
-          setCompanies(compList);
-          try { localStorage.setItem('companies', JSON.stringify(compList)); } catch(e){}
-        }
-        if (data.user.role === 'personnel') {
-          setCurrentView('personel-dashboard');
-          fetchMyPersonnel();
-        } else if (data.user.role === 'depo') {
-          setCurrentView('stok-yonetimi');
-        } else if (data.user.role === 'satis') {
-          setCurrentView('satis-liste');
-        } else {
-          setCurrentView('dashboard');
-        }
-        return { success: true };
-      }
-      return { success: false, message: data.message };
-    } catch (error: any) {
-      return { success: false, message: error.message };
-    }
-  }, []);
-
-  const logout = useCallback(() => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
-    localStorage.removeItem('companies');
-    setIsAuthenticated(false);
-    setUser(null);
-    setCompanies([]);
-    setPersonnel([]);
-    setCurrentPersonnel(null);
-    setCompanyUsers([]);
-    setCariler([]);
-    setCariHareketler([]);
-    setSatisFaturalari([]);
-    setAlisFaturalari([]);
-    setCekSenetler([]);
-    setBankaHesaplari([]);
-    setMasrafKurallari([]);
-    setKesilecekFaturalar([]);
-    setGiderKategorileri([]);
-    setLucaAccounts([]);
-    setTeklifler([]);
-    setSiparisler([]);
+  resetAllRef.current = () => {
+    personelHook.setPersonnel([]);
+    personelHook.setCurrentPersonnel(null);
+    cariBankaHook.setCariler([]);
+    cariBankaHook.setCariHareketler([]);
+    faturaHook.setSatisFaturalari([]);
+    faturaHook.setAlisFaturalari([]);
+    cariBankaHook.setCekSenetler([]);
+    cariBankaHook.setBankaHesaplari([]);
+    cariBankaHook.setMasrafKurallari([]);
+    cariBankaHook.setKesilecekFaturalar([]);
+    cariBankaHook.setGiderKategorileri([]);
+    teklifLucaHook.setLucaAccounts([]);
+    teklifLucaHook.setTeklifler([]);
+    teklifLucaHook.setSiparisler([]);
     setCurrentView('dashboard');
-  }, []);
-
-  const changePassword = useCallback(async (newPassword: string) => {
-    try {
-      const response = await fetch('/api/auth/change-password', {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        },
-        body: JSON.stringify({ newPassword })
-      });
-      const data = await response.json();
-      if (data.success) {
-        if (user) {
-          const updatedUser = { ...user, mustChangePassword: false };
-          setUser(updatedUser);
-          localStorage.setItem('user', JSON.stringify(updatedUser));
-        }
-        return { success: true };
-      }
-      return { success: false, message: data.message };
-    } catch (error: any) {
-      return { success: false, message: error.message };
-    }
-  }, [user]);
-
-  // ==================== RBAC & PERMISSIONS FUNCTIONS ====================
-  const canAccess = useCallback((permissionKey: string): boolean => {
-    if (!user) return false;
-    if (user.role === 'super_admin' || user.role === 'admin') return true;
-    if (user.permissions && typeof user.permissions[permissionKey] === 'boolean') {
-      return user.permissions[permissionKey]!;
-    }
-    return false;
-  }, [user]);
-
-  const fetchCompanyUsers = useCallback(async () => {
-    try {
-      const res = await apiFetch('/api/admin/users');
-      if (res.success && res.data) {
-        setCompanyUsers(res.data);
-      }
-    } catch (e) {
-      console.error('Failed to fetch company users:', e);
-    }
-  }, []);
-
-  const addCompanyUser = useCallback(async (data: any) => {
-    try {
-      const res = await apiFetch('/api/admin/users', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data)
-      });
-      if (res.success) {
-        toast.success(res.message || 'Kullanıcı başarıyla oluşturuldu.');
-        await fetchCompanyUsers();
-        return { success: true };
-      }
-      toast.error(res.message || 'Kullanıcı oluşturulamadı.');
-      return { success: false, message: res.message };
-    } catch (err: any) {
-      toast.error(err.message || 'Bir hata oluştu.');
-      return { success: false, message: err.message };
-    }
-  }, [fetchCompanyUsers]);
-
-  const updateCompanyUser = useCallback(async (id: number, data: any) => {
-    try {
-      const res = await apiFetch(`/api/admin/users/${id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data)
-      });
-      if (res.success) {
-        toast.success(res.message || 'Kullanıcı yetkileri güncellendi.');
-        await fetchCompanyUsers();
-        return { success: true };
-      }
-      toast.error(res.message || 'Güncelleme başarısız.');
-      return { success: false, message: res.message };
-    } catch (err: any) {
-      toast.error(err.message || 'Bir hata oluştu.');
-      return { success: false, message: err.message };
-    }
-  }, [fetchCompanyUsers]);
-
-  const deleteCompanyUser = useCallback(async (id: number) => {
-    try {
-      const res = await apiFetch(`/api/admin/users/${id}`, {
-        method: 'DELETE'
-      });
-      if (res.success) {
-        toast.success(res.message || 'Kullanıcı silindi.');
-        await fetchCompanyUsers();
-        return { success: true };
-      }
-      toast.error(res.message || 'Kullanıcı silinemedi.');
-      return { success: false, message: res.message };
-    } catch (err: any) {
-      toast.error(err.message || 'Bir hata oluştu.');
-      return { success: false, message: err.message };
-    }
-  }, [fetchCompanyUsers]);
-
-  const resetUserPassword = useCallback(async (id: number, newPassword?: string) => {
-    try {
-      const res = await apiFetch(`/api/admin/users/${id}/reset-password`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ newPassword })
-      });
-      if (res.success) {
-        toast.success(res.message || 'Şifre sıfırlandı.');
-        return { success: true, message: res.message };
-      }
-      toast.error(res.message || 'Şifre sıfırlanamadı.');
-      return { success: false, message: res.message };
-    } catch (err: any) {
-      toast.error(err.message || 'Bir hata oluştu.');
-      return { success: false, message: err.message };
-    }
-  }, []);
-
-  // ==================== PERSONEL FUNCTIONS ====================
-  const fetchPersonnel = useCallback(async () => {
-    try {
-      const data = await apiFetch('/api/admin/personnel');
-      if (data.success) setPersonnel(data.personnel);
-    } catch (error) {
-      console.error('Fetch personnel error:', error);
-    }
-  }, []);
-
-  const fetchMyPersonnel = useCallback(async () => {
-    try {
-      const data = await apiFetch('/api/personnel/me');
-      if (data.success) setCurrentPersonnel(data.personnel);
-    } catch (error) {
-      console.error('Fetch my personnel error:', error);
-    }
-  }, []);
-
-  const bulkUploadPersonnel = useCallback(async (file: File) => {
-    const formData = new FormData();
-    formData.append('file', file);
-    try {
-      const data = await apiFetch('/api/admin/personnel/bulk-upload', {
-        method: 'POST',
-        body: formData
-      });
-      if (data.success) {
-        fetchPersonnel();
-        return { success: true, message: data.message };
-      }
-      return { success: false, message: data.message };
-    } catch (error: any) {
-      return { success: false, message: error.message };
-    }
-  }, [fetchPersonnel]);
-
-  const addPersonnel = useCallback(async (data: any) => {
-    try {
-      const result = await apiFetch('/api/admin/personnel', {
-        method: 'POST',
-        body: JSON.stringify(data)
-      });
-      if (result.success) {
-        fetchPersonnel();
-        return { success: true, message: result.message };
-      }
-      return { success: false, message: result.message };
-    } catch (error: any) {
-      return { success: false, message: error.message };
-    }
-  }, [fetchPersonnel]);
-
-  const updatePersonnel = useCallback(async (id: number, data: any) => {
-    try {
-      const result = await apiFetch(`/api/admin/personnel/${id}`, {
-        method: 'PUT',
-        body: JSON.stringify(data)
-      });
-      if (result.success) {
-        fetchPersonnel();
-        return { success: true, message: result.message };
-      }
-      return { success: false, message: result.message };
-    } catch (error: any) { return { success: false, message: error.message }; }
-  }, [fetchPersonnel]);
-
-  const deletePersonnel = useCallback(async (id: number) => {
-    try {
-      const result = await apiFetch(`/api/admin/personnel/${id}`, {
-        method: 'DELETE'
-      });
-      if (result.success) {
-        fetchPersonnel();
-        return { success: true, message: result.message };
-      }
-      return { success: false, message: result.message };
-    } catch (error: any) { return { success: false, message: error.message }; }
-  }, [fetchPersonnel]);
-
-  const [leaves, setLeaves] = useState<any[]>([]);
-  const fetchLeaves = useCallback(async () => {
-    try {
-      const endpoint = (user?.role === 'admin' || user?.role === 'super_admin') ? '/api/admin/leaves' : '/api/personnel/leaves';
-      const data = await apiFetch(endpoint);
-      if (data.success) setLeaves(data.data);
-    } catch (error) { console.error('Fetch leaves error:', error); }
-  }, [user]);
-
-  const submitLeaveRequest = useCallback(async (data: any | FormData) => {
-    try {
-      const result = await apiFetch('/api/personnel/leaves', {
-        method: 'POST',
-        body: data instanceof FormData ? data : JSON.stringify(data)
-      });
-      if (result.success) fetchLeaves();
-      return result;
-    } catch (error: any) { return { success: false, message: error.message }; }
-  }, [fetchLeaves]);
-
-  const updateLeaveStatus = useCallback(async (id: number, status: string) => {
-    try {
-      const data = await apiFetch(`/api/admin/leaves/${id}`, {
-        method: 'PUT',
-        body: JSON.stringify({ status })
-      });
-      if (data.success) {
-        fetchLeaves();
-        fetchPersonnel(); 
-        return { success: true, message: data.message };
-      }
-      return { success: false, message: data.message };
-    } catch (error: any) { return { success: false, message: error.message }; }
-  }, [fetchLeaves, fetchPersonnel]);
-
-  const [pointages, setPointages] = useState<any[]>([]);
-  const fetchPointages = useCallback(async () => {
-    try {
-      const endpoint = (user?.role === 'admin' || user?.role === 'super_admin') ? '/api/admin/pointage' : '/api/personnel/pointage';
-      const data = await apiFetch(endpoint);
-      if (data.success) setPointages(data.data);
-    } catch (error) { console.error('Fetch pointages error:', error); }
-  }, [user]);
-
-  const bulkLockPointage = useCallback(async (personnelId: number, year: number, month: number, lockStatus: boolean) => {
-    try {
-      const result = await apiFetch('/api/admin/pointage/bulk-lock', {
-        method: 'POST',
-        body: JSON.stringify({ personnel_id: personnelId, year, month, lock_status: lockStatus })
-      });
-      if (result.success) {
-        fetchPointages();
-        return { success: true, message: result.message };
-      }
-      return { success: false, message: result.message };
-    } catch (error: any) { return { success: false, message: error.message }; }
-  }, [fetchPointages]);
-
-  const bulkLockAllPersonnel = useCallback(async (year: number, month: number, lockStatus: boolean) => {
-    try {
-      const result = await apiFetch('/api/admin/pointage/bulk-lock-all', {
-        method: 'POST',
-        body: JSON.stringify({ year, month, lock_status: lockStatus })
-      });
-      if (result.success) {
-        fetchPointages();
-        return { success: true, message: result.message };
-      }
-      return { success: false, message: result.message };
-    } catch (error: any) { return { success: false, message: error.message }; }
-  }, [fetchPointages]);
-
-  const downloadPuantajTemplate = useCallback(async () => {
-    try {
-      const response = await fetch('/api/admin/pointage/template', {
-        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
-      });
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', 'puantaj_sablon.xlsx');
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-    } catch (error) {
-      console.error('Template download error:', error);
-    }
-  }, []);
-
-  const uploadPuantajExcel = useCallback(async (file: File) => {
-    const formData = new FormData();
-    formData.append('file', file);
-    try {
-      const data = await apiFetch('/api/admin/pointage/bulk-upload', {
-        method: 'POST',
-        body: formData
-      });
-      if (data.success) {
-        fetchPointages();
-        return { success: true, message: data.message };
-      }
-      return { success: false, message: data.message };
-    } catch (error: any) {
-      return { success: false, message: error.message };
-    }
-  }, [fetchPointages]);
-
-  const [requests, setRequests] = useState<any[]>([]);
-  const fetchRequests = useCallback(async () => {
-    try {
-      const endpoint = (user?.role === 'admin' || user?.role === 'super_admin') ? '/api/admin/requests' : '/api/personnel/requests';
-      const data = await apiFetch(endpoint);
-      if (data.success) setRequests(data.data);
-    } catch (error) { console.error('Fetch requests error:', error); }
-  }, [user]);
-
-  const updateRequestStatus = useCallback(async (id: number, status: string) => {
-    try {
-      const result = await apiFetch(`/api/admin/requests/${id}`, {
-        method: 'PUT',
-        body: JSON.stringify({ status })
-      });
-      if (result.success) fetchRequests();
-      return result;
-    } catch (error: any) { return { success: false, message: error.message }; }
-  }, [fetchRequests]);
-
-  const submitExpenseRequest = useCallback(async (data: any | FormData) => {
-    try {
-      const result = await apiFetch('/api/personnel/requests', {
-        method: 'POST',
-        body: data instanceof FormData ? data : JSON.stringify(data)
-      });
-      if (result.success) fetchRequests();
-      return result;
-    } catch (error: any) { return { success: false, message: error.message }; }
-  }, [fetchRequests]);
-
-  const uploadPersonnelDocument = useCallback(async (file: File, type: string) => {
-    try {
-      const formData = new FormData();
-      formData.append('file', file);
-      formData.append('type', type);
-      return await apiFetch('/api/personnel/documents', {
-        method: 'POST',
-        body: formData
-      });
-    } catch (error: any) { return { success: false, message: error.message }; }
-  }, []);
-
-
-  const submitPointage = useCallback(async (data: any) => {
-    try {
-      const response = await fetch('/api/pointage', {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}` 
-        },
-        body: JSON.stringify(data)
-      });
-      const result = await response.json();
-      if (result.success) fetchPointages();
-      return result;
-    } catch (error: any) { return { success: false, message: error.message }; }
-  }, [fetchPointages]);
-
-  // ==================== SUPER ADMIN FUNCTIONS ====================
-  const fetchCompanies = useCallback(async () => {
-    try {
-      if (user?.role === 'super_admin') {
-        const data = await apiFetch('/api/super/companies');
-        if (data.success && data.data) {
-          setCompanies(data.data);
-          try { localStorage.setItem('companies', JSON.stringify(data.data)); } catch(e){}
-        }
-      } else if (user) {
-        const data = await apiFetch('/api/my-company');
-        if (data.success && data.data) {
-          const compList = [data.data];
-          setCompanies(compList);
-          try { localStorage.setItem('companies', JSON.stringify(compList)); } catch(e){}
-        }
-      }
-    } catch (error) { console.error('Fetch companies error:', error); }
-  }, [user]);
-
-  const addCompany = useCallback(async (data: Omit<Company, 'id'>) => {
-    try {
-      const result = await apiFetch('/api/super/companies', {
-        method: 'POST',
-        body: JSON.stringify(data)
-      });
-      if (result.success) fetchCompanies();
-      return result;
-    } catch (error: any) { return { success: false, message: error.message }; }
-  }, [fetchCompanies]);
-
-  const updateCompany = useCallback(async (id: number, data: Partial<Company>) => {
-    try {
-      const result = await apiFetch(`/api/super/companies/${id}`, {
-        method: 'PUT',
-        body: JSON.stringify(data)
-      });
-      if (result.success) fetchCompanies();
-      return result;
-    } catch (error: any) { return { success: false, message: error.message }; }
-  }, [fetchCompanies]);
-
-  const updateMyCompany = useCallback(async (data: Partial<Company>) => {
-    try {
-      const result = await apiFetch('/api/my-company', {
-        method: 'PUT',
-        body: JSON.stringify(data)
-      });
-      if (result.success) {
-        await fetchCompanies();
-      }
-      return result;
-    } catch (error: any) {
-      return { success: false, message: error.message };
-    }
-  }, [fetchCompanies]);
-
-  const activeCompany = useMemo(() => {
-    return companies.find(c => Number(c.id) === Number(user?.companyId)) || (companies.length > 0 ? companies[0] : null);
-  }, [companies, user?.companyId]);
-
-  const isIsletmeDefteri = useMemo(() => {
-    if (!activeCompany?.company_type) return false;
-    const type = String(activeCompany.company_type).toUpperCase();
-    return type.includes('İŞLETME') || type.includes('ISLETME');
-  }, [activeCompany?.company_type]);
-
-  const deleteCompany = useCallback(async (id: number) => {
-    try {
-      const result = await apiFetch(`/api/super/companies/${id}`, {
-        method: 'DELETE'
-      });
-      if (result.success) fetchCompanies();
-      return result;
-    } catch (error: any) { return { success: false, message: error.message }; }
-  }, [fetchCompanies]);
-
-  // ==================== ARAÇ YÖNETİMİ ====================
-  const addVehicle = useCallback(async (data: Omit<Vehicle, 'id'>) => {
-    try {
-      const result = await apiFetch('/api/vehicles', {
-        method: 'POST',
-        body: JSON.stringify(data)
-      });
-      if (result.success) fetchCompanies();
-      return result;
-    } catch (error: any) { return { success: false, message: error.message }; }
-  }, [fetchCompanies]);
-
-  const deleteVehicle = useCallback(async (id: number) => {
-    try {
-      const result = await apiFetch(`/api/vehicles/${id}`, {
-        method: 'DELETE'
-      });
-      if (result.success) fetchCompanies();
-      return result;
-    } catch (error: any) { return { success: false, message: error.message }; }
-  }, [fetchCompanies]);
+  };
 
   // ==================== DRAWER FUNCTIONS ====================
   const openSatisDrawer = useCallback((initialData?: Partial<SatisFaturaFormData>) => {
@@ -1144,7 +289,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
   const closeSatisDrawer = useCallback(() => {
     setIsSatisDrawerOpen(false);
-    setTimeout(() => setSatisInitialData(null), 300);
+    setSatisInitialData(null);
   }, []);
   const openAlisDrawer = useCallback((initialData?: Partial<AlisFaturaFormData>) => {
     setAlisInitialData(initialData || null);
@@ -1152,7 +297,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
   const closeAlisDrawer = useCallback(() => {
     setIsAlisDrawerOpen(false);
-    setTimeout(() => setAlisInitialData(null), 300);
+    setAlisInitialData(null);
   }, []);
   const openCariDrawer = useCallback((id?: string) => {
     setSelectedCariId(id || null);
@@ -1160,7 +305,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
   const closeCariDrawer = useCallback(() => {
     setIsCariDrawerOpen(false);
-    setTimeout(() => setSelectedCariId(null), 300);
+    setSelectedCariId(null);
   }, []);
   const openCariEkstreDrawer = useCallback((id?: string) => {
     setSelectedCariId(id || null);
@@ -1168,896 +313,31 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
   const closeCariEkstreDrawer = useCallback(() => {
     setIsCariEkstreDrawerOpen(false);
-    setTimeout(() => setSelectedCariId(null), 300);
+    setSelectedCariId(null);
   }, []);
-
   const openSirketBilgileri = () => setIsSirketBilgileriOpen(true);
   const closeSirketBilgileri = () => setIsSirketBilgileriOpen(false);
 
-  // ==================== Ã‡EK SENET CRUD ====================
   const openCekSenetDrawer = useCallback((id?: string) => {
     setSelectedCekSenetId(id || null);
     setIsCekSenetDrawerOpen(true);
   }, []);
-
   const closeCekSenetDrawer = useCallback(() => {
     setIsCekSenetDrawerOpen(false);
-    setTimeout(() => setSelectedCekSenetId(null), 300);
+    setSelectedCekSenetId(null);
   }, []);
 
-  const addCekSenet = useCallback(async (data: CekSenetFormData) => {
-    const yeni: CekSenet = { ...data, id: 'cs' + Date.now().toString() + Math.random().toString(36).substr(2, 5) };
-    setCekSenetler(prev => [yeni, ...prev]);
-    try { await apiFetch('/api/cek-senetler', { method: 'POST', body: JSON.stringify(yeni) }); }
-    catch (e) { console.error('Cek-senet eklenemedi:', e); }
-  }, []);
-
-  const updateCekSenet = useCallback(async (id: string, data: CekSenetFormData) => {
-    setCekSenetler(prev => prev.map(c => c.id === id ? { ...c, ...data } : c));
-    try { await apiFetch(`/api/cek-senetler/${id}`, { method: 'PUT', body: JSON.stringify(data) }); }
-    catch (e) { console.error('Cek-senet gÃ¼ncellenemedi:', e); }
-  }, []);
-
-  const deleteCekSenet = useCallback(async (id: string) => {
-    setCekSenetler(prev => prev.filter(c => c.id !== id));
-    try { await apiFetch(`/api/cek-senetler/${id}`, { method: 'DELETE' }); }
-    catch (e) { console.error('Cek-senet silinemedi:', e); }
-  }, []);
-
-  const updateCekSenetDurum = useCallback((id: string, durum: 'bekliyor' | 'odendi' | 'karsiliksiz', bankaId?: string) => {
-    setCekSenetler(prev => prev.map(c => {
-      if (c.id === id) {
-        if (durum === 'odendi' && c.durum !== 'odendi') {
-           const hTuru = c.islemTipi === 'alinan' ? 'tahsilat' : 'odeme';
-           addCariHareket({
-             cariId: c.cariId,
-             tarih: new Date().toISOString().split('T')[0],
-             islemTuru: hTuru,
-             tutar: c.tutar,
-             aciklama: `${c.tip.toUpperCase()} Ã–demesi (${c.belgeNo})`,
-             bagliFaturaId: c.id,
-             bankaId: bankaId || null
-           });
-        }
-        return { ...c, durum };
-      }
-      return c;
-    }));
-  }, [addCariHareket]);
-
-  // ==================== BANKA CRUD ====================
   const openBankaDrawer = useCallback((id?: string) => {
     setSelectedBankaId(id || null);
     setIsBankaDrawerOpen(true);
   }, []);
-
   const closeBankaDrawer = useCallback(() => {
     setIsBankaDrawerOpen(false);
-    setTimeout(() => setSelectedBankaId(null), 300);
+    setSelectedBankaId(null);
   }, []);
-
-  const addBankaHesabi = useCallback(async (data: BankaHesabiFormData) => {
-    const acilis = data.acilisBakiyesi || 0;
-    const yeni: BankaHesabi = { ...data, guncelBakiye: acilis, acilisBakiyesi: acilis, id: 'b' + Date.now().toString() + Math.random().toString(36).substr(2, 5) };
-    setBankaHesaplari(prev => [yeni, ...prev]);
-    try { await apiFetch('/api/banka-hesaplari', { method: 'POST', body: JSON.stringify(yeni) }); }
-    catch (e) { console.error('Banka hesabÄ± eklenemedi:', e); }
-  }, []);
-
-  const updateBankaHesabi = useCallback(async (id: string, data: BankaHesabiFormData) => {
-    let finalDataToAPI = data;
-    setBankaHesaplari(prev => prev.map(b => {
-      if (b.id === id) {
-        const acilisFarki = (data.acilisBakiyesi || 0) - (b.acilisBakiyesi || 0);
-        const yeniGuncel = b.guncelBakiye + acilisFarki;
-        finalDataToAPI = { ...data, guncelBakiye: yeniGuncel };
-        return { ...b, ...data, guncelBakiye: yeniGuncel };
-      }
-      return b;
-    }));
-    try { await apiFetch(`/api/banka-hesaplari/${id}`, { method: 'PUT', body: JSON.stringify(finalDataToAPI) }); }
-    catch (e) { console.error('Banka hesabÄ± gÃ¼ncellenemedi:', e); }
-  }, []);
-
-  const deleteBankaHesabi = useCallback(async (id: string) => {
-    setBankaHesaplari(prev => prev.filter(b => b.id !== id));
-    try { await apiFetch(`/api/banka-hesaplari/${id}`, { method: 'DELETE' }); }
-    catch (e) { console.error('Banka hesabÄ± silinemedi:', e); }
-  }, []);
-
-  // ==================== MASRAF KURALLARI CRUD ====================
-  const addMasrafKurali = useCallback(async (data: Omit<MasrafKurali, 'id'>) => {
-    const yeni: MasrafKurali = {
-      ...data,
-      id: 'k' + Date.now().toString()
-    };
-    setMasrafKurallari(prev => [...prev, yeni]);
-    try { await apiFetch('/api/masraf-kurallari', { method: 'POST', body: JSON.stringify(yeni) }); }
-    catch (e) { console.error('Masraf kuralı eklenemedi:', e); }
-  }, []);
-
-  const deleteMasrafKurali = useCallback(async (id: string) => {
-    setMasrafKurallari(prev => prev.filter(k => k.id !== id));
-    try { await apiFetch(`/api/masraf-kurallari/${id}`, { method: 'DELETE' }); }
-    catch (e) { console.error('Masraf kuralı silinemedi:', e); }
-  }, []);
-
-  // ==================== KESÄ°LECEK FATURALAR CRUD ====================
-  const addKesilecekFatura = useCallback(async (data: Omit<KesilecekFatura, 'id' | 'olusturmaTarihi' | 'durum'>) => {
-    const yeni: KesilecekFatura = { ...data, id: 'kf' + Date.now().toString() + Math.random().toString(36).substr(2, 5), olusturmaTarihi: new Date().toISOString().split('T')[0], durum: 'bekliyor' };
-    setKesilecekFaturalar(prev => [yeni, ...prev]);
-    try { await apiFetch('/api/kesilecek-faturalar', { method: 'POST', body: JSON.stringify(yeni) }); }
-    catch (e) { console.error('Kesilecek fatura eklenemedi:', e); }
-  }, []);
-
-  const updateKesilecekFatura = useCallback(async (id: string, data: Partial<KesilecekFatura>) => {
-    const existingFatura = kesilecekFaturalar.find(f => f.id === id);
-    if (!existingFatura) return;
-    const fullData = { ...existingFatura, ...data };
-
-    setKesilecekFaturalar(prev => prev.map(f => f.id === id ? fullData : f));
-    try { 
-      await apiFetch(`/api/kesilecek-faturalar/${id}`, { method: 'PUT', body: JSON.stringify(fullData) }); 
-      
-      // Eğer durum 'kesildi' yapıldıysa, cariId varsa bir CariHareket ekle!
-      if (data.durum === 'kesildi') {
-        if (existingFatura.cariId) {
-          const yeniHareket: CariHareket = {
-            id: 'ch' + Date.now().toString() + Math.random().toString(36).substr(2, 5),
-            cariId: existingFatura.cariId, 
-            tarih: data.faturaTarihi || existingFatura.faturaTarihi || new Date().toISOString().split('T')[0], 
-            islemTuru: 'satis_faturasi',
-            tutar: data.tutar || existingFatura.tutar,
-            aciklama: `Satış Faturası (Plan - GİB Gönderim: ${existingFatura.ad || ''})`.trim(),
-            bagliFaturaId: id, 
-            olusturmaTarihi: new Date().toISOString().split('T')[0], 
-            dekontDosya: null
-          };
-          setCariHareketler(prev => [yeniHareket, ...prev]);
-          await apiFetch('/api/cari-hareketler', { method: 'POST', body: JSON.stringify(yeniHareket) });
-        }
-      }
-    }
-    catch (e) { console.error('Kesilecek fatura güncellenemedi:', e); }
-  }, [kesilecekFaturalar, cariHareketler]);
-
-  const deleteKesilecekFatura = useCallback(async (id: string) => {
-    setKesilecekFaturalar(prev => prev.filter(f => f.id !== id));
-    try { await apiFetch(`/api/kesilecek-faturalar/${id}`, { method: 'DELETE' }); }
-    catch (e) { console.error('Kesilecek fatura silinemedi:', e); }
-  }, []);
-
-  // ==================== HESAPLAMA YARDIMCILARI ====================
-  const parseTevkifat = (oran?: string) => {
-    if (!oran || oran === '0' || !oran.includes('/')) return 0;
-    const [pay, payda] = oran.split('/').map(Number);
-    return payda > 0 ? (pay / payda) : 0;
-  };
-
-  const calculateFaturaHesaplamalari = (tutar: number, kdvStr: string, tevStr?: string, stopajStr?: string, tutarTuru: 'dahil' | 'haric' = 'dahil') => {
-    const kdvOrani = parseFloat(kdvStr) / 100;
-    const stopajOrani = parseFloat(stopajStr || '0') / 100;
-    const tevkifatCarpani = parseTevkifat(tevStr);
-
-    let matrah = 0;
-    if (tutarTuru === 'haric') {
-      // Tutar zaten matrah (KDV hariç)
-      matrah = !isNaN(tutar) ? tutar : 0;
-    } else {
-      // Tutar KDV dahil net ödenecek tutar
-      // Formül: Net = Matrah + (Matrah * KDV) - (Matrah * Stopaj) - (Matrah * KDV * Tevkifat)
-      // Matrah = Net / (1 + KDV - Stopaj - (KDV * Tevkifat))
-      const carpan = 1 + kdvOrani - stopajOrani - (kdvOrani * tevkifatCarpani);
-      matrah = (carpan > 0 && !isNaN(tutar)) ? tutar / carpan : 0;
-    }
-
-    const kdvTutari = matrah * kdvOrani || 0;
-    const stopajTutari = matrah * stopajOrani || 0;
-    const tevkifatTutari = kdvTutari * tevkifatCarpani || 0;
-    const toplamNet = matrah + kdvTutari - stopajTutari - tevkifatTutari;
-
-    return {
-      matrah: Math.round(matrah * 100) / 100,
-      kdvTutari: Math.round(kdvTutari * 100) / 100,
-      stopajTutari: Math.round(stopajTutari * 100) / 100,
-      tevkifatTutari: Math.round(tevkifatTutari * 100) / 100,
-      toplamNet: Math.round(toplamNet * 100) / 100
-    };
-  };
-
-  // ==================== SATIŞ FATURA HESAPLAMA ====================
-  const calculateSatisFatura = (formData: SatisFaturaFormData) => {
-    const tutar = parseFloat(formData.alinanUcret) || 0;
-    const tutarTuru = (formData as any).tutarTuru || 'dahil';
-    return calculateFaturaHesaplamalari(tutar, formData.kdvOrani, formData.tevkifatOrani, formData.stopajOrani, tutarTuru);
-  };
-
-  // ==================== SATIŞ FATURA CRUD ====================
-  const addSatisFatura = useCallback(async (formData: SatisFaturaFormData) => {
-    // Drawer'dan gelen pre-calculated değerleri öncelikle kullan
-    const pre = formData as any;
-    const hesaplanan = (pre.matrah !== undefined && pre.matrah !== null && pre.matrah > 0)
-      ? { matrah: pre.matrah, kdvTutari: pre.kdvTutari, tevkifatTutari: pre.tevkifatTutari, stopajTutari: pre.stopajTutari }
-      : calculateSatisFatura(formData);
-
-    // alinanUcret = net ödenecek tutar (toplamNet)
-    const alinanUcretFinal = pre.alinanUcretNet > 0 ? pre.alinanUcretNet : hesaplanan.matrah + hesaplanan.kdvTutari - (hesaplanan.stopajTutari || 0) - (hesaplanan.tevkifatTutari || 0);
-
-    const yeniFatura: SatisFatura = {
-      id: pre.id || ('s' + Date.now().toString() + Math.random().toString(36).substr(2, 5)),
-      faturaNo: formData.faturaNo,
-      tcVkn: formData.tcVkn, ad: formData.ad, soyad: formData.soyad, adres: formData.adres,
-      kdvOrani: parseFloat(formData.kdvOrani) || 0,
-      alinanUcret: Math.round(alinanUcretFinal * 100) / 100,
-      matrah: hesaplanan.matrah || 0, kdvTutari: hesaplanan.kdvTutari || 0,
-      tevkifatOrani: formData.tevkifatOrani || '0', tevkifatTutari: hesaplanan.tevkifatTutari || 0,
-      tevkifatKodu: formData.tevkifatKodu || '',
-      stopajOrani: formData.stopajOrani || '0', stopajTutari: hesaplanan.stopajTutari || 0,
-      stopajKodu: formData.stopajKodu || '',
-      muhasebeKodu: formData.muhasebeKodu || pre.muhasebeKodu || '',
-      pdfDosya: formData.dosyaBase64 || null, pdfDosyaAdi: formData.dosyaAdi || undefined,
-      faturaTarihi: formData.faturaTarihi, cariId: formData.cariId,
-      vadeTarihi: formData.vadeTarihi || null, odemeTarihi: null,
-      odemeDurumu: 'odenmedi', odemeDekontu: null,
-      olusturmaTarihi: new Date().toISOString().split('T')[0],
-      aciklama: formData.aciklama || '',
-      stokKalemleri: pre.stokKalemleri || [],
-      gibUuid: pre.gibUuid || undefined
-    };
-    setSatisFaturalari(prev => [yeniFatura, ...prev]);
-
-    // Fatura ve varsa PDF dosyasını tek seferde POST ile kaydet (backend diske yazıp URL'yi DB'ye koyar)
-    try {
-      const bodyToSend = {
-        ...yeniFatura,
-        stokKalemleri: pre.stokKalemleri || [],
-        urunId: formData.urunId,
-        depoId: formData.depoId
-      };
-      const res = await apiFetch('/api/satis-faturalari', { method: 'POST', body: JSON.stringify(bodyToSend) });
-      if (!res || res.success === false) {
-        throw new Error(res?.message || 'Satış faturası kaydedilemedi');
-      }
-    } catch (e) {
-      console.error('Satış fatura eklenemedi:', e);
-      setSatisFaturalari(prev => prev.filter(f => f.id !== yeniFatura.id));
-      throw e;
-    }
-
-    if (formData.cariId) {
-      const yeniHareket: CariHareket = {
-        id: 'ch' + Date.now().toString() + Math.random().toString(36).substr(2, 5),
-        cariId: formData.cariId, tarih: formData.faturaTarihi, islemTuru: 'satis_faturasi',
-        tutar: yeniFatura.alinanUcret,
-        aciklama: `Satış Faturası (${formData.ad || ''} ${formData.soyad || ''})`.trim(),
-        bagliFaturaId: yeniFatura.id, olusturmaTarihi: new Date().toISOString().split('T')[0], dekontDosya: null
-      };
-      setCariHareketler(prev => [yeniHareket, ...prev]);
-      try { await apiFetch('/api/cari-hareketler', { method: 'POST', body: JSON.stringify(yeniHareket) }); }
-      catch (e) { console.error('Cari hareket eklenemedi:', e); }
-    }
-  }, []);
-
-  const updateSatisFatura = useCallback(async (id: string, formData: SatisFaturaFormData) => {
-    const hesaplanan = calculateSatisFatura(formData);
-    setSatisFaturalari(prev => prev.map(f => f.id === id ? { 
-      ...f, 
-      faturaNo: formData.faturaNo,
-      tcVkn: formData.tcVkn, ad: formData.ad, soyad: formData.soyad, adres: formData.adres,
-      kdvOrani: parseFloat(formData.kdvOrani) || 0, alinanUcret: parseFloat(formData.alinanUcret) || 0,
-      matrah: hesaplanan.matrah || 0, kdvTutari: hesaplanan.kdvTutari || 0,
-      tevkifatOrani: formData.tevkifatOrani || '0', tevkifatTutari: hesaplanan.tevkifatTutari || 0,
-      tevkifatKodu: formData.tevkifatKodu || '',
-      stopajOrani: formData.stopajOrani || '0', stopajTutari: hesaplanan.stopajTutari || 0,
-      stopajKodu: formData.stopajKodu || '',
-      muhasebeKodu: formData.muhasebeKodu || '',
-      faturaTarihi: formData.faturaTarihi, cariId: formData.cariId,
-      vadeTarihi: formData.vadeTarihi || null,
-      aciklama: formData.aciklama,
-      stokKalemleri: (formData as any).stokKalemleri || f.stokKalemleri
-    } : f));
-
-    try {
-      await apiFetch(`/api/satis-faturalari/${id}`, { 
-        method: 'PUT', 
-        body: JSON.stringify({
-          faturaNo: formData.faturaNo,
-          tcVkn: formData.tcVkn, ad: formData.ad, soyad: formData.soyad, adres: formData.adres,
-          kdvOrani: parseFloat(formData.kdvOrani), alinanUcret: parseFloat(formData.alinanUcret),
-          matrah: hesaplanan.matrah, kdvTutari: hesaplanan.kdvTutari,
-          tevkifatOrani: formData.tevkifatOrani, tevkifatTutari: hesaplanan.tevkifatTutari,
-          tevkifatKodu: formData.tevkifatKodu,
-          stopajOrani: formData.stopajOrani, stopajTutari: hesaplanan.stopajTutari,
-          stopajKodu: formData.stopajKodu,
-          muhasebeKodu: formData.muhasebeKodu,
-          faturaTarihi: formData.faturaTarihi, cariId: formData.cariId,
-          vadeTarihi: formData.vadeTarihi, aciklama: formData.aciklama,
-          stokKalemleri: (formData as any).stokKalemleri || [],
-          urunId: formData.urunId,
-          depoId: formData.depoId
-        }) 
-      });
-    } catch (e) {
-      console.error('Satış fatura güncellenemedi:', e);
-    }
-  }, []);
-
-  const updateSatisFaturaOdeme = useCallback(async (id: string, odemeTarihi: string, odemeDurumu: 'odenmedi' | 'odendi' | 'bekliyor', bankaId?: string) => {
-    setSatisFaturalari(prev => prev.map(f => f.id === id ? { ...f, odemeTarihi, odemeDurumu } : f));
-    try { await apiFetch(`/api/satis-faturalari/${id}`, { method: 'PUT', body: JSON.stringify({ odemeTarihi, odemeDurumu, bankaId }) }); }
-    catch (e) { console.error('Satış ödeme güncellenemedi:', e); }
-  }, []);
-
-  const deleteSatisFatura = useCallback(async (id: string) => {
-    setSatisFaturalari(prev => prev.filter(f => f.id !== id));
-    setCariHareketler(prev => prev.filter(h => h.bagliFaturaId !== id));
-    try { await apiFetch(`/api/satis-faturalari/${id}`, { method: 'DELETE' }); }
-    catch (e) { console.error('SatÄ±ÅŸ fatura silinemedi:', e); }
-  }, []);
-
-  const calculateAlisFatura = (formData: AlisFaturaFormData) => {
-    const tutar = parseFloat(formData.toplamTutar) || 0;
-    const tutarTuru = (formData as any).tutarTuru || 'dahil';
-    return calculateFaturaHesaplamalari(tutar, formData.kdvOrani, formData.tevkifatOrani, formData.stopajOrani, tutarTuru);
-  };
-
-  // ==================== ALIŞ FATURA CRUD ====================
-  const addAlisFatura = useCallback(async (formData: AlisFaturaFormData) => {
-    const pre = formData as any;
-    const hesaplanan = (pre.matrah !== undefined && pre.matrah !== null && pre.matrah > 0)
-      ? { matrah: pre.matrah, kdvTutari: pre.kdvTutari, tevkifatTutari: pre.tevkifatTutari, stopajTutari: pre.stopajTutari }
-      : calculateAlisFatura(formData);
-
-    const toplamTutarFinal = pre.toplamTutarNet > 0 ? pre.toplamTutarNet : hesaplanan.matrah + hesaplanan.kdvTutari - (hesaplanan.stopajTutari || 0) - (hesaplanan.tevkifatTutari || 0);
-
-    const yeniFatura: AlisFatura = {
-      id: 'a' + Date.now().toString() + Math.random().toString(36).substr(2, 5),
-      faturaNo: formData.faturaNo, faturaTarihi: formData.faturaTarihi,
-      tedarikciAdi: formData.tedarikciAdi, tedarikciVkn: formData.tedarikciVkn,
-      malHizmetAdi: formData.malHizmetAdi,
-      toplamTutar: Math.round(toplamTutarFinal * 100) / 100,
-      kdvOrani: parseFloat(formData.kdvOrani) || 0, kdvTutari: hesaplanan.kdvTutari || 0, matrah: hesaplanan.matrah || 0,
-      kdv1: pre.kdv1 || 0, kdv10: pre.kdv10 || 0, kdv20: pre.kdv20 || 0,
-      tevkifatOrani: formData.tevkifatOrani || '0', tevkifatTutari: hesaplanan.tevkifatTutari || 0,
-      stopajOrani: formData.stopajOrani || '0', stopajTutari: hesaplanan.stopajTutari || 0,
-      muhasebeKodu: pre.muhasebeKodu || '',
-      karsiHesapKodu: pre.karsiHesapKodu || '',
-      aciklama: pre.aciklama || '',
-      vehiclePlate: pre.vehiclePlate || null,
-      pdfDosya: formData.dosyaBase64 || null, pdfDosyaAdi: formData.dosyaAdi || undefined,
-      cariId: formData.cariId, vadeTarihi: formData.vadeTarihi || null,
-      odemeTarihi: null, odemeDurumu: 'odenmedi',
-      olusturmaTarihi: new Date().toISOString().split('T')[0]
-    };
-    setAlisFaturalari(prev => [yeniFatura, ...prev]);
-
-    // Fatura ve varsa PDF görselini tek seferde POST ile kaydet (backend diske yazıp URL'yi DB'ye koyar)
-    try {
-      const res = await apiFetch('/api/alis-faturalari', {
-        method: 'POST',
-        body: JSON.stringify({
-          ...yeniFatura,
-          muhasebeKodu: pre.muhasebeKodu || '',
-          karsiHesapKodu: pre.karsiHesapKodu || '',
-          vehiclePlate: pre.vehiclePlate,
-          aciklama: pre.aciklama,
-          urunId: formData.urunId,
-          depoId: formData.depoId
-        })
-      });
-      if (!res || res.success === false) {
-        throw new Error(res?.message || 'Alış faturası kaydedilemedi');
-      }
-    } catch (e) {
-      console.error('Alış fatura eklenemedi:', e);
-      setAlisFaturalari(prev => prev.filter(f => f.id !== yeniFatura.id));
-      throw e;
-    }
-
-    if (formData.cariId) {
-      const yeniHareket: CariHareket = {
-        id: 'ch' + Date.now().toString() + Math.random().toString(36).substr(2, 5),
-        cariId: formData.cariId, tarih: formData.faturaTarihi, islemTuru: 'alis_faturasi',
-        tutar: yeniFatura.toplamTutar,
-        aciklama: `Alış Faturası (${formData.tedarikciAdi})`,
-        bagliFaturaId: yeniFatura.id, olusturmaTarihi: new Date().toISOString().split('T')[0], dekontDosya: null
-      };
-      setCariHareketler(prev => [yeniHareket, ...prev]);
-      try { await apiFetch('/api/cari-hareketler', { method: 'POST', body: JSON.stringify(yeniHareket) }); }
-      catch (e) { console.error('Cari hareket eklenemedi:', e); }
-    }
-    return yeniFatura.id;
-  }, []);
-
-  const updateAlisFatura = useCallback(async (id: string, formData: AlisFaturaFormData) => {
-    const pre = formData as any;
-    const existing = alisFaturalari.find(f => f.id === id);
-
-    const hesaplanan = (pre.matrah !== undefined && pre.matrah !== null && pre.matrah > 0)
-      ? { matrah: pre.matrah, kdvTutari: pre.kdvTutari, tevkifatTutari: pre.tevkifatTutari, stopajTutari: pre.stopajTutari }
-      : (formData.toplamTutar !== undefined ? calculateAlisFatura(formData) : {
-          matrah: existing?.matrah || 0,
-          kdvTutari: existing?.kdvTutari || 0,
-          tevkifatTutari: existing?.tevkifatTutari || 0,
-          stopajTutari: existing?.stopajTutari || 0
-        });
-
-    const toplamTutarFinal = pre.toplamTutarNet > 0 
-      ? pre.toplamTutarNet 
-      : (formData.toplamTutar !== undefined ? (parseFloat(formData.toplamTutar) || 0) : (existing?.toplamTutar || 0));
-
-    const mergedFatura = {
-      faturaNo: formData.faturaNo !== undefined ? formData.faturaNo : (existing?.faturaNo || ''),
-      faturaTarihi: formData.faturaTarihi !== undefined ? formData.faturaTarihi : (existing?.faturaTarihi || ''),
-      tedarikciAdi: formData.tedarikciAdi !== undefined ? formData.tedarikciAdi : (existing?.tedarikciAdi || ''),
-      tedarikciVkn: formData.tedarikciVkn !== undefined ? formData.tedarikciVkn : (existing?.tedarikciVkn || ''),
-      malHizmetAdi: formData.malHizmetAdi !== undefined ? formData.malHizmetAdi : (existing?.malHizmetAdi || ''),
-      toplamTutar: Math.round(toplamTutarFinal * 100) / 100,
-      kdvOrani: formData.kdvOrani !== undefined ? (parseFloat(formData.kdvOrani) || 0) : (existing?.kdvOrani || 0),
-      kdvTutari: hesaplanan.kdvTutari || 0,
-      matrah: hesaplanan.matrah || 0,
-      tevkifatOrani: formData.tevkifatOrani !== undefined ? formData.tevkifatOrani : (existing?.tevkifatOrani || '0'),
-      tevkifatTutari: hesaplanan.tevkifatTutari || 0,
-      stopajOrani: formData.stopajOrani !== undefined ? formData.stopajOrani : (existing?.stopajOrani || '0'),
-      stopajTutari: hesaplanan.stopajTutari || 0,
-      oivTutari: pre.oivTutari !== undefined ? (parseFloat(String(pre.oivTutari)) || 0) : (existing?.oivTutari || 0),
-      kdv1: pre.kdv1 !== undefined ? (Number(pre.kdv1) || 0) : (existing?.kdv1 || 0),
-      kdv10: pre.kdv10 !== undefined ? (Number(pre.kdv10) || 0) : (existing?.kdv10 || 0),
-      kdv20: pre.kdv20 !== undefined ? (Number(pre.kdv20) || 0) : (existing?.kdv20 || 0),
-      muhasebeKodu: pre.muhasebeKodu !== undefined ? pre.muhasebeKodu : ((existing as any)?.muhasebeKodu || ''),
-      karsiHesapKodu: pre.karsiHesapKodu !== undefined ? pre.karsiHesapKodu : ((existing as any)?.karsiHesapKodu || ''),
-      kdvHesapKodu: pre.kdvHesapKodu !== undefined ? pre.kdvHesapKodu : ((existing as any)?.kdvHesapKodu || ''),
-      mahsupSatirlari: pre.mahsupSatirlari !== undefined ? pre.mahsupSatirlari : ((existing as any)?.mahsupSatirlari || null),
-      hasKkeg: pre.hasKkeg !== undefined ? pre.hasKkeg : ((existing as any)?.hasKkeg || false),
-      aciklama: pre.aciklama !== undefined ? pre.aciklama : ((existing as any)?.aciklama || ''),
-      cariId: formData.cariId !== undefined ? formData.cariId : existing?.cariId,
-      vadeTarihi: formData.vadeTarihi !== undefined ? formData.vadeTarihi : (existing?.vadeTarihi || null),
-      vehiclePlate: pre.vehiclePlate !== undefined ? pre.vehiclePlate : ((existing as any)?.vehiclePlate || null),
-      pdfDosya: pre.pdfDosya !== undefined ? pre.pdfDosya : existing?.pdfDosya,
-      pdfDosyaAdi: pre.pdfDosyaAdi !== undefined ? pre.pdfDosyaAdi : existing?.pdfDosyaAdi,
-      stokKalemleri: (formData as any).stokKalemleri || (existing as any)?.stokKalemleri || []
-    };
-
-    setAlisFaturalari(prev => prev.map(f => f.id === id ? { ...f, ...mergedFatura } : f));
-
-    try {
-      const res = await apiFetch(`/api/alis-faturalari/${id}`, {
-        method: 'PUT',
-        body: JSON.stringify({
-          ...mergedFatura,
-          mahsupSatirlari: mergedFatura.mahsupSatirlari,
-          hasKkeg: mergedFatura.hasKkeg,
-          kdvHesapKodu: mergedFatura.kdvHesapKodu,
-          urunId: formData.urunId,
-          depoId: formData.depoId
-        })
-      });
-      if (res && res.success === false) {
-        throw new Error(res.message || 'Fatura güncellenirken sunucu hatası oluştu');
-      }
-    } catch (e) {
-      console.error('Alış fatura güncellenemedi:', e);
-      throw e;
-    }
-  }, [alisFaturalari]);
-
-  const updateAlisFaturaOdeme = useCallback(async (id: string, odemeTarihi: string, odemeDurumu: 'odenmedi' | 'odendi' | 'bekliyor') => {
-    setAlisFaturalari(prev => prev.map(f => f.id === id ? { ...f, odemeTarihi, odemeDurumu } : f));
-    try { await apiFetch(`/api/alis-faturalari/${id}`, { method: 'PUT', body: JSON.stringify({ odemeTarihi, odemeDurumu }) }); }
-    catch (e) { console.error('AlÄ±ÅŸ odeme gÃ¼ncellenemedi:', e); }
-  }, []);
-
-  const deleteAlisFatura = useCallback(async (id: string) => {
-    setAlisFaturalari(prev => prev.filter(f => f.id !== id));
-    setCariHareketler(prev => prev.filter(h => h.bagliFaturaId !== id));
-    try { await apiFetch(`/api/alis-faturalari/${id}`, { method: 'DELETE' }); }
-    catch (e) { console.error('AlÄ±ÅŸ fatura silinemedi:', e); }
-  }, []);
-
-  const parseInvoiceXml = useCallback(async (file: File) => {
-    const formData = new FormData();
-    formData.append('file', file);
-    try {
-      const data = await apiFetch('/api/invoices/parse-xml', {
-        method: 'POST',
-        body: formData
-      });
-      return data;
-    } catch (error: any) {
-      return { success: false, message: error.message };
-    }
-  }, []);
-
-
-
-  // ==================== PDF/DEKONT UPLOAD/DOWNLOAD ====================
-  const uploadFile = (
-    setter: React.Dispatch<React.SetStateAction<any[]>>,
-    faturaId: string,
-    file: File,
-    field: string,
-    apiEndpoint: string,
-    fieldNameInApi: string
-  ) => {
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-      const base64 = e.target?.result as string;
-      setter(prev =>
-        prev.map(f =>
-          f.id === faturaId
-            ? { ...f, [field]: base64, [`${field}Adi`]: file.name }
-            : f
-        )
-      );
-      // Backend'e kaydet
-      try {
-        await apiFetch(`${apiEndpoint}/${faturaId}`, {
-          method: 'PUT',
-          body: JSON.stringify({
-            [fieldNameInApi]: base64,
-            [`${fieldNameInApi}Adi`]: file.name,
-          }),
-        });
-      } catch (e) {
-        console.error('Dosya backend\'e kaydedilemedi:', e);
-      }
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const uploadSatisPdf = useCallback((faturaId: string, file: File) => {
-    uploadFile(setSatisFaturalari, faturaId, file, 'pdfDosya', '/api/satis-faturalari', 'pdfDosya');
-  }, []);
-
-  const uploadSatisDekont = useCallback((faturaId: string, file: File) => {
-    uploadFile(setSatisFaturalari, faturaId, file, 'odemeDekontu', '/api/satis-faturalari', 'odemeDekontu');
-  }, []);
-
-  const uploadAlisPdf = useCallback((faturaId: string, file: File) => {
-    uploadFile(setAlisFaturalari, faturaId, file, 'pdfDosya', '/api/alis-faturalari', 'pdfDosya');
-  }, []);
-
-  const uploadAlisDekont = useCallback((faturaId: string, file: File) => {
-    uploadFile(setAlisFaturalari, faturaId, file, 'odemeDekontu', '/api/alis-faturalari', 'odemeDekontu');
-  }, []);
-
-  const downloadFile = (faturalar: any[], faturaId: string, field: string, defaultName: string) => {
-    const fatura = faturalar.find(f => f.id === faturaId);
-    if (fatura?.[field]) {
-      const fileUrl = fatura[field];
-      const link = document.createElement('a');
-      link.href = fileUrl;
-      link.download = fatura[`${field}Adi`] || defaultName;
-      if (fileUrl.startsWith('http') || fileUrl.startsWith('/uploads/')) {
-        link.target = '_blank';
-      }
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-    }
-  };
-
-  const downloadSatisPdf = useCallback((faturaId: string) => {
-    downloadFile(satisFaturalari, faturaId, 'pdfDosya', `satis_fatura_${faturaId}.pdf`);
-  }, [satisFaturalari]);
-
-  const downloadSatisDekont = useCallback((faturaId: string) => {
-    downloadFile(satisFaturalari, faturaId, 'odemeDekontu', `dekont_${faturaId}.pdf`);
-  }, [satisFaturalari]);
-
-  const downloadAlisPdf = useCallback((faturaId: string) => {
-    downloadFile(alisFaturalari, faturaId, 'pdfDosya', `alis_fatura_${faturaId}.pdf`);
-  }, [alisFaturalari]);
-
-  const downloadAlisDekont = useCallback((faturaId: string) => {
-    downloadFile(alisFaturalari, faturaId, 'odemeDekontu', `dekont_${faturaId}.pdf`);
-  }, [alisFaturalari]);
-
-  // ==================== VERGI HESAPLAMA ====================
-  const hesaplaGelirVergisi = (toplamMatrah: number): { oran: number; vergi: number } => {
-    let kalanMatrah = toplamMatrah;
-    let toplamVergi = 0;
-    let uygulananOran = 15;
-
-    for (const dilim of GELIR_VERGISI_DILIMLERI) {
-      if (kalanMatrah <= 0) break;
-
-      const dilimMatrah = Math.min(kalanMatrah, dilim.limit === Infinity ? kalanMatrah : dilim.limit);
-      toplamVergi += dilimMatrah * (dilim.oran / 100);
-      uygulananOran = dilim.oran;
-
-      if (dilim.limit !== Infinity) {
-        kalanMatrah -= dilim.limit;
-      }
-    }
-
-    return {
-      oran: uygulananOran,
-      vergi: Math.round(toplamVergi * 100) / 100
-    };
-  };
-
-  const getVergiRaporu = useCallback((yil: number, ay: number): VergiRaporu => {
-    const ayAdi = AYLAR.find(a => a.value === ay)?.label || '';
-
-    // Ä°lgili ay ve yÄ±ldaki satÄ±ÅŸ faturalarÄ±
-    const aylikSatislar = satisFaturalari.filter(f => {
-      if (!f.faturaTarihi) return false;
-      const parts = f.faturaTarihi.split('-');
-      if (parts.length < 2) return false;
-      return parseInt(parts[0], 10) === yil && parseInt(parts[1], 10) === ay;
-    });
-
-    // Ä°lgili ay ve yÄ±ldaki alÄ±ÅŸ faturalarÄ±
-    const aylikAlislar = alisFaturalari.filter(f => {
-      if (!f.faturaTarihi) return false;
-      const parts = f.faturaTarihi.split('-');
-      if (parts.length < 2) return false;
-      return parseInt(parts[0], 10) === yil && parseInt(parts[1], 10) === ay;
-    });
-
-    const toplamSatisTevkifat = aylikSatislar.reduce((acc, f) => acc + (Number(f.tevkifatTutari) || 0), 0);
-    const toplamAlisTevkifat = aylikAlislar.reduce((acc, f) => acc + (Number(f.tevkifatTutari) || 0), 0);
-    const toplamSatisStopaj = aylikSatislar.reduce((acc, f) => acc + (Number(f.stopajTutari) || 0), 0);
-    const toplamAlisStopaj = aylikAlislar.reduce((acc, f) => acc + (Number(f.stopajTutari) || 0), 0);
-    const toplamOivTutari = aylikAlislar.reduce((acc, f) => acc + (Number(f.oivTutari) || 0), 0);
-    const aylikSatisMatrah = aylikSatislar.reduce((acc, f) => acc + (Number(f.matrah) || 0), 0);
-    const aylikAlisMatrah = aylikAlislar.reduce((acc, f) => acc + (Number(f.matrah) || 0), 0);
-
-    // Oran Bazlı (%1, %10, %20) KDV-1 Beyanname Mutabakat Dağılımı
-    const buckets: Record<number, { satisMatrah: number; satisKdv: number; alisMatrah: number; alisKdv: number }> = {
-      1: { satisMatrah: 0, satisKdv: 0, alisMatrah: 0, alisKdv: 0 },
-      10: { satisMatrah: 0, satisKdv: 0, alisMatrah: 0, alisKdv: 0 },
-      20: { satisMatrah: 0, satisKdv: 0, alisMatrah: 0, alisKdv: 0 }
-    };
-
-    aylikSatislar.forEach(f => {
-      const oranRaw = Number(f.kdvOrani) || 20;
-      const key = oranRaw === 1 ? 1 : (oranRaw === 8 || oranRaw === 10 ? 10 : 20);
-      buckets[key].satisMatrah += Number(f.matrah) || 0;
-      buckets[key].satisKdv += Number(f.kdvTutari) || 0;
-    });
-
-    aylikAlislar.forEach(f => {
-      const k1 = Number(f.kdv1) || 0;
-      const k10 = Number(f.kdv10) || 0;
-      const k20 = Number(f.kdv20) || 0;
-      const nonZeroCount = [k1 > 0.009, k10 > 0.009, k20 > 0.009].filter(Boolean).length;
-
-      if (nonZeroCount > 1) {
-        if (k1 > 0) {
-          buckets[1].alisKdv += k1;
-          buckets[1].alisMatrah += k1 / 0.01;
-        }
-        if (k10 > 0) {
-          buckets[10].alisKdv += k10;
-          buckets[10].alisMatrah += k10 / 0.10;
-        }
-        if (k20 > 0) {
-          buckets[20].alisKdv += k20;
-          buckets[20].alisMatrah += k20 / 0.20;
-        }
-      } else {
-        const oranRaw = Number(f.kdvOrani) || 20;
-        const key = oranRaw === 1 ? 1 : (oranRaw === 8 || oranRaw === 10 ? 10 : 20);
-        buckets[key].alisMatrah += Number(f.matrah) || 0;
-        buckets[key].alisKdv += Number(f.kdvTutari) || 0;
-      }
-    });
-
-    const kdvDagilimi = [1, 10, 20].map(oran => ({
-      oran,
-      satisMatrah: Math.round(buckets[oran].satisMatrah * 100) / 100,
-      satisKdv: Math.round(buckets[oran].satisKdv * 100) / 100,
-      alisMatrah: Math.round(buckets[oran].alisMatrah * 100) / 100,
-      alisKdv: Math.round(buckets[oran].alisKdv * 100) / 100,
-    }));
-
-    // KDV Hesaplamaları (Tevkifat düşülmüş Net Hesaplanan KDV = Satıcının Tahsil Ettiği / Beyan Ettiği KDV)
-    const hesaplananKDV = aylikSatislar.reduce((acc, f) => acc + (Number(f.kdvTutari) || 0), 0);
-    const netHesaplananKDV = Math.max(0, hesaplananKDV - toplamSatisTevkifat);
-    const indirilecekKDV = aylikAlislar.reduce((acc, f) => acc + (Number(f.kdvTutari) || 0), 0);
-    const odenecekKDV = Math.max(0, netHesaplananKDV - indirilecekKDV);
-
-    // Gelir Vergisi Hesaplaması (Kümülatif - yılbaşından itibaren)
-    const yilBasiSatislar = satisFaturalari.filter(f => {
-      if (!f.faturaTarihi) return false;
-      const parts = f.faturaTarihi.split('-');
-      if (parts.length < 2) return false;
-      return parseInt(parts[0], 10) === yil && parseInt(parts[1], 10) <= ay;
-    });
-
-    const toplamMatrah = yilBasiSatislar.reduce((acc, f) => acc + (Number(f.matrah) || 0), 0);
-    const gelirVergisiHesabi = hesaplaGelirVergisi(toplamMatrah);
-
-    return {
-      ay,
-      ayAdi,
-      yil,
-      hesaplananKDV: Math.round(hesaplananKDV * 100) / 100,
-      netHesaplananKDV: Math.round(netHesaplananKDV * 100) / 100,
-      indirilecekKDV: Math.round(indirilecekKDV * 100) / 100,
-      odenecekKDV: Math.round(odenecekKDV * 100) / 100,
-      toplamSatisTevkifat: Math.round(toplamSatisTevkifat * 100) / 100,
-      toplamAlisTevkifat: Math.round(toplamAlisTevkifat * 100) / 100,
-      toplamSatisStopaj: Math.round(toplamSatisStopaj * 100) / 100,
-      toplamAlisStopaj: Math.round(toplamAlisStopaj * 100) / 100,
-      toplamOivTutari: Math.round(toplamOivTutari * 100) / 100,
-      aylikSatisMatrah: Math.round(aylikSatisMatrah * 100) / 100,
-      aylikAlisMatrah: Math.round(aylikAlisMatrah * 100) / 100,
-      kdvDagilimi,
-      toplamMatrah: Math.round(toplamMatrah * 100) / 100,
-      gelirVergisiOrani: gelirVergisiHesabi.oran,
-      hesaplananGelirVergisi: gelirVergisiHesabi.vergi,
-      satisAdet: aylikSatislar.length,
-      alisAdet: aylikAlislar.length
-    };
-  }, [satisFaturalari, alisFaturalari]);
-
-  const addGiderKategorisi = useCallback(async (ad: string, muhasebeKodu?: string, id?: string, tip?: 'GIDER' | 'GELIR') => {
-    const yeni: GiderKategorisi = { id: id || ('cat' + Date.now().toString()), ad, muhasebeKodu, tip: tip || 'GIDER' };
-    setGiderKategorileri(prev => [...prev, yeni]);
-    try { await apiFetch('/api/gider-kategorileri', { method: 'POST', body: JSON.stringify(yeni) }); }
-    catch (e) { console.error('Kategori eklenemedi:', e); }
-  }, []);
-
-  const updateGiderKategorisi = useCallback(async (id: string, data: Partial<GiderKategorisi>) => {
-    setGiderKategorileri(prev => prev.map(c => c.id === id ? { ...c, ...data } : c));
-    try { await apiFetch(`/api/gider-kategorileri/${id}`, { method: 'PUT', body: JSON.stringify(data) }); }
-    catch (e) { console.error('Kategori gÃ¼ncellenemedi:', e); }
-  }, []);
-
-  const deleteGiderKategorisi = useCallback(async (id: string) => {
-    setGiderKategorileri(prev => prev.filter(c => c.id !== id));
-    try { await apiFetch(`/api/gider-kategorileri/${id}`, { method: 'DELETE' }); }
-    catch (e) { console.error('Kategori silinemedi:', e); }
-  }, []);
-
-  // ==================== SİPARİŞ CRUD ====================
-  const fetchSiparisler = useCallback(async () => {
-    try {
-      const res = await apiFetch('/api/siparisler');
-      if (res.success) setSiparisler(res.data);
-    } catch (e) { console.error('fetchSiparisler error:', e); }
-  }, []);
-
-  const updateSiparis = useCallback(async (id: string, data: any) => {
-    try {
-      const res = await apiFetch(`/api/siparisler/${id}`, { method: 'PUT', body: JSON.stringify(data) });
-      if (res.success) {
-        toast.success('Sipariş güncellendi.');
-        fetchSiparisler();
-        return { success: true };
-      }
-      return { success: false, message: res.message };
-    } catch (e: any) {
-      return { success: false, message: e.message };
-    }
-  }, [fetchSiparisler]);
-
-  const deleteSiparis = useCallback(async (id: string) => {
-    try {
-      const res = await apiFetch(`/api/siparisler/${id}`, { method: 'DELETE' });
-      if (res.success) {
-        toast.success('Sipariş silindi.');
-        setSiparisler(prev => prev.filter(s => s.id !== id));
-        return { success: true };
-      }
-      return { success: false, message: res.message };
-    } catch (e: any) {
-      return { success: false, message: e.message };
-    }
-  }, []);
-
-  // ==================== TEKLİF CRUD ====================
-  const fetchTeklifler = useCallback(async () => {
-    try {
-      const res = await apiFetch('/api/teklifler');
-      if (res.success) setTeklifler(res.data);
-    } catch (e) { console.error('fetchTeklifler error:', e); }
-  }, []);
-
-  const addTeklif = useCallback(async (data: any) => {
-    try {
-      const res = await apiFetch('/api/teklifler', { method: 'POST', body: JSON.stringify(data) });
-      if (res.success) {
-        toast.success('Teklif başarıyla oluşturuldu.');
-        fetchTeklifler();
-        return res;
-      }
-      toast.error(res.message || 'Teklif oluşturulamadı.');
-      return res;
-    } catch (e: any) {
-      toast.error(e.message);
-      return { success: false, message: e.message };
-    }
-  }, [fetchTeklifler]);
-
-  const updateTeklif = useCallback(async (id: string, data: any) => {
-    try {
-      const res = await apiFetch(`/api/teklifler/${id}`, { method: 'PUT', body: JSON.stringify(data) });
-      if (res.success) {
-        toast.success('Teklif durumu güncellendi.');
-        fetchTeklifler();
-        return { success: true };
-      }
-      return { success: false, message: res.message };
-    } catch (e: any) {
-      return { success: false, message: e.message };
-    }
-  }, [fetchTeklifler]);
-
-  const deleteTeklif = useCallback(async (id: string) => {
-    try {
-      const res = await apiFetch(`/api/teklifler/${id}`, { method: 'DELETE' });
-      if (res.success) {
-        toast.success('Teklif silindi.');
-        setTeklifler(prev => prev.filter(t => t.id !== id));
-        return { success: true };
-      }
-      return { success: false, message: res.message };
-    } catch (e: any) {
-      return { success: false, message: e.message };
-    }
-  }, []);
-
-  const fetchPublicTeklif = useCallback(async (token: string) => {
-    return await apiFetch(`/api/public/teklif/${token}`);
-  }, []);
-
-  const approvePublicTeklif = useCallback(async (token: string) => {
-    try {
-      const res = await apiFetch(`/api/public/teklif/${token}/approve`, { method: 'POST' });
-      if (res.success) {
-        toast.success(`Teklif onaylandı! Yeni Sipariş No: ${res.siparis_no}`);
-        fetchSiparisler();
-        fetchTeklifler();
-        return res;
-      }
-      return res;
-    } catch (e: any) {
-      return { success: false, message: e.message };
-    }
-  }, [fetchSiparisler, fetchTeklifler]);
-
-
-  const fetchCariler = useCallback(async () => {
-    try {
-      const res = await apiFetch('/api/cariler');
-      if (res.success) {
-        setCariler(Array.isArray(res.data) ? res.data : []);
-      }
-    } catch (e) {
-      console.error("fetchCariler error:", e);
-    }
-  }, []);
-
-  const fetchCariHareketler = useCallback(async () => {
-    if (!isAuthenticated) return;
-    try {
-      const res = await apiFetch('/api/cari-hareketler');
-      if (res?.success) setCariHareketler(res.data || []);
-    } catch (e) { console.error("fetchCariHareketler error:", e); }
-  }, [isAuthenticated]);
-
-  const fetchAlisFaturalari = useCallback(async () => {
-    if (!isAuthenticated) return;
-    try {
-      const res = await apiFetch('/api/alis-faturalari');
-      if (res?.success) setAlisFaturalari(res.data || []);
-    } catch (e) { console.error("fetchAlisFaturalari error:", e); }
-  }, [isAuthenticated]);
-
-  const fetchSatisFaturalari = useCallback(async () => {
-    if (!isAuthenticated) return;
-    try {
-      const res = await apiFetch('/api/satis-faturalari');
-      if (res?.success) setSatisFaturalari(res.data || []);
-    } catch (e) { console.error("fetchSatisFaturalari error:", e); }
-  }, [isAuthenticated]);
 
   const loadAllData = useCallback(async () => {
-    if (!isAuthenticated) return;
+    if (!authHook.isAuthenticated) return;
     try {
       const endpoints = [
         '/api/cariler', '/api/cari-hareketler', '/api/satis-faturalari',
@@ -2066,125 +346,91 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         '/api/luca/hesap-plani', '/api/teklifler', '/api/siparisler'
       ];
       const resData = await Promise.all(endpoints.map(ep => apiFetch(ep)));
-      
+
       resData.forEach((res, index) => {
         if (res?.success) {
-          const data = Array.isArray(res.data) 
+          const data = Array.isArray(res.data)
             ? (res.data as any[]).filter(item => {
                 if (!item) return false;
-                if (index === 9) { // lucaAccounts
+                if (index === 9) {
                   return item.kod !== undefined && item.kod !== null && String(item.kod).trim() !== '';
                 }
                 return item.id !== undefined && item.id !== null && String(item.id).trim() !== '';
-              }) 
+              })
             : [];
           switch (index) {
-            case 0: setCariler(data); break;
-            case 1: setCariHareketler(data); break;
-            case 2: setSatisFaturalari(data); break;
-            case 3: setAlisFaturalari(data); break;
-            case 4: setCekSenetler(data); break;
-            case 5: setBankaHesaplari(data); break;
-            case 6: setMasrafKurallari(data); break;
-            case 7: setKesilecekFaturalar(data); break;
-            case 8: setGiderKategorileri(data); break;
-            case 9: setLucaAccounts(data); break;
-            case 10: setTeklifler(data); break;
-            case 11: setSiparisler(data); break;
+            case 0: cariBankaHook.setCariler(data); break;
+            case 1: cariBankaHook.setCariHareketler(data); break;
+            case 2: faturaHook.setSatisFaturalari(data); break;
+            case 3: faturaHook.setAlisFaturalari(data); break;
+            case 4: cariBankaHook.setCekSenetler(data); break;
+            case 5: cariBankaHook.setBankaHesaplari(data); break;
+            case 6: cariBankaHook.setMasrafKurallari(data); break;
+            case 7: cariBankaHook.setKesilecekFaturalar(data); break;
+            case 8: cariBankaHook.setGiderKategorileri(data); break;
+            case 9: teklifLucaHook.setLucaAccounts(data); break;
+            case 10: teklifLucaHook.setTeklifler(data); break;
+            case 11: teklifLucaHook.setSiparisler(data); break;
           }
         }
       });
-      if (user?.role === 'admin' || user?.role === 'super_admin') {
-        fetchPersonnel();
-        fetchLeaves();
-        fetchRequests();
-        fetchPointages();
+      if (authHook.user?.role === 'admin' || authHook.user?.role === 'super_admin') {
+        personelHook.fetchPersonnel();
+        personelHook.fetchLeaves();
+        personelHook.fetchRequests();
+        personelHook.fetchPointages();
       }
-      fetchCompanies();
-      if (user?.role === 'personnel') {
-        fetchMyPersonnel();
-        fetchLeaves();
-        fetchRequests();
-        fetchPointages();
+      authHook.fetchCompanies();
+      if (authHook.user?.role === 'personnel') {
+        personelHook.fetchMyPersonnel();
+        personelHook.fetchLeaves();
+        personelHook.fetchRequests();
+        personelHook.fetchPointages();
       }
-      fetchLucaAccounts();
+      teklifLucaHook.fetchLucaAccounts();
     } catch (e) {
-      console.error('Veri yÃ¼kleme hatasÄ±:', e);
+      console.error('Veri yükleme hatası:', e);
     }
-  }, [isAuthenticated, user?.role, fetchPersonnel, fetchLeaves, fetchRequests, fetchPointages, fetchMyPersonnel, fetchCompanies, fetchLucaAccounts, fetchTeklifler, fetchSiparisler]);
+  }, [
+    authHook.isAuthenticated,
+    authHook.user?.role,
+    personelHook.fetchPersonnel,
+    personelHook.fetchLeaves,
+    personelHook.fetchRequests,
+    personelHook.fetchPointages,
+    personelHook.fetchMyPersonnel,
+    authHook.fetchCompanies,
+    teklifLucaHook.fetchLucaAccounts,
+    teklifLucaHook.fetchTeklifler,
+    teklifLucaHook.fetchSiparisler,
+  ]);
 
   useEffect(() => {
-    if (isAuthenticated) {
-      // Şirket bilgilerini diğer ağır verileri beklemeden anında yükle
-      fetchCompanies();
+    if (authHook.isAuthenticated) {
+      authHook.fetchCompanies();
       loadAllData();
     }
-  }, [isAuthenticated, fetchCompanies, loadAllData]);
+  }, [authHook.isAuthenticated, authHook.fetchCompanies, loadAllData]);
 
   return (
     <AppContext.Provider
       value={{
-        isAuthenticated,
-        user,
-        login,
-        logout,
-        changePassword,
+        ...authHook,
+        ...personelHook,
+        ...cariBankaHook,
+        ...faturaHook,
+        ...teklifLucaHook,
         currentView,
         setCurrentView,
-        cariler,
-        addCari,
-        updateCari,
-        deleteCari,
-        cariHareketler,
-        addCariHareket,
-        updateCariHareket,
-        deleteCariHareket,
-        hesaplaCariBakiye,
-        satisFaturalari,
-        addSatisFatura,
-        updateSatisFatura,
-        updateSatisFaturaOdeme,
-        uploadSatisPdf,
-        uploadSatisDekont,
-        downloadSatisPdf,
-        downloadSatisDekont,
-        deleteSatisFatura,
-        alisFaturalari,
-        addAlisFatura,
-        updateAlisFatura,
-        updateAlisFaturaOdeme,
-        uploadAlisPdf,
-        uploadAlisDekont,
-        downloadAlisPdf,
-        downloadAlisDekont,
-        deleteAlisFatura,
-        parseInvoiceXml,
-        bankaHesaplari,
-        addBankaHesabi,
-        updateBankaHesabi,
-        deleteBankaHesabi,
-        isBankaDrawerOpen,
-        openBankaDrawer,
-        closeBankaDrawer,
-        selectedBankaId,
-        cekSenetler,
-        addCekSenet,
-        updateCekSenet,
-        deleteCekSenet,
-        updateCekSenetDurum,
-        isCekSenetDrawerOpen,
-        openCekSenetDrawer,
-        closeCekSenetDrawer,
-        selectedCekSenetId,
         isSatisDrawerOpen,
-        isAlisDrawerOpen,
-        isCariDrawerOpen,
-        satisInitialData,
-        alisInitialData,
         openSatisDrawer,
         closeSatisDrawer,
+        satisInitialData,
+        isAlisDrawerOpen,
         openAlisDrawer,
         closeAlisDrawer,
+        alisInitialData,
+        isCariDrawerOpen,
         openCariDrawer,
         closeCariDrawer,
         isCariEkstreDrawerOpen,
@@ -2195,78 +441,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         isSirketBilgileriOpen,
         openSirketBilgileri,
         closeSirketBilgileri,
-        getVergiRaporu,
-        giderKategorileri,
-        addGiderKategorisi,
-        updateGiderKategorisi,
-        deleteGiderKategorisi,
-        masrafKurallari,
-        addMasrafKurali,
-        deleteMasrafKurali,
-        kesilecekFaturalar,
-        addKesilecekFatura,
-        updateKesilecekFatura,
-        deleteKesilecekFatura,
-        calculateFaturaHesaplamalari,
-        personnel,
-        currentPersonnel,
-        fetchPersonnel,
-        fetchMyPersonnel,
-        bulkUploadPersonnel,
-        addPersonnel,
-        updatePersonnel,
-        deletePersonnel,
-        leaves,
-        fetchLeaves,
-        submitLeaveRequest,
-        updateLeaveStatus,
-        requests,
-        fetchRequests,
-        updateRequestStatus,
-        submitExpenseRequest,
-        uploadPersonnelDocument,
-        submitPointage,
-        bulkLockPointage,
-        bulkLockAllPersonnel,
-        pointages,
-        fetchPointages,
-        downloadPuantajTemplate,
-        uploadPuantajExcel,
-        companies,
-        activeCompany,
-        isIsletmeDefteri,
-        fetchCompanies,
-        addCompany,
-        updateCompany,
-        updateMyCompany,
-        deleteCompany,
-        addVehicle,
-        deleteVehicle,
-        lucaAccounts,
-        fetchLucaAccounts,
-        syncLucaAccounts,
-        autoSyncLucaAccounts,
-        teklifler,
-        addTeklif,
-        updateTeklif,
-        deleteTeklif,
-        fetchPublicTeklif,
-        approvePublicTeklif,
-        siparisler,
-        updateSiparis,
-        deleteSiparis,
+        isCekSenetDrawerOpen,
+        openCekSenetDrawer,
+        closeCekSenetDrawer,
+        selectedCekSenetId,
+        isBankaDrawerOpen,
+        openBankaDrawer,
+        closeBankaDrawer,
+        selectedBankaId,
         apiFetch,
-        fetchCariler,
-        fetchCariHareketler,
-        fetchAlisFaturalari,
-        fetchSatisFaturalari,
-        companyUsers,
-        fetchCompanyUsers,
-        addCompanyUser,
-        updateCompanyUser,
-        deleteCompanyUser,
-        resetUserPassword,
-        canAccess
       }}
     >
       {children}
@@ -2281,4 +464,3 @@ export function useApp() {
   }
   return context;
 }
-
