@@ -2,7 +2,10 @@ import express from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { client } from '../db.js';
 import { authMiddleware } from '../auth.js';
+import { stockSyncService } from '../services/stockSyncService.js';
 import { n } from '../utils/shared.js';
+
+const ensureId = (id) => id || uuidv4();
 
 const router = express.Router();
 

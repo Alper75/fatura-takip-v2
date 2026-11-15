@@ -8,7 +8,7 @@ import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { client } from '../db.js';
 import { authMiddleware } from '../auth.js';
-import { upload, n } from '../utils/shared.js';
+import { upload, uploadsDir, n } from '../utils/shared.js';
 
 const router = express.Router();
 

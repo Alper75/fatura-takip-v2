@@ -127,17 +127,17 @@ export default function NakitAkisiTakvimi() {
 
     // A. Açık Satış Faturaları (Tahsilat / Giriş)
     satisFaturalari
-      .filter(f => f.odemeDurumu !== 'ODENDI' && f.odemeDurumu !== 'odendi' as any)
+      .filter(f => f.odemeDurumu !== 'odendi')
       .forEach(f => {
         const vade = f.vadeTarihi || f.faturaTarihi || new Date().toISOString().split('T')[0];
-        const isPartiallyPaid = Boolean((f as any).odenenTutar > 0 || f.odemeDurumu === 'kismi_odendi');
-        const total = Number(f.toplamTutar || (f as any).alinanUcret || 0);
+        const isPartiallyPaid = Boolean((f.odenenTutar ?? 0) > 0 || f.odemeDurumu === 'kismi_odendi');
+        const total = Number(f.alinanUcret || 0);
         const openAmount = Number(
-          (f as any).kalanTutar !== undefined && (f as any).kalanTutar !== null && (f as any).odenenTutar > 0
-            ? (f as any).kalanTutar
+          f.kalanTutar !== undefined && f.kalanTutar !== null && (f.odenenTutar ?? 0) > 0
+            ? f.kalanTutar
             : total
         );
-        const cariAd = f.musteriAdi || (f.ad ? `${f.ad} ${f.soyad || ''}`.trim() : 'Müşteri');
+        const cariAd = f.ad ? `${f.ad} ${f.soyad || ''}`.trim() : 'Müşteri';
         items.push({
           id: 'sf_' + f.id,
           sourceType: 'satis_faturasi',
@@ -145,7 +145,7 @@ export default function NakitAkisiTakvimi() {
           title: isPartiallyPaid ? 'Kısmi Tahsilatlı Satış Faturası' : 'Satış Faturası Alacağı',
           cariAdi: cariAd,
           cariId: f.cariId,
-          belgeNo: f.faturaNo,
+          belgeNo: f.faturaNo || '-',
           tutar: openAmount,
           vadeTarihi: vade,
           faturaTarihi: f.faturaTarihi,

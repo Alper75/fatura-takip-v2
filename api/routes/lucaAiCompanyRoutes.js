@@ -7,6 +7,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { client } from '../db.js';
 import { authMiddleware, permissionMiddleware } from '../auth.js';
 import { telegramBotService } from '../services/telegramBot.js';
+import { evrenClient } from '../services/evrenClient.js';
 import { upload, uploadsDir, n } from '../utils/shared.js';
 
 const router = express.Router();

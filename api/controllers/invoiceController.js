@@ -4,6 +4,7 @@ import xlsx from 'xlsx';
 import AdmZip from 'adm-zip';
 import { v4 as uuidv4 } from 'uuid';
 import { client } from '../db.js';
+import { ElogoClient } from '../services/elogoClient.js';
 import { stockSyncService } from '../services/stockSyncService.js';
 import { saveBase64File, saveBufferFile, saveTextFile, getTextFileIfExists } from '../services/fileStorage.js';
 import { uploadsDir, xmlParser, n } from '../utils/shared.js';

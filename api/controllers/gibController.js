@@ -1,8 +1,12 @@
+import axios from 'axios';
+import AdmZip from 'adm-zip';
 import { v4 as uuidv4 } from 'uuid';
 import { client } from '../db.js';
 import { createFaturaClient } from '../fatura-client.js';
 import { gibSessionManager } from '../gibSessionManager.js';
 import { dijitalGibClient } from '../services/dijitalGibClient.js';
+import { getTextFileIfExists, saveTextFile } from '../services/fileStorage.js';
+import { xmlParser } from '../utils/shared.js';
 
 function formatGIBTime(d) {
   const hh = String(d.getHours()).padStart(2, '0');
