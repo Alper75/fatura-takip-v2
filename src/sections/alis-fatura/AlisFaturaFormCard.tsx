@@ -5,8 +5,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { LucaAccountSelect } from '@/components/LucaAccountSelect';
 import { cn } from '@/lib/utils';
 import { AlertCircle, AlertTriangle, Eye, FileText, Trash2 } from 'lucide-react';
-import type { AlisFaturaFormData } from '@/types';
-import { KDV_ORANLARI, TEVKIFAT_ORANLARI, formatCurrency, type FormEntry } from './alisFaturaHelpers';
+import type { AlisFaturaFormData, Cari, Company, Vehicle } from '@/types';
+import type { IDepo, IUrun } from '@/modules/stok/types/stok.types';
+import {
+  KDV_ORANLARI,
+  TEVKIFAT_ORANLARI,
+  formatCurrency,
+  type DuplicateMatch,
+  type FormEntry,
+} from './alisFaturaHelpers';
 
 interface AlisFaturaFormCardProps {
   form: FormEntry;
@@ -20,14 +27,14 @@ interface AlisFaturaFormCardProps {
     toplamNet: number;
   };
   isMultiple: boolean;
-  duplicateMatch: any;
+  duplicateMatch: DuplicateMatch | null;
   isFocusedCard: boolean;
   hasValidationErrors: boolean;
   isIsletmeDefteri: boolean;
-  activeCompany: any;
-  cariler: any[];
-  urunler: any[] | undefined;
-  depolar: any[] | undefined;
+  activeCompany: Company | undefined;
+  cariler: Cari[];
+  urunler: IUrun[] | undefined;
+  depolar: IDepo[] | undefined;
   varsayilanDepoId: string;
   setActiveFormId: (id: number) => void;
   setForms: React.Dispatch<React.SetStateAction<FormEntry[]>>;
@@ -371,7 +378,7 @@ export function AlisFaturaFormCard({
                           </SelectTrigger>
                           <SelectContent>
                             <SelectItem value="yok">Araçsız / Diğer</SelectItem>
-                            {activeCompany?.vehicles?.map((v: any) => (
+                            {activeCompany?.vehicles?.map((v: Vehicle) => (
                               <SelectItem key={v.id} value={v.plate}>{v.plate} ({v.type === 'passenger' ? 'Binek' : 'Ticari'})</SelectItem>
                             ))}
                           </SelectContent>

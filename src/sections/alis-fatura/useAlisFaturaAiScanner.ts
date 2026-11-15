@@ -1,10 +1,13 @@
 import { useState, useRef } from 'react';
 import { toast } from 'sonner';
+import type { Cari } from '@/types';
 import {
   INITIAL_FORM,
   compressImageIfNeeded,
   consolidateInvoicesByKdv,
   type FormEntry,
+  type LucaAccountOption,
+  type ScanProgress,
   type UploadedFile,
 } from './alisFaturaHelpers';
 
@@ -12,8 +15,8 @@ interface UseAlisFaturaAiScannerDeps {
   apiFetch: (url: string, options?: RequestInit) => Promise<any>;
   forms: FormEntry[];
   setForms: React.Dispatch<React.SetStateAction<FormEntry[]>>;
-  cariler: any[];
-  lucaAccounts: any[];
+  cariler: Cari[];
+  lucaAccounts: LucaAccountOption[];
   varsayilanDepoId: string;
   findRememberedAccountCode: (vkn?: string, unvan?: string, malHizmet?: string) => string;
 }
@@ -29,16 +32,7 @@ export function useAlisFaturaAiScanner({
 }: UseAlisFaturaAiScannerDeps) {
   const [isDragging, setIsDragging] = useState(false);
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
-  const [scanProgress, setScanProgress] = useState<{
-    current: number;
-    total: number;
-    remaining: number;
-    percent: number;
-    currentFileName?: string;
-    currentFile?: string;
-    isWaitingQuota?: boolean;
-    quotaWaitSeconds?: number;
-  } | null>(null);
+  const [scanProgress, setScanProgress] = useState<ScanProgress | null>(null);
   const [isScanning, setIsScanning] = useState(false);
   const [aiAddedCount, setAiAddedCount] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -227,10 +221,10 @@ MALİ MÜŞAVİRLİK VE KDV AYRIŞTIRMA KURALLARI:
 
 Aşağıdaki LUCA HESAP PLANI listesinden bu faturanın açıklamasına/türüne en uygun "kod"u seçerek "muhasebe_kodu" alanına yaz:
 ${lucaAccounts
-  .filter((a: any) => /^(15|73|74|76|77|78|25)/.test(String(a.kod || '').trim()))
+  .filter((a) => /^(15|73|74|76|77|78|25)/.test(String(a.kod || '').trim()))
   .slice(0, 80)
-  .map((a: any) => `${a.kod}: ${a.ad}`)
-  .join('\n') || lucaAccounts.slice(0, 60).map((a: any) => `${a.kod}: ${a.ad}`).join('\n')}
+  .map((a) => `${a.kod}: ${a.ad}`)
+  .join('\n') || lucaAccounts.slice(0, 60).map((a) => `${a.kod}: ${a.ad}`).join('\n')}
 
 SADECE geçerli bir JSON döndür:
 {

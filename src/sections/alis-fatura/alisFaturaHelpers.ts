@@ -1,4 +1,4 @@
-import type { AlisFaturaFormData } from '@/types';
+import type { AlisFatura, AlisFaturaFormData } from '@/types';
 
 export const KDV_ORANLARI = ['0', '1', '8', '10', '18', '20'];
 export const TEVKIFAT_ORANLARI = ['0', '2/10', '3/10', '4/10', '5/10', '7/10', '9/10', '10/10'];
@@ -33,6 +33,37 @@ export type UploadedFile = {
   status?: 'pending' | 'scanning' | 'success' | 'error';
   errorMessage?: string;
 };
+
+export interface ScanProgress {
+  current: number;
+  total: number;
+  remaining: number;
+  percent: number;
+  currentFileName?: string;
+  currentFile?: string;
+  isWaitingQuota?: boolean;
+  quotaWaitSeconds?: number;
+}
+
+export interface SaveProgress {
+  current: number;
+  total: number;
+  remaining: number;
+  percent: number;
+  currentInvoice: string;
+}
+
+export interface LucaAccountOption {
+  kod: string;
+  ad: string;
+  tur?: string;
+}
+
+export interface DuplicateMatch {
+  type: 'existing' | 'batch';
+  reason: string;
+  invoice: AlisFatura;
+}
 
 export const compressImageIfNeeded = async (file: File): Promise<{ base64: string; mimeType: string }> => {
   if (file.type === 'application/pdf') {

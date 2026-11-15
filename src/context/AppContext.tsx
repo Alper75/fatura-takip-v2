@@ -46,13 +46,13 @@ interface AppContextType {
   currentView: ViewType;
   setCurrentView: (view: ViewType) => void;
 
-  // ==================== CARÄ°LER ====================
+  // ==================== CARİLER ====================
   cariler: Cari[];
   addCari: (data: CariFormData) => void;
   updateCari: (id: string, data: Partial<CariFormData>) => void;
   deleteCari: (id: string) => void;
 
-  // ==================== CARÄ° HAREKET (LEDGER) ====================
+  // ==================== CARİ HAREKET (LEDGER) ====================
   cariHareketler: CariHareket[];
   addCariHareket: (hareket: Omit<CariHareket, 'id' | 'olusturmaTarihi'>) => void;
   updateCariHareket: (id: string, data: Partial<CariHareket>) => void;
@@ -70,7 +70,7 @@ interface AppContextType {
   downloadSatisDekont: (faturaId: string) => void;
   deleteSatisFatura: (id: string) => void;
 
-  // ==================== ALIÅž FATURALARI ====================
+  // ==================== ALIŞ FATURALARI ====================
   alisFaturalari: AlisFatura[];
   addAlisFatura: (fatura: AlisFaturaFormData) => void;
   updateAlisFatura: (id: string, data: AlisFaturaFormData) => void;
@@ -109,7 +109,7 @@ interface AppContextType {
   closeSirketBilgileri: () => void;
   setSelectedCariId: (id: string | null) => void;
 
-  // ==================== Ã‡EK / SENET ====================
+  // ==================== ÇEK / SENET ====================
   cekSenetler: CekSenet[];
   addCekSenet: (data: CekSenetFormData) => void;
   updateCekSenet: (id: string, data: CekSenetFormData) => void;
@@ -133,7 +133,7 @@ interface AppContextType {
   masrafKurallari: MasrafKurali[];
   addMasrafKurali: (data: Omit<MasrafKurali, 'id'>) => void;
   deleteMasrafKurali: (id: string) => void;
-  // ==================== KESÄ°LECEK FATURALAR ====================
+  // ==================== KESİLECEK FATURALAR ====================
   kesilecekFaturalar: KesilecekFatura[];
   addKesilecekFatura: (data: Omit<KesilecekFatura, 'id' | 'olusturmaTarihi' | 'durum'>) => void;
   updateKesilecekFatura: (id: string, data: Partial<KesilecekFatura>) => void;
@@ -146,7 +146,7 @@ interface AppContextType {
   // ==================== HESAPLAMALAR ====================
   calculateFaturaHesaplamalari: (tutar: number, kdvStr: string, tevStr?: string, stopajStr?: string) => any;
   
-  // ==================== PERSONEL MODÃœLÃœ ====================
+  // ==================== PERSONEL MODÜLÜ ====================
   personnel: Personnel[];
   currentPersonnel: Personnel | null;
   fetchPersonnel: () => Promise<void>;

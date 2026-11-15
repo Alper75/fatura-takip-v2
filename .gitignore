@@ -7,3 +7,5 @@ scratch/
 api/uploads/*
 !api/uploads/.gitkeep
 **/_metadata/
+*.db
+*.sqlite

@@ -1,9 +1,8 @@
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet';
-import { Progress } from '@/components/ui/progress';
 import { useApp } from '@/context/AppContext';
-import { Save, X, ShoppingCart, FileText, Sparkles, Loader2, CheckCircle2, Plus, AlertCircle, AlertTriangle, RotateCcw, Filter, Columns, ZoomIn, ZoomOut, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Save, ShoppingCart, Sparkles, Loader2, Plus, AlertTriangle, RotateCcw, Filter, Columns } from 'lucide-react';
 import type { AlisFaturaFormData } from '@/types';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -14,10 +13,14 @@ import {
   INITIAL_FORM,
   getHesaplanan,
   type FormEntry,
+  type SaveProgress,
+  type DuplicateMatch,
 } from './alis-fatura/alisFaturaHelpers';
 import { useAlisFaturaAiScanner } from './alis-fatura/useAlisFaturaAiScanner';
 import { AlisFaturaFormCard } from './alis-fatura/AlisFaturaFormCard';
 import { AlisFaturaPreviewModal } from './alis-fatura/AlisFaturaPreviewModal';
+import { AlisFaturaUploadPanel } from './alis-fatura/AlisFaturaUploadPanel';
+import { AlisFaturaSplitPreview } from './alis-fatura/AlisFaturaSplitPreview';
 
 export function AlisFaturaDrawer() {
   const { isAlisDrawerOpen, closeAlisDrawer, addAlisFatura, updateAlisFatura, alisFaturalari, cariler, alisInitialData, lucaAccounts, isIsletmeDefteri, companies, user, apiFetch } = useApp();
@@ -67,7 +70,7 @@ export function AlisFaturaDrawer() {
   };
 
   // Mükerrer Fiş / Fatura Yakalayıcı
-  const findDuplicateForForm = (form: FormEntry) => {
+  const findDuplicateForForm = (form: FormEntry): DuplicateMatch | null => {
     if (!Array.isArray(alisFaturalari) || alisFaturalari.length === 0) return null;
     const d = form.data;
     const currentId = (d as any).id;
@@ -80,7 +83,7 @@ export function AlisFaturaDrawer() {
 
     if (!fNo && tutar <= 0) return null;
 
-    return alisFaturalari.find(ex => {
+    const match = alisFaturalari.find(ex => {
       if (currentId && String(ex.id) === String(currentId)) return false;
       const exNo = String(ex.faturaNo || '').trim().toLowerCase();
       const exVkn = String(ex.tedarikciVkn || '').trim();
@@ -104,6 +107,13 @@ export function AlisFaturaDrawer() {
 
       return false;
     });
+
+    if (!match) return null;
+    return {
+      type: 'existing',
+      reason: 'Sistemde aynı fatura/tutar kaydı tespit edildi',
+      invoice: match,
+    };
   };
 
   // Kuralları Çek
@@ -160,7 +170,7 @@ export function AlisFaturaDrawer() {
   // AI States
   const [formFilter, setFormFilter] = useState<'all' | 'errors'>('all');
   const [isSaving, setIsSaving] = useState(false);
-  const [saveProgress, setSaveProgress] = useState<{ current: number; total: number; remaining: number; percent: number; currentInvoice: string } | null>(null);
+  const [saveProgress, setSaveProgress] = useState<SaveProgress | null>(null);
   const [hasPendingDraft, setHasPendingDraft] = useState(false);
   const [previewImage, setPreviewImage] = useState<{ url: string; name: string } | null>(null);
 
@@ -614,190 +624,24 @@ export function AlisFaturaDrawer() {
           </div>
         )}
 
-        {/* Yapay Zeka Tarama İlerleme Çubuğu */}
-        {isScanning && scanProgress && (
-          <div className="bg-indigo-50 border-2 border-indigo-200 rounded-xl p-4 mt-4 space-y-2 shadow-sm animate-in fade-in">
-            <div className="flex items-center justify-between text-xs font-semibold text-indigo-900">
-              <span className="flex items-center gap-1.5">
-                <Loader2 className="w-4 h-4 animate-spin text-indigo-600" />
-                Dosyalar Taranıyor ({scanProgress.current} / {scanProgress.total})
-              </span>
-              <span className="bg-indigo-200/80 px-2 py-0.5 rounded text-indigo-900 font-bold">
-                %{scanProgress.percent}
-              </span>
-            </div>
-            <Progress value={scanProgress.percent} className="h-2.5 bg-indigo-100" />
-            
-            {scanProgress.isWaitingQuota && (
-              <div className="bg-amber-100 border border-amber-300 rounded-lg p-2.5 text-xs text-amber-900 flex items-center justify-between animate-pulse">
-                <span className="flex items-center gap-1.5 font-semibold">
-                  <Loader2 className="w-4 h-4 animate-spin text-amber-700" />
-                  Google dakikalık kota sınırı (Dakikada 20 fiş). Otomatik bekleniyor...
-                </span>
-                <span className="font-mono font-bold bg-amber-200 px-2.5 py-1 rounded text-amber-900 text-xs">
-                  {scanProgress.quotaWaitSeconds} sn
-                </span>
-              </div>
-            )}
-
-            <div className="flex justify-between items-center text-[11px] text-indigo-700">
-              <span className="truncate max-w-[260px] font-medium">{scanProgress.currentFileName || 'Belge işleniyor...'}</span>
-              <span>Kalan: <b>{scanProgress.remaining} dosya</b></span>
-            </div>
-          </div>
-        )}
-
-        {/* Sisteme Kaydetme / Aktarım İlerleme Çubuğu */}
-        {isSaving && saveProgress && (
-          <div className="bg-emerald-50 border-2 border-emerald-200 rounded-xl p-4 mt-4 space-y-2 shadow-sm animate-in fade-in">
-            <div className="flex items-center justify-between text-xs font-semibold text-emerald-900">
-              <span className="flex items-center gap-1.5">
-                <Loader2 className="w-4 h-4 animate-spin text-emerald-600" />
-                Sisteme Aktarılıyor ({saveProgress.current} / {saveProgress.total})
-              </span>
-              <span className="bg-emerald-200/80 px-2 py-0.5 rounded text-emerald-900 font-bold">
-                %{saveProgress.percent} Aktarıldı
-              </span>
-            </div>
-            <Progress value={saveProgress.percent} className="h-2.5 bg-emerald-100" />
-            <div className="flex justify-between items-center text-[11px] text-emerald-700">
-              <span className="truncate max-w-[260px] font-medium">{saveProgress.currentInvoice}</span>
-              <span>Kalan: <b>{saveProgress.remaining} fiş</b></span>
-            </div>
-          </div>
-        )}
-
         <div className="py-6 space-y-6">
-          <div className="space-y-3">
-            {uploadedFiles.length === 0 ? (
-              <div
-                className={cn(
-                  "border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-colors relative",
-                  isDragging ? "border-indigo-500 bg-indigo-50/50" : "border-slate-200 hover:border-indigo-400 hover:bg-slate-50"
-                )}
-                onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
-                onDragLeave={() => setIsDragging(false)}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  setIsDragging(false);
-                  if (e.dataTransfer.files?.length > 0) processFiles(Array.from(e.dataTransfer.files));
-                }}
-                onClick={() => fileInputRef.current?.click()}
-              >
-                <input type="file" ref={fileInputRef} className="hidden" accept="image/*,application/pdf" multiple onChange={handleFileChange} />
-                <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center mx-auto mb-3">
-                  <FileText className="w-6 h-6 text-slate-500" />
-                </div>
-                <h4 className="font-semibold text-slate-900">PDF veya Resim (Fatura/Fiş) Yükleyin</h4>
-                <p className="text-sm text-slate-500 mt-1">Gelişmiş AI modeli birden fazla PDF ve resmi anında okur!</p>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-                  {uploadedFiles.map((file, idx) => {
-                    const isErr = file.status === 'error';
-                    const isSuccess = file.status === 'success';
-                    const isScan = file.status === 'scanning';
-
-                    return (
-                      <div 
-                        key={idx} 
-                        onClick={() => setPreviewImage({ url: file.base64, name: file.name })}
-                        className={cn(
-                          "relative rounded-lg overflow-hidden bg-slate-50 group aspect-square flex items-center justify-center cursor-pointer transition-all",
-                          isErr ? "border-2 border-red-500 ring-2 ring-red-400/40 bg-red-50 shadow-sm" : 
-                          isSuccess ? "border-2 border-emerald-500 bg-emerald-50/20" :
-                          isScan ? "border-2 border-indigo-500 animate-pulse bg-indigo-50/30" : "border border-slate-200"
-                        )}
-                        title={isErr ? `Okunamadı: ${file.errorMessage || 'Hata'}` : file.name}
-                      >
-                        {file.mimeType === 'application/pdf' ? (
-                          <div className="flex flex-col items-center justify-center p-2 text-center">
-                            <FileText className={cn("w-8 h-8 mb-1", isErr ? "text-red-500" : isSuccess ? "text-emerald-500" : "text-slate-400")} />
-                            <p className="text-xs font-medium text-slate-600 truncate w-full px-2">{file.name}</p>
-                          </div>
-                        ) : (
-                          <img src={file.base64} alt={file.name} className="w-full h-full object-cover" />
-                        )}
-                        
-                        {/* Durum Rozetleri */}
-                        {isErr && (
-                          <div className="absolute top-1 left-1 bg-red-600 text-white text-[10px] font-bold px-1.5 py-0.5 rounded shadow flex items-center gap-1 z-10">
-                            <AlertCircle className="w-3 h-3" /> Hata
-                          </div>
-                        )}
-                        {isSuccess && (
-                          <div className="absolute top-1 left-1 bg-emerald-600 text-white text-[10px] font-bold px-1.5 py-0.5 rounded shadow flex items-center gap-1 z-10">
-                            <CheckCircle2 className="w-3 h-3" /> Okundu
-                          </div>
-                        )}
-                        {isScan && (
-                          <div className="absolute inset-0 bg-black/40 flex flex-col items-center justify-center text-white z-10">
-                            <Loader2 className="w-5 h-5 animate-spin mb-1" />
-                            <span className="text-[10px] font-medium">Taranıyor</span>
-                          </div>
-                        )}
-
-                        <div className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity z-20">
-                          <Button type="button" size="icon" variant="destructive" className="h-6 w-6 rounded-full shadow-sm" onClick={(e) => {
-                            e.stopPropagation();
-                            setUploadedFiles(prev => prev.filter((_, i) => i !== idx));
-                            setForms(prev => prev.filter(f => f.data.dosyaAdi !== file.name));
-                          }}>
-                            <X className="w-3 h-3" />
-                          </Button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                  
-                  {/* Add more button */}
-                  <div 
-                    onClick={() => fileInputRef.current?.click()}
-                    className="border-2 border-dashed border-slate-200 rounded-lg flex flex-col items-center justify-center cursor-pointer hover:border-indigo-400 hover:bg-slate-50 transition-colors aspect-square"
-                  >
-                    <Plus className="w-6 h-6 text-slate-400 mb-1" />
-                    <span className="text-xs text-slate-500 font-medium">Dosya Ekle</span>
-                    <input type="file" ref={fileInputRef} className="hidden" accept="image/*,application/pdf" multiple onChange={handleFileChange} />
-                  </div>
-                </div>
-
-                {aiAddedCount === 0 && (
-                  <div className="flex justify-center">
-                    <Button
-                      type="button"
-                      onClick={() => scanImage()}
-                      disabled={isScanning}
-                      className="bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg font-semibold rounded-full px-8 py-6 text-lg"
-                    >
-                      {isScanning ? (
-                        <>
-                          <Loader2 className="w-5 h-5 mr-3 animate-spin" />
-                          {scanProgress ? `Diziliyor (${scanProgress.current}/${scanProgress.total})...` : 'Analiz Ediliyor...'}
-                        </>
-                      ) : (
-                        <>
-                          <Sparkles className="w-5 h-5 mr-3" />
-                          Tümünü Analiz Et ({uploadedFiles.length} Dosya)
-                        </>
-                      )}
-                    </Button>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {aiAddedCount > 0 && (
-              <div className="bg-emerald-50 border border-emerald-100 rounded-lg p-4 flex items-start gap-3">
-                <CheckCircle2 className="w-6 h-6 text-emerald-600 shrink-0" />
-                <div className="text-sm text-emerald-900">
-                  <span className="font-semibold text-base block mb-1">Tarama tamamlandı!</span> 
-                  Yüklediğiniz dosyalardan toplam <b>{aiAddedCount} adet</b> fiş/fatura çıkarıldı.
-                </div>
-              </div>
-            )}
-          </div>
-
+          <AlisFaturaUploadPanel
+            isDragging={isDragging}
+            setIsDragging={setIsDragging}
+            uploadedFiles={uploadedFiles}
+            setUploadedFiles={setUploadedFiles}
+            setForms={setForms}
+            fileInputRef={fileInputRef}
+            handleFileChange={handleFileChange}
+            processFiles={processFiles}
+            scanImage={() => scanImage()}
+            isScanning={isScanning}
+            scanProgress={scanProgress}
+            isSaving={isSaving}
+            saveProgress={saveProgress}
+            aiAddedCount={aiAddedCount}
+            setPreviewImage={setPreviewImage}
+          />
           <form onSubmit={handleSubmit} className="space-y-6">
                 {/* Hata Veren Fişler Bildirim ve Filtre Paneli */}
                 {errorFormsCount > 0 && (
@@ -876,101 +720,15 @@ export function AlisFaturaDrawer() {
 
                 <div className={cn("gap-6 items-start", hasAnyImage && splitViewMode ? "grid grid-cols-1 lg:grid-cols-12" : "space-y-8")}>
                   {hasAnyImage && splitViewMode && activeFormForPreview && (
-                    <div className="lg:col-span-5 sticky top-4 bg-slate-900 rounded-xl border border-slate-700 overflow-hidden shadow-xl flex flex-col max-h-[82vh]">
-                      <div className="px-3.5 py-2.5 bg-slate-800 border-b border-slate-700 flex items-center justify-between gap-2 text-white">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <span className="bg-indigo-600 text-white text-[11px] font-bold px-2 py-0.5 rounded shrink-0">
-                            Fiş #{activePreviewIndex + 1} / {forms.length}
-                          </span>
-                          <span className="text-xs font-medium text-slate-200 truncate">
-                            {activeFormForPreview.data.dosyaAdi || 'Fiş Görseli'}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-1 shrink-0">
-                          <Button
-                            type="button"
-                            size="icon"
-                            variant="ghost"
-                            className="h-7 w-7 text-slate-200 hover:text-white hover:bg-slate-700"
-                            onClick={() => setSplitZoom(z => Math.max(0.5, Number((z - 0.25).toFixed(2))))}
-                            title="Uzaklaştır"
-                          >
-                            <ZoomOut className="w-3.5 h-3.5" />
-                          </Button>
-                          <span className="text-[11px] font-mono text-slate-300 px-1">%{Math.round(splitZoom * 100)}</span>
-                          <Button
-                            type="button"
-                            size="icon"
-                            variant="ghost"
-                            className="h-7 w-7 text-slate-200 hover:text-white hover:bg-slate-700"
-                            onClick={() => setSplitZoom(z => Math.min(2.5, Number((z + 0.25).toFixed(2))))}
-                            title="Yakınlaştır"
-                          >
-                            <ZoomIn className="w-3.5 h-3.5" />
-                          </Button>
-                          {forms.length > 1 && (
-                            <>
-                              <Button
-                                type="button"
-                                size="icon"
-                                variant="ghost"
-                                className="h-7 w-7 text-slate-200 hover:text-white hover:bg-slate-700 ml-1"
-                                disabled={activePreviewIndex <= 0}
-                                onClick={() => {
-                                  if (activePreviewIndex > 0) {
-                                    focusAndScrollToForm(forms[activePreviewIndex - 1].id);
-                                  }
-                                }}
-                                title="Önceki Fiş (İlgili satıra git)"
-                              >
-                                <ChevronLeft className="w-4 h-4" />
-                              </Button>
-                              <Button
-                                type="button"
-                                size="icon"
-                                variant="ghost"
-                                className="h-7 w-7 text-slate-200 hover:text-white hover:bg-slate-700"
-                                disabled={activePreviewIndex >= forms.length - 1}
-                                onClick={() => {
-                                  if (activePreviewIndex < forms.length - 1) {
-                                    focusAndScrollToForm(forms[activePreviewIndex + 1].id);
-                                  }
-                                }}
-                                title="Sonraki Fiş (İlgili satıra git)"
-                              >
-                                <ChevronRight className="w-4 h-4" />
-                              </Button>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                      <div className="p-3 overflow-auto flex-1 flex items-start justify-center bg-slate-950/60 min-h-[420px]">
-                        {activeFormForPreview.data.dosyaBase64?.startsWith('data:application/pdf') ? (
-                          <iframe
-                            src={activeFormForPreview.data.dosyaBase64}
-                            title={activeFormForPreview.data.dosyaAdi || 'PDF'}
-                            className="w-full h-[68vh] rounded border-0 bg-white"
-                          />
-                        ) : (
-                          <img
-                            src={activeFormForPreview.data.dosyaBase64}
-                            alt={activeFormForPreview.data.dosyaAdi || 'Fiş'}
-                            style={{ transform: `scale(${splitZoom})`, transformOrigin: 'top center' }}
-                            className="max-w-full h-auto rounded shadow-lg transition-transform duration-150"
-                          />
-                        )}
-                      </div>
-                      <div className="px-3.5 py-2 bg-slate-800/90 border-t border-slate-700 text-[11px] text-slate-300 flex items-center justify-between">
-                        <span>Ok tuşları (&lt; / &gt;) ile fiş değiştirdiğinizde ilgili satır otomatik yanına gelir.</span>
-                        <button
-                          type="button"
-                          onClick={() => setPreviewImage({ url: activeFormForPreview.data.dosyaBase64!, name: activeFormForPreview.data.dosyaAdi || 'Fiş' })}
-                          className="text-indigo-300 hover:text-white underline font-semibold shrink-0 ml-2"
-                        >
-                          Tam Ekran Aç
-                        </button>
-                      </div>
-                    </div>
+                    <AlisFaturaSplitPreview
+                      activeFormForPreview={activeFormForPreview}
+                      activePreviewIndex={activePreviewIndex}
+                      forms={forms}
+                      splitZoom={splitZoom}
+                      setSplitZoom={setSplitZoom}
+                      focusAndScrollToForm={focusAndScrollToForm}
+                      onOpenFullPreview={setPreviewImage}
+                    />
                   )}
 
                   <div className={cn("space-y-8", hasAnyImage && splitViewMode ? "lg:col-span-7" : "")}>

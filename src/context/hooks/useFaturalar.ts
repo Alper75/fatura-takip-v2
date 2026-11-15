@@ -188,7 +188,7 @@ export function useFaturalar({
     setSatisFaturalari(prev => prev.filter(f => f.id !== id));
     setCariHareketler(prev => prev.filter(h => h.bagliFaturaId !== id));
     try { await apiFetch(`/api/satis-faturalari/${id}`, { method: 'DELETE' }); }
-    catch (e) { console.error('SatÄ±ÅŸ fatura silinemedi:', e); }
+    catch (e) { console.error('Satış fatura silinemedi:', e); }
   }, []);
 
   const calculateAlisFatura = (formData: AlisFaturaFormData) => {
@@ -340,14 +340,14 @@ export function useFaturalar({
   const updateAlisFaturaOdeme = useCallback(async (id: string, odemeTarihi: string, odemeDurumu: OdemeDurumu) => {
     setAlisFaturalari(prev => prev.map(f => f.id === id ? { ...f, odemeTarihi, odemeDurumu } : f));
     try { await apiFetch(`/api/alis-faturalari/${id}`, { method: 'PUT', body: JSON.stringify({ odemeTarihi, odemeDurumu }) }); }
-    catch (e) { console.error('AlÄ±ÅŸ odeme gÃ¼ncellenemedi:', e); }
+    catch (e) { console.error('Alış odeme güncellenemedi:', e); }
   }, []);
 
   const deleteAlisFatura = useCallback(async (id: string) => {
     setAlisFaturalari(prev => prev.filter(f => f.id !== id));
     setCariHareketler(prev => prev.filter(h => h.bagliFaturaId !== id));
     try { await apiFetch(`/api/alis-faturalari/${id}`, { method: 'DELETE' }); }
-    catch (e) { console.error('AlÄ±ÅŸ fatura silinemedi:', e); }
+    catch (e) { console.error('Alış fatura silinemedi:', e); }
   }, []);
 
   const parseInvoiceXml = useCallback(async (file: File) => {
@@ -476,7 +476,7 @@ export function useFaturalar({
   const getVergiRaporu = useCallback((yil: number, ay: number): VergiRaporu => {
     const ayAdi = AYLAR.find(a => a.value === ay)?.label || '';
 
-    // Ä°lgili ay ve yÄ±ldaki satÄ±ÅŸ faturalarÄ±
+    // İlgili ay ve yıldaki satış faturaları
     const aylikSatislar = satisFaturalari.filter(f => {
       if (!f.faturaTarihi) return false;
       const parts = f.faturaTarihi.split('-');
@@ -484,7 +484,7 @@ export function useFaturalar({
       return parseInt(parts[0], 10) === yil && parseInt(parts[1], 10) === ay;
     });
 
-    // Ä°lgili ay ve yÄ±ldaki alÄ±ÅŸ faturalarÄ±
+    // İlgili ay ve yıldaki alış faturaları
     const aylikAlislar = alisFaturalari.filter(f => {
       if (!f.faturaTarihi) return false;
       const parts = f.faturaTarihi.split('-');

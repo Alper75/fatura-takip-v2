@@ -25,7 +25,7 @@ export function useCariBanka({ isAuthenticated }: { isAuthenticated: boolean }) 
   const [kesilecekFaturalar, setKesilecekFaturalar] = useState<KesilecekFatura[]>([]);
   const [giderKategorileri, setGiderKategorileri] = useState<GiderKategorisi[]>([]);
 
-  // ==================== CARÄ° CRUD ====================
+  // ==================== CARİ CRUD ====================
   const addCari = useCallback(async (data: CariFormData) => {
     const yeniCari: Cari = { ...data, id: 'c' + Date.now().toString() + Math.random().toString(36).substr(2, 5), olusturmaTarihi: new Date().toISOString().split('T')[0] };
     setCariler(prev => [yeniCari, ...prev]);
@@ -52,7 +52,7 @@ export function useCariBanka({ isAuthenticated }: { isAuthenticated: boolean }) 
     catch (e) { console.error('Cari silinemedi:', e); }
   }, []);
 
-  // ==================== CARÄ° HAREKET CRUD ====================
+  // ==================== CARİ HAREKET CRUD ====================
   const addCariHareket = useCallback(async (data: Omit<CariHareket, 'id' | 'olusturmaTarihi'>) => {
     const yeniHareket: CariHareket = {
       ...data,
@@ -63,7 +63,7 @@ export function useCariBanka({ isAuthenticated }: { isAuthenticated: boolean }) 
     try { await apiFetch('/api/cari-hareketler', { method: 'POST', body: JSON.stringify(yeniHareket) }); }
     catch (e) { console.error('Cari hareket eklenemedi:', e); }
 
-    // Banka bakiyesini gÃ¼ncelle
+    // Banka bakiyesini güncelle
     if (data.bankaId) {
       setBankaHesaplari(prev => prev.map(b => {
         if (b.id === data.bankaId) {
@@ -92,10 +92,10 @@ export function useCariBanka({ isAuthenticated }: { isAuthenticated: boolean }) 
             'cek_senet_verilen'
           ];
 
-          // Transfer Ã–zel Durumu: CariHareket metninde "GELEN" veya "GÄ°DEN" aramasÄ±?
-          // Åžimdilik transfer'i data iÃ§inde ek bir flag olarak dÃ¼ÅŸÃ¼nelim veya aÃ§Ä±klamaya bakalÄ±m.
-          // BasitÃ§e: EÄŸer tutar pozitifse artÄ±ÅŸ, negatifse azalÄ±ÅŸ desek daha mÄ± iyi?
-          // Ama addCariHareket tutarÄ± mutlak deÄŸer bekliyor genelde.
+          // Transfer Özel Durumu: CariHareket metninde "GELEN" veya "GİDEN" araması?
+          // Şimdilik transfer'i data içinde ek bir flag olarak düşünelim veya açıklamaya bakalım.
+          // Basitçe: Eğer tutar pozitifse artış, negatifse azalış desek daha mı iyi?
+          // Ama addCariHareket tutarı mutlak değer bekliyor genelde.
           
           let degisim = 0;
           const amount = data.dovizTutar ? data.dovizTutar : data.tutar;
@@ -125,7 +125,7 @@ export function useCariBanka({ isAuthenticated }: { isAuthenticated: boolean }) 
       const eski = prev.find(h => h.id === id);
       if (!eski) return prev;
 
-      // Banka bakiye dÃ¼zeltmesi
+      // Banka bakiye düzeltmesi
       const ArtisTurleri: IslemTuru[] = ['tahsilat', 'satis_faturasi', 'cek_senet_alinan', 'diger_gelir'];
       const AzalisTurleri: IslemTuru[] = [
         'odeme', 'alis_faturasi', 'vergi_kdv', 'vergi_muhtasar', 'vergi_gecici', 
@@ -174,7 +174,7 @@ export function useCariBanka({ isAuthenticated }: { isAuthenticated: boolean }) 
       return prev.map(h => h.id === id ? { ...h, ...data } : h);
     });
     try { await apiFetch(`/api/cari-hareketler/${id}`, { method: 'PUT', body: JSON.stringify(data) }); }
-    catch (e) { console.error('Cari hareket gÃ¼ncellenemedi:', e); }
+    catch (e) { console.error('Cari hareket güncellenemedi:', e); }
   }, []);
 
   const deleteCariHareket = useCallback(async (id: string) => {
@@ -193,7 +193,7 @@ export function useCariBanka({ isAuthenticated }: { isAuthenticated: boolean }) 
            let degisim = 0;
            const amount = silinecek.dovizTutar ? silinecek.dovizTutar : silinecek.tutar;
            if (ArtisTurleri.includes(silinecek.islemTuru)) {
-             degisim = -amount; // Eklenen gelir silinirse bakiye dÃ¼ÅŸer
+             degisim = -amount; // Eklenen gelir silinirse bakiye düşer
            } else if (AzalisTurleri.includes(silinecek.islemTuru)) {
              degisim = amount; // Eklenen gider silinirse bakiye artar
            } else if (silinecek.islemTuru === 'transfer') {
@@ -242,8 +242,8 @@ export function useCariBanka({ isAuthenticated }: { isAuthenticated: boolean }) 
     const guncelBakiye = (toplamBorc - tahsilEdilen) - (toplamAlacak - odenen);
     let bakiyeDurumu: 'borclu' | 'alacakli' | 'kapali' = 'kapali';
     
-    if (guncelBakiye > 0) bakiyeDurumu = 'borclu'; // MÃ¼ÅŸteri borÃ§lu (Biz alacaklÄ±yÄ±z)
-    else if (guncelBakiye < 0) bakiyeDurumu = 'alacakli'; // Biz borÃ§luyuz (TedarikÃ§i alacaklÄ±)
+    if (guncelBakiye > 0) bakiyeDurumu = 'borclu'; // Müşteri borçlu (Biz alacaklıyız)
+    else if (guncelBakiye < 0) bakiyeDurumu = 'alacakli'; // Biz borçluyuz (Tedarikçi alacaklı)
 
     return { 
       toplamBorc, 
@@ -267,7 +267,7 @@ export function useCariBanka({ isAuthenticated }: { isAuthenticated: boolean }) 
   const updateCekSenet = useCallback(async (id: string, data: CekSenetFormData) => {
     setCekSenetler(prev => prev.map(c => c.id === id ? { ...c, ...data } : c));
     try { await apiFetch(`/api/cek-senetler/${id}`, { method: 'PUT', body: JSON.stringify(data) }); }
-    catch (e) { console.error('Cek-senet gÃ¼ncellenemedi:', e); }
+    catch (e) { console.error('Cek-senet güncellenemedi:', e); }
   }, []);
 
   const deleteCekSenet = useCallback(async (id: string) => {
@@ -286,7 +286,7 @@ export function useCariBanka({ isAuthenticated }: { isAuthenticated: boolean }) 
              tarih: new Date().toISOString().split('T')[0],
              islemTuru: hTuru,
              tutar: c.tutar,
-             aciklama: `${c.tip.toUpperCase()} Ã–demesi (${c.belgeNo})`,
+             aciklama: `${c.tip.toUpperCase()} Ödemesi (${c.belgeNo})`,
              bagliFaturaId: c.id,
              bankaId: bankaId || null
            });
@@ -304,7 +304,7 @@ export function useCariBanka({ isAuthenticated }: { isAuthenticated: boolean }) 
     const yeni: BankaHesabi = { ...data, guncelBakiye: acilis, acilisBakiyesi: acilis, id: 'b' + Date.now().toString() + Math.random().toString(36).substr(2, 5) };
     setBankaHesaplari(prev => [yeni, ...prev]);
     try { await apiFetch('/api/banka-hesaplari', { method: 'POST', body: JSON.stringify(yeni) }); }
-    catch (e) { console.error('Banka hesabÄ± eklenemedi:', e); }
+    catch (e) { console.error('Banka hesabı eklenemedi:', e); }
   }, []);
 
   const updateBankaHesabi = useCallback(async (id: string, data: BankaHesabiFormData) => {
@@ -319,13 +319,13 @@ export function useCariBanka({ isAuthenticated }: { isAuthenticated: boolean }) 
       return b;
     }));
     try { await apiFetch(`/api/banka-hesaplari/${id}`, { method: 'PUT', body: JSON.stringify(finalDataToAPI) }); }
-    catch (e) { console.error('Banka hesabÄ± gÃ¼ncellenemedi:', e); }
+    catch (e) { console.error('Banka hesabı güncellenemedi:', e); }
   }, []);
 
   const deleteBankaHesabi = useCallback(async (id: string) => {
     setBankaHesaplari(prev => prev.filter(b => b.id !== id));
     try { await apiFetch(`/api/banka-hesaplari/${id}`, { method: 'DELETE' }); }
-    catch (e) { console.error('Banka hesabÄ± silinemedi:', e); }
+    catch (e) { console.error('Banka hesabı silinemedi:', e); }
   }, []);
 
   // ==================== MASRAF KURALLARI CRUD ====================
@@ -345,7 +345,7 @@ export function useCariBanka({ isAuthenticated }: { isAuthenticated: boolean }) 
     catch (e) { console.error('Masraf kuralı silinemedi:', e); }
   }, []);
 
-  // ==================== KESÄ°LECEK FATURALAR CRUD ====================
+  // ==================== KESİLECEK FATURALAR CRUD ====================
   const addKesilecekFatura = useCallback(async (data: Omit<KesilecekFatura, 'id' | 'olusturmaTarihi' | 'durum'>) => {
     const yeni: KesilecekFatura = { ...data, id: 'kf' + Date.now().toString() + Math.random().toString(36).substr(2, 5), olusturmaTarihi: new Date().toISOString().split('T')[0], durum: 'bekliyor' };
     setKesilecekFaturalar(prev => [yeni, ...prev]);
@@ -401,7 +401,7 @@ export function useCariBanka({ isAuthenticated }: { isAuthenticated: boolean }) 
   const updateGiderKategorisi = useCallback(async (id: string, data: Partial<GiderKategorisi>) => {
     setGiderKategorileri(prev => prev.map(c => c.id === id ? { ...c, ...data } : c));
     try { await apiFetch(`/api/gider-kategorileri/${id}`, { method: 'PUT', body: JSON.stringify(data) }); }
-    catch (e) { console.error('Kategori gÃ¼ncellenemedi:', e); }
+    catch (e) { console.error('Kategori güncellenemedi:', e); }
   }, []);
 
   const deleteGiderKategorisi = useCallback(async (id: string) => {
