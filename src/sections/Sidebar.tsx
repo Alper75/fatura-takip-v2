@@ -227,6 +227,14 @@ export function Sidebar({ onItemClick }: SidebarProps) {
           onClick: () => setCurrentView('vergi-raporu'),
           view: 'vergi-raporu',
           permission: 'muhasebeLuca'
+        },
+        {
+          id: 'finans-raporlari',
+          label: 'Cari Yaşlandırma & Gelir-Gider',
+          icon: TrendingUp,
+          onClick: () => setCurrentView('finans-raporlari'),
+          view: 'finans-raporlari',
+          permission: 'cariler'
         }
       ]
     },

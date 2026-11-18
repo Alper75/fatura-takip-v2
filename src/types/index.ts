@@ -624,6 +624,7 @@ export type ViewType =
   | 'akilli-ogrenme'
   | 'muhasebe-fis-inceleme'
   | 'nakit-akisi'
+  | 'finans-raporlari'
   | 'kullanici-yonetimi'
   | 'dijital-vergi-dairesi';
 

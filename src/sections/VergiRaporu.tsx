@@ -9,6 +9,8 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { VergiSimulatoruPanel } from './vergi/VergiSimulatoruPanel';
 import { useApp } from '@/context/AppContext';
 import {
   Calculator,
@@ -371,6 +373,21 @@ export function VergiRaporu() {
         </CardHeader>
       </Card>
 
+      <Tabs defaultValue="rapor" className="space-y-6">
+        <TabsList className="bg-white border shadow-sm p-1 h-auto">
+          <TabsTrigger value="rapor" className="px-4 py-2 text-sm">
+            Aylık Vergi Raporu &amp; Denetim
+          </TabsTrigger>
+          <TabsTrigger value="simulator" className="px-4 py-2 text-sm">
+            Canlı KDV Zinciri &amp; Geçici Vergi Simülatörü
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="simulator" className="mt-0">
+          <VergiSimulatoruPanel selectedYil={selectedYil} selectedAy={selectedAy} />
+        </TabsContent>
+
+        <TabsContent value="rapor" className="space-y-6 mt-0">
       {/* Dönem Bilgisi */}
       <div className="flex items-center gap-2 text-slate-600">
         <Calendar className="w-4 h-4" />
@@ -847,6 +864,8 @@ export function VergiRaporu() {
           </ul>
         </div>
       </div>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

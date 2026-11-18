@@ -43,6 +43,7 @@ const SirketDosyalari = lazyWithRetry(() => import('./sections/SirketDosyalari')
 const AkilliOgrenme = lazyWithRetry(() => import('./sections/AkilliOgrenme'));
 const MuhasebeFisInceleme = lazyWithRetry(() => import('./sections/MuhasebeFisInceleme').then(m => ({ default: m.MuhasebeFisInceleme })));
 const NakitAkisiTakvimi = lazyWithRetry(() => import('./sections/NakitAkisiTakvimi'));
+const FinansRaporlari = lazyWithRetry(() => import('./sections/FinansRaporlari').then(m => ({ default: m.FinansRaporlari })));
 const KullaniciYetkiYonetimi = lazyWithRetry(() => import('./sections/KullaniciYetkiYonetimi'));
 const DijitalVergiDairesi = lazyWithRetry(() => import('./sections/DijitalVergiDairesi').then(m => ({ default: m.DijitalVergiDairesi })));
 
@@ -109,6 +110,8 @@ function AppContent() {
             return <CekSenetListe />;
           case 'nakit-akisi':
             return <NakitAkisiTakvimi />;
+          case 'finans-raporlari':
+            return <FinansRaporlari />;
           case 'banka-liste':
             return <BankaListe />;
           case 'banka-ekstre-liste':
