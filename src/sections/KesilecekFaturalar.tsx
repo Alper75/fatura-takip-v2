@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useApp } from '@/context/AppContext';
 import { 
   Table, 
@@ -204,8 +204,15 @@ export function KesilecekFaturalar() {
     addSatisFatura,
     updateSatisFatura,
     cariHareketler,
-    deleteCariHareket
+    deleteCariHareket,
+    activeCompany,
+    user,
+    apiFetch
   } = useApp();
+
+  const gibCompanyKey = String(activeCompany?.id || user?.companyId || 'default');
+  const gibUserKey = `gib_username_${gibCompanyKey}`;
+  const gibPassKey = `gib_password_${gibCompanyKey}`;
 
   const [searchTerm, setSearchTerm] = useState('');
   const [activeTab, setActiveTab] = useState<'bekleyen' | 'kesilenler'>('bekleyen');
@@ -368,11 +375,11 @@ export function KesilecekFaturalar() {
   // Kalem listesi
   const [kalemler, setKalemler] = useState<FaturaKalemi[]>([newKalem()]);
 
-  // GİB States
+  // GİB States (Şirket bazlı izole kimlik bilgileri)
   const [isGibModalOpen, setIsGibModalOpen] = useState(false);
   const [gibCredentials, setGibCredentials] = useState(() => ({
-    username: localStorage.getItem('gib_username') || '',
-    password: localStorage.getItem('gib_password') || ''
+    username: localStorage.getItem(gibUserKey) || '',
+    password: localStorage.getItem(gibPassKey) || ''
   }));
   const [selectedInvoiceForGib, setSelectedInvoiceForGib] = useState<KesilecekFatura | null>(null);
   const [isGibSending, setIsGibSending] = useState(false);
@@ -410,12 +417,52 @@ export function KesilecekFaturalar() {
     }
   };
 
-  // GİB Fetch States
+  // GİB Fetch States (Şirket bazlı izole kimlik bilgileri)
   const [isGibFetchModalOpen, setIsGibFetchModalOpen] = useState(false);
   const [gibFetchCredentials, setGibFetchCredentials] = useState(() => ({
-    username: localStorage.getItem('gib_username') || '',
-    password: localStorage.getItem('gib_password') || ''
+    username: localStorage.getItem(gibUserKey) || '',
+    password: localStorage.getItem(gibPassKey) || ''
   }));
+
+  // Şirket değiştiğinde GİB şifrelerini sıfırla ve o şirketin kayıtlı bilgilerini yükle
+  useEffect(() => {
+    const localUser = localStorage.getItem(gibUserKey) || '';
+    const localPass = localStorage.getItem(gibPassKey) || '';
+    setGibCredentials({ username: localUser, password: localPass });
+    setGibFetchCredentials({ username: localUser, password: localPass });
+
+    let cancelled = false;
+    apiFetch('/api/integrator/ayarlar')
+      .then((res: any) => {
+        if (cancelled || !res?.success || !res?.settings) return;
+        const dbUser = res.settings.gib_username || '';
+        const dbPass = res.settings.gib_password || '';
+        if (dbUser || dbPass) {
+          const finalUser = dbUser || localUser;
+          const finalPass = dbPass || localPass;
+          setGibCredentials({ username: finalUser, password: finalPass });
+          setGibFetchCredentials({ username: finalUser, password: finalPass });
+          if (finalUser) localStorage.setItem(gibUserKey, finalUser);
+          if (finalPass) localStorage.setItem(gibPassKey, finalPass);
+        }
+      })
+      .catch(() => {});
+
+    return () => {
+      cancelled = true;
+    };
+  }, [gibCompanyKey, gibUserKey, gibPassKey, apiFetch]);
+
+  // Kullanıcı GİB bilgilerini düzenlediğinde aktif şirketin anahtarına kaydet
+  useEffect(() => {
+    if (gibCredentials.username) localStorage.setItem(gibUserKey, gibCredentials.username);
+    if (gibCredentials.password) localStorage.setItem(gibPassKey, gibCredentials.password);
+  }, [gibCredentials.username, gibCredentials.password, gibUserKey, gibPassKey]);
+
+  useEffect(() => {
+    if (gibFetchCredentials.username) localStorage.setItem(gibUserKey, gibFetchCredentials.username);
+    if (gibFetchCredentials.password) localStorage.setItem(gibPassKey, gibFetchCredentials.password);
+  }, [gibFetchCredentials.username, gibFetchCredentials.password, gibUserKey, gibPassKey]);
   const [gibDateRange, setGibDateRange] = useState({
     startDate: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
     endDate: new Date().toISOString().split('T')[0]
@@ -516,7 +563,18 @@ export function KesilecekFaturalar() {
   const [isVknLoading, setIsVknLoading] = useState(false);
   const [editingInvoiceId, setEditingInvoiceId] = useState<string | null>(null);
   const [isBulkLookupRunning, setIsBulkLookupRunning] = useState(false);
-  const [, setBulkLookupProgress] = useState({ current: 0, total: 0 });
+  const [isBulkLookupPanelOpen, setIsBulkLookupPanelOpen] = useState(false);
+  const [bulkLookupProgress, setBulkLookupProgress] = useState<{
+    current: number;
+    total: number;
+    currentVkn?: string;
+    currentName?: string;
+    successCount: number;
+    errorCount: number;
+  }>({ current: 0, total: 0, successCount: 0, errorCount: 0 });
+  const [bulkLookupResults, setBulkLookupResults] = useState<
+    Record<string, { status: 'loading' | 'success' | 'error'; message?: string; unvan?: string; vkn?: string }>
+  >({});
 
   // Kalem hesaplamaları
   const kalemToplam = useMemo(() => {
@@ -900,8 +958,8 @@ export function KesilecekFaturalar() {
     }
 
     setTempGibQueryCreds(prev => ({
-      username: prev.username || gibCredentials.username || gibFetchCredentials.username || localStorage.getItem('gib_username') || '',
-      password: prev.password || gibCredentials.password || gibFetchCredentials.password || localStorage.getItem('gib_password') || '',
+      username: gibCredentials.username || gibFetchCredentials.username || localStorage.getItem(gibUserKey) || prev.username || '',
+      password: gibCredentials.password || gibFetchCredentials.password || localStorage.getItem(gibPassKey) || prev.password || '',
       startDate: start || past60Days,
       endDate: end || today
     }));
@@ -1202,8 +1260,8 @@ export function KesilecekFaturalar() {
     const credentials = { username: credUsername, password: credPassword };
     setGibCredentials(credentials);
     setGibFetchCredentials(credentials);
-    if (credUsername) localStorage.setItem('gib_username', credUsername);
-    if (credPassword) localStorage.setItem('gib_password', credPassword);
+    if (credUsername) localStorage.setItem(gibUserKey, credUsername);
+    if (credPassword) localStorage.setItem(gibPassKey, credPassword);
 
     const targets = selectedKesilenIds.length > 0
       ? resolvedInvoices.filter((f: any) => selectedKesilenIds.includes(f.id))
@@ -1333,44 +1391,126 @@ export function KesilecekFaturalar() {
 
   const handleBulkLookup = async () => {
     if (!gibCredentials.username || !gibCredentials.password) {
-      toast.info('Lütfen önce GİB şifrenizi tanımlayın (Toplu Gönder menüsünden).');
+      toast.info('Lütfen önce bu şirket için GİB şifrenizi girin (Toplu Gönder veya GİB\'den Çek menüsünden).');
       return;
     }
-    
+
+    const targets = selectedInvoiceIdsForGib
+      .map(id => pendingInvoices.find(f => f.id === id))
+      .filter((f): f is KesilecekFatura => !!f);
+
+    if (targets.length === 0) {
+      toast.info('Sorgulanacak seçili fatura bulunamadı.');
+      return;
+    }
+
     setIsBulkLookupRunning(true);
+    setIsBulkLookupPanelOpen(true);
+    setBulkLookupProgress({
+      current: 0,
+      total: targets.length,
+      successCount: 0,
+      errorCount: 0,
+    });
+
+    const initialMap: Record<string, { status: 'loading' | 'success' | 'error'; message?: string; unvan?: string; vkn?: string }> = {};
+    targets.forEach(t => {
+      initialMap[t.id] = { status: 'loading', vkn: t.vknTckn || '', unvan: `${t.ad || ''} ${t.soyad || ''}`.trim() };
+    });
+    setBulkLookupResults(prev => ({ ...prev, ...initialMap }));
+
     let successes = 0;
+    let errors = 0;
     const apiUrl = import.meta.env.DEV ? 'http://localhost:5000/api/gib/recipient-info' : '/api/gib/recipient-info';
-    
-    for (let i = 0; i < selectedInvoiceIdsForGib.length; i++) {
-      setBulkLookupProgress({ current: i + 1, total: selectedInvoiceIdsForGib.length });
-      const invId = selectedInvoiceIdsForGib[i];
-      const inv = pendingInvoices.find(f => f.id === invId);
-      
-      if (!inv || !inv.vknTckn) continue;
-      
+
+    for (let i = 0; i < targets.length; i++) {
+      const inv = targets[i];
+      const cleanVkn = String(inv.vknTckn || '').replace(/\D/g, '');
+      const displayName = `${inv.ad || ''} ${inv.soyad || ''}`.trim() || 'Müşteri';
+
+      setBulkLookupProgress({
+        current: i + 1,
+        total: targets.length,
+        currentVkn: inv.vknTckn || '-',
+        currentName: displayName,
+        successCount: successes,
+        errorCount: errors,
+      });
+
+      if (cleanVkn.length !== 10 && cleanVkn.length !== 11) {
+        errors++;
+        setBulkLookupResults(prev => ({
+          ...prev,
+          [inv.id]: {
+            status: 'error',
+            vkn: inv.vknTckn || 'Boş',
+            unvan: displayName,
+            message: `Geçersiz format (${cleanVkn.length} hane — 10 veya 11 hane olmalı)`,
+          },
+        }));
+        setBulkLookupProgress(p => ({ ...p, successCount: successes, errorCount: errors }));
+        continue;
+      }
+
       try {
         const response = await fetch(apiUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` },
-          body: JSON.stringify({ credentials: gibCredentials, vknTckn: inv.vknTckn })
+          body: JSON.stringify({ credentials: gibCredentials, vknTckn: cleanVkn })
         });
         const result = await response.json();
-        
-        if (result.success && result.data) {
+
+        const resolvedName = result?.data?.unvan || result?.data?.adi || '';
+        if (result.success && result.data && (resolvedName || result.data.vergiDairesi)) {
           successes++;
           updateKesilecekFatura(inv.id, {
-            ad: result.data.unvan || result.data.adi || inv.ad,
+            ad: resolvedName || inv.ad,
             soyad: result.data.soyadi || inv.soyad,
             vergiDairesi: result.data.vergiDairesi || inv.vergiDairesi
           });
+          setBulkLookupResults(prev => ({
+            ...prev,
+            [inv.id]: {
+              status: 'success',
+              vkn: cleanVkn,
+              unvan: `${resolvedName || inv.ad} ${result.data.soyadi || ''}`.trim(),
+              message: result.data.vergiDairesi ? `VD: ${result.data.vergiDairesi}` : 'Doğrulandı',
+            },
+          }));
+        } else {
+          errors++;
+          setBulkLookupResults(prev => ({
+            ...prev,
+            [inv.id]: {
+              status: 'error',
+              vkn: cleanVkn,
+              unvan: displayName,
+              message: result.message || 'GİB sisteminde mükellef kaydı bulunamadı',
+            },
+          }));
         }
-      } catch (err) {
-        console.error(err);
+      } catch (err: any) {
+        errors++;
+        setBulkLookupResults(prev => ({
+          ...prev,
+          [inv.id]: {
+            status: 'error',
+            vkn: cleanVkn,
+            unvan: displayName,
+            message: err?.message || 'Bağlantı / sorgulama hatası',
+          },
+        }));
       }
+
+      setBulkLookupProgress(p => ({ ...p, successCount: successes, errorCount: errors }));
     }
-    
+
     setIsBulkLookupRunning(false);
-    toast.success(`Toplu VKN sorgusu tamamlandı. ${successes} fatura güncellendi.`);
+    if (errors > 0) {
+      toast.warning(`VKN sorgusu tamamlandı: ${successes} başarılı, ${errors} hatalı/bulunamadı.`);
+    } else {
+      toast.success(`Toplu VKN sorgusu tamamlandı. ${successes} fatura doğrulandı.`);
+    }
   };
 
   const loadInvoiceForEdit = (f: KesilecekFatura) => {
@@ -3122,6 +3262,108 @@ export function KesilecekFaturalar() {
             </div>
           </CardHeader>
           <CardContent className="p-0">
+            {/* Toplu VKN/TCKN Sorgulama Canlı Takip ve Hata Paneli */}
+            {activeTab === 'bekleyen' && isBulkLookupPanelOpen && (
+              <div className="m-4 rounded-xl border border-blue-200 bg-blue-50/60 p-4 space-y-3 shadow-xs">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    {isBulkLookupRunning ? (
+                      <Loader2 className="w-4 h-4 animate-spin text-blue-600 shrink-0" />
+                    ) : bulkLookupProgress.errorCount > 0 ? (
+                      <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+                    ) : (
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                    )}
+                    <span className="text-sm font-bold text-slate-900">
+                      {isBulkLookupRunning
+                        ? `GİB VKN/TCKN Sorgulaması Devam Ediyor (${bulkLookupProgress.current} / ${bulkLookupProgress.total})`
+                        : `Toplu VKN/TCKN Sorgulama Sonucu (${bulkLookupProgress.total} Fatura)`}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs font-bold px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-200">
+                      ✓ {bulkLookupProgress.successCount} Başarılı
+                    </span>
+                    <span className={cn(
+                      "text-xs font-bold px-2 py-0.5 rounded border",
+                      bulkLookupProgress.errorCount > 0
+                        ? "bg-red-100 text-red-800 border-red-300"
+                        : "bg-slate-100 text-slate-600 border-slate-200"
+                    )}>
+                      ✕ {bulkLookupProgress.errorCount} Hatalı
+                    </span>
+                    {!isBulkLookupRunning && bulkLookupProgress.errorCount > 0 && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="h-7 text-xs border-red-300 text-red-700 hover:bg-red-100 bg-white"
+                        onClick={() => {
+                          const errIds = Object.entries(bulkLookupResults)
+                            .filter(([, v]) => v.status === 'error')
+                            .map(([id]) => id);
+                          setSelectedInvoiceIdsForGib(errIds);
+                        }}
+                      >
+                        Sadece Hatalıları Seç ({bulkLookupProgress.errorCount})
+                      </Button>
+                    )}
+                    {!isBulkLookupRunning && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 px-2 text-xs text-slate-500 hover:text-slate-900"
+                        onClick={() => setIsBulkLookupPanelOpen(false)}
+                      >
+                        Kapat
+                      </Button>
+                    )}
+                  </div>
+                </div>
+
+                {/* İlerleme Çubuğu */}
+                <div className="space-y-1">
+                  <div className="w-full h-2 bg-blue-100 rounded-full overflow-hidden">
+                    <div
+                      className={cn(
+                        "h-full transition-all duration-300",
+                        bulkLookupProgress.errorCount > 0 && !isBulkLookupRunning ? "bg-amber-500" : "bg-blue-600"
+                      )}
+                      style={{
+                        width: `${bulkLookupProgress.total > 0 ? Math.round((bulkLookupProgress.current / bulkLookupProgress.total) * 100) : 0}%`,
+                      }}
+                    />
+                  </div>
+                  {isBulkLookupRunning && bulkLookupProgress.currentVkn && (
+                    <p className="text-xs text-blue-800">
+                      Şu an sorgulanıyor: <b className="font-mono">{bulkLookupProgress.currentVkn}</b> ({bulkLookupProgress.currentName})
+                    </p>
+                  )}
+                </div>
+
+                {/* Hatalı VKN Özeti */}
+                {Object.values(bulkLookupResults).some(r => r.status === 'error') && (
+                  <div className="rounded-lg border border-red-200 bg-red-50/80 p-3 space-y-1.5 max-h-40 overflow-y-auto">
+                    <p className="text-xs font-bold text-red-800">Hatalı / Bulunamayan VKN-TCKN Kayıtları (Tabloda Kırmızı İşaretlendi):</p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-1.5">
+                      {Object.entries(bulkLookupResults)
+                        .filter(([, r]) => r.status === 'error')
+                        .map(([id, r]) => (
+                          <div key={id} className="text-[11px] bg-white border border-red-200 rounded px-2.5 py-1.5 flex items-center justify-between gap-2">
+                            <span className="truncate font-medium text-slate-800">
+                              <span className="font-mono font-bold text-red-700 mr-1.5">{r.vkn || '-'}</span>
+                              {r.unvan}
+                            </span>
+                            <span className="text-red-600 shrink-0 font-medium">{r.message}</span>
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
             <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
@@ -3164,9 +3406,13 @@ export function KesilecekFaturalar() {
                       const queueIndex = activeTab === 'bekleyen' 
                         ? chronologicallySortedSelected.findIndex(item => item.id === f.id) 
                         : -1;
+                      const lookupRes = activeTab === 'bekleyen' ? bulkLookupResults[f.id] : undefined;
+                      const isVknError = lookupRes?.status === 'error';
+                      const isVknSuccess = lookupRes?.status === 'success';
+                      const isVknSearching = lookupRes?.status === 'loading';
 
                       return (
-                      <TableRow key={f.id} className="group border-0 border-b last:border-0 hover:bg-blue-50/30 transition-colors">
+                      <TableRow key={f.id} className={cn("group border-0 border-b last:border-0 transition-colors", isVknError ? "bg-red-50/80 hover:bg-red-100/70" : "hover:bg-blue-50/30")}>
                         <TableCell className="text-center">
                           <Checkbox 
                             checked={
@@ -3194,7 +3440,35 @@ export function KesilecekFaturalar() {
                                 </span>
                               )}
                             </div>
-                            <span className="text-[11px] text-slate-500 font-medium">{f.vknTckn}</span>
+                            <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
+                              <span
+                                className={cn(
+                                  "text-[11px] font-mono",
+                                  isVknError
+                                    ? "bg-red-100 text-red-700 border border-red-300 font-bold px-1.5 py-0.5 rounded"
+                                    : isVknSuccess
+                                      ? "bg-emerald-50 text-emerald-700 border border-emerald-200 font-semibold px-1.5 py-0.5 rounded"
+                                      : "text-slate-500 font-medium"
+                                )}
+                              >
+                                {f.vknTckn || 'VKN/TCKN Yok'}
+                              </span>
+                              {isVknSearching && (
+                                <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-blue-700 bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded">
+                                  <Loader2 className="w-2.5 h-2.5 animate-spin" /> Sorgulanıyor
+                                </span>
+                              )}
+                              {isVknSuccess && (
+                                <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-emerald-700">
+                                  <CheckCircle2 className="w-3 h-3" /> Doğrulandı
+                                </span>
+                              )}
+                              {isVknError && (
+                                <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-red-700">
+                                  <AlertCircle className="w-3 h-3" /> {lookupRes?.message || 'Hatalı VKN'}
+                                </span>
+                              )}
+                            </div>
                             {f.faturaTarihi && (
                               <div className="flex items-center gap-1 mt-0.5">
                                 <span className="text-[11px] text-blue-700 font-bold bg-blue-50 px-1.5 py-0.5 rounded border border-blue-100 w-fit flex items-center gap-1">
