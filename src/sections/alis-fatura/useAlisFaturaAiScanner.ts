@@ -74,7 +74,7 @@ export function useAlisFaturaAiScanner({
     let totalAdded = 0;
     const failedFiles: { name: string; reason: string }[] = [];
     
-    let activeProvider = 'openai';
+    let activeProvider = '';
     let apiKey = import.meta.env.VITE_GEMINI_API_KEY || '';
     let aiModel = 'gemini-3.8-flash';
     let nvidiaApiKey = '';
@@ -114,6 +114,15 @@ export function useAlisFaturaAiScanner({
       if (eModelRes?.success && eModelRes.value) evrenModelName = eModelRes.value;
     } catch (keyErr) {
       console.warn('Ayarlar alınamadı:', keyErr);
+    }
+
+    if (!activeProvider) {
+      if (apiKey) activeProvider = 'gemini';
+      else if (openaiApiKey) activeProvider = 'openai';
+      else if (nvidiaApiKey) activeProvider = 'nvidia';
+      else if (xaiApiKey) activeProvider = 'grok';
+      else if (evrenApiKey) activeProvider = 'evren';
+      else activeProvider = 'gemini';
     }
 
     if (activeProvider === 'evren') {

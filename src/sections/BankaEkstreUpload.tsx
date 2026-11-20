@@ -602,7 +602,7 @@ export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploa
   };
 
   const getAiConfig = async () => {
-    let activeProvider = 'openai';
+    let activeProvider = '';
     let apiKey = import.meta.env.VITE_GEMINI_API_KEY || '';
     let aiModel = 'gemini-2.5-flash';
     let nvidiaApiKey = '';
@@ -643,6 +643,15 @@ export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploa
       if (eModelRes?.success && eModelRes.value) evrenModelName = eModelRes.value;
     } catch (err) {
       console.warn('AI ayarları alınamadı:', err);
+    }
+
+    if (!activeProvider) {
+      if (apiKey) activeProvider = 'gemini';
+      else if (openaiApiKey) activeProvider = 'openai';
+      else if (nvidiaApiKey) activeProvider = 'nvidia';
+      else if (xaiApiKey) activeProvider = 'grok';
+      else if (evrenApiKey) activeProvider = 'evren';
+      else activeProvider = 'gemini';
     }
 
     // Google tarafından engellenmiş sızdırılmış anahtar tespiti

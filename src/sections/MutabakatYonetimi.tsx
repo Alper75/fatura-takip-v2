@@ -173,37 +173,25 @@ export function MutabakatYonetimi() {
         apiFetch('/api/settings/smtp_pass').catch(() => null),
       ]);
 
-      if (resProvider?.success && resProvider.value) setAiProvider(resProvider.value as any);
-      if (resEvrenKey?.success) setEvrenKey(resEvrenKey.value || '');
-      if (resEvrenModel?.success && resEvrenModel.value) setEvrenModel(resEvrenModel.value);
-      if (resKey?.success) setGeminiKey(resKey.value || '');
-      if (resModel?.success && resModel.value) {
-        setGeminiModel(resModel.value);
-        if (!PRESET_GEMINI_MODELS.some(m => m.value === resModel.value)) {
-          setIsCustomGemini(true);
-        }
-      }
-      if (resNvidiaKey?.success) setNvidiaKey(resNvidiaKey.value || '');
-      if (resNvidiaModel?.success && resNvidiaModel.value) {
-        setNvidiaModel(resNvidiaModel.value);
-        if (!PRESET_NVIDIA_MODELS.some(m => m.value === resNvidiaModel.value)) {
-          setIsCustomNvidia(true);
-        }
-      }
-      if (resOpenaiKey?.success) setOpenaiKey(resOpenaiKey.value || '');
-      if (resOpenaiModel?.success && resOpenaiModel.value) {
-        setOpenaiModel(resOpenaiModel.value);
-        if (!PRESET_OPENAI_MODELS.some(m => m.value === resOpenaiModel.value)) {
-          setIsCustomOpenai(true);
-        }
-      }
-      if (resXaiKey?.success) setXaiKey(resXaiKey.value || '');
-      if (resXaiModel?.success && resXaiModel.value) {
-        setXaiModel(resXaiModel.value);
-        if (!PRESET_XAI_MODELS.some(m => m.value === resXaiModel.value)) {
-          setIsCustomXai(true);
-        }
-      }
+      setAiProvider((resProvider?.success && resProvider.value ? resProvider.value : 'gemini') as any);
+      setEvrenKey(resEvrenKey?.success ? (resEvrenKey.value || '') : '');
+      setEvrenModel(resEvrenModel?.success && resEvrenModel.value ? resEvrenModel.value : 'dots-ocr');
+      setGeminiKey(resKey?.success ? (resKey.value || '') : '');
+      const nextGeminiModel = resModel?.success && resModel.value ? resModel.value : 'gemini-3.8-flash';
+      setGeminiModel(nextGeminiModel);
+      setIsCustomGemini(!PRESET_GEMINI_MODELS.some(m => m.value === nextGeminiModel));
+      setNvidiaKey(resNvidiaKey?.success ? (resNvidiaKey.value || '') : '');
+      const nextNvidiaModel = resNvidiaModel?.success && resNvidiaModel.value ? resNvidiaModel.value : 'stepfun-ai/step-5-preview';
+      setNvidiaModel(nextNvidiaModel);
+      setIsCustomNvidia(!PRESET_NVIDIA_MODELS.some(m => m.value === nextNvidiaModel));
+      setOpenaiKey(resOpenaiKey?.success ? (resOpenaiKey.value || '') : '');
+      const nextOpenaiModel = resOpenaiModel?.success && resOpenaiModel.value ? resOpenaiModel.value : 'gpt-4o-mini';
+      setOpenaiModel(nextOpenaiModel);
+      setIsCustomOpenai(!PRESET_OPENAI_MODELS.some(m => m.value === nextOpenaiModel));
+      setXaiKey(resXaiKey?.success ? (resXaiKey.value || '') : '');
+      const nextXaiModel = resXaiModel?.success && resXaiModel.value ? resXaiModel.value : 'grok-2-vision-1212';
+      setXaiModel(nextXaiModel);
+      setIsCustomXai(!PRESET_XAI_MODELS.some(m => m.value === nextXaiModel));
       if (resSmtpCompany?.success && resSmtpCompany.value) setSmtpCompanyName(resSmtpCompany.value);
       else if (activeCompany?.name) setSmtpCompanyName(activeCompany.name);
       if (resSmtpHost?.success) setSmtpHost(resSmtpHost.value || '');
@@ -636,7 +624,7 @@ export function MutabakatYonetimi() {
     if (activeTab === 'ayarlar') {
       fetchSettings();
     }
-  }, [activeTab]);
+  }, [activeTab, activeCompany?.id]);
 
   const handleDelete = async (id: string) => {
     if (!confirm('Bu mutabakat kaydını silmek istediğinize emin misiniz?')) return;

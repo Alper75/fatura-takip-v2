@@ -184,26 +184,17 @@ router.post('/api/luca/hesap-plani/sync', authMiddleware, async (req, res) => {
   }
 });
 
-// --- GENEL AYARLAR ---
+// --- GENEL AYARLAR (Şirket Bazlı İzole) ---
 router.get('/api/settings/:key', authMiddleware, async (req, res, next) => {
   if (req.params.key === 'smtp') return next(); // Skip 'smtp' to hit the specific route below if needed
   try {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.setHeader('Pragma', 'no-cache');
     const rs = await client.execute({
-      sql: 'SELECT setting_value FROM company_settings WHERE (company_id = ? OR company_id = 1) AND setting_key = ? ORDER BY (CASE WHEN company_id = ? THEN 0 ELSE 1 END) LIMIT 1',
-      args: [req.user.companyId, req.params.key, req.user.companyId]
+      sql: 'SELECT setting_value FROM company_settings WHERE company_id = ? AND setting_key = ? LIMIT 1',
+      args: [req.user.companyId, req.params.key]
     });
-    let val = rs.rows.length > 0 ? rs.rows[0].setting_value : null;
-
-    // AI ayarları için hiçbir şirkette tanımlı değilse herhangi bir şirketteki tanımlı ayara fallback yap
-    if (!val && ['ai_provider', 'gemini_api_key', 'gemini_model', 'nvidia_api_key', 'nvidia_model', 'openai_api_key', 'openai_model', 'xai_api_key', 'xai_model', 'evren_api_key', 'evren_model'].includes(req.params.key)) {
-      const anyRs = await client.execute({
-        sql: "SELECT setting_value FROM company_settings WHERE setting_key = ? AND setting_value IS NOT NULL AND setting_value != '' ORDER BY id DESC LIMIT 1",
-        args: [req.params.key]
-      });
-      if (anyRs.rows.length > 0) {
-        val = anyRs.rows[0].setting_value;
-      }
-    }
+    const val = rs.rows.length > 0 ? rs.rows[0].setting_value : null;
 
     res.json({ success: true, value: val });
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }
@@ -236,31 +227,26 @@ router.post(['/api/ai/analyze-invoice', '/api/ai/analyze-text'], authMiddleware,
   }
 
   try {
-    const getSettingWithFallback = async (key) => {
+    const getCompanySetting = async (key) => {
       const rs = await client.execute({
-        sql: 'SELECT setting_value FROM company_settings WHERE (company_id = ? OR company_id = 1) AND setting_key = ? ORDER BY (CASE WHEN company_id = ? THEN 0 ELSE 1 END) LIMIT 1',
-        args: [req.user.companyId, key, req.user.companyId]
+        sql: 'SELECT setting_value FROM company_settings WHERE company_id = ? AND setting_key = ? LIMIT 1',
+        args: [req.user.companyId, key]
       }).catch(() => ({ rows: [] }));
-      if (rs.rows.length > 0 && rs.rows[0].setting_value) return rs.rows[0].setting_value;
-      const anyRs = await client.execute({
-        sql: "SELECT setting_value FROM company_settings WHERE setting_key = ? AND setting_value IS NOT NULL AND setting_value != '' ORDER BY id DESC LIMIT 1",
-        args: [key]
-      }).catch(() => ({ rows: [] }));
-      return anyRs.rows?.[0]?.setting_value || '';
+      return rs.rows?.[0]?.setting_value || '';
     };
 
     const [provVal, oKeyVal, oModelVal, xKeyVal, xModelVal, nKeyVal, nModelVal, gKeyVal, gModelVal, eKeyVal, eModelVal] = await Promise.all([
-      getSettingWithFallback('ai_provider'),
-      getSettingWithFallback('openai_api_key'),
-      getSettingWithFallback('openai_model'),
-      getSettingWithFallback('xai_api_key'),
-      getSettingWithFallback('xai_model'),
-      getSettingWithFallback('nvidia_api_key'),
-      getSettingWithFallback('nvidia_model'),
-      getSettingWithFallback('gemini_api_key'),
-      getSettingWithFallback('gemini_model'),
-      getSettingWithFallback('evren_api_key'),
-      getSettingWithFallback('evren_model'),
+      getCompanySetting('ai_provider'),
+      getCompanySetting('openai_api_key'),
+      getCompanySetting('openai_model'),
+      getCompanySetting('xai_api_key'),
+      getCompanySetting('xai_model'),
+      getCompanySetting('nvidia_api_key'),
+      getCompanySetting('nvidia_model'),
+      getCompanySetting('gemini_api_key'),
+      getCompanySetting('gemini_model'),
+      getCompanySetting('evren_api_key'),
+      getCompanySetting('evren_model'),
     ]);
 
     let activeProvider = requestedProvider || provVal || 'openai';
@@ -672,9 +658,10 @@ Temel Muhasebe İlkelerin ve Davranış Kuralların:
 router.post('/api/settings/:key', authMiddleware, async (req, res, next) => {
   if (req.params.key === 'smtp') return next();
   try {
+    const val = req.body.value !== undefined && req.body.value !== null ? String(req.body.value) : '';
     await client.execute({
       sql: 'INSERT INTO company_settings (company_id, setting_key, setting_value) VALUES (?, ?, ?) ON CONFLICT(company_id, setting_key) DO UPDATE SET setting_value=excluded.setting_value',
-      args: [req.user.companyId, req.params.key, req.body.value]
+      args: [req.user.companyId, req.params.key, val]
     });
     res.json({ success: true });
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }

@@ -21,6 +21,7 @@ export async function apiFetch(path: string, options?: RequestInit) {
 
   try {
     const res = await fetch(`${API_BASE}${path}`, { 
+      cache: 'no-store',
       ...options, 
       headers 
     });
