@@ -373,6 +373,7 @@ export async function getElogoGelenFaturalar(req, res) {
         
         let kdvTutari = 0;
         let kdvOrani = 0;
+        let bestKdvWeight = -1;
         let oivTutari = 0;
         let kdv1 = 0;
         let kdv10 = 0;
@@ -401,7 +402,11 @@ export async function getElogoGelenFaturalar(req, res) {
             if (taxCode === '0015' || taxCode === '15' || !taxCode) {
               kdvTutari += amount;
               if (percent > 0) {
-                kdvOrani = percent;
+                const weight = taxable > 0 ? taxable : amount;
+                if (weight > bestKdvWeight) {
+                  bestKdvWeight = weight;
+                  kdvOrani = percent;
+                }
                 kdvTaxableAmount += taxable;
                 kdvBucketCount++;
                 if (percent === 1) kdv1 += amount;
@@ -638,6 +643,7 @@ export async function getElogoGidenFaturalar(req, res) {
         
         let kdvTutari = 0;
         let kdvOrani = 0;
+        let bestKdvWeight = -1;
         let oivTutari = 0;
         let kdv1 = 0;
         let kdv10 = 0;
@@ -666,7 +672,11 @@ export async function getElogoGidenFaturalar(req, res) {
             if (taxCode === '0015' || taxCode === '15' || !taxCode) {
               kdvTutari += amount;
               if (percent > 0) {
-                kdvOrani = percent;
+                const weight = taxable > 0 ? taxable : amount;
+                if (weight > bestKdvWeight) {
+                  bestKdvWeight = weight;
+                  kdvOrani = percent;
+                }
                 kdvTaxableAmount += taxable;
                 kdvBucketCount++;
                 if (percent === 1) kdv1 += amount;
@@ -1186,6 +1196,7 @@ export async function getUyumsoftGelenFaturalar(req, res) {
         
         let kdvTutari = 0;
         let kdvOrani = 0;
+        let bestKdvWeight = -1;
         let oivTutari = 0;
         let kdv1 = 0;
         let kdv10 = 0;
@@ -1585,6 +1596,253 @@ export async function cronSyncElogo(req, res) {
     res.json({ success: true, message: `Cron tamamlandı. ${totalSynced} fatura aktarıldı.` });
   } catch (error) {
     console.error('Cron genel hatası:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+}
+
+function parseElogoXmlTaxes(xmlText) {
+  const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_', removeNSPrefix: true, parseTagValue: false });
+  const parsed = parser.parse(xmlText);
+  const inv = parsed['Invoice'] || parsed['CreditNote'] || Object.values(parsed)[0] || {};
+  const getText = (node) => {
+    if (node === undefined || node === null) return '';
+    if (typeof node === 'object') return node['#text'] !== undefined ? String(node['#text']) : '';
+    return String(node);
+  };
+
+  const faturaNo = getText(inv['ID']);
+  const totals = inv['LegalMonetaryTotal'] || {};
+  const payableAmount = parseFloat(getText(totals['PayableAmount'])) || 0;
+  let matrah = parseFloat(getText(totals['TaxExclusiveAmount'])) || 0;
+
+  let senderVkn = '';
+  const party = inv['AccountingSupplierParty']?.['Party'] || {};
+  const partyIds = party['PartyIdentification'];
+  const idArr = Array.isArray(partyIds) ? partyIds : (partyIds ? [partyIds] : []);
+  for (const pid of idArr) {
+    const scheme = pid?.['ID']?.['@_schemeID'];
+    if (scheme === 'VKN' || scheme === 'TCKN') {
+      senderVkn = String(getText(pid['ID'])).replace('.0', '').trim();
+      break;
+    }
+  }
+
+  let kdvTutari = 0;
+  let kdvOrani = 0;
+  let bestWeight = -1;
+  let oivTutari = 0;
+  let kdv1 = 0;
+  let kdv10 = 0;
+  let kdv20 = 0;
+  let kdvTaxableAmount = 0;
+  let kdvBucketCount = 0;
+
+  const taxTotal = inv['TaxTotal'];
+  const taxTotalArray = Array.isArray(taxTotal) ? taxTotal : (taxTotal ? [taxTotal] : []);
+  for (const tt of taxTotalArray) {
+    const subtotals = tt['TaxSubtotal'];
+    if (!subtotals) continue;
+    const subArr = Array.isArray(subtotals) ? subtotals : [subtotals];
+    for (const sub of subArr) {
+      const taxCat = sub['TaxCategory'];
+      const taxScheme = taxCat?.['TaxScheme']?.['TaxTypeCode']?.['#text'] || taxCat?.['TaxScheme']?.['TaxTypeCode'];
+      const taxCode = String(getText(taxScheme) || '').trim();
+      const percent = parseFloat(getText(sub['Percent'])) || parseFloat(getText(taxCat?.['Percent'])) || 0;
+      const amount = parseFloat(getText(sub['TaxAmount'])) || 0;
+      const taxable = parseFloat(getText(sub['TaxableAmount'])) || 0;
+
+      if (taxCode === '0015' || taxCode === '15' || !taxCode) {
+        kdvTutari += amount;
+        if (percent > 0) {
+          const weight = taxable > 0 ? taxable : amount;
+          if (weight > bestWeight) {
+            bestWeight = weight;
+            kdvOrani = percent;
+          }
+          kdvTaxableAmount += taxable;
+          kdvBucketCount++;
+          if (percent === 1) kdv1 += amount;
+          else if (percent === 8 || percent === 10) kdv10 += amount;
+          else if (percent === 18 || percent === 20) kdv20 += amount;
+        }
+      } else {
+        oivTutari += amount;
+      }
+    }
+  }
+
+  if (payableAmount > 0 && kdvTutari > 0) {
+    if (kdvBucketCount === 1 && kdvTaxableAmount > 0 && matrah > kdvTaxableAmount + 0.02) {
+      matrah = Math.round(kdvTaxableAmount * 100) / 100;
+    }
+    const fark = Math.round((payableAmount - matrah - kdvTutari - oivTutari) * 100) / 100;
+    if (fark > 0.02) {
+      oivTutari = Math.round((oivTutari + fark) * 100) / 100;
+    }
+  }
+
+  return {
+    faturaNo,
+    senderVkn,
+    matrah: Math.round(matrah * 100) / 100,
+    kdvOrani: kdvOrani || 20,
+    kdvTutari: Math.round(kdvTutari * 100) / 100,
+    kdv1: Math.round(kdv1 * 100) / 100,
+    kdv10: Math.round(kdv10 * 100) / 100,
+    kdv20: Math.round(kdv20 * 100) / 100,
+    oivTutari: Math.round(oivTutari * 100) / 100,
+    payableAmount: Math.round(payableAmount * 100) / 100,
+  };
+}
+
+export async function recheckElogoInvoices(req, res) {
+  try {
+    const { startDate, endDate } = req.body || {};
+    if (!startDate || !endDate) {
+      return res.status(400).json({ success: false, message: 'Başlangıç ve bitiş tarihi gereklidir.' });
+    }
+
+    const settingsRes = await client.execute({
+      sql: 'SELECT setting_key, setting_value FROM company_settings WHERE company_id = ?',
+      args: [req.user.companyId]
+    });
+    const settings = settingsRes.rows.reduce((acc, row) => ({ ...acc, [row.setting_key]: row.setting_value }), {});
+    if (!settings.elogo_username || !settings.elogo_password) {
+      return res.status(400).json({ success: false, message: 'Bu şirket için e-Logo kullanıcı adı/şifre ayarlanmamış.' });
+    }
+
+    const dbRes = await client.execute({
+      sql: 'SELECT id, fatura_no, fatura_tarihi, tedarikci_adi, tedarikci_vkn, toplam_tutar, matrah, kdv_orani, kdv_tutari, kdv1, kdv10, kdv20, oiv_tutari, luca_transferred_at FROM alis_faturalari WHERE company_id = ? AND fatura_tarihi >= ? AND fatura_tarihi <= ?',
+      args: [req.user.companyId, startDate, endDate]
+    });
+
+    const elogo = new ElogoClient(settings.elogo_username, settings.elogo_password, settings.elogo_is_test === 'true');
+    const docListRes = await elogo.getDocumentList(startDate, endDate, 'RECV');
+    if (!docListRes.success) {
+      return res.status(500).json({ success: false, message: docListRes.message || 'e-Logo fatura listesi alınamadı.' });
+    }
+
+    const docs = docListRes.data || [];
+    const diffs = [];
+    let checkedCount = 0;
+
+    for (const dbInv of dbRes.rows) {
+      const dbNo = String(dbInv.fatura_no || '').trim();
+      const dbVkn = String(dbInv.tedarikci_vkn || '').trim();
+      if (!dbNo) continue;
+
+      const matchedDoc = docs.find(d =>
+        String(d.documentId || '').trim() === dbNo ||
+        String(d.uuid || '').trim() === dbNo
+      );
+      if (!matchedDoc) continue;
+
+      try {
+        const docDataRes = await elogo.getDocumentData(matchedDoc.uuid, 'UBL');
+        if (!docDataRes.success || !docDataRes.data?.document?.binaryData?.Value) continue;
+        const buffer = Buffer.from(docDataRes.data.document.binaryData.Value, 'base64');
+        let xmlText = '';
+        if (buffer[0] === 0x50 && buffer[1] === 0x4B) {
+          const zip = new AdmZip(buffer);
+          const xmlEntry = zip.getEntries().find(e => e.entryName.toLowerCase().endsWith('.xml'));
+          if (xmlEntry) xmlText = xmlEntry.getData().toString('utf8');
+        } else {
+          xmlText = buffer.toString('utf8');
+        }
+        if (!xmlText) continue;
+
+        const parsed = parseElogoXmlTaxes(xmlText);
+        if (parsed.senderVkn && dbVkn && parsed.senderVkn !== dbVkn) continue;
+
+        checkedCount++;
+        const oldMatrah = Number(dbInv.matrah) || 0;
+        const oldKdvOrani = Number(dbInv.kdv_orani) || 0;
+        const oldKdvTutari = Number(dbInv.kdv_tutari) || 0;
+        const oldKdv1 = Number(dbInv.kdv1) || 0;
+        const oldKdv10 = Number(dbInv.kdv10) || 0;
+        const oldKdv20 = Number(dbInv.kdv20) || 0;
+        const oldOiv = Number(dbInv.oiv_tutari) || 0;
+
+        const hasDiff =
+          Math.abs(oldMatrah - parsed.matrah) > 0.05 ||
+          oldKdvOrani !== parsed.kdvOrani ||
+          Math.abs(oldKdvTutari - parsed.kdvTutari) > 0.05 ||
+          Math.abs(oldKdv1 - parsed.kdv1) > 0.05 ||
+          Math.abs(oldKdv10 - parsed.kdv10) > 0.05 ||
+          Math.abs(oldKdv20 - parsed.kdv20) > 0.05 ||
+          Math.abs(oldOiv - parsed.oivTutari) > 0.05;
+
+        if (hasDiff) {
+          diffs.push({
+            id: dbInv.id,
+            faturaNo: dbNo,
+            faturaTarihi: dbInv.fatura_tarihi,
+            tedarikciAdi: dbInv.tedarikci_adi,
+            tedarikciVkn: dbVkn,
+            toplamTutar: Number(dbInv.toplam_tutar) || parsed.payableAmount,
+            lucaTransferredAt: dbInv.luca_transferred_at || null,
+            eski: {
+              matrah: oldMatrah,
+              kdvOrani: oldKdvOrani,
+              kdvTutari: oldKdvTutari,
+              kdv1: oldKdv1,
+              kdv10: oldKdv10,
+              kdv20: oldKdv20,
+              oivTutari: oldOiv,
+            },
+            yeni: {
+              matrah: parsed.matrah,
+              kdvOrani: parsed.kdvOrani,
+              kdvTutari: parsed.kdvTutari,
+              kdv1: parsed.kdv1,
+              kdv10: parsed.kdv10,
+              kdv20: parsed.kdv20,
+              oivTutari: parsed.oivTutari,
+            }
+          });
+        }
+      } catch (innerErr) {
+        console.warn('Recheck parse warning:', dbNo, innerErr.message);
+      }
+    }
+
+    res.json({ success: true, checkedCount, diffCount: diffs.length, diffs });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+}
+
+export async function applyRecheckAlisFaturalari(req, res) {
+  try {
+    const { updates } = req.body || {};
+    if (!Array.isArray(updates) || updates.length === 0) {
+      return res.status(400).json({ success: false, message: 'Güncellenecek fatura bulunamadı.' });
+    }
+
+    let updatedCount = 0;
+    for (const u of updates) {
+      if (!u.id) continue;
+      await client.execute({
+        sql: `UPDATE alis_faturalari
+              SET matrah = ?, kdv_orani = ?, kdv_tutari = ?, kdv1 = ?, kdv10 = ?, kdv20 = ?, oiv_tutari = ?
+              WHERE id = ? AND company_id = ?`,
+        args: [
+          Number(u.matrah) || 0,
+          Number(u.kdvOrani) || 0,
+          Number(u.kdvTutari) || 0,
+          Number(u.kdv1) || 0,
+          Number(u.kdv10) || 0,
+          Number(u.kdv20) || 0,
+          Number(u.oivTutari) || 0,
+          u.id,
+          req.user.companyId
+        ]
+      });
+      updatedCount++;
+    }
+
+    res.json({ success: true, updatedCount });
+  } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
 }

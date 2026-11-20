@@ -34,5 +34,7 @@ router.post('/api/gib/dijital/login', gibCtrl.gibDijitalLogin);
 router.post('/api/gib/dijital/tebligatlar', gibCtrl.gibDijitalTebligatlar);
 router.post('/api/gib/dijital/tebligat-belgeleri', gibCtrl.gibDijitalTebligatBelgeleri);
 router.post('/api/gib/dijital/tebligat-indir', gibCtrl.gibDijitalTebligatIndir);
+router.post('/api/alis-faturalari/recheck-elogo', authMiddleware, elogoCtrl.recheckElogoInvoices);
+router.post('/api/alis-faturalari/apply-recheck', authMiddleware, elogoCtrl.applyRecheckAlisFaturalari);
 
 export default router;

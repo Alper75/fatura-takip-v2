@@ -63,6 +63,7 @@ import type { FilterValues } from '@/components/FilterBar';
 import { useUrunler } from '../modules/stok/hooks/useStokQuery';
 import { AlisTopluXMLUpload } from './AlisTopluXMLUpload';
 import { ParcaliOdemeModal } from '@/components/ParcaliOdemeModal';
+import { AlisFaturaRecheckModal } from './alis-fatura/AlisFaturaRecheckModal';
 
 export function AlisFaturaListesi() {
   const { 
@@ -91,6 +92,7 @@ export function AlisFaturaListesi() {
   const [odemeDurumu, setOdemeDurumu] = useState<'odenmedi' | 'odendi' | 'bekliyor'>('odendi');
   const [bankaId, setBankaId] = useState<string>('');
   const [isTopluXmlOpen, setIsTopluXmlOpen] = useState(false);
+  const [isRecheckOpen, setIsRecheckOpen] = useState(false);
   const [filterValues, setFilterValues] = useState<FilterValues>({
     search: '',
     startDate: '',
@@ -351,6 +353,15 @@ export function AlisFaturaListesi() {
               >
                 <FilePlus className="w-4 h-4" />
                 <span className="hidden sm:inline">Toplu XML</span>
+              </Button>
+
+              <Button 
+                variant="outline" 
+                onClick={() => setIsRecheckOpen(true)} 
+                className="gap-2 text-amber-700 bg-amber-50/60 border-amber-200 hover:bg-amber-100 hover:text-amber-800 shadow-sm font-medium"
+              >
+                <RefreshCw className="w-4 h-4" />
+                <span className="hidden sm:inline">KDV &amp; Tutar Kontrolü</span>
               </Button>
 
               <Button 
@@ -760,6 +771,14 @@ export function AlisFaturaListesi() {
         onSuccess={() => {
           if (fetchAlisFaturalari) fetchAlisFaturalari();
           if (fetchCariHareketler) fetchCariHareketler();
+        }}
+      />
+
+      <AlisFaturaRecheckModal
+        isOpen={isRecheckOpen}
+        onClose={() => setIsRecheckOpen(false)}
+        onUpdated={() => {
+          if (fetchAlisFaturalari) fetchAlisFaturalari();
         }}
       />
     </div>
