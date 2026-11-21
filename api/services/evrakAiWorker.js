@@ -76,15 +76,15 @@ async function callAiForFile(settings, base64Data, mimeType) {
 
   if (provider === 'evren') {
     if (!eKey) throw new Error('Evren API Key eksik.');
-    const res = await evrenClient.analyzeInvoice({
+    const res = await evrenClient.analyzeDocument({
+      imageBase64: base64Data,
+      mimeType: mimeType || 'image/jpeg',
       apiKey: eKey,
-      model: eModel,
+      model: eModel || 'dots-ocr',
       prompt: AI_INVOICE_PROMPT,
-      fileBase64: base64Data,
-      mimeType,
     });
-    if (!res?.success) throw new Error(res?.message || 'Evren AI hatası');
-    rawText = typeof res.data === 'string' ? res.data : JSON.stringify(res.data);
+    if (!res) throw new Error('Evren AI yanıt döndüremedi.');
+    rawText = typeof res === 'string' ? res : JSON.stringify(res);
   } else if (provider === 'gemini') {
     if (!gKey) throw new Error('Gemini API Key eksik.');
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${gModel}:generateContent?key=${gKey}`;
