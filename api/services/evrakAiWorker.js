@@ -143,9 +143,85 @@ async function callAiForFile(settings, base64Data, mimeType) {
   }
 
   const cleaned = String(rawText).replace(/```json|```/gi, '').trim();
-  const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+  const jsonMatch = cleaned.match(/[\[{][\s\S]*[\]}]/);
   if (!jsonMatch) throw new Error('AI geçerli JSON döndüremedi.');
-  return JSON.parse(jsonMatch[0]);
+  return normalizeAiPayload(JSON.parse(jsonMatch[0]));
+}
+
+function toNum(v) {
+  if (typeof v === 'number') return Number.isFinite(v) ? v : 0;
+  if (v === undefined || v === null || v === '') return 0;
+  const s = String(v).replace(/\s/g, '').replace(',', '.');
+  const n = parseFloat(s);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function normalizeAiPayload(raw) {
+  let list = [];
+  if (Array.isArray(raw)) list = raw;
+  else if (Array.isArray(raw?.faturalar)) list = raw.faturalar;
+  else if (raw && typeof raw === 'object') list = [raw];
+
+  if (list.length === 0) return {};
+
+  const first = list[0];
+  let kdv1 = 0;
+  let kdv10 = 0;
+  let kdv20 = 0;
+  let kdvTutari = 0;
+  let toplamTutar = 0;
+  let matrah = 0;
+  let oivTutari = 0;
+  let bestOran = toNum(first.kdvOrani ?? first.kdv_orani) || 20;
+
+  if (list.length === 1) {
+    kdv1 = toNum(first.kdv1);
+    kdv10 = toNum(first.kdv10);
+    kdv20 = toNum(first.kdv20);
+    kdvTutari = toNum(first.kdvTutari ?? first.toplam_kdv ?? first.kdv) || (kdv1 + kdv10 + kdv20);
+    oivTutari = toNum(first.oivTutari ?? first.oiv_tutari);
+    toplamTutar = toNum(first.toplamTutar ?? first.genel_toplam ?? first.tutar);
+    matrah = toNum(first.matrah);
+  } else {
+    let maxKdvAmt = -1;
+    for (const item of list) {
+      const oran = toNum(item.kdvOrani ?? item.kdv_orani) || 20;
+      const t = toNum(item.toplamTutar ?? item.genel_toplam ?? item.tutar);
+      const k = toNum(item.kdvTutari ?? item.toplam_kdv ?? item.kdv);
+      const o = toNum(item.oivTutari ?? item.oiv_tutari);
+      const m = toNum(item.matrah) || (t > 0 ? Math.max(0, t - k - o) : 0);
+
+      toplamTutar += t;
+      kdvTutari += k;
+      matrah += m;
+      oivTutari += o;
+      if (oran === 1) kdv1 += k;
+      else if (oran === 8 || oran === 10) kdv10 += k;
+      else if (oran === 18 || oran === 20) kdv20 += k;
+
+      if (k > maxKdvAmt) {
+        maxKdvAmt = k;
+        bestOran = oran;
+      }
+    }
+  }
+
+  return {
+    faturaNo: first.faturaNo || first.fatura_no || '',
+    faturaTarihi: first.faturaTarihi || first.fatura_tarihi || '',
+    cariAdi: first.cariAdi || first.tedarikciAdi || first.unvan || '',
+    cariVkn: first.cariVkn || first.tedarikciVkn || first.vkn || '',
+    malHizmet: first.malHizmet || first.malHizmetAdi || first.aciklama || '',
+    matrah: Math.round(matrah * 100) / 100,
+    kdvOrani: bestOran,
+    kdvTutari: Math.round(kdvTutari * 100) / 100,
+    kdv1: Math.round(kdv1 * 100) / 100,
+    kdv10: Math.round(kdv10 * 100) / 100,
+    kdv20: Math.round(kdv20 * 100) / 100,
+    oivTutari: Math.round(oivTutari * 100) / 100,
+    toplamTutar: Math.round(toplamTutar * 100) / 100,
+    odemeSekli: first.odemeSekli || first.odeme_sekli || 'CARI_HESAP',
+  };
 }
 
 function buildDefaultMahsupSatirlari(yon, data, muhasebeKodu, karsiKod) {

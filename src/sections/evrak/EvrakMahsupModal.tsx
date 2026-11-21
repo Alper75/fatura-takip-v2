@@ -217,7 +217,7 @@ export function EvrakMahsupModal({
 
   return (
     <Dialog open={!!evrak} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-[95vw] w-[1400px] h-[90vh] flex flex-col p-0 overflow-hidden">
+      <DialogContent className="sm:max-w-[95vw] w-[95vw] max-w-[1400px] h-[92vh] flex flex-col p-0 overflow-hidden">
         <DialogHeader className="px-5 py-3 border-b bg-slate-50 flex-row items-center justify-between space-y-0">
           <div>
             <DialogTitle className="flex items-center gap-2 text-base">

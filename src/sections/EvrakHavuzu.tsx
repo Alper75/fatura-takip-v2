@@ -523,8 +523,8 @@ export function EvrakHavuzu() {
                     <td className="p-2.5 text-center">{renderDurumBadge(item)}</td>
                     <td className="p-2.5 text-right" onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center justify-end gap-1">
-                        {item.durum === 'hata' && (
-                          <Button type="button" size="icon" variant="ghost" className="h-7 w-7 text-indigo-600" onClick={(e) => handleReanalyze(item.id, e)} title="Tekrar Tara">
+                        {item.durum !== 'aktarildi' && item.durum !== 'isleniyor' && (
+                          <Button type="button" size="icon" variant="ghost" className="h-7 w-7 text-indigo-600" onClick={(e) => handleReanalyze(item.id, e)} title="Tekrar AI ile Tara">
                             <RefreshCw className="w-3.5 h-3.5" />
                           </Button>
                         )}
