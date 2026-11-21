@@ -172,10 +172,22 @@ export function MuhasebeFisInceleme() {
       (fatura.aciklama || '').includes('%70 Gider')
     ));
 
-    const giderKodu = giderKoduParam || fatura.muhasebeKodu || (isVehicleExpense ? '770.02.001' : '770.01.001');
+    const resolveCompanyLeaf = (prefixes: string[], emptyPlanFallback: string) => {
+      if (!lucaAccounts || lucaAccounts.length === 0) return emptyPlanFallback;
+      const codes = lucaAccounts.map(a => String(a.kod || '').trim());
+      const leaf = lucaAccounts.find(a => {
+        const k = String(a.kod || '').trim();
+        const matchesPrefix = prefixes.some(p => k.startsWith(p));
+        if (!matchesPrefix) return false;
+        return !codes.some(other => other !== k && (other.startsWith(k + '.') || other.startsWith(k + ' ') || other.startsWith(k + '-')));
+      });
+      return leaf ? leaf.kod : '';
+    };
+
+    const giderKodu = giderKoduParam || fatura.muhasebeKodu || resolveCompanyLeaf(['770'], isVehicleExpense ? '770.02.001' : '770.01.001');
     const kdvKodu = kdvKoduParam || fatura.kdvHesapKodu || getKdvAccountCode(kdvOrani);
-    const karsiKodu = karsiKoduParam || fatura.karsiHesapKodu || (fatura.cariId ? '320.01' : '100.01');
-    const kkegKodu = kdvSettings?.aracGiderKkegKodu || '689.01.001';
+    const karsiKodu = karsiKoduParam || fatura.karsiHesapKodu || resolveCompanyLeaf([fatura.cariId ? '320' : '100'], fatura.cariId ? '320.01' : '100.01');
+    const kkegKodu = kdvSettings?.aracGiderKkegKodu || resolveCompanyLeaf(['689'], '689.01.001');
 
     const rows: MahsupSatir[] = [];
     let mNo = 1;
@@ -344,8 +356,17 @@ export function MuhasebeFisInceleme() {
       return;
     }
 
+    const resolveLeaf = (prefixes: string[], fallback: string) => {
+      if (!lucaAccounts || lucaAccounts.length === 0) return fallback;
+      const codes = lucaAccounts.map(a => String(a.kod || '').trim());
+      const leaf = lucaAccounts.find(a => {
+        const k = String(a.kod || '').trim();
+        return prefixes.some(p => k.startsWith(p)) && !codes.some(o => o !== k && o.startsWith(k + '.'));
+      });
+      return leaf ? leaf.kod : '';
+    };
     setEditMuhasebeKodu(currentFatura.muhasebeKodu || '');
-    setEditKarsiHesapKodu(currentFatura.karsiHesapKodu || (currentFatura.cariId ? '320.01' : '100.01'));
+    setEditKarsiHesapKodu(currentFatura.karsiHesapKodu || resolveLeaf([currentFatura.cariId ? '320' : '100'], currentFatura.cariId ? '320.01' : '100.01'));
     setEditAciklama(currentFatura.aciklama || `${currentFatura.tedarikciAdi} - ${currentFatura.faturaNo}`);
 
     // KDV Kodunu belirle (Öncelik: faturada kayıtlı -> satırlardaki -> Fatura KDV ve Muhasebe Bağlantıları)

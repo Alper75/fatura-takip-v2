@@ -280,16 +280,21 @@ function buildDefaultMahsupSatirlari(yon, data, muhasebeKodu, karsiKod, lucaKdv 
   const toplam = Number(data.toplamTutar) || (matrah + kdvTutari + oiv);
   const aciklama = `${data.faturaNo || ''} ${data.cariAdi || ''}`.trim();
 
-  const accName = (kod, fallback) => accountMap.get(String(kod || '').trim()) || fallback;
+  const accName = (kod, fallback) => {
+    const clean = String(kod || '').trim();
+    if (!clean) return fallback;
+    return accountMap.get(clean) || fallback;
+  };
   const alisKdvKod = (oran) => lucaKdv?.alis?.[String(oran)] || (oran === 1 ? '191.01' : oran === 10 ? '191.10' : '191.20');
   const satisKdvKod = (oran) => lucaKdv?.satis?.[String(oran)] || (oran === 1 ? '391.01' : oran === 10 ? '391.10' : '391.20');
+  const hasPlan = accountMap.size > 0;
 
   const rows = [];
   let madde = 1;
 
   if (yon === 'ALIS') {
     if (matrah > 0) {
-      const mKod = muhasebeKodu || lucaKdv?.alis_matrah?.[String(data.kdvOrani || 20)] || lucaKdv?.varsayilanAlisKodu || '770.01';
+      const mKod = muhasebeKodu || lucaKdv?.alis_matrah?.[String(data.kdvOrani || 20)] || lucaKdv?.varsayilanAlisKodu || (hasPlan ? '' : '770.01');
       rows.push({ id: `m_${madde}`, maddeNo: madde++, kod: mKod, ad: accName(mKod, 'Mal / Hizmet Gideri'), borc: matrah, alacak: 0, aciklama });
     }
     if (kdv1 > 0) {
@@ -311,20 +316,26 @@ function buildDefaultMahsupSatirlari(yon, data, muhasebeKodu, karsiKod, lucaKdv 
       rows.push({ id: `m_${madde}`, maddeNo: madde++, kod: kKod, ad: accName(kKod, `İndirilecek KDV %${normOran}`), borc: kdvTutari, alacak: 0, aciklama });
     }
     if (oiv > 0) {
-      const oivKod = lucaKdv?.oivKodu || '689.01';
+      let oivKod = lucaKdv?.oivKodu || '';
+      if (!oivKod) {
+        for (const [k] of accountMap) {
+          if (k.startsWith('689')) { oivKod = k; break; }
+        }
+      }
+      if (!oivKod && !hasPlan) oivKod = '689.01';
       rows.push({ id: `m_${madde}`, maddeNo: madde++, kod: oivKod, ad: accName(oivKod, 'ÖİV / Konaklama KKEG'), borc: oiv, alacak: 0, aciklama });
     }
     if (toplam > 0) {
-      const cKod = karsiKod || (data.odemeSekli === 'NAKIT' ? '100.01' : '320.01');
+      const cKod = karsiKod || (hasPlan ? '' : (data.odemeSekli === 'NAKIT' ? '100.01' : '320.01'));
       rows.push({ id: `m_${madde}`, maddeNo: madde++, kod: cKod, ad: accName(cKod, 'Satıcılar / Kasa'), borc: 0, alacak: toplam, aciklama });
     }
   } else {
     if (toplam > 0) {
-      const cKod = karsiKod || (data.odemeSekli === 'NAKIT' ? '100.01' : '120.01');
+      const cKod = karsiKod || (hasPlan ? '' : (data.odemeSekli === 'NAKIT' ? '100.01' : '120.01'));
       rows.push({ id: `m_${madde}`, maddeNo: madde++, kod: cKod, ad: accName(cKod, 'Alıcılar / Kasa'), borc: toplam, alacak: 0, aciklama });
     }
     if (matrah > 0) {
-      const mKod = muhasebeKodu || lucaKdv?.satis_matrah?.[String(data.kdvOrani || 20)] || lucaKdv?.varsayilanSatisKodu || '600.01';
+      const mKod = muhasebeKodu || lucaKdv?.satis_matrah?.[String(data.kdvOrani || 20)] || lucaKdv?.varsayilanSatisKodu || (hasPlan ? '' : '600.01');
       rows.push({ id: `m_${madde}`, maddeNo: madde++, kod: mKod, ad: accName(mKod, 'Yurt İçi Satışlar'), borc: 0, alacak: matrah, aciklama });
     }
     if (kdvTutari > 0) {
@@ -409,6 +420,12 @@ export async function processNextEvrakQueue() {
           if (pastRs.rows?.[0]?.muhasebe_kodu) guessedCode = pastRs.rows[0].muhasebe_kodu;
         }
 
+        // Eğer firmanın Luca hesap planı yüklüyse, seçilen kodun gerçekten bu planın yaprak hesabında olduğundan emin ol
+        const hasPlan = allLucaAccounts.length > 0;
+        if (guessedCode && hasPlan && !accountMap.has(String(guessedCode).trim())) {
+          guessedCode = '';
+        }
+
         // 3. AI'ın döndürdüğü yaprak hesap kodu veya Luca Hesap Planı'ndan kelime bazlı alt hesap bulma
         if (!guessedCode && aiData.muhasebeKodu && leafLucaAccounts.some((a) => a.kod === aiData.muhasebeKodu)) {
           guessedCode = aiData.muhasebeKodu;
@@ -419,20 +436,28 @@ export async function processNextEvrakQueue() {
         }
         if (!guessedCode) {
           const kdvStr = String(kdvOrani === 8 ? 10 : kdvOrani === 18 ? 20 : kdvOrani);
-          guessedCode = row.yon === 'ALIS'
-            ? (lucaKdv?.alis_matrah?.[kdvStr] || lucaKdv?.varsayilanAlisKodu || leafLucaAccounts.find((a) => String(a.kod).startsWith('770'))?.kod || '770.01')
-            : (lucaKdv?.satis_matrah?.[kdvStr] || lucaKdv?.varsayilanSatisKodu || leafLucaAccounts.find((a) => String(a.kod).startsWith('600'))?.kod || '600.01');
+          const candidateKdvMatrah = row.yon === 'ALIS'
+            ? (lucaKdv?.alis_matrah?.[kdvStr] || lucaKdv?.varsayilanAlisKodu || '')
+            : (lucaKdv?.satis_matrah?.[kdvStr] || lucaKdv?.varsayilanSatisKodu || '');
+          if (candidateKdvMatrah && (!hasPlan || accountMap.has(String(candidateKdvMatrah).trim()))) {
+            guessedCode = candidateKdvMatrah;
+          } else if (hasPlan) {
+            const pfx = row.yon === 'ALIS' ? '770' : '600';
+            guessedCode = leafLucaAccounts.find((a) => String(a.kod).startsWith(pfx))?.kod || '';
+          } else {
+            guessedCode = row.yon === 'ALIS' ? '770.01' : '600.01';
+          }
         }
 
-        // Karşı hesap (320 / 120 / 100 alt hesabı)
+        // Karşı hesap (yalnızca firmanın hesap planında varsa ata; yoksa boş bırak ki olmayan kasa/cari kodu uydurulmasın)
         let karsiKod = '';
         if (aiData.odemeSekli === 'NAKIT') {
-          karsiKod = leafLucaAccounts.find((a) => String(a.kod).startsWith('100'))?.kod || '100.01';
+          karsiKod = leafLucaAccounts.find((a) => String(a.kod).startsWith('100'))?.kod || (hasPlan ? '' : '100.01');
         } else {
           const cPrefixes = row.yon === 'ALIS' ? ['320'] : ['120'];
           karsiKod = findBestAccountByKeywords(leafLucaAccounts, cPrefixes, aiData.cariAdi)
             || leafLucaAccounts.find((a) => String(a.kod).startsWith(cPrefixes[0]))?.kod
-            || (row.yon === 'ALIS' ? '320.01' : '120.01');
+            || (hasPlan ? '' : (row.yon === 'ALIS' ? '320.01' : '120.01'));
         }
 
         const mahsupSatirlari = buildDefaultMahsupSatirlari(
