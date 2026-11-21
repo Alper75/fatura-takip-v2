@@ -1717,12 +1717,15 @@ export async function recheckElogoInvoices(req, res) {
     });
 
     const elogo = new ElogoClient(settings.elogo_username, settings.elogo_password, settings.elogo_is_test === 'true');
-    const docListRes = await elogo.getDocumentList(startDate, endDate, 'RECV');
+    const beginIso = startDate.includes('T') ? startDate : `${startDate}T00:00:00`;
+    const endIso = endDate.includes('T') ? endDate : `${endDate}T23:59:59`;
+    const docListRes = await elogo.getDocumentList('EINVOICE', beginIso, endIso, 2, 1);
     if (!docListRes.success) {
       return res.status(500).json({ success: false, message: docListRes.message || 'e-Logo fatura listesi alınamadı.' });
     }
 
-    const docs = docListRes.data || [];
+    const docListRaw = docListRes.data?.docList?.Document || docListRes.data?.docList?.document || docListRes.data?.GetDocumentListResult?.document || [];
+    const docs = Array.isArray(docListRaw) ? docListRaw : (docListRaw ? [docListRaw] : []);
     const diffs = [];
     let checkedCount = 0;
 
@@ -1733,18 +1736,22 @@ export async function recheckElogoInvoices(req, res) {
 
       const matchedDoc = docs.find(d =>
         String(d.documentId || '').trim() === dbNo ||
-        String(d.uuid || '').trim() === dbNo
+        String(d.documentUuid || d.uuid || '').trim() === dbNo
       );
       if (!matchedDoc) continue;
 
+      const docUuid = matchedDoc.documentUuid || matchedDoc.uuid;
+      if (!docUuid) continue;
+
       try {
-        const docDataRes = await elogo.getDocumentData(matchedDoc.uuid, 'UBL');
+        const docDataRes = await elogo.getDocumentData(docUuid);
         if (!docDataRes.success || !docDataRes.data?.document?.binaryData?.Value) continue;
         const buffer = Buffer.from(docDataRes.data.document.binaryData.Value, 'base64');
         let xmlText = '';
         if (buffer[0] === 0x50 && buffer[1] === 0x4B) {
           const zip = new AdmZip(buffer);
-          const xmlEntry = zip.getEntries().find(e => e.entryName.toLowerCase().endsWith('.xml'));
+          const zipEntries = zip.getEntries();
+          const xmlEntry = zipEntries.find(e => e.entryName.toLowerCase().endsWith('.xml')) || zipEntries[0];
           if (xmlEntry) xmlText = xmlEntry.getData().toString('utf8');
         } else {
           xmlText = buffer.toString('utf8');
