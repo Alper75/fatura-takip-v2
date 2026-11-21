@@ -47,7 +47,7 @@ async function getCompanySettingsMap(companyId) {
   return map;
 }
 
-async function callAiForFile(settings, base64Data, mimeType) {
+async function callAiForFile(settings, base64Data, mimeType, lucaLeafAccounts = []) {
   let provider = settings.ai_provider || '';
   const gKey = settings.gemini_api_key || '';
   const gModel = settings.gemini_model || 'gemini-2.5-flash';
@@ -72,6 +72,16 @@ async function callAiForFile(settings, base64Data, mimeType) {
     throw new Error('Bu firma için AI sağlayıcı veya API anahtarı tanımlanmamış.');
   }
 
+  const lucaHint = lucaLeafAccounts.length > 0
+    ? `\n\nŞirketin Luca Alt Hesap Planı (uygunsa "muhasebeKodu" alanına bu listeden en spesifik ALT hesabı yaz):\n` +
+      lucaLeafAccounts
+        .filter((a) => /^(15|73|74|76|77|78|25|60)/.test(String(a.kod || '').trim()))
+        .slice(0, 100)
+        .map((a) => `${a.kod}: ${a.ad}`)
+        .join('\n')
+    : '';
+  const fullPrompt = AI_INVOICE_PROMPT + lucaHint;
+
   let rawText = '';
 
   if (provider === 'evren') {
@@ -81,7 +91,7 @@ async function callAiForFile(settings, base64Data, mimeType) {
       mimeType: mimeType || 'image/jpeg',
       apiKey: eKey,
       model: eModel || 'dots-ocr',
-      prompt: AI_INVOICE_PROMPT,
+      prompt: fullPrompt,
     });
     if (!res) throw new Error('Evren AI yanıt döndüremedi.');
     rawText = typeof res === 'string' ? res : JSON.stringify(res);
@@ -91,7 +101,7 @@ async function callAiForFile(settings, base64Data, mimeType) {
     const r = await axios.post(url, {
       contents: [{
         parts: [
-          { text: AI_INVOICE_PROMPT },
+          { text: fullPrompt },
           { inlineData: { mimeType, data: base64Data } }
         ]
       }],
@@ -106,7 +116,7 @@ async function callAiForFile(settings, base64Data, mimeType) {
       messages: [{
         role: 'user',
         content: [
-          { type: 'text', text: AI_INVOICE_PROMPT },
+          { type: 'text', text: fullPrompt },
           { type: 'image_url', image_url: { url: `data:${mimeType};base64,${base64Data}` } }
         ]
       }]
@@ -120,7 +130,7 @@ async function callAiForFile(settings, base64Data, mimeType) {
       messages: [{
         role: 'user',
         content: [
-          { type: 'text', text: AI_INVOICE_PROMPT },
+          { type: 'text', text: fullPrompt },
           { type: 'image_url', image_url: { url: `data:${mimeType};base64,${base64Data}` } }
         ]
       }]
@@ -134,7 +144,7 @@ async function callAiForFile(settings, base64Data, mimeType) {
       messages: [{
         role: 'user',
         content: [
-          { type: 'text', text: AI_INVOICE_PROMPT },
+          { type: 'text', text: fullPrompt },
           { type: 'image_url', image_url: { url: `data:${mimeType};base64,${base64Data}` } }
         ]
       }]
@@ -212,6 +222,7 @@ function normalizeAiPayload(raw) {
     cariAdi: first.cariAdi || first.tedarikciAdi || first.unvan || '',
     cariVkn: first.cariVkn || first.tedarikciVkn || first.vkn || '',
     malHizmet: first.malHizmet || first.malHizmetAdi || first.aciklama || '',
+    muhasebeKodu: first.muhasebeKodu || first.muhasebe_kodu || '',
     matrah: Math.round(matrah * 100) / 100,
     kdvOrani: bestOran,
     kdvTutari: Math.round(kdvTutari * 100) / 100,
@@ -224,7 +235,42 @@ function normalizeAiPayload(raw) {
   };
 }
 
-function buildDefaultMahsupSatirlari(yon, data, muhasebeKodu, karsiKod) {
+function getLeafAccounts(allAccounts) {
+  const codes = allAccounts.map((a) => String(a.kod || '').trim()).filter(Boolean);
+  return allAccounts.filter((a) => {
+    const k = String(a.kod || '').trim();
+    if (!k) return false;
+    // Alt hesabı olan üst hesapları ele (ör. 770 veya 770.01'in altında 770.01.001 varsa 770.01 üst hesaptır)
+    return !codes.some((other) => other !== k && (other.startsWith(k + '.') || other.startsWith(k + ' ') || other.startsWith(k + '-')));
+  });
+}
+
+function findBestAccountByKeywords(leafAccounts, prefixes, text) {
+  const cleanText = String(text || '').toLowerCase();
+  const candidates = leafAccounts.filter((a) => prefixes.some((p) => String(a.kod || '').startsWith(p)));
+  if (candidates.length === 0) return null;
+
+  if (cleanText) {
+    const tokens = cleanText.split(/[\s,.\-_/()]+/).filter((t) => t.length >= 3);
+    let bestAcc = null;
+    let bestScore = 0;
+    for (const acc of candidates) {
+      const adLower = String(acc.ad || '').toLowerCase();
+      let score = 0;
+      for (const tok of tokens) {
+        if (adLower.includes(tok)) score += tok.length;
+      }
+      if (score > bestScore) {
+        bestScore = score;
+        bestAcc = acc;
+      }
+    }
+    if (bestAcc && bestScore >= 3) return bestAcc.kod;
+  }
+  return null;
+}
+
+function buildDefaultMahsupSatirlari(yon, data, muhasebeKodu, karsiKod, lucaKdv = {}, accountMap = new Map()) {
   const matrah = Number(data.matrah) || 0;
   const kdv1 = Number(data.kdv1) || 0;
   const kdv10 = Number(data.kdv10) || 0;
@@ -234,36 +280,58 @@ function buildDefaultMahsupSatirlari(yon, data, muhasebeKodu, karsiKod) {
   const toplam = Number(data.toplamTutar) || (matrah + kdvTutari + oiv);
   const aciklama = `${data.faturaNo || ''} ${data.cariAdi || ''}`.trim();
 
+  const accName = (kod, fallback) => accountMap.get(String(kod || '').trim()) || fallback;
+  const alisKdvKod = (oran) => lucaKdv?.alis?.[String(oran)] || (oran === 1 ? '191.01' : oran === 10 ? '191.10' : '191.20');
+  const satisKdvKod = (oran) => lucaKdv?.satis?.[String(oran)] || (oran === 1 ? '391.01' : oran === 10 ? '391.10' : '391.20');
+
   const rows = [];
   let madde = 1;
 
   if (yon === 'ALIS') {
     if (matrah > 0) {
-      rows.push({ id: `m_${madde}`, maddeNo: madde++, kod: muhasebeKodu || '770.01', ad: 'Mal / Hizmet Gideri', borc: matrah, alacak: 0, aciklama });
+      const mKod = muhasebeKodu || lucaKdv?.alis_matrah?.[String(data.kdvOrani || 20)] || lucaKdv?.varsayilanAlisKodu || '770.01';
+      rows.push({ id: `m_${madde}`, maddeNo: madde++, kod: mKod, ad: accName(mKod, 'Mal / Hizmet Gideri'), borc: matrah, alacak: 0, aciklama });
     }
-    if (kdv1 > 0) rows.push({ id: `m_${madde}`, maddeNo: madde++, kod: '191.01', ad: 'İndirilecek KDV %1', borc: kdv1, alacak: 0, aciklama });
-    if (kdv10 > 0) rows.push({ id: `m_${madde}`, maddeNo: madde++, kod: '191.10', ad: 'İndirilecek KDV %10', borc: kdv10, alacak: 0, aciklama });
-    if (kdv20 > 0) rows.push({ id: `m_${madde}`, maddeNo: madde++, kod: '191.20', ad: 'İndirilecek KDV %20', borc: kdv20, alacak: 0, aciklama });
+    if (kdv1 > 0) {
+      const k1 = alisKdvKod(1);
+      rows.push({ id: `m_${madde}`, maddeNo: madde++, kod: k1, ad: accName(k1, 'İndirilecek KDV %1'), borc: kdv1, alacak: 0, aciklama });
+    }
+    if (kdv10 > 0) {
+      const k10 = alisKdvKod(10);
+      rows.push({ id: `m_${madde}`, maddeNo: madde++, kod: k10, ad: accName(k10, 'İndirilecek KDV %10'), borc: kdv10, alacak: 0, aciklama });
+    }
+    if (kdv20 > 0) {
+      const k20 = alisKdvKod(20);
+      rows.push({ id: `m_${madde}`, maddeNo: madde++, kod: k20, ad: accName(k20, 'İndirilecek KDV %20'), borc: kdv20, alacak: 0, aciklama });
+    }
     if (kdv1 === 0 && kdv10 === 0 && kdv20 === 0 && kdvTutari > 0) {
-      const kdvKod = data.kdvOrani === 1 ? '191.01' : data.kdvOrani === 10 ? '191.10' : '191.20';
-      rows.push({ id: `m_${madde}`, maddeNo: madde++, kod: kdvKod, ad: `İndirilecek KDV %${data.kdvOrani || 20}`, borc: kdvTutari, alacak: 0, aciklama });
+      const oranNum = Number(data.kdvOrani) || 20;
+      const normOran = oranNum === 8 ? 10 : oranNum === 18 ? 20 : oranNum;
+      const kKod = alisKdvKod(normOran);
+      rows.push({ id: `m_${madde}`, maddeNo: madde++, kod: kKod, ad: accName(kKod, `İndirilecek KDV %${normOran}`), borc: kdvTutari, alacak: 0, aciklama });
     }
     if (oiv > 0) {
-      rows.push({ id: `m_${madde}`, maddeNo: madde++, kod: '689.01', ad: 'ÖİV / Konaklama KKEG', borc: oiv, alacak: 0, aciklama });
+      const oivKod = lucaKdv?.oivKodu || '689.01';
+      rows.push({ id: `m_${madde}`, maddeNo: madde++, kod: oivKod, ad: accName(oivKod, 'ÖİV / Konaklama KKEG'), borc: oiv, alacak: 0, aciklama });
     }
     if (toplam > 0) {
-      rows.push({ id: `m_${madde}`, maddeNo: madde++, kod: karsiKod || (data.odemeSekli === 'NAKIT' ? '100.01' : '320.01'), ad: 'Satıcılar / Kasa', borc: 0, alacak: toplam, aciklama });
+      const cKod = karsiKod || (data.odemeSekli === 'NAKIT' ? '100.01' : '320.01');
+      rows.push({ id: `m_${madde}`, maddeNo: madde++, kod: cKod, ad: accName(cKod, 'Satıcılar / Kasa'), borc: 0, alacak: toplam, aciklama });
     }
   } else {
     if (toplam > 0) {
-      rows.push({ id: `m_${madde}`, maddeNo: madde++, kod: karsiKod || (data.odemeSekli === 'NAKIT' ? '100.01' : '120.01'), ad: 'Alıcılar / Kasa', borc: toplam, alacak: 0, aciklama });
+      const cKod = karsiKod || (data.odemeSekli === 'NAKIT' ? '100.01' : '120.01');
+      rows.push({ id: `m_${madde}`, maddeNo: madde++, kod: cKod, ad: accName(cKod, 'Alıcılar / Kasa'), borc: toplam, alacak: 0, aciklama });
     }
     if (matrah > 0) {
-      rows.push({ id: `m_${madde}`, maddeNo: madde++, kod: muhasebeKodu || '600.01', ad: 'Yurt İçi Satışlar', borc: 0, alacak: matrah, aciklama });
+      const mKod = muhasebeKodu || lucaKdv?.satis_matrah?.[String(data.kdvOrani || 20)] || lucaKdv?.varsayilanSatisKodu || '600.01';
+      rows.push({ id: `m_${madde}`, maddeNo: madde++, kod: mKod, ad: accName(mKod, 'Yurt İçi Satışlar'), borc: 0, alacak: matrah, aciklama });
     }
     if (kdvTutari > 0) {
-      const kdvKod = data.kdvOrani === 1 ? '391.01' : data.kdvOrani === 10 ? '391.10' : '391.20';
-      rows.push({ id: `m_${madde}`, maddeNo: madde++, kod: kdvKod, ad: `Hesaplanan KDV %${data.kdvOrani || 20}`, borc: 0, alacak: kdvTutari, aciklama });
+      const oranNum = Number(data.kdvOrani) || 20;
+      const normOran = oranNum === 8 ? 10 : oranNum === 18 ? 20 : oranNum;
+      const kKod = satisKdvKod(normOran);
+      rows.push({ id: `m_${madde}`, maddeNo: madde++, kod: kKod, ad: accName(kKod, `Hesaplanan KDV %${normOran}`), borc: 0, alacak: kdvTutari, aciklama });
     }
   }
   return rows;
@@ -295,7 +363,20 @@ export async function processNextEvrakQueue() {
         const base64Data = fileBuffer.toString('base64');
         const settings = await getCompanySettingsMap(row.company_id);
 
-        const aiData = await callAiForFile(settings, base64Data, row.mime_type || 'image/jpeg');
+        let lucaKdv = {};
+        if (settings.luca_kdv_ayarlari) {
+          try { lucaKdv = JSON.parse(settings.luca_kdv_ayarlari); } catch {}
+        }
+
+        const lucaRs = await client.execute({
+          sql: 'SELECT kod, ad FROM luca_hesap_plani WHERE company_id = ? ORDER BY kod ASC',
+          args: [row.company_id]
+        });
+        const allLucaAccounts = lucaRs.rows || [];
+        const leafLucaAccounts = getLeafAccounts(allLucaAccounts);
+        const accountMap = new Map(allLucaAccounts.map((a) => [String(a.kod || '').trim(), String(a.ad || '').trim()]));
+
+        const aiData = await callAiForFile(settings, base64Data, row.mime_type || 'image/jpeg', leafLucaAccounts);
 
         const toplamTutar = Number(aiData.toplamTutar) || 0;
         const kdvTutari = Number(aiData.kdvTutari) || (Number(aiData.kdv1 || 0) + Number(aiData.kdv10 || 0) + Number(aiData.kdv20 || 0));
@@ -303,9 +384,22 @@ export async function processNextEvrakQueue() {
         const matrah = Number(aiData.matrah) || Math.max(0, Math.round((toplamTutar - kdvTutari - oivTutari) * 100) / 100);
         const kdvOrani = Number(aiData.kdvOrani) || 20;
 
-        // Geçmiş alış/satış kayıtlarından muhasebe kodu tahmini
-        let guessedCode = row.yon === 'ALIS' ? '770.01' : '600.01';
-        if (aiData.cariVkn) {
+        // 1. Önce yapay_zeka_kurallari tablosundan kural kontrolü
+        let guessedCode = '';
+        const textForMatch = `${aiData.cariAdi || ''} ${aiData.malHizmet || ''}`.toLowerCase();
+        const rulesRs = await client.execute({
+          sql: 'SELECT anahtar_kelime, muhasebe_kodu FROM yapay_zeka_kurallari WHERE company_id = ?',
+          args: [row.company_id]
+        }).catch(() => ({ rows: [] }));
+        for (const r of rulesRs.rows || []) {
+          if (r.anahtar_kelime && textForMatch.includes(String(r.anahtar_kelime).toLowerCase())) {
+            guessedCode = r.muhasebe_kodu;
+            break;
+          }
+        }
+
+        // 2. Geçmiş faturalardan VKN eşleşmesi
+        if (!guessedCode && aiData.cariVkn) {
           const pastRs = await client.execute({
             sql: row.yon === 'ALIS'
               ? "SELECT muhasebe_kodu FROM alis_faturalari WHERE company_id = ? AND tedarikci_vkn = ? AND muhasebe_kodu IS NOT NULL AND muhasebe_kodu != '' ORDER BY id DESC LIMIT 1"
@@ -315,15 +409,39 @@ export async function processNextEvrakQueue() {
           if (pastRs.rows?.[0]?.muhasebe_kodu) guessedCode = pastRs.rows[0].muhasebe_kodu;
         }
 
-        const karsiKod = row.yon === 'ALIS'
-          ? (aiData.odemeSekli === 'NAKIT' ? '100.01' : '320.01')
-          : (aiData.odemeSekli === 'NAKIT' ? '100.01' : '120.01');
+        // 3. AI'ın döndürdüğü yaprak hesap kodu veya Luca Hesap Planı'ndan kelime bazlı alt hesap bulma
+        if (!guessedCode && aiData.muhasebeKodu && leafLucaAccounts.some((a) => a.kod === aiData.muhasebeKodu)) {
+          guessedCode = aiData.muhasebeKodu;
+        }
+        if (!guessedCode) {
+          const prefixes = row.yon === 'ALIS' ? ['770', '740', '730', '760', '153', '150'] : ['600', '602'];
+          guessedCode = findBestAccountByKeywords(leafLucaAccounts, prefixes, textForMatch) || '';
+        }
+        if (!guessedCode) {
+          const kdvStr = String(kdvOrani === 8 ? 10 : kdvOrani === 18 ? 20 : kdvOrani);
+          guessedCode = row.yon === 'ALIS'
+            ? (lucaKdv?.alis_matrah?.[kdvStr] || lucaKdv?.varsayilanAlisKodu || leafLucaAccounts.find((a) => String(a.kod).startsWith('770'))?.kod || '770.01')
+            : (lucaKdv?.satis_matrah?.[kdvStr] || lucaKdv?.varsayilanSatisKodu || leafLucaAccounts.find((a) => String(a.kod).startsWith('600'))?.kod || '600.01');
+        }
+
+        // Karşı hesap (320 / 120 / 100 alt hesabı)
+        let karsiKod = '';
+        if (aiData.odemeSekli === 'NAKIT') {
+          karsiKod = leafLucaAccounts.find((a) => String(a.kod).startsWith('100'))?.kod || '100.01';
+        } else {
+          const cPrefixes = row.yon === 'ALIS' ? ['320'] : ['120'];
+          karsiKod = findBestAccountByKeywords(leafLucaAccounts, cPrefixes, aiData.cariAdi)
+            || leafLucaAccounts.find((a) => String(a.kod).startsWith(cPrefixes[0]))?.kod
+            || (row.yon === 'ALIS' ? '320.01' : '120.01');
+        }
 
         const mahsupSatirlari = buildDefaultMahsupSatirlari(
           row.yon,
           { ...aiData, matrah, kdvTutari, oivTutari, toplamTutar, kdvOrani },
           guessedCode,
-          karsiKod
+          karsiKod,
+          lucaKdv,
+          accountMap
         );
 
         await client.execute({

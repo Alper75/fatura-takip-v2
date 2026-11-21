@@ -395,12 +395,11 @@ export function EvrakMahsupModal({
                   <tbody className="divide-y">
                     {form.mahsupSatirlari.map((row, idx) => (
                       <tr key={row.id || idx}>
-                        <td className="p-1.5">
-                          <Input
-                            className="h-7 text-xs font-mono"
+                        <td className="p-1.5 min-w-[200px]">
+                          <LucaAccountSelect
                             value={row.kod}
-                            onChange={(e) => updateMahsupRow(idx, 'kod', e.target.value)}
-                            placeholder="770.01"
+                            onChange={(v) => updateMahsupRow(idx, 'kod', v)}
+                            placeholder="Hesap Kodu"
                           />
                         </td>
                         <td className="p-1.5">
