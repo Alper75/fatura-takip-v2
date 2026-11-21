@@ -221,6 +221,14 @@ export function Sidebar({ onItemClick }: SidebarProps) {
           permission: 'cariler'
         },
         {
+          id: 'evrak-havuzu',
+          label: 'Evrak Havuzu (AI Kuyruğu)',
+          icon: FileText,
+          onClick: () => setCurrentView('evrak-havuzu'),
+          view: 'evrak-havuzu',
+          permission: 'alisFaturalari'
+        },
+        {
           id: 'vergi-raporu',
           label: 'Vergi & KDV Raporu',
           icon: Calculator,

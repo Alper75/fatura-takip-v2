@@ -8,6 +8,7 @@ import { dirname } from 'path';
 
 import { telegramBotService } from './services/telegramBot.js';
 import { autoInvoiceFetcher } from './services/autoInvoiceFetcher.js';
+import { startEvrakWorker } from './services/evrakAiWorker.js';
 import { runBase64DiskMigration } from './services/migrateBase64Files.js';
 import { client, initDb } from './db.js';
 import { uploadsDir } from './utils/shared.js';
@@ -21,6 +22,7 @@ import stokRoutes from './routes/stokRoutes.js';
 import teklifSiparisRoutes from './routes/teklifSiparisRoutes.js';
 import mutabakatRoutes from './routes/mutabakatRoutes.js';
 import lucaAiCompanyRoutes from './routes/lucaAiCompanyRoutes.js';
+import evrakRoutes from './routes/evrakRoutes.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -29,6 +31,7 @@ const __dirname = dirname(__filename);
 initDb()
   .then(() => {
     autoInvoiceFetcher.startScheduler();
+    startEvrakWorker();
   })
   .catch(e => console.error('Startup DB Init Error:', e));
 
@@ -62,6 +65,7 @@ app.use(stokRoutes);
 app.use(teklifSiparisRoutes);
 app.use(mutabakatRoutes);
 app.use(lucaAiCompanyRoutes);
+app.use(evrakRoutes);
 
 app.use('/uploads', express.static(uploadsDir));
 

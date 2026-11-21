@@ -44,6 +44,7 @@ const AkilliOgrenme = lazyWithRetry(() => import('./sections/AkilliOgrenme'));
 const MuhasebeFisInceleme = lazyWithRetry(() => import('./sections/MuhasebeFisInceleme').then(m => ({ default: m.MuhasebeFisInceleme })));
 const NakitAkisiTakvimi = lazyWithRetry(() => import('./sections/NakitAkisiTakvimi'));
 const FinansRaporlari = lazyWithRetry(() => import('./sections/FinansRaporlari').then(m => ({ default: m.FinansRaporlari })));
+const EvrakHavuzu = lazyWithRetry(() => import('./sections/EvrakHavuzu').then(m => ({ default: m.EvrakHavuzu })));
 const KullaniciYetkiYonetimi = lazyWithRetry(() => import('./sections/KullaniciYetkiYonetimi'));
 const DijitalVergiDairesi = lazyWithRetry(() => import('./sections/DijitalVergiDairesi').then(m => ({ default: m.DijitalVergiDairesi })));
 
@@ -112,6 +113,8 @@ function AppContent() {
             return <NakitAkisiTakvimi />;
           case 'finans-raporlari':
             return <FinansRaporlari />;
+          case 'evrak-havuzu':
+            return <EvrakHavuzu />;
           case 'banka-liste':
             return <BankaListe />;
           case 'banka-ekstre-liste':

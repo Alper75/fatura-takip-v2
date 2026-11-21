@@ -648,6 +648,41 @@ export async function initDb() {
       console.warn('RBAC users tablosu kolon/rol senkronizasyon uyarısı:', uMigErr.message);
     }
 
+    // Evrak Havuzu (Arka Plan AI Kuyruğu)
+    await client.execute(`
+      CREATE TABLE IF NOT EXISTS evrak_havuzu (
+        id TEXT PRIMARY KEY,
+        company_id INTEGER NOT NULL,
+        yon TEXT DEFAULT 'ALIS',
+        dosya_adi TEXT,
+        mime_type TEXT,
+        dosya_yolu TEXT,
+        durum TEXT DEFAULT 'bekliyor',
+        hata_mesaji TEXT,
+        fatura_no TEXT,
+        fatura_tarihi TEXT,
+        cari_adi TEXT,
+        cari_vkn TEXT,
+        mal_hizmet TEXT,
+        matrah REAL DEFAULT 0,
+        kdv_orani REAL DEFAULT 20,
+        kdv_tutari REAL DEFAULT 0,
+        kdv1 REAL DEFAULT 0,
+        kdv10 REAL DEFAULT 0,
+        kdv20 REAL DEFAULT 0,
+        oiv_tutari REAL DEFAULT 0,
+        toplam_tutar REAL DEFAULT 0,
+        muhasebe_kodu TEXT,
+        karsi_hesap_kodu TEXT,
+        odeme_sekli TEXT,
+        mahsup_satirlari TEXT,
+        ai_raw_json TEXT,
+        aktarilan_fatura_id TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
     console.log('Turso Database schema initialized successfully.');
     
     // Luca Tablosu İçin Ekstra Doğrulama
