@@ -1712,35 +1712,68 @@ export async function recheckElogoInvoices(req, res) {
     }
 
     const dbRes = await client.execute({
-      sql: 'SELECT id, fatura_no, fatura_tarihi, tedarikci_adi, tedarikci_vkn, toplam_tutar, matrah, kdv_orani, kdv_tutari, kdv1, kdv10, kdv20, oiv_tutari, luca_transferred_at FROM alis_faturalari WHERE company_id = ? AND fatura_tarihi >= ? AND fatura_tarihi <= ?',
+      sql: 'SELECT id, fatura_no, fatura_tarihi, tedarikci_adi, tedarikci_vkn, toplam_tutar, matrah, kdv_orani, kdv_tutari, kdv1, kdv10, kdv20, oiv_tutari, gib_uuid, luca_transferred_at FROM alis_faturalari WHERE company_id = ? AND fatura_tarihi >= ? AND fatura_tarihi <= ?',
       args: [req.user.companyId, startDate, endDate]
     });
 
     const elogo = new ElogoClient(settings.elogo_username, settings.elogo_password, settings.elogo_is_test === 'true');
-    const beginIso = startDate.includes('T') ? startDate : `${startDate}T00:00:00`;
-    const endIso = endDate.includes('T') ? endDate : `${endDate}T23:59:59`;
-    const docListRes = await elogo.getDocumentList('EINVOICE', beginIso, endIso, 2, 1);
-    if (!docListRes.success) {
-      return res.status(500).json({ success: false, message: docListRes.message || 'e-Logo fatura listesi alınamadı.' });
+
+    // e-Logo 30 günden uzun aralıkları reddedebildiği için tarih aralığını 25 günlük parçalara böl
+    const docs = [];
+    const seenDocKeys = new Set();
+    let elogoWarning = null;
+    const sDate = new Date(startDate);
+    const eDate = new Date(endDate);
+    let cursor = new Date(sDate);
+
+    while (cursor <= eDate) {
+      const chunkEnd = new Date(cursor);
+      chunkEnd.setDate(chunkEnd.getDate() + 25);
+      if (chunkEnd > eDate) chunkEnd.setTime(eDate.getTime());
+
+      const bStr = `${cursor.toISOString().split('T')[0]}T00:00:00`;
+      const eStr = `${chunkEnd.toISOString().split('T')[0]}T23:59:59`;
+      const docListRes = await elogo.getDocumentList('EINVOICE', bStr, eStr, 2, 1);
+
+      if (!docListRes.success) {
+        elogoWarning = docListRes.message || 'e-Logo liste alınamadı';
+      } else {
+        const resMeta = docListRes.data?.GetDocumentListResult;
+        if (resMeta && resMeta.resultCode !== undefined && Number(resMeta.resultCode) !== 1 && resMeta.resultMsg) {
+          elogoWarning = resMeta.resultMsg;
+        }
+        const docListRaw = docListRes.data?.docList?.Document || docListRes.data?.docList?.document || docListRes.data?.GetDocumentListResult?.document || [];
+        const chunkArr = Array.isArray(docListRaw) ? docListRaw : (docListRaw ? [docListRaw] : []);
+        for (const d of chunkArr) {
+          const key = String(d.documentUuid || d.uuid || d.documentId || '').toLowerCase().trim();
+          if (key && !seenDocKeys.has(key)) {
+            seenDocKeys.add(key);
+            docs.push(d);
+          }
+        }
+      }
+
+      cursor = new Date(chunkEnd);
+      cursor.setDate(cursor.getDate() + 1);
     }
 
-    const docListRaw = docListRes.data?.docList?.Document || docListRes.data?.docList?.document || docListRes.data?.GetDocumentListResult?.document || [];
-    const docs = Array.isArray(docListRaw) ? docListRaw : (docListRaw ? [docListRaw] : []);
     const diffs = [];
     let checkedCount = 0;
 
     for (const dbInv of dbRes.rows) {
       const dbNo = String(dbInv.fatura_no || '').trim();
+      const dbNoLower = dbNo.toLowerCase();
+      const dbUuidLower = String(dbInv.gib_uuid || '').trim().toLowerCase();
       const dbVkn = String(dbInv.tedarikci_vkn || '').trim();
-      if (!dbNo) continue;
+      if (!dbNo && !dbUuidLower) continue;
 
-      const matchedDoc = docs.find(d =>
-        String(d.documentId || '').trim() === dbNo ||
-        String(d.documentUuid || d.uuid || '').trim() === dbNo
-      );
-      if (!matchedDoc) continue;
+      const matchedDoc = docs.find(d => {
+        const dId = String(d.documentId || '').trim().toLowerCase();
+        const dUuid = String(d.documentUuid || d.uuid || '').trim().toLowerCase();
+        return (dbUuidLower && dUuid === dbUuidLower) || (dbNoLower && (dId === dbNoLower || dUuid === dbNoLower));
+      });
 
-      const docUuid = matchedDoc.documentUuid || matchedDoc.uuid;
+      const docUuid = dbInv.gib_uuid || matchedDoc?.documentUuid || matchedDoc?.uuid;
       if (!docUuid) continue;
 
       try {
@@ -1813,7 +1846,15 @@ export async function recheckElogoInvoices(req, res) {
       }
     }
 
-    res.json({ success: true, checkedCount, diffCount: diffs.length, diffs });
+    res.json({
+      success: true,
+      dbCount: dbRes.rows.length,
+      elogoDocCount: docs.length,
+      elogoWarning,
+      checkedCount,
+      diffCount: diffs.length,
+      diffs
+    });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }

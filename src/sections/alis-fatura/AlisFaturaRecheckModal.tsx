@@ -57,6 +57,9 @@ export function AlisFaturaRecheckModal({ isOpen, onClose, onUpdated }: AlisFatur
   const [isApplying, setIsApplying] = useState(false);
   const [elogoResult, setElogoResult] = useState<{
     checkedCount: number;
+    dbCount?: number;
+    elogoDocCount?: number;
+    elogoWarning?: string | null;
     diffs: ElogoDiffItem[];
   } | null>(null);
   const [selectedDiffIds, setSelectedDiffIds] = useState<string[]>([]);
@@ -126,7 +129,13 @@ export function AlisFaturaRecheckModal({ isOpen, onClose, onUpdated }: AlisFatur
         return;
       }
       const diffs: ElogoDiffItem[] = res.diffs || [];
-      setElogoResult({ checkedCount: res.checkedCount || 0, diffs });
+      setElogoResult({
+        checkedCount: res.checkedCount || 0,
+        dbCount: res.dbCount,
+        elogoDocCount: res.elogoDocCount,
+        elogoWarning: res.elogoWarning,
+        diffs,
+      });
       // Luca'ya aktarılmamış olanları varsayılan seç
       setSelectedDiffIds(diffs.filter((d) => !d.lucaTransferredAt).map((d) => d.id));
       if (diffs.length === 0) {
@@ -226,13 +235,16 @@ export function AlisFaturaRecheckModal({ isOpen, onClose, onUpdated }: AlisFatur
 
             {elogoResult && (
               <div className="space-y-3">
-                <div className="flex items-center justify-between text-xs px-1">
+                <div className="flex flex-wrap items-center justify-between gap-2 text-xs px-1">
                   <span className="text-slate-600">
-                    Kontrol edilen: <b>{elogoResult.checkedCount}</b> fatura · Fark bulunan:{' '}
+                    Sistemdeki fatura: <b>{elogoResult.dbCount ?? '-'}</b> · e-Logo belge: <b>{elogoResult.elogoDocCount ?? '-'}</b> · XML karşılaştırılan: <b>{elogoResult.checkedCount}</b> · Fark bulunan:{' '}
                     <b className={elogoResult.diffs.length > 0 ? 'text-red-700' : 'text-emerald-700'}>
                       {elogoResult.diffs.length}
                     </b>
                   </span>
+                  {elogoResult.elogoWarning && (
+                    <span className="text-amber-700 font-medium">Uyarı: {elogoResult.elogoWarning}</span>
+                  )}
                 </div>
 
                 {elogoResult.diffs.length === 0 ? (
