@@ -283,7 +283,7 @@ export function AlisFaturaRecheckModal({ isOpen, onClose, onUpdated }: AlisFatur
                               )}
                             </td>
                             <td className="p-2.5 align-top text-red-700 bg-red-50/40 space-y-0.5 font-mono">
-                              <div>Oran: <b>%{d.eski.kdvOrani}</b></div>
+                              <div>Oran: <b>%{d.eski.kdvOrani}</b> · Toplam KDV: <b>{formatCurrency(d.eski.kdvTutari)}</b></div>
                               <div>Matrah: {formatCurrency(d.eski.matrah)}</div>
                               <div>
                                 KDV (%1 / %10 / %20): {formatCurrency(d.eski.kdv1)} / {formatCurrency(d.eski.kdv10)} / {formatCurrency(d.eski.kdv20)}
@@ -291,7 +291,7 @@ export function AlisFaturaRecheckModal({ isOpen, onClose, onUpdated }: AlisFatur
                               <div>ÖİV/Konaklama: {formatCurrency(d.eski.oivTutari)}</div>
                             </td>
                             <td className="p-2.5 align-top text-emerald-800 bg-emerald-50/40 space-y-0.5 font-mono">
-                              <div>Oran: <b>%{d.yeni.kdvOrani}</b></div>
+                              <div>Oran: <b>%{d.yeni.kdvOrani}</b> · Toplam KDV: <b>{formatCurrency(d.yeni.kdvTutari)}</b></div>
                               <div>Matrah: {formatCurrency(d.yeni.matrah)}</div>
                               <div>
                                 KDV (%1 / %10 / %20): {formatCurrency(d.yeni.kdv1)} / {formatCurrency(d.yeni.kdv10)} / {formatCurrency(d.yeni.kdv20)}

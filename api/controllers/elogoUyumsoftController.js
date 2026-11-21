@@ -1798,10 +1798,17 @@ export async function recheckElogoInvoices(req, res) {
         const oldMatrah = Number(dbInv.matrah) || 0;
         const oldKdvOrani = Number(dbInv.kdv_orani) || 0;
         const oldKdvTutari = Number(dbInv.kdv_tutari) || 0;
-        const oldKdv1 = Number(dbInv.kdv1) || 0;
-        const oldKdv10 = Number(dbInv.kdv10) || 0;
-        const oldKdv20 = Number(dbInv.kdv20) || 0;
+        let oldKdv1 = Number(dbInv.kdv1) || 0;
+        let oldKdv10 = Number(dbInv.kdv10) || 0;
+        let oldKdv20 = Number(dbInv.kdv20) || 0;
         const oldOiv = Number(dbInv.oiv_tutari) || 0;
+
+        // Eski kayıtlarda kdv1/10/20 kırılımı boşsa, tekil kdv_orani + kdv_tutari üzerinden doldur
+        if (oldKdv1 === 0 && oldKdv10 === 0 && oldKdv20 === 0 && oldKdvTutari > 0) {
+          if (oldKdvOrani === 1) oldKdv1 = oldKdvTutari;
+          else if (oldKdvOrani === 8 || oldKdvOrani === 10) oldKdv10 = oldKdvTutari;
+          else if (oldKdvOrani === 18 || oldKdvOrani === 20) oldKdv20 = oldKdvTutari;
+        }
 
         const hasDiff =
           Math.abs(oldMatrah - parsed.matrah) > 0.05 ||
