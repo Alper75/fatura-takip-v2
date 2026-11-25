@@ -4,8 +4,19 @@ import { client } from '../db.js';
 import { evrenClient } from './evrenClient.js';
 
 const require = createRequire(import.meta.url);
-// pdf-parse/lib/pdf-parse.js doğrudan yüklenerek ESM altındaki test dosyası okuma hatası önlenir
-const pdfParse = require('pdf-parse/lib/pdf-parse.js');
+
+let cachedPdfParse = undefined;
+function getPdfParse() {
+  if (cachedPdfParse !== undefined) return cachedPdfParse;
+  try {
+    // pdf-parse/lib/pdf-parse.js doğrudan yüklenerek ESM altındaki test dosyası okuma hatası önlenir
+    cachedPdfParse = require('pdf-parse/lib/pdf-parse.js');
+  } catch (err) {
+    console.warn('[BankStatementParser] pdf-parse paketi bulunamadı (npm install çalıştırılmamış olabilir), AI/OCR yedeği kullanılacak:', err.message);
+    cachedPdfParse = null;
+  }
+  return cachedPdfParse;
+}
 
 const MAX_CHUNK_CHARS = 32000;
 const MAX_TOTAL_CHARS = 300000;
@@ -524,9 +535,12 @@ export async function parseBankStatementFile({ companyId, fileBase64, fileName =
   if (isPdf) {
     let pdfData = null;
     try {
-      pdfData = await pdfParse(buffer);
-      extractedText = (pdfData?.text || '').trim();
-      pageCount = pdfData?.numpages || 1;
+      const pdfParseFn = getPdfParse();
+      if (pdfParseFn) {
+        pdfData = await pdfParseFn(buffer);
+        extractedText = (pdfData?.text || '').trim();
+        pageCount = pdfData?.numpages || 1;
+      }
     } catch (pdfErr) {
       console.warn('[BankStatementParser] pdf-parse uyarısı, OCR yedeğine geçiliyor:', pdfErr.message);
       extractedText = '';

@@ -684,13 +684,17 @@ export async function initDb() {
     `);
 
     // Stok modülü performans indeksleri
-    await client.batch([
-      "CREATE INDEX IF NOT EXISTS idx_stok_urunler_company_name ON stok_urunler(company_id, urun_adi)",
-      "CREATE INDEX IF NOT EXISTS idx_stok_hareketler_company_tarih ON stok_hareketler(company_id, tarih DESC)",
-      "CREATE INDEX IF NOT EXISTS idx_stok_hareketler_company_urun ON stok_hareketler(company_id, urun_id, iptal)",
-      "CREATE INDEX IF NOT EXISTS idx_stok_depolar_company_kod ON stok_depolar(company_id, kod)",
-      "CREATE INDEX IF NOT EXISTS idx_stok_kategoriler_company_ad ON stok_kategoriler(company_id, ad)"
-    ], "write");
+    try {
+      await client.batch([
+        "CREATE INDEX IF NOT EXISTS idx_stok_urunler_company_name ON stok_urunler(company_id, urun_adi)",
+        "CREATE INDEX IF NOT EXISTS idx_stok_hareketler_company_tarih ON stok_hareketler(company_id, tarih DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_stok_hareketler_company_urun ON stok_hareketler(company_id, urun_id, iptal)",
+        "CREATE INDEX IF NOT EXISTS idx_stok_depolar_company_kod ON stok_depolar(company_id, kod)",
+        "CREATE INDEX IF NOT EXISTS idx_stok_kategoriler_company_ad ON stok_kategoriler(company_id, ad)"
+      ], "write");
+    } catch (idxErr) {
+      console.warn('Stok indeks oluşturma uyarısı:', idxErr.message);
+    }
 
     console.log('Turso Database schema initialized successfully.');
     
