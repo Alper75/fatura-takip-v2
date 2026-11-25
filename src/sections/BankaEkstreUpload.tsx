@@ -4,7 +4,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 // Select bileşenleri performans için native ama shadcn stiliyle giydirilmiştir.
 import { useApp } from '@/context/AppContext';
-import { Upload, FileSpreadsheet, CheckCircle2, AlertCircle, Search, Landmark, Sparkles, Loader2, ExternalLink } from 'lucide-react';
+import { Upload, FileSpreadsheet, FileText, CheckCircle2, AlertCircle, Search, Landmark, Sparkles, Loader2, ExternalLink, RotateCcw } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -74,6 +74,8 @@ export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploa
   const { apiFetch, cariler, bankaHesaplari, addCariHareket, masrafKurallari, lucaAccounts, giderKategorileri } = useApp();
   const [satirlar, setSatirlar] = useState<EkstreSatiri[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [processingMessage, setProcessingMessage] = useState('');
+  const [isDragging, setIsDragging] = useState(false);
   const [isAiAnalyzing, setIsAiAnalyzing] = useState(false);
   const [visibleCount, setVisibleCount] = useState(50);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -292,124 +294,242 @@ export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploa
     return parseFloat(s);
   };
 
+  const buildEkstreSatirlari = (
+    rawItems: Array<{ tarih: string; aciklama: string; tutar: number; tip: 'borc' | 'alacak' }>
+  ): EkstreSatiri[] => {
+    const isForeign = banka?.dovizTuru !== 'TRY';
+    return rawItems.map((item) => {
+      const match = classifyTransaction(item.aciklama, item.tip);
+      return {
+        tarih: item.tarih,
+        aciklama: item.aciklama,
+        tutar: isForeign ? 0 : item.tutar,
+        tip: item.tip,
+        eslesenCariId: match.cariId,
+        önerilenTur: match.tur,
+        kategoriId: match.kategoriId,
+        transferBankaId: match.transferBankaId,
+        muhasebeKodu: match.muhasebeKodu,
+        durum:
+          match.cariId || match.transferBankaId || match.kategoriId || match.muhasebeKodu
+            ? 'success'
+            : 'pending',
+        dovizTuru: banka?.dovizTuru || 'TRY',
+        dovizTutar: isForeign ? item.tutar : undefined,
+        dovizKuru: undefined,
+      };
+    });
+  };
+
+  const readFileAsDataUrl = (file: File): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ''));
+      reader.onerror = () => reject(new Error('Dosya okunamadı.'));
+      reader.readAsDataURL(file);
+    });
+
+  const parseWithAiBackend = async (file: File, customMessage?: string) => {
+    setIsProcessing(true);
+    setProcessingMessage(
+      customMessage || 'Ekstre okunuyor ve hareketler yapay zeka ile ayrıştırılıyor...'
+    );
+
+    try {
+      const [fileBase64, config] = await Promise.all([
+        readFileAsDataUrl(file),
+        getAiConfig(),
+      ]);
+
+      const res = await apiFetch('/api/ai/parse-bank-statement', {
+        method: 'POST',
+        body: JSON.stringify({
+          fileBase64,
+          fileName: file.name,
+          mimeType: file.type,
+          provider: config.activeProvider,
+          evrenApiKey: config.evrenApiKey,
+          evrenModel: config.evrenModelName,
+          openaiApiKey: config.openaiApiKey,
+          openaiModel: config.openaiModelName,
+          xaiApiKey: config.xaiApiKey,
+          xaiModel: config.xaiModelName,
+          nvidiaApiKey: config.nvidiaApiKey,
+          nvidiaModel: config.nvidiaModelName,
+          geminiApiKey: config.apiKey,
+          geminiModel: config.aiModel,
+        }),
+      });
+
+      if (!res?.success) {
+        throw new Error(res?.message || 'Ekstre ayrıştırılamadı.');
+      }
+
+      const rawRows = Array.isArray(res.rows) ? res.rows : [];
+      if (rawRows.length === 0) {
+        toast.error('Dosya içinde işlenebilir banka hareketi bulunamadı.');
+        return;
+      }
+
+      const mapped = buildEkstreSatirlari(rawRows);
+      setSatirlar(mapped);
+      toast.success(`${mapped.length} adet hareket başarıyla yüklendi.`);
+    } catch (err: any) {
+      console.error('AI ekstre ayrıştırma hatası:', err);
+      toast.error(err?.message || 'Ekstre dosyası ayrıştırılırken hata oluştu.');
+    } finally {
+      setIsProcessing(false);
+      setProcessingMessage('');
+    }
+  };
+
+  const tryLocalExcelParse = async (
+    file: File
+  ): Promise<Array<{ tarih: string; aciklama: string; tutar: number; tip: 'borc' | 'alacak' }> | null> => {
+    const arrayBuffer = await file.arrayBuffer();
+    const wb = XLSX.read(arrayBuffer, { type: 'array', cellDates: true });
+    const sheetName = wb.SheetNames[0];
+    if (!sheetName) return null;
+
+    const ws = wb.Sheets[sheetName];
+    const data = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
+
+    let headerRowIdx = -1;
+    let dateIdx = -1;
+    let descIdx = -1;
+    let amountIdx = -1;
+    let debitIdx = -1;
+    let creditIdx = -1;
+
+    for (let i = 0; i < Math.min(data.length, 35); i++) {
+      const row = (data[i] || []).map((cell) => normalizeString(String(cell || '')));
+      const hasDate = row.some((c) => c.includes('TARIH') || c === 'VALOR');
+      const hasDesc = row.some((c) => c.includes('ACIKLAMA') || c.includes('DETAY') || c.includes('ISLEM ADI'));
+      if (hasDate && hasDesc) {
+        headerRowIdx = i;
+        dateIdx = row.findIndex((c) => c.includes('TARIH') || c === 'VALOR');
+        descIdx = row.findIndex((c) => c.includes('ACIKLAMA') || c.includes('DETAY') || c.includes('ISLEM ADI'));
+        amountIdx = row.findIndex((c) => c.includes('ISLEM TUTARI') || c === 'TUTAR' || c === 'MIKTAR');
+        debitIdx = row.findIndex((c) => c === 'BORC' || c.includes('BORC TUTAR') || c === 'CIKIS');
+        creditIdx = row.findIndex((c) => c === 'ALACAK' || c.includes('ALACAK TUTAR') || c === 'GIRIS');
+        break;
+      }
+    }
+
+    if (headerRowIdx === -1) return null;
+
+    const parsedItems: Array<{ tarih: string; aciklama: string; tutar: number; tip: 'borc' | 'alacak' }> = [];
+    for (let i = headerRowIdx + 1; i < data.length; i++) {
+      try {
+        const row = data[i];
+        if (!row || !row[dateIdx]) continue;
+
+        let tarih = String(row[dateIdx]).trim();
+        if (row[dateIdx] instanceof Date && !isNaN(row[dateIdx].getTime())) {
+          tarih = row[dateIdx].toISOString().split('T')[0];
+        } else if (tarih.includes('/')) {
+          const parts = tarih.split(' ')[0].split('/');
+          if (parts.length === 3) {
+            const [day, month, year] = parts;
+            tarih = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+          }
+        } else if (tarih.includes('.')) {
+          const parts = tarih.split(' ')[0].split('.');
+          if (parts.length === 3) {
+            const [day, month, year] = parts;
+            tarih = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+          }
+        }
+
+        const desc = String(row[descIdx] || '').trim();
+        let amount = 0;
+        let tip: 'borc' | 'alacak' = 'alacak';
+
+        if (amountIdx !== -1) {
+          const val = parseTurkishNumber(row[amountIdx]);
+          amount = Math.abs(val);
+          tip = val < 0 ? 'borc' : 'alacak';
+        } else if (debitIdx !== -1 && creditIdx !== -1) {
+          const borc = Math.abs(parseTurkishNumber(row[debitIdx]));
+          const alacak = Math.abs(parseTurkishNumber(row[creditIdx]));
+          amount = borc > 0 ? borc : alacak;
+          tip = borc > 0 ? 'borc' : 'alacak';
+        }
+
+        if (!amount || isNaN(amount)) continue;
+        parsedItems.push({ tarih, aciklama: desc, tutar: amount, tip });
+      } catch (rowErr) {
+        console.error('Satır işleme hatası:', rowErr);
+      }
+    }
+
+    return parsedItems.length > 0 ? parsedItems : null;
+  };
+
+  const processSelectedFile = async (file: File) => {
+    if (file.size > 35 * 1024 * 1024) {
+      toast.error('Dosya boyutu 35 MB sınırını aşıyor.');
+      return;
+    }
+
+    const lowerName = file.name.toLowerCase();
+    const lowerType = (file.type || '').toLowerCase();
+    const isPdf = lowerType === 'application/pdf' || lowerName.endsWith('.pdf');
+    const isExcel =
+      lowerName.endsWith('.xlsx') ||
+      lowerName.endsWith('.xls') ||
+      lowerType.includes('spreadsheet') ||
+      lowerType.includes('excel');
+    const isCsvOrTxt =
+      lowerName.endsWith('.csv') ||
+      lowerName.endsWith('.txt') ||
+      lowerType.includes('csv') ||
+      lowerType === 'text/plain';
+
+    if (!isPdf && !isExcel && !isCsvOrTxt) {
+      toast.error('Desteklenmeyen dosya formatı. Lütfen PDF, Excel (.xlsx/.xls) veya CSV yükleyin.');
+      return;
+    }
+
+    if (isPdf) {
+      await parseWithAiBackend(
+        file,
+        'PDF ekstre okunuyor ve banka hareketleri ayrıştırılıyor (sayfa sayısına göre 10-30 sn sürebilir)...'
+      );
+      return;
+    }
+
+    if (isCsvOrTxt) {
+      await parseWithAiBackend(file, 'CSV/Metin ekstre okunuyor ve hareketler ayrıştırılıyor...');
+      return;
+    }
+
+    // Excel dosyalarında önce anlık yerel ayrıştırıcıyı dene; başlık yapısı farklıysa otomatik AI ayrıştırıcıya devret
+    setIsProcessing(true);
+    setProcessingMessage('Excel dosyası okunuyor...');
+    try {
+      const localRows = await tryLocalExcelParse(file);
+      if (localRows && localRows.length > 0) {
+        const mapped = buildEkstreSatirlari(localRows);
+        setSatirlar(mapped);
+        toast.success(`${mapped.length} adet hareket yüklendi.`);
+        setIsProcessing(false);
+        setProcessingMessage('');
+        return;
+      }
+    } catch (err) {
+      console.warn('Yerel Excel okuma başarısız, AI ayrıştırıcıya geçiliyor:', err);
+    }
+
+    toast.info('Farklı banka şablonu tespit edildi, yapay zeka ile ayrıştırılıyor...');
+    await parseWithAiBackend(file, 'Standart dışı Excel şablonu yapay zeka ile ayrıştırılıyor...');
+  };
+
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    e.target.value = '';
     if (!file) return;
-
-    setIsProcessing(true);
-    const reader = new FileReader();
-    reader.onload = (evt) => {
-      try {
-        const bstr = evt.target?.result;
-        const wb = XLSX.read(bstr, { type: 'binary', cellDates: true });
-        const sheetName = wb.SheetNames[0];
-        const ws = wb.Sheets[sheetName];
-        const data = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
-
-        let headerRowIdx = -1;
-        let dateIdx = -1;
-        let descIdx = -1;
-        let amountIdx = -1;
-        let debitIdx = -1;
-        let creditIdx = -1;
-
-        for (let i = 0; i < Math.min(data.length, 30); i++) {
-          const row = (data[i] || []).map(cell => normalizeString(String(cell || '')));
-          if (row.some(c => c.includes('TARIH')) && row.some(c => c.includes('ACIKLAMA'))) {
-            headerRowIdx = i;
-            dateIdx = row.findIndex(c => c.includes('TARIH'));
-            descIdx = row.findIndex(c => c.includes('ACIKLAMA'));
-            amountIdx = row.findIndex(c => c.includes('ISLEM TUTARI') || c === 'TUTAR');
-            debitIdx = row.findIndex(c => c === 'BORC');
-            creditIdx = row.findIndex(c => c === 'ALACAK');
-            break;
-          }
-        }
-
-        if (headerRowIdx === -1) {
-          toast.error('Excel formatı anlaşılamadı.');
-          setIsProcessing(false);
-          return;
-        }
-
-        const mappedSatirlar: EkstreSatiri[] = [];
-        for (let i = headerRowIdx + 1; i < data.length; i++) {
-          try {
-            const row = data[i];
-            if (!row || !row[dateIdx]) continue;
-            
-            let tarih = String(row[dateIdx]);
-            if (row[dateIdx] instanceof Date) {
-              tarih = row[dateIdx].toISOString().split('T')[0];
-            } else if (tarih.includes('/')) {
-              const parts = tarih.split('/');
-              if (parts.length === 3) {
-                 const [day, month, year] = parts;
-                 tarih = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
-              }
-            } else if (tarih.includes('.')) {
-              const parts = tarih.split('.');
-              if (parts.length === 3) {
-                 const [day, month, year] = parts;
-                 tarih = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
-              }
-            }
-            const desc = String(row[descIdx] || '');
-            let amount = 0;
-            let tip: 'borc' | 'alacak' = 'alacak';
-
-            if (amountIdx !== -1) {
-              const val = parseTurkishNumber(row[amountIdx]);
-              amount = Math.abs(val);
-              tip = val < 0 ? 'borc' : 'alacak';
-            } else if (debitIdx !== -1 && creditIdx !== -1) {
-              const borc = parseTurkishNumber(row[debitIdx]);
-              const alacak = parseTurkishNumber(row[creditIdx]);
-              amount = borc > 0 ? borc : alacak;
-              tip = borc > 0 ? 'borc' : 'alacak';
-            }
-
-            if (!amount || isNaN(amount)) continue;
-
-            const match = classifyTransaction(desc, tip);
-            const isForeign = banka?.dovizTuru !== 'TRY';
-          
-            mappedSatirlar.push({
-              tarih,
-              aciklama: desc,
-              tutar: isForeign ? 0 : amount,
-              tip,
-              eslesenCariId: match.cariId,
-              önerilenTur: match.tur,
-              kategoriId: match.kategoriId,
-              transferBankaId: match.transferBankaId,
-              muhasebeKodu: match.muhasebeKodu,
-              durum: (match.cariId || match.transferBankaId || match.kategoriId || match.muhasebeKodu) ? 'success' : 'pending',
-              dovizTuru: banka?.dovizTuru || 'TRY',
-              dovizTutar: isForeign ? amount : undefined,
-              dovizKuru: undefined
-            });
-          } catch (rowErr) {
-            console.error('Satır işleme hatası:', rowErr);
-          }
-        }
-
-        setTimeout(() => {
-          if (mappedSatirlar.length === 0) {
-             toast.error('Excel içinde işlenebilir bir veri bulunamadı.');
-          } else {
-             setSatirlar(mappedSatirlar);
-             toast.success(`${mappedSatirlar.length} adet hareket yüklendi.`);
-          }
-          setIsProcessing(false);
-        }, 100);
-      } catch (err) {
-        toast.error('Excel dosyası işlenirken kritik hata oluştu.');
-        console.error(err);
-        setIsProcessing(false);
-      }
-    };
-    reader.readAsBinaryString(file);
+    void processSelectedFile(file);
   };
 
   const formatDateForLuca = (dateStr: string) => {
@@ -961,17 +1081,69 @@ SADECE JSON döndür:
         <div className="py-6 space-y-6">
           {satirlar.length === 0 ? (
             <div 
-              className="border-2 border-dashed rounded-2xl p-12 text-center hover:bg-slate-50 transition-colors cursor-pointer"
-              onClick={() => fileInputRef.current?.click()}
+              className={cn(
+                "border-2 border-dashed rounded-2xl p-12 text-center transition-colors",
+                isProcessing
+                  ? "bg-indigo-50/40 border-indigo-200 cursor-wait"
+                  : isDragging
+                    ? "bg-indigo-50 border-indigo-400 cursor-copy"
+                    : "hover:bg-slate-50 cursor-pointer"
+              )}
+              onClick={() => {
+                if (!isProcessing) fileInputRef.current?.click();
+              }}
+              onDragOver={(e) => {
+                e.preventDefault();
+                if (!isProcessing) setIsDragging(true);
+              }}
+              onDragLeave={(e) => {
+                e.preventDefault();
+                setIsDragging(false);
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                setIsDragging(false);
+                if (isProcessing) return;
+                const droppedFile = e.dataTransfer.files?.[0];
+                if (droppedFile) void processSelectedFile(droppedFile);
+              }}
             >
-              <Upload className="w-12 h-12 mx-auto mb-4 text-slate-300" />
-              <p className="text-lg font-medium text-slate-700">Excel Dosyasını Seçin</p>
-              <p className="text-sm text-slate-400 mt-2">Ziraat Bankası ve diğer tüm formatlar desteklenir.</p>
-              <input type="file" ref={fileInputRef} onChange={handleFileUpload} className="hidden" accept=".xlsx, .xls" />
+              {isProcessing ? (
+                <div className="space-y-3 py-2">
+                  <Loader2 className="w-12 h-12 mx-auto text-indigo-600 animate-spin" />
+                  <p className="text-base font-semibold text-indigo-900">
+                    {processingMessage || 'Ekstre dosyası işleniyor...'}
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    Lütfen bekleyin; hareketler okunup cari, virman ve masraf kurallarıyla eşleştiriliyor.
+                  </p>
+                </div>
+              ) : (
+                <>
+                  <div className="flex items-center justify-center gap-3 mb-4">
+                    <FileText className="w-11 h-11 text-rose-400" />
+                    <Upload className="w-10 h-10 text-slate-300" />
+                    <FileSpreadsheet className="w-11 h-11 text-emerald-500" />
+                  </div>
+                  <p className="text-lg font-medium text-slate-700">
+                    PDF, Excel veya CSV Ekstresini Seçin ya da Sürükleyin
+                  </p>
+                  <p className="text-sm text-slate-400 mt-2">
+                    Tüm bankaların PDF hesap özetleri, Excel (.xlsx / .xls) ve CSV formatları desteklenir.
+                  </p>
+                </>
+              )}
+              <input
+                type="file"
+                ref={fileInputRef}
+                onChange={handleFileUpload}
+                className="hidden"
+                accept=".pdf, .xlsx, .xls, .csv, .txt, application/pdf"
+              />
             </div>
           ) : (
             <div className="space-y-4">
-              <div className="flex items-center justify-between bg-indigo-50 p-4 rounded-xl border border-indigo-100">
+              <div className="flex flex-wrap items-center justify-between gap-3 bg-indigo-50 p-4 rounded-xl border border-indigo-100">
                 <div className="flex items-center gap-3">
                   <Landmark className="w-5 h-5 text-indigo-600" />
                   <div>
@@ -979,7 +1151,20 @@ SADECE JSON döndür:
                     <p className="text-xs text-indigo-700 font-medium">Virmanlar ve kredi kartları otomatik tespit edildi.</p>
                   </div>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => {
+                      setSatirlar([]);
+                      setVisibleCount(50);
+                    }}
+                    disabled={isAiAnalyzing || isProcessing}
+                    className="text-slate-600 hover:bg-white"
+                    title="Farklı bir dosya yükle"
+                  >
+                    <RotateCcw className="w-4 h-4 mr-1.5" /> Farklı Dosya
+                  </Button>
                   <Button size="sm" variant="secondary" onClick={analyzeBatchWithAI} disabled={isAiAnalyzing || isProcessing} className="bg-amber-100 text-amber-900 border-amber-200 hover:bg-amber-200">
                     {isAiAnalyzing ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Sparkles className="w-4 h-4 mr-2" />}
                     AI ile Tümünü Analiz Et

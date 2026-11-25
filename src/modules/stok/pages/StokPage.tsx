@@ -19,6 +19,7 @@ import {
   useStokHareketler,
   useCriticalProducts
 } from '../hooks/useStokQuery';
+import { buildStockBalanceMap } from '../utils/stockBalance';
 import { 
   Package, 
   AlertTriangle, 
@@ -51,23 +52,19 @@ export const StokPage: React.FC = () => {
   const stats = useMemo(() => {
     if (!urunler || !hareketler) return { totalItems: 0, criticalItems: 0, totalStock: 0 };
     
+    const balanceMap = buildStockBalanceMap(hareketler);
     const totalItems = urunler.length;
     let criticalItems = 0;
     let totalStock = 0;
 
-    urunler.forEach(u => {
-      const miktar = hareketler
-        .filter(h => !h.iptal && h.urunId === u.id)
-        .reduce((total, h) => {
-          const isGiris = h.tip === 'GIRIS' || h.tip === 'TRANSFER_GIRIS';
-          return isGiris ? total + h.miktar : total - h.miktar;
-        }, 0);
-      
+    for (let i = 0; i < urunler.length; i++) {
+      const u = urunler[i];
+      const miktar = balanceMap[u.id] || 0;
       totalStock += miktar;
       if (miktar <= u.minimumStok) {
         criticalItems++;
       }
-    });
+    }
 
     return { totalItems, criticalItems, totalStock };
   }, [urunler, hareketler]);

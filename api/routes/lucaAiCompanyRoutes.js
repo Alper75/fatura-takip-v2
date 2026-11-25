@@ -8,6 +8,7 @@ import { client } from '../db.js';
 import { authMiddleware, permissionMiddleware } from '../auth.js';
 import { telegramBotService } from '../services/telegramBot.js';
 import { evrenClient } from '../services/evrenClient.js';
+import { parseBankStatementFile } from '../services/bankStatementParserService.js';
 import { upload, uploadsDir, n } from '../utils/shared.js';
 
 const router = express.Router();
@@ -652,6 +653,61 @@ Temel Muhasebe İlkelerin ve Davranış Kuralların:
   } catch (err) {
     console.error('AI Analyze Error:', err);
     res.status(500).json({ success: false, message: err.message || 'Yapay zeka analizi sırasında hata oluştu.' });
+  }
+});
+
+router.post('/api/ai/parse-bank-statement', authMiddleware, async (req, res) => {
+  try {
+    const {
+      fileBase64,
+      fileName,
+      mimeType,
+      provider,
+      evrenApiKey,
+      evrenModel,
+      openaiApiKey,
+      openaiModel,
+      xaiApiKey,
+      xaiModel,
+      nvidiaApiKey,
+      nvidiaModel,
+      geminiApiKey,
+      geminiModel,
+    } = req.body || {};
+
+    const result = await parseBankStatementFile({
+      companyId: req.user.companyId,
+      fileBase64,
+      fileName,
+      mimeType,
+      overrides: {
+        provider,
+        evrenApiKey,
+        evrenModel,
+        openaiApiKey,
+        openaiModel,
+        xaiApiKey,
+        xaiModel,
+        nvidiaApiKey,
+        nvidiaModel,
+        geminiApiKey,
+        geminiModel,
+      },
+    });
+
+    res.json({
+      success: true,
+      rows: result.rows,
+      pageCount: result.pageCount,
+      method: result.method,
+      provider: result.provider,
+    });
+  } catch (err) {
+    console.error('[ParseBankStatement] Hata:', err);
+    res.status(500).json({
+      success: false,
+      message: err.message || 'Banka ekstresi ayrıştırılırken hata oluştu.',
+    });
   }
 });
 

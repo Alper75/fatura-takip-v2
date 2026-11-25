@@ -24,6 +24,7 @@ import {
   useStokHareketler,
   useUrunMutations 
 } from '../hooks/useStokQuery';
+import { buildStockBalanceMap } from '../utils/stockBalance';
 import { StokBadge } from './StokBadge';
 import { UrunForm } from './UrunForm';
 import { UrunFaturaGecmisiModal } from './UrunFaturaGecmisiModal';
@@ -74,19 +75,10 @@ export const UrunListesi: React.FC = () => {
   const { data: hareketler } = useStokHareketler();
   const { deleteUrun } = useUrunMutations();
 
-  // Helper to calculate stock for all products
+  // Helper to calculate stock for all products (O(H) single pass)
   const productStocks = useMemo(() => {
     if (!urunler || !hareketler) return {};
-    const stockMap: Record<string, number> = {};
-    
-    urunler.forEach(u => {
-      let miktar = hareketler
-        .filter(h => h.urunId === u.id && (selectedDepo === 'all' || h.depoId === selectedDepo))
-        .reduce((total, h) => h.tip === 'GIRIS' ? total + h.miktar : total - h.miktar, 0);
-      stockMap[u.id] = miktar;
-    });
-    
-    return stockMap;
+    return buildStockBalanceMap(hareketler, selectedDepo);
   }, [urunler, hareketler, selectedDepo]);
 
   // Filtered and sorted data
