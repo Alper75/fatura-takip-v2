@@ -12,22 +12,25 @@ function getPdfParse() {
     // pdf-parse/lib/pdf-parse.js doğrudan yüklenerek ESM altındaki test dosyası okuma hatası önlenir
     cachedPdfParse = require('pdf-parse/lib/pdf-parse.js');
   } catch (err) {
-    console.warn('[BankStatementParser] pdf-parse paketi bulunamadı (npm install çalıştırılmamış olabilir), AI/OCR yedeği kullanılacak:', err.message);
+    console.warn(
+      '[BankStatementParser] pdf-parse paketi bulunamadı, AI/OCR yedeği kullanılacak:',
+      err.message
+    );
     cachedPdfParse = null;
   }
   return cachedPdfParse;
 }
 
-const MAX_CHUNK_CHARS = 32000;
-const MAX_TOTAL_CHARS = 300000;
-const AI_TIMEOUT_MS = 95000;
+// EVREN / OpenAI / Gemini modellerinin zaman aşımına veya çıktı kesilmesine uğramaması için küçük parçalar
+const MAX_CHUNK_CHARS = 9500;
+const MAX_TOTAL_CHARS = 250000;
+const AI_TIMEOUT_MS = 75000;
 
 function decodeTextBuffer(buffer) {
   try {
     const utf8Decoder = new TextDecoder('utf-8', { fatal: true });
     return utf8Decoder.decode(buffer);
   } catch {
-    // Türk bankalarının CSV/TXT çıktıları sıklıkla Windows-1254 (ISO-8859-9) kodlamalıdır
     try {
       const trDecoder = new TextDecoder('windows-1254');
       return trDecoder.decode(buffer);
@@ -106,43 +109,55 @@ function splitIntoLineChunks(text, maxChars = MAX_CHUNK_CHARS) {
   return chunks;
 }
 
-function parseFlexibleNumber(raw) {
-  if (typeof raw === 'number') return Math.abs(raw);
+export function parseFlexibleNumber(raw) {
+  if (typeof raw === 'number') return Number.isFinite(raw) ? Math.abs(raw) : 0;
   let s = String(raw || '').trim();
   if (!s) return 0;
+  // Para birimi veya B/A eklerini temizle, rakam ve ayraçları tut
   s = s.replace(/[^0-9,.-]/g, '');
   if (!s) return 0;
 
-  if (s.includes('.') && s.includes(',')) {
-    // Son ayraç hangisiyse ondalık ayracı odur (1.234,56 vs 1,234.56)
+  const dotCount = (s.match(/\./g) || []).length;
+  const commaCount = (s.match(/,/g) || []).length;
+
+  if (dotCount > 0 && commaCount > 0) {
     if (s.lastIndexOf(',') > s.lastIndexOf('.')) {
+      // Türkçe format: 12.345,67
       s = s.replace(/\./g, '').replace(',', '.');
     } else {
+      // İngilizce format: 12,345.67
       s = s.replace(/,/g, '');
     }
-  } else if (s.includes(',')) {
-    const parts = s.split(',');
-    if (parts.length === 2 && parts[1].length === 3 && parts[0].length <= 3) {
-      // Binlik ayraç olma ihtimali düşüktür ama 2 hane standart kuruştur; 1,250.00 değilse ondalık kabul et
-      s = s.replace(',', '.');
+  } else if (commaCount > 0) {
+    if (commaCount > 1) {
+      // 1,234,567 -> binlik virgül
+      s = s.replace(/,/g, '');
     } else {
+      // Tek virgül -> kuruş ayracı (1234,56)
       s = s.replace(',', '.');
     }
+  } else if (dotCount > 1) {
+    // 1.234.567 -> binlik nokta
+    s = s.replace(/\./g, '');
   }
 
   const num = parseFloat(s);
   return Number.isFinite(num) ? Math.abs(num) : 0;
 }
 
-function normalizeIsoDate(raw) {
+export function normalizeIsoDate(raw) {
   const s = String(raw || '').trim();
   if (!s) return '';
 
-  // YYYY-MM-DD
-  const isoMatch = s.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/);
+  // YYYY-MM-DD veya YYYY.MM.DD veya YYYY/MM/DD
+  const isoMatch = s.match(/(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/);
   if (isoMatch) {
     const [, y, m, d] = isoMatch;
-    return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+    const month = parseInt(m, 10);
+    const day = parseInt(d, 10);
+    if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+      return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+    }
   }
 
   // DD.MM.YYYY veya DD/MM/YYYY veya DD-MM-YYYY
@@ -150,88 +165,224 @@ function normalizeIsoDate(raw) {
   if (trMatch) {
     let [, d, m, y] = trMatch;
     if (y.length === 2) y = `20${y}`;
-    return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+    const year = parseInt(y, 10);
+    const month = parseInt(m, 10);
+    const day = parseInt(d, 10);
+    if (year >= 2000 && year <= 2100 && month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+      return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+    }
   }
 
   return '';
 }
 
-function parsePipeDelimitedOutput(rawOutput) {
+function classifyDirectionToken(token) {
+  const u = String(token || '')
+    .trim()
+    .toUpperCase()
+    .replace(/İ/g, 'I')
+    .replace(/Ç/g, 'C')
+    .replace(/Ğ/g, 'G')
+    .replace(/Ö/g, 'O')
+    .replace(/Ş/g, 'S')
+    .replace(/Ü/g, 'U');
+
+  if (
+    u === 'CIKIS' ||
+    u === 'BORC' ||
+    u === 'GIDEN' ||
+    u === 'ODEME' ||
+    u === 'OUT' ||
+    u === 'DEBIT' ||
+    u === 'B' ||
+    u === '(B)' ||
+    u === '-'
+  ) {
+    return 'borc';
+  }
+  if (
+    u === 'GIRIS' ||
+    u === 'ALACAK' ||
+    u === 'GELEN' ||
+    u === 'TAHSILAT' ||
+    u === 'IN' ||
+    u === 'CREDIT' ||
+    u === 'A' ||
+    u === '(A)' ||
+    u === '+'
+  ) {
+    return 'alacak';
+  }
+  return null;
+}
+
+function isAmountLikeToken(token) {
+  const t = String(token || '').trim();
+  if (!t) return false;
+  // Tarih veya IBAN veya VKN ile karışmaması için kontrol
+  if (/^TR\d{10,}/i.test(t.replace(/\s+/g, ''))) return false;
+  if (normalizeIsoDate(t) && /^\d{1,4}[./-]\d{1,2}[./-]\d{2,4}/.test(t)) return false;
+  // Sadece rakam, nokta, virgül, +/-, TL/TRY/USD/EUR/(B)/(A) içeriyorsa tutardır
+  const stripped = t
+    .replace(/\b(TL|TRY|TRL|USD|EUR|GBP|BORC|BORÇ|ALACAK)\b/gi, '')
+    .replace(/\([BAba]\)/g, '')
+    .trim();
+  if (!/^[+-]?\d[\d.,]*$/.test(stripped)) return false;
+  // 10-11 haneli saf tam sayı VKN/TCKN veya dekont no olabilir; ekstrede ondalık genelde vardır veya makul tutardır
+  if (/^\d{10,}$/.test(stripped)) return false;
+  return parseFlexibleNumber(stripped) > 0;
+}
+
+function mapJsonArrayToRows(arr) {
+  if (!Array.isArray(arr)) return [];
+  return arr
+    .map((item) => {
+      if (!item || typeof item !== 'object') return null;
+      const tarih = normalizeIsoDate(item.tarih || item.islemTarihi || item.date || item.TARIH);
+      const rawAmount = item.tutar ?? item.islemTutari ?? item.amount ?? item.borc ?? item.alacak ?? item.TUTAR;
+      const tutar = parseFlexibleNumber(rawAmount);
+      const rawDir = String(item.yon || item.tip || item.tur || item.type || item.YON || '').trim();
+      let tip = classifyDirectionToken(rawDir);
+      if (!tip) {
+        if (String(rawAmount || '').trim().startsWith('-') || (item.borc && parseFlexibleNumber(item.borc) > 0)) {
+          tip = 'borc';
+        } else {
+          tip = 'alacak';
+        }
+      }
+      const aciklama = String(item.aciklama || item.islemAciklamasi || item.description || item.ACIKLAMA || '')
+        .replace(/\s+/g, ' ')
+        .trim();
+      if (!tarih || !tutar) return null;
+      return { tarih, aciklama, tutar, tip };
+    })
+    .filter(Boolean);
+}
+
+export function parsePipeDelimitedOutput(rawOutput) {
   if (!rawOutput || typeof rawOutput !== 'string') return [];
 
   const cleaned = rawOutput
     .replace(/<think>[\s\S]*?<\/think>/gi, '')
-    .replace(/```(?:csv|text|plain|json)?/gi, '')
+    .replace(/```(?:csv|tsv|text|plain|json|markdown)?/gi, '')
     .replace(/```/g, '')
     .trim();
 
-  // Eğer model yine de JSON döndürdüyse destekle
-  if (cleaned.startsWith('{') || cleaned.startsWith('[')) {
-    try {
-      const parsed = JSON.parse(cleaned);
-      const arr = Array.isArray(parsed) ? parsed : (parsed.hareketler || parsed.rows || parsed.sonuclar || []);
-      if (Array.isArray(arr)) {
-        return arr
-          .map((item) => {
-            const tarih = normalizeIsoDate(item.tarih || item.date);
-            const tutar = parseFlexibleNumber(item.tutar ?? item.amount);
-            const rawDir = String(item.yon || item.tip || item.type || '').toUpperCase();
-            const tip = rawDir.includes('CIK') || rawDir.includes('BORC') || rawDir === 'OUT' ? 'borc' : 'alacak';
-            const aciklama = String(item.aciklama || item.description || '').replace(/\s+/g, ' ').trim();
-            if (!tarih || !tutar) return null;
-            return { tarih, aciklama, tutar, tip };
-          })
-          .filter(Boolean);
+  if (!cleaned) return [];
+
+  // 1. Doğrudan veya metin içine gömülü JSON kontrolü
+  const firstBracket = cleaned.indexOf('[');
+  const lastBracket = cleaned.lastIndexOf(']');
+  const firstBrace = cleaned.indexOf('{');
+  const lastBrace = cleaned.lastIndexOf('}');
+
+  if (cleaned.startsWith('{') || cleaned.startsWith('[') || (firstBracket !== -1 && lastBracket > firstBracket && !cleaned.includes('|'))) {
+    const candidates = [cleaned];
+    if (firstBrace !== -1 && lastBrace > firstBrace) candidates.push(cleaned.slice(firstBrace, lastBrace + 1));
+    if (firstBracket !== -1 && lastBracket > firstBracket) candidates.push(cleaned.slice(firstBracket, lastBracket + 1));
+
+    for (const cand of candidates) {
+      try {
+        const parsed = JSON.parse(cand.replace(/,\s*([}\]])/g, '$1'));
+        const arr = Array.isArray(parsed)
+          ? parsed
+          : parsed.hareketler || parsed.rows || parsed.sonuclar || parsed.islemler || parsed.transactions || [];
+        const jsonRows = mapJsonArrayToRows(arr);
+        if (jsonRows.length > 0) return jsonRows;
+      } catch {
+        // Satır bazlı ayrıştırmaya devam et
       }
-    } catch {
-      // Satır bazlı ayrıştırmaya düş
     }
   }
 
+  // 2. Satır bazlı (|, ; veya TAB ayraçlı, Markdown tablo uyumlu) esnek ayrıştırma
   const rows = [];
   const lines = cleaned.split(/\r?\n/);
 
   for (const rawLine of lines) {
-    const line = rawLine.trim();
+    let line = rawLine.trim();
     if (!line) continue;
 
+    // Markdown tablo ayraç satırlarını (|---|---|) atla
+    if (/^[|\s:-]+$/.test(line)) continue;
+
+    // Baştaki liste numarasını ("1. ", "- ") ve kenardaki Markdown "|" karakterlerini temizle
+    line = line.replace(/^\d+[.)]\s+/, '').replace(/^[-*•]\s+/, '');
+    line = line.replace(/^\|+\s*/, '').replace(/\s*\|+$/, '').trim();
+    if (!line) continue;
+
+    const delimiter = line.includes('|') ? '|' : line.includes('\t') ? '\t' : line.includes(';') ? ';' : null;
+    if (!delimiter) continue;
+
+    const parts = line
+      .split(delimiter)
+      .map((p) => p.trim().replace(/^"|"$/g, ''))
+      .filter((p, idx, arr) => !(p === '' && (idx === 0 || idx === arr.length - 1)));
+
+    if (parts.length < 3) continue;
+
     // Başlık satırını atla
-    const upper = line.toUpperCase();
+    const joinedUpper = parts.join(' ').toUpperCase();
     if (
-      (upper.startsWith('TARIH|') || upper.startsWith('TARİH|') || upper.startsWith('TARIH;')) &&
-      (upper.includes('TUTAR') || upper.includes('ACIKLAMA') || upper.includes('AÇIKLAMA'))
+      (joinedUpper.includes('TARIH') || joinedUpper.includes('TARİH') || joinedUpper.includes('YYYY-MM-DD')) &&
+      (joinedUpper.includes('TUTAR') || joinedUpper.includes('ACIKLAMA') || joinedUpper.includes('AÇIKLAMA')) &&
+      !normalizeIsoDate(parts[0])
     ) {
       continue;
     }
 
-    const delimiter = line.includes('|') ? '|' : ';';
-    const parts = line.split(delimiter).map((p) => p.trim());
-    if (parts.length < 4) continue;
+    // Sütun sırası değişse bile Tarih, Yön, Tutar ve Açıklama sütunlarını akıllıca bul
+    let dateIdx = -1;
+    let tarih = '';
+    for (let i = 0; i < Math.min(parts.length, 3); i++) {
+      const d = normalizeIsoDate(parts[i]);
+      if (d) {
+        dateIdx = i;
+        tarih = d;
+        break;
+      }
+    }
+    if (dateIdx === -1 || !tarih) continue;
 
-    const tarih = normalizeIsoDate(parts[0]);
-    if (!tarih) continue;
+    let dirIdx = -1;
+    let tip = null;
+    for (let i = 0; i < parts.length; i++) {
+      if (i === dateIdx) continue;
+      const detected = classifyDirectionToken(parts[i]);
+      if (detected) {
+        dirIdx = i;
+        tip = detected;
+        break;
+      }
+    }
 
-    const dirRaw = parts[1].toUpperCase();
-    const rawAmountStr = parts[2];
+    let amountIdx = -1;
+    let rawAmountStr = '';
+    for (let i = 0; i < parts.length; i++) {
+      if (i === dateIdx || i === dirIdx) continue;
+      if (isAmountLikeToken(parts[i])) {
+        amountIdx = i;
+        rawAmountStr = parts[i];
+        break;
+      }
+    }
+
+    if (amountIdx === -1) continue;
     const tutar = parseFlexibleNumber(rawAmountStr);
     if (!tutar || tutar <= 0) continue;
 
-    const aciklama = parts.slice(3).join(' - ').replace(/\s+/g, ' ').trim();
-
-    let tip = 'alacak';
-    if (
-      dirRaw.includes('CIK') ||
-      dirRaw.includes('ÇIK') ||
-      dirRaw === 'BORC' ||
-      dirRaw === 'BORÇ' ||
-      dirRaw === 'OUT' ||
-      dirRaw === '-' ||
-      String(rawAmountStr).trim().startsWith('-')
-    ) {
-      tip = 'borc';
-    } else {
-      tip = 'alacak';
+    // Eğer yön ayrı sütunda gelmediyse tutar işaretinden veya (B)/(A) ekinden çıkar
+    if (!tip) {
+      const trimmedAmt = rawAmountStr.trim();
+      if (trimmedAmt.startsWith('-') || /\(B\)|\bBOR[CÇ]\b/i.test(trimmedAmt)) {
+        tip = 'borc';
+      } else {
+        tip = 'alacak';
+      }
     }
+
+    const descParts = parts.filter((_, idx) => idx !== dateIdx && idx !== dirIdx && idx !== amountIdx);
+    const aciklama = descParts.join(' - ').replace(/\s+/g, ' ').trim() || 'Banka Hareketi';
 
     rows.push({ tarih, aciklama, tutar, tip });
   }
@@ -239,25 +390,45 @@ function parsePipeDelimitedOutput(rawOutput) {
   return rows;
 }
 
+/**
+ * PDF/Metin içeriğinde en azından anlamlı tarih + rakam örüntüsü olup olmadığını kontrol eder.
+ * Bazı banka PDF'lerinde özel font (CMap) nedeniyle pdf-parse bozuk karakterler döndürebilir.
+ */
+function hasReadableStatementText(text) {
+  if (!text) return false;
+  const nonSpace = text.replace(/\s+/g, '');
+  if (nonSpace.length < 40) return false;
+  // En az 1 tarih (GG.AA.YYYY / GG/AA/YYYY / YYYY-AA-GG) içermeli
+  const hasDate = /(\d{1,2}[./-]\d{1,2}[./-]\d{2,4}|\d{4}[-/.]\d{1,2}[-/.]\d{1,2})/.test(text);
+  // Alfanümerik karakter oranı makul olmalı (bozuk CMap gliflerini yakalamak için)
+  const readableChars = (nonSpace.match(/[0-9A-Za-zÇĞİÖŞÜçğıöşü.,:/+-]/g) || []).length;
+  const ratio = readableChars / nonSpace.length;
+  return hasDate && ratio > 0.45;
+}
+
 const STATEMENT_SYSTEM_PROMPT = `Sen Türkiye'deki tüm bankaların (Ziraat, Vakıfbank, Halkbank, İş Bankası, Garanti BBVA, Yapı Kredi, Akbank, QNB, Denizbank, Kuveyt Türk, Türkiye Finans, Albaraka, Enpara, TEB vb.) PDF ve Excel hesap ekstrelerini hatasız okuyan uzman bir Mali Müşavir veri ayrıştırma motorusun.
 
 GÖREVİN:
 Verilen banka ekstresi içeriğindeki TÜM gerçek hesap hareketlerini tek tek çıkarıp aşağıdaki DÜZ METİN formatında döndürmektir.
 
-ÇIKTI FORMATI (HER SATIR 4 SÜTUN, DİKEY ÇİZGİ "|" İLE AYRILMIŞ):
+ÇIKTI FORMATI (HER SATIR TAM 4 SÜTUN, DİKEY ÇİZGİ "|" İLE AYRILMIŞ):
 YYYY-MM-DD|YON|TUTAR|ACIKLAMA
 
+ÖRNEK ÇIKTI:
+2026-03-12|CIKIS|1450.75|FAST ODEME - ABC TEDARIK LTD STI
+2026-03-14|GIRIS|25000.00|GELEN HAVALE - XYZ MUSTERI A.S.
+2026-03-14|CIKIS|12.50|EFT ISLEM UCRETI VE BSMV
+
 KESİN KURALLAR:
-1. YALNIZCA veri satırlarını yaz. Açıklama, selamlama, başlık satırı, özet veya \`\`\` kod bloğu YAZMA.
+1. YALNIZCA veri satırlarını yaz. Başta/sonda "|" koyma, açıklama, başlık satırı veya \`\`\` kod bloğu YAZMA.
 2. YYYY-MM-DD: İşlem tarihi (ör. 2026-03-15). Saat varsa at, sadece tarihi yaz.
 3. YON: Sadece "GIRIS" veya "CIKIS" yaz:
-   - "GIRIS": Banka hesabımıza para girişi (gelen EFT/FAST/havale, müşteri tahsilatı, POS üye işyeri geçişi, nakit yatırma, + tutar, bakiyeyi artıran işlem).
-   - "CIKIS": Banka hesabımızdan para çıkışı (giden EFT/FAST/havale, tedarikçi ödemesi, komisyon/BSMV/masraf, vergi/SGK/maaş/fatura ödemesi, kredi/kart ödemesi, para çekme, - tutar, bakiyeyi azaltan işlem).
+   - "GIRIS": Hesaba para girişi (gelen EFT/FAST/havale, tahsilat, POS geçişi, para yatırma, + tutar, Alacak/A, bakiyeyi artıran işlem).
+   - "CIKIS": Hesaptan para çıkışı (giden EFT/FAST/havale, ödeme, komisyon/BSMV/masraf, vergi/SGK/maaş/fatura/kart ödemesi, para çekme, - tutar, Borç/B, bakiyeyi azaltan işlem).
    - İPUCU: Ekstrede "Bakiye" sütunu varsa bir önceki satıra göre bakiyenin artıp azaldığını kontrol ederek GIRIS/CIKIS yönünü %100 doğrula.
-4. TUTAR: İşlem tutarını pozitif ondalık sayı olarak nokta ile yaz (ör. 1234.56). Binlik ayracı ve para birimi sembolü (TL, ₺, USD) KOYMA. Bakiye sütununu DEĞİL, işlem tutarını yaz!
-5. ACIKLAMA: Dekont/işlem açıklamasını, gönderen/alıcı adını, varsa VKN/TCKN veya IBAN bilgisini kısaltmadan tek satırda koru (içinde "|" geçiyorsa "-" yap).
-6. Sayfa üst/alt bilgilerini, "Devreden Bakiye", "Dönem Sonu Bakiyesi", "Toplam Borç/Alacak" özet satırlarını hareket olarak EKLEME.
-7. Hiçbir gerçek hareketi atlama veya özetleme.`;
+4. TUTAR: İşlem tutarını pozitif sayı olarak NOKTA ondalık ayracıyla yaz (ör. 1234.56 veya 25000.00). Binlik ayracı ve TL/₺/USD sembolü KOYMA. Bakiye sütununu DEĞİL, işlem tutarını yaz!
+5. ACIKLAMA: İşlem açıklamasını, karşı taraf unvanını, varsa VKN/TCKN veya IBAN bilgisini tek satırda koru (içinde "|" geçiyorsa "-" yap).
+6. "Devreden Bakiye", "Dönem Sonu Bakiyesi", "Toplam Borç/Alacak" özet satırlarını EKLEME.`;
 
 async function getCompanyAiCredentials(companyId, overrides = {}) {
   const keys = [
@@ -287,7 +458,13 @@ async function getCompanyAiCredentials(companyId, overrides = {}) {
     map[row.setting_key] = row.setting_value || '';
   }
 
-  let geminiApiKey = (overrides.geminiApiKey || map.gemini_api_key || process.env.VITE_GEMINI_API_KEY || process.env.GEMINI_API_KEY || '').trim();
+  let geminiApiKey = (
+    overrides.geminiApiKey ||
+    map.gemini_api_key ||
+    process.env.VITE_GEMINI_API_KEY ||
+    process.env.GEMINI_API_KEY ||
+    ''
+  ).trim();
   if (geminiApiKey.includes('AIzaSyDOAnAKwOlBR4uWpEn8IYvZcHGx3XCI1UY')) {
     geminiApiKey = '';
   }
@@ -326,10 +503,8 @@ async function getCompanyAiCredentials(companyId, overrides = {}) {
   return creds;
 }
 
-async function callTextLlmChunk(chunkText, creds) {
-  const userMessage = `Aşağıdaki banka ekstresi içeriğindeki tüm hareketleri YYYY-MM-DD|YON|TUTAR|ACIKLAMA formatında çıkar:\n\n---\n${chunkText}\n---`;
-
-  if (creds.activeProvider === 'gemini' && creds.geminiApiKey) {
+async function callSingleProviderText(provider, userMessage, creds) {
+  if (provider === 'gemini' && creds.geminiApiKey) {
     let model = creds.geminiModel || 'gemini-2.5-flash';
     if (model === 'gemini-3.8-flash' || model === 'gemini-3.6-flash') model = 'gemini-2.5-flash';
     const gRes = await fetch(
@@ -355,7 +530,7 @@ async function callTextLlmChunk(chunkText, creds) {
     return gData.candidates?.[0]?.content?.parts?.[0]?.text || '';
   }
 
-  if (creds.activeProvider === 'openai' && creds.openaiApiKey) {
+  if (provider === 'openai' && creds.openaiApiKey) {
     const oRes = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -380,20 +555,58 @@ async function callTextLlmChunk(chunkText, creds) {
     return oData.choices?.[0]?.message?.content || '';
   }
 
-  if (creds.activeProvider === 'evren' && creds.evrenApiKey) {
-    const textModel = creds.evrenModel && creds.evrenModel !== 'dots-ocr' ? creds.evrenModel : 'gemma-4-31b';
-    return await evrenClient.chatCompletion({
-      messages: [
-        { role: 'system', content: STATEMENT_SYSTEM_PROMPT },
-        { role: 'user', content: userMessage },
-      ],
-      apiKey: creds.evrenApiKey,
-      model: textModel,
-      temperature: 0.1,
-    });
+  if (provider === 'evren' && creds.evrenApiKey) {
+    // evrenClient.chatCompletion içindeki 18sn timeout ve sessiz boş dönüş (return '') yerine
+    // ekstre analizine uygun 65sn timeout ve çoklu model denemesiyle doğrudan çağırıyoruz
+    await evrenClient.ensureTermsAccepted(creds.evrenApiKey);
+    const preferred =
+      creds.evrenModel && !creds.evrenModel.includes('ocr') ? creds.evrenModel : 'gemma-4-31b';
+    const candidateModels = Array.from(
+      new Set([preferred, 'gemma-4-31b', 'deepseek-v4-flash', 'qwen3.8-flash-next'].filter(Boolean))
+    );
+
+    let lastEvrenErr = '';
+    for (const m of candidateModels) {
+      try {
+        const evRes = await fetch(evrenClient.chatEndpoint, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${creds.evrenApiKey.trim()}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: m,
+            messages: [
+              { role: 'system', content: STATEMENT_SYSTEM_PROMPT },
+              { role: 'user', content: userMessage },
+            ],
+            max_tokens: 8192,
+            temperature: 0.1,
+          }),
+          signal: AbortSignal.timeout(65000),
+        });
+
+        const evData = await evRes.json().catch(() => ({}));
+        if (!evRes.ok) {
+          const msg = evData?.error?.message || evData?.message || `HTTP ${evRes.status}`;
+          lastEvrenErr = `EVREN (${m}): ${msg}`;
+          if (evRes.status === 401) throw new Error(lastEvrenErr);
+          continue;
+        }
+
+        const choiceMsg = evData?.choices?.[0]?.message;
+        const content = (choiceMsg?.content || choiceMsg?.reasoning_content || '').trim();
+        if (content) return content;
+        lastEvrenErr = `EVREN (${m}) boş yanıt döndürdü.`;
+      } catch (err) {
+        lastEvrenErr = `EVREN (${m}): ${err.message}`;
+        if (err.message?.includes('401')) throw err;
+      }
+    }
+    throw new Error(lastEvrenErr || 'EVREN servisinden yanıt alınamadı.');
   }
 
-  if ((creds.activeProvider === 'grok' || creds.activeProvider === 'xai') && creds.xaiApiKey) {
+  if ((provider === 'grok' || provider === 'xai') && creds.xaiApiKey) {
     const xRes = await fetch('https://api.x.ai/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -415,10 +628,10 @@ async function callTextLlmChunk(chunkText, creds) {
     if (!xRes.ok) {
       throw new Error(xData.error?.message || `Grok HTTP ${xRes.status}`);
     }
-    return xData.choices?.[0]?.message?.content || '';
+    return xData.choices?.[0]?.message?.content || xData.choices?.[0]?.message?.reasoning_content || '';
   }
 
-  if (creds.activeProvider === 'nvidia' && creds.nvidiaApiKey) {
+  if (provider === 'nvidia' && creds.nvidiaApiKey) {
     const nvRes = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -440,68 +653,126 @@ async function callTextLlmChunk(chunkText, creds) {
     if (!nvRes.ok) {
       throw new Error(nvData.error?.message || nvData.message || `NVIDIA HTTP ${nvRes.status}`);
     }
-    return nvData.choices?.[0]?.message?.content || '';
+    return nvData.choices?.[0]?.message?.content || nvData.choices?.[0]?.message?.reasoning_content || '';
   }
 
-  throw new Error('Aktif bir yapay zeka API anahtarı bulunamadı. Lütfen Ayarlar bölümünden API anahtarınızı tanımlayın.');
+  return '';
+}
+
+async function callTextLlmChunk(chunkText, creds) {
+  const userMessage = `Aşağıdaki banka ekstresi içeriğindeki tüm hareketleri YYYY-MM-DD|YON|TUTAR|ACIKLAMA formatında çıkar:\n\n---\n${chunkText}\n---`;
+
+  // Önce aktif sağlayıcıyı dene; hata verirse tanımlı diğer anahtarlara yedekle
+  const orderedProviders = Array.from(
+    new Set([
+      creds.activeProvider,
+      creds.geminiApiKey ? 'gemini' : null,
+      creds.openaiApiKey ? 'openai' : null,
+      creds.evrenApiKey ? 'evren' : null,
+      creds.xaiApiKey ? 'grok' : null,
+      creds.nvidiaApiKey ? 'nvidia' : null,
+    ].filter(Boolean))
+  );
+
+  let lastErr = null;
+  for (const p of orderedProviders) {
+    try {
+      const out = await callSingleProviderText(p, userMessage, creds);
+      if (out && out.trim()) return out;
+    } catch (err) {
+      lastErr = err;
+      console.warn(`[BankStatementParser] ${p} sağlayıcısı başarısız, yedek deneniyor:`, err.message);
+    }
+  }
+
+  if (lastErr) throw lastErr;
+  throw new Error('Yapay zeka sağlayıcısından ekstre yanıtı alınamadı.');
 }
 
 async function parseScannedPdfWithVision(rawBase64, creds) {
+  let lastVisionErr = '';
+
   // 1. Gemini doğrudan çok sayfalı PDF okuyabilir
   if (creds.geminiApiKey) {
-    let model = creds.geminiModel || 'gemini-2.5-flash';
-    if (model === 'gemini-3.8-flash' || model === 'gemini-3.6-flash') model = 'gemini-2.5-flash';
-    const gRes = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${creds.geminiApiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          systemInstruction: { parts: [{ text: STATEMENT_SYSTEM_PROMPT }] },
-          contents: [
-            {
-              parts: [
-                { text: 'Bu PDF banka ekstresindeki tüm hareketleri YYYY-MM-DD|YON|TUTAR|ACIKLAMA formatında çıkar.' },
-                { inline_data: { mime_type: 'application/pdf', data: rawBase64 } },
-              ],
+    try {
+      let model = creds.geminiModel || 'gemini-2.5-flash';
+      if (model === 'gemini-3.8-flash' || model === 'gemini-3.6-flash') model = 'gemini-2.5-flash';
+      const gRes = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${creds.geminiApiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            systemInstruction: { parts: [{ text: STATEMENT_SYSTEM_PROMPT }] },
+            contents: [
+              {
+                parts: [
+                  { text: 'Bu PDF banka ekstresindeki tüm hareketleri YYYY-MM-DD|YON|TUTAR|ACIKLAMA formatında çıkar.' },
+                  { inline_data: { mime_type: 'application/pdf', data: rawBase64 } },
+                ],
+              },
+            ],
+            generationConfig: {
+              maxOutputTokens: 16384,
+              temperature: 0.1,
             },
-          ],
-          generationConfig: {
-            maxOutputTokens: 16384,
-            temperature: 0.1,
-          },
-        }),
-        signal: AbortSignal.timeout(AI_TIMEOUT_MS),
+          }),
+          signal: AbortSignal.timeout(AI_TIMEOUT_MS),
+        }
+      );
+      const gData = await gRes.json();
+      if (gData.error) {
+        lastVisionErr = `Gemini PDF (${model}): ${gData.error.message}`;
+      } else {
+        const out = gData.candidates?.[0]?.content?.parts?.[0]?.text || '';
+        const rows = parsePipeDelimitedOutput(out);
+        if (rows.length > 0) return rows;
       }
-    );
-    const gData = await gRes.json();
-    if (gData.error) {
-      throw new Error(`Gemini PDF OCR (${model}): ${gData.error.message}`);
+    } catch (err) {
+      lastVisionErr = `Gemini PDF: ${err.message}`;
     }
-    const out = gData.candidates?.[0]?.content?.parts?.[0]?.text || '';
-    return parsePipeDelimitedOutput(out);
   }
 
-  // 2. EVREN OCR yedek akışı
+  // 2. EVREN OCR yedek akışı (performOcr { rawText, data } objesi döndürür!)
   if (creds.evrenApiKey) {
-    const ocrText = await evrenClient.performOcr({
-      imageBase64: rawBase64,
-      mimeType: 'application/pdf',
-      apiKey: creds.evrenApiKey,
-      model: 'dots-ocr',
-    });
-    if (ocrText && String(ocrText).trim().length > 20) {
-      const llmOut = await callTextLlmChunk(String(ocrText), creds);
-      return parsePipeDelimitedOutput(llmOut);
+    for (const ocrModel of ['dots-ocr', 'deepseek-ocr-2']) {
+      try {
+        const ocrRes = await evrenClient.performOcr({
+          imageBase64: rawBase64,
+          mimeType: 'application/pdf',
+          apiKey: creds.evrenApiKey,
+          model: ocrModel,
+        });
+        const ocrText = (ocrRes?.rawText || '').trim();
+        if (ocrText.length > 20) {
+          const chunks = splitIntoLineChunks(ocrText, MAX_CHUNK_CHARS);
+          const rows = [];
+          for (const ch of chunks) {
+            const llmOut = await callTextLlmChunk(ch, creds);
+            rows.push(...parsePipeDelimitedOutput(llmOut));
+          }
+          if (rows.length > 0) return rows;
+        }
+      } catch (ocrErr) {
+        lastVisionErr = `EVREN OCR (${ocrModel}): ${ocrErr.message}`;
+        console.warn('[BankStatementParser]', lastVisionErr);
+      }
     }
   }
 
   throw new Error(
-    'Yüklenen PDF taranmış bir görüntü (seçilebilir metin içermiyor). Taranmış PDF ekstreleri okumak için Gemini veya EVREN API anahtarı tanımlı olmalıdır.'
+    lastVisionErr ||
+      'Bu PDF taranmış görüntü veya özel şifreli font içeriyor. Taranmış PDF ekstreleri okumak için geçerli bir Gemini veya EVREN API anahtarı tanımlı olmalıdır.'
   );
 }
 
-export async function parseBankStatementFile({ companyId, fileBase64, fileName = '', mimeType = '', overrides = {} }) {
+export async function parseBankStatementFile({
+  companyId,
+  fileBase64,
+  fileName = '',
+  mimeType = '',
+  overrides = {},
+}) {
   if (!fileBase64) {
     throw new Error('Dosya verisi bulunamadı.');
   }
@@ -533,21 +804,24 @@ export async function parseBankStatementFile({ companyId, fileBase64, fileName =
   let pageCount = 1;
 
   if (isPdf) {
-    let pdfData = null;
     try {
       const pdfParseFn = getPdfParse();
       if (pdfParseFn) {
-        pdfData = await pdfParseFn(buffer);
+        const pdfData = await pdfParseFn(buffer);
         extractedText = (pdfData?.text || '').trim();
         pageCount = pdfData?.numpages || 1;
+        console.log(
+          `[BankStatementParser] PDF metni çıkarıldı (${fileName}): ${extractedText.length} karakter, ${pageCount} sayfa`
+        );
       }
     } catch (pdfErr) {
       console.warn('[BankStatementParser] pdf-parse uyarısı, OCR yedeğine geçiliyor:', pdfErr.message);
       extractedText = '';
     }
 
-    const nonSpaceLen = extractedText.replace(/\s+/g, '').length;
-    if (nonSpaceLen < 40) {
+    // Seçilebilir metin yoksa veya özel CMap font nedeniyle okunaksızsa doğrudan görsel/OCR akışına geç
+    if (!hasReadableStatementText(extractedText)) {
+      console.log('[BankStatementParser] PDF içinde okunabilir metin/tarih yok, görsel/OCR akışına geçiliyor...');
       const visionRows = await parseScannedPdfWithVision(rawBase64, creds);
       return {
         rows: visionRows,
@@ -568,11 +842,37 @@ export async function parseBankStatementFile({ companyId, fileBase64, fileName =
 
   const chunks = splitIntoLineChunks(extractedText, MAX_CHUNK_CHARS);
   const allRows = [];
+  let rawSample = '';
 
   for (const chunk of chunks) {
     const rawOut = await callTextLlmChunk(chunk, creds);
+    if (!rawSample && rawOut) rawSample = rawOut.slice(0, 300);
     const parsedChunkRows = parsePipeDelimitedOutput(rawOut);
     allRows.push(...parsedChunkRows);
+  }
+
+  // Eğer PDF metninden (ör. sadece üstbilgi/altbilgi çıktıysa) 0 satır döndüyse görsel/OCR yedeğini de dene
+  if (isPdf && allRows.length === 0 && (creds.geminiApiKey || creds.evrenApiKey)) {
+    try {
+      console.log('[BankStatementParser] Metin analizinden 0 satır döndü, PDF görsel/OCR yedeği deneniyor...');
+      const fallbackRows = await parseScannedPdfWithVision(rawBase64, creds);
+      if (fallbackRows.length > 0) {
+        return {
+          rows: fallbackRows,
+          pageCount,
+          method: 'vision-ocr-fallback',
+          provider: creds.geminiApiKey ? 'gemini' : 'evren',
+        };
+      }
+    } catch (fbErr) {
+      console.warn('[BankStatementParser] PDF görsel yedeği uyarısı:', fbErr.message);
+    }
+  }
+
+  if (allRows.length === 0) {
+    console.warn(
+      `[BankStatementParser] 0 hareket ayrıştırıldı. Sağlayıcı: ${creds.activeProvider}, Metin: ${extractedText.length} krk, AI Örnek: ${rawSample}`
+    );
   }
 
   return {
