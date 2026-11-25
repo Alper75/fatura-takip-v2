@@ -321,35 +321,14 @@ export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploa
     });
   };
 
-  const readFileAsDataUrl = (file: File): Promise<string> =>
-    new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result || ''));
-      reader.onerror = () => reject(new Error('Dosya okunamadı.'));
-      reader.readAsDataURL(file);
-    });
-
-  const parsePdfDirectlyOnBackend = async (file: File) => {
+  const parsePdfDirectlyInBrowser = async (file: File) => {
     setIsProcessing(true);
     setProcessingMessage('PDF ekstre doğrudan okunuyor...');
 
     try {
-      const fileBase64 = await readFileAsDataUrl(file);
+      const { parsePdfBankStatementInBrowser } = await import('@/lib/pdfBankStatementParser');
+      const rawRows = await parsePdfBankStatementInBrowser(file);
 
-      const res = await apiFetch('/api/banka/parse-ekstre-pdf', {
-        method: 'POST',
-        body: JSON.stringify({
-          fileBase64,
-          fileName: file.name,
-          mimeType: file.type || 'application/pdf',
-        }),
-      });
-
-      if (!res?.success) {
-        throw new Error(res?.message || 'PDF ekstre okunamadı.');
-      }
-
-      const rawRows = Array.isArray(res.rows) ? res.rows : [];
       if (rawRows.length === 0) {
         toast.error('PDF içinde işlenebilir banka hareketi bulunamadı.');
         return;
@@ -595,7 +574,7 @@ export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploa
     }
 
     if (isPdf) {
-      await parsePdfDirectlyOnBackend(file);
+      await parsePdfDirectlyInBrowser(file);
       return;
     }
 

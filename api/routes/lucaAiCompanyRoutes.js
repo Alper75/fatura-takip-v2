@@ -8,7 +8,6 @@ import { client } from '../db.js';
 import { authMiddleware, permissionMiddleware } from '../auth.js';
 import { telegramBotService } from '../services/telegramBot.js';
 import { evrenClient } from '../services/evrenClient.js';
-import { parseBankStatementFile } from '../services/bankStatementParserService.js';
 import { upload, uploadsDir, n } from '../utils/shared.js';
 
 const router = express.Router();
@@ -653,31 +652,6 @@ Temel Muhasebe İlkelerin ve Davranış Kuralların:
   } catch (err) {
     console.error('AI Analyze Error:', err);
     res.status(500).json({ success: false, message: err.message || 'Yapay zeka analizi sırasında hata oluştu.' });
-  }
-});
-
-router.post(['/api/banka/parse-ekstre-pdf', '/api/ai/parse-bank-statement'], authMiddleware, async (req, res) => {
-  try {
-    const { fileBase64, fileName, mimeType } = req.body || {};
-
-    const result = await parseBankStatementFile({
-      fileBase64,
-      fileName,
-      mimeType,
-    });
-
-    res.json({
-      success: true,
-      rows: result.rows,
-      pageCount: result.pageCount,
-      method: result.method,
-    });
-  } catch (err) {
-    console.error('[ParseBankStatement] Hata:', err);
-    res.status(400).json({
-      success: false,
-      message: err.message || 'Banka ekstresi ayrıştırılırken hata oluştu.',
-    });
   }
 });
 
