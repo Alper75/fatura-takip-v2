@@ -329,141 +329,244 @@ export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploa
       reader.readAsDataURL(file);
     });
 
-  const parseWithAiBackend = async (file: File, customMessage?: string) => {
+  const parsePdfDirectlyOnBackend = async (file: File) => {
     setIsProcessing(true);
-    setProcessingMessage(
-      customMessage || 'Ekstre okunuyor ve hareketler yapay zeka ile ayrıştırılıyor...'
-    );
+    setProcessingMessage('PDF ekstre doğrudan okunuyor...');
 
     try {
-      const [fileBase64, config] = await Promise.all([
-        readFileAsDataUrl(file),
-        getAiConfig(),
-      ]);
+      const fileBase64 = await readFileAsDataUrl(file);
 
-      const res = await apiFetch('/api/ai/parse-bank-statement', {
+      const res = await apiFetch('/api/banka/parse-ekstre-pdf', {
         method: 'POST',
         body: JSON.stringify({
           fileBase64,
           fileName: file.name,
-          mimeType: file.type,
-          provider: config.activeProvider,
-          evrenApiKey: config.evrenApiKey,
-          evrenModel: config.evrenModelName,
-          openaiApiKey: config.openaiApiKey,
-          openaiModel: config.openaiModelName,
-          xaiApiKey: config.xaiApiKey,
-          xaiModel: config.xaiModelName,
-          nvidiaApiKey: config.nvidiaApiKey,
-          nvidiaModel: config.nvidiaModelName,
-          geminiApiKey: config.apiKey,
-          geminiModel: config.aiModel,
+          mimeType: file.type || 'application/pdf',
         }),
       });
 
       if (!res?.success) {
-        throw new Error(res?.message || 'Ekstre ayrıştırılamadı.');
+        throw new Error(res?.message || 'PDF ekstre okunamadı.');
       }
 
       const rawRows = Array.isArray(res.rows) ? res.rows : [];
       if (rawRows.length === 0) {
-        toast.error('Dosya içinde işlenebilir banka hareketi bulunamadı.');
+        toast.error('PDF içinde işlenebilir banka hareketi bulunamadı.');
         return;
       }
 
       const mapped = buildEkstreSatirlari(rawRows);
       setSatirlar(mapped);
-      toast.success(`${mapped.length} adet hareket başarıyla yüklendi.`);
+      toast.success(`${mapped.length} adet hareket PDF ekstreden doğrudan yüklendi.`);
     } catch (err: any) {
-      console.error('AI ekstre ayrıştırma hatası:', err);
-      toast.error(err?.message || 'Ekstre dosyası ayrıştırılırken hata oluştu.');
+      console.error('PDF ekstre okuma hatası:', err);
+      toast.error(err?.message || 'PDF ekstre dosyası okunurken hata oluştu.');
     } finally {
       setIsProcessing(false);
       setProcessingMessage('');
     }
   };
 
-  const tryLocalExcelParse = async (
-    file: File
-  ): Promise<Array<{ tarih: string; aciklama: string; tutar: number; tip: 'borc' | 'alacak' }> | null> => {
-    const arrayBuffer = await file.arrayBuffer();
-    const wb = XLSX.read(arrayBuffer, { type: 'array', cellDates: true });
-    const sheetName = wb.SheetNames[0];
-    if (!sheetName) return null;
-
-    const ws = wb.Sheets[sheetName];
-    const data = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
-
+  const parseSheetMatrixRows = (
+    data: any[][]
+  ): Array<{ tarih: string; aciklama: string; tutar: number; tip: 'borc' | 'alacak' }> | null => {
     let headerRowIdx = -1;
     let dateIdx = -1;
     let descIdx = -1;
     let amountIdx = -1;
     let debitIdx = -1;
     let creditIdx = -1;
+    let dirIdx = -1;
+    let balanceIdx = -1;
 
-    for (let i = 0; i < Math.min(data.length, 35); i++) {
+    for (let i = 0; i < Math.min(data.length, 45); i++) {
       const row = (data[i] || []).map((cell) => normalizeString(String(cell || '')));
-      const hasDate = row.some((c) => c.includes('TARIH') || c === 'VALOR');
-      const hasDesc = row.some((c) => c.includes('ACIKLAMA') || c.includes('DETAY') || c.includes('ISLEM ADI'));
-      if (hasDate && hasDesc) {
+      const hasDate = row.some((c) => c.includes('TARIH') || c === 'VALOR' || c === 'DATE');
+      const hasDescOrAmt = row.some(
+        (c) =>
+          c.includes('ACIKLAMA') ||
+          c.includes('DETAY') ||
+          c.includes('ISLEM ADI') ||
+          c.includes('IZAHAT') ||
+          c.includes('TUTAR') ||
+          c === 'BORC' ||
+          c === 'ALACAK'
+      );
+      if (hasDate && hasDescOrAmt) {
         headerRowIdx = i;
-        dateIdx = row.findIndex((c) => c.includes('TARIH') || c === 'VALOR');
-        descIdx = row.findIndex((c) => c.includes('ACIKLAMA') || c.includes('DETAY') || c.includes('ISLEM ADI'));
-        amountIdx = row.findIndex((c) => c.includes('ISLEM TUTARI') || c === 'TUTAR' || c === 'MIKTAR');
-        debitIdx = row.findIndex((c) => c === 'BORC' || c.includes('BORC TUTAR') || c === 'CIKIS');
-        creditIdx = row.findIndex((c) => c === 'ALACAK' || c.includes('ALACAK TUTAR') || c === 'GIRIS');
+        dateIdx = row.findIndex((c) => c.includes('ISLEM TARIHI') || c.includes('HAREKET TARIHI') || c.includes('TARIH') || c === 'VALOR');
+        descIdx = row.findIndex(
+          (c) =>
+            c.includes('ACIKLAMA') ||
+            c.includes('DETAY') ||
+            c.includes('ISLEM ADI') ||
+            c.includes('IZAHAT') ||
+            c.includes('HAREKET')
+        );
+        amountIdx = row.findIndex(
+          (c) =>
+            c.includes('ISLEM TUTARI') ||
+            c.includes('HAREKET TUTARI') ||
+            c === 'TUTAR' ||
+            c === 'MIKTAR' ||
+            c === 'NET TUTAR'
+        );
+        debitIdx = row.findIndex(
+          (c) => (c === 'BORC' || c.includes('BORC TUTAR') || c === 'CIKIS' || c === 'GIDEN') && !c.includes('ALACAK')
+        );
+        creditIdx = row.findIndex((c) => c === 'ALACAK' || c.includes('ALACAK TUTAR') || c === 'GIRIS' || c === 'GELEN');
+        dirIdx = row.findIndex(
+          (c) => c === 'B/A' || c === 'BORC/ALACAK' || c.includes('ISLEM YONU') || c === 'YON' || c === 'BORC / ALACAK'
+        );
+        balanceIdx = row.findIndex((c) => c.includes('BAKIYE'));
         break;
       }
     }
 
-    if (headerRowIdx === -1) return null;
+    if (headerRowIdx === -1 || dateIdx === -1) return null;
 
-    const parsedItems: Array<{ tarih: string; aciklama: string; tutar: number; tip: 'borc' | 'alacak' }> = [];
+    const rawItems: Array<{
+      tarih: string;
+      aciklama: string;
+      tutar: number;
+      tip: 'borc' | 'alacak' | null;
+      balance: number | null;
+    }> = [];
+
     for (let i = headerRowIdx + 1; i < data.length; i++) {
       try {
         const row = data[i];
-        if (!row || !row[dateIdx]) continue;
+        if (!row || row[dateIdx] === undefined || row[dateIdx] === null || String(row[dateIdx]).trim() === '') continue;
 
-        let tarih = String(row[dateIdx]).trim();
-        if (row[dateIdx] instanceof Date && !isNaN(row[dateIdx].getTime())) {
-          tarih = row[dateIdx].toISOString().split('T')[0];
-        } else if (tarih.includes('/')) {
-          const parts = tarih.split(' ')[0].split('/');
-          if (parts.length === 3) {
-            const [day, month, year] = parts;
-            tarih = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
-          }
-        } else if (tarih.includes('.')) {
-          const parts = tarih.split(' ')[0].split('.');
-          if (parts.length === 3) {
-            const [day, month, year] = parts;
-            tarih = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+        let tarih = '';
+        const rawDateCell = row[dateIdx];
+        if (rawDateCell instanceof Date && !isNaN(rawDateCell.getTime())) {
+          tarih = rawDateCell.toISOString().split('T')[0];
+        } else {
+          const sDate = String(rawDateCell).trim().split(/\s+/)[0];
+          if (/^\d{4}[-/.]\d{1,2}[-/.]\d{1,2}$/.test(sDate)) {
+            const [y, m, d] = sDate.split(/[-/.]/);
+            tarih = `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+          } else if (/^\d{1,2}[./-]\d{1,2}[./-]\d{2,4}$/.test(sDate)) {
+            let [d, m, y] = sDate.split(/[./-]/);
+            if (y.length === 2) y = `20${y}`;
+            tarih = `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
           }
         }
+        if (!tarih) continue;
 
-        const desc = String(row[descIdx] || '').trim();
+        const desc = descIdx !== -1 ? String(row[descIdx] || '').trim() : 'Banka Hareketi';
+        const upperDesc = normalizeString(desc);
+        if (upperDesc.includes('DEVREDEN BAKIYE') || upperDesc.includes('TOPLAM BORC') || upperDesc.includes('DONEM SONU')) {
+          continue;
+        }
+
         let amount = 0;
-        let tip: 'borc' | 'alacak' = 'alacak';
+        let tip: 'borc' | 'alacak' | null = null;
 
-        if (amountIdx !== -1) {
-          const val = parseTurkishNumber(row[amountIdx]);
-          amount = Math.abs(val);
-          tip = val < 0 ? 'borc' : 'alacak';
-        } else if (debitIdx !== -1 && creditIdx !== -1) {
+        if (debitIdx !== -1 && creditIdx !== -1) {
           const borc = Math.abs(parseTurkishNumber(row[debitIdx]));
           const alacak = Math.abs(parseTurkishNumber(row[creditIdx]));
           amount = borc > 0 ? borc : alacak;
           tip = borc > 0 ? 'borc' : 'alacak';
+        } else if (amountIdx !== -1) {
+          const rawAmtStr = String(row[amountIdx] ?? '').trim();
+          const val = parseTurkishNumber(row[amountIdx]);
+          amount = Math.abs(val);
+
+          if (val < 0 || rawAmtStr.startsWith('-') || /\(B\)|\bBORC\b/i.test(normalizeString(rawAmtStr))) {
+            tip = 'borc';
+          } else if (rawAmtStr.startsWith('+') || /\(A\)|\bALACAK\b/i.test(normalizeString(rawAmtStr))) {
+            tip = 'alacak';
+          } else if (dirIdx !== -1 && row[dirIdx] != null) {
+            const dVal = normalizeString(String(row[dirIdx]));
+            if (dVal === 'B' || dVal.includes('BORC') || dVal.includes('CIKIS') || dVal === '-') tip = 'borc';
+            else if (dVal === 'A' || dVal.includes('ALACAK') || dVal.includes('GIRIS') || dVal === '+') tip = 'alacak';
+          } else {
+            // Standart pozitif/negatif tek sütunlu ekstrelerde pozitif giriş, negatif çıkıştır; bakiye varsa aşağıda doğrulanır
+            tip = balanceIdx !== -1 ? null : 'alacak';
+          }
         }
 
         if (!amount || isNaN(amount)) continue;
-        parsedItems.push({ tarih, aciklama: desc, tutar: amount, tip });
+
+        const balVal =
+          balanceIdx !== -1 && row[balanceIdx] !== undefined && row[balanceIdx] !== ''
+            ? parseTurkishNumber(row[balanceIdx])
+            : null;
+
+        rawItems.push({
+          tarih,
+          aciklama: desc,
+          tutar: amount,
+          tip,
+          balance: balVal !== null && !isNaN(balVal) ? balVal : null,
+        });
       } catch (rowErr) {
         console.error('Satır işleme hatası:', rowErr);
       }
     }
 
-    return parsedItems.length > 0 ? parsedItems : null;
+    // İşaretsiz tek Tutar sütunu + Bakiye olan Excel/CSV'lerde bakiye farkından yönü doğrula
+    for (let i = 0; i < rawItems.length; i++) {
+      if (rawItems[i].tip !== null) continue;
+      const curr = rawItems[i];
+      const prev = i > 0 ? rawItems[i - 1] : null;
+      const next = i + 1 < rawItems.length ? rawItems[i + 1] : null;
+
+      if (prev && prev.balance !== null && curr.balance !== null) {
+        if (Math.abs(prev.balance - curr.tutar - curr.balance) < 0.05) curr.tip = 'borc';
+        else if (Math.abs(prev.balance + curr.tutar - curr.balance) < 0.05) curr.tip = 'alacak';
+      }
+      if (curr.tip === null && next && next.balance !== null && curr.balance !== null) {
+        if (Math.abs(next.balance - curr.tutar - curr.balance) < 0.05) curr.tip = 'borc';
+        else if (Math.abs(next.balance + curr.tutar - curr.balance) < 0.05) curr.tip = 'alacak';
+      }
+      if (curr.tip === null) curr.tip = 'alacak';
+    }
+
+    return rawItems.length > 0
+      ? rawItems.map((r) => ({
+          tarih: r.tarih,
+          aciklama: r.aciklama,
+          tutar: r.tutar,
+          tip: r.tip || 'alacak',
+        }))
+      : null;
+  };
+
+  const tryLocalExcelOrCsvParse = async (
+    file: File,
+    isCsvOrTxt: boolean
+  ): Promise<Array<{ tarih: string; aciklama: string; tutar: number; tip: 'borc' | 'alacak' }> | null> => {
+    const arrayBuffer = await file.arrayBuffer();
+
+    if (isCsvOrTxt) {
+      let text = '';
+      try {
+        text = new TextDecoder('utf-8', { fatal: true }).decode(arrayBuffer);
+      } catch {
+        text = new TextDecoder('windows-1254').decode(arrayBuffer);
+      }
+      const wb = XLSX.read(text, { type: 'string', cellDates: true });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      if (!ws) return null;
+      const data = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
+      return parseSheetMatrixRows(data);
+    }
+
+    const wb = XLSX.read(arrayBuffer, { type: 'array', cellDates: true });
+    const allParsed: Array<{ tarih: string; aciklama: string; tutar: number; tip: 'borc' | 'alacak' }> = [];
+    for (const sheetName of wb.SheetNames) {
+      const ws = wb.Sheets[sheetName];
+      if (!ws) continue;
+      const data = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
+      const sheetRows = parseSheetMatrixRows(data);
+      if (sheetRows && sheetRows.length > 0) {
+        allParsed.push(...sheetRows);
+      }
+    }
+    return allParsed.length > 0 ? allParsed : null;
   };
 
   const processSelectedFile = async (file: File) => {
@@ -492,37 +595,29 @@ export function BankaEkstreUpload({ bankaId, isOpen, onClose }: BankaEkstreUploa
     }
 
     if (isPdf) {
-      await parseWithAiBackend(
-        file,
-        'PDF ekstre okunuyor ve banka hareketleri ayrıştırılıyor (sayfa sayısına göre 10-30 sn sürebilir)...'
-      );
+      await parsePdfDirectlyOnBackend(file);
       return;
     }
 
-    if (isCsvOrTxt) {
-      await parseWithAiBackend(file, 'CSV/Metin ekstre okunuyor ve hareketler ayrıştırılıyor...');
-      return;
-    }
-
-    // Excel dosyalarında önce anlık yerel ayrıştırıcıyı dene; başlık yapısı farklıysa otomatik AI ayrıştırıcıya devret
+    // Excel ve CSV dosyaları tamamen doğrudan (yapay zekasız) okunur
     setIsProcessing(true);
-    setProcessingMessage('Excel dosyası okunuyor...');
+    setProcessingMessage('Ekstre dosyası okunuyor...');
     try {
-      const localRows = await tryLocalExcelParse(file);
+      const localRows = await tryLocalExcelOrCsvParse(file, isCsvOrTxt);
       if (localRows && localRows.length > 0) {
         const mapped = buildEkstreSatirlari(localRows);
         setSatirlar(mapped);
         toast.success(`${mapped.length} adet hareket yüklendi.`);
-        setIsProcessing(false);
-        setProcessingMessage('');
-        return;
+      } else {
+        toast.error('Dosya içinde standart banka ekstresi sütunları (Tarih / Açıklama / Tutar) bulunamadı.');
       }
     } catch (err) {
-      console.warn('Yerel Excel okuma başarısız, AI ayrıştırıcıya geçiliyor:', err);
+      console.error('Excel/CSV okuma hatası:', err);
+      toast.error('Dosya okunurken hata oluştu.');
+    } finally {
+      setIsProcessing(false);
+      setProcessingMessage('');
     }
-
-    toast.info('Farklı banka şablonu tespit edildi, yapay zeka ile ayrıştırılıyor...');
-    await parseWithAiBackend(file, 'Standart dışı Excel şablonu yapay zeka ile ayrıştırılıyor...');
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {

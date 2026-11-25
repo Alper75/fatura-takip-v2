@@ -656,43 +656,14 @@ Temel Muhasebe İlkelerin ve Davranış Kuralların:
   }
 });
 
-router.post('/api/ai/parse-bank-statement', authMiddleware, async (req, res) => {
+router.post(['/api/banka/parse-ekstre-pdf', '/api/ai/parse-bank-statement'], authMiddleware, async (req, res) => {
   try {
-    const {
-      fileBase64,
-      fileName,
-      mimeType,
-      provider,
-      evrenApiKey,
-      evrenModel,
-      openaiApiKey,
-      openaiModel,
-      xaiApiKey,
-      xaiModel,
-      nvidiaApiKey,
-      nvidiaModel,
-      geminiApiKey,
-      geminiModel,
-    } = req.body || {};
+    const { fileBase64, fileName, mimeType } = req.body || {};
 
     const result = await parseBankStatementFile({
-      companyId: req.user.companyId,
       fileBase64,
       fileName,
       mimeType,
-      overrides: {
-        provider,
-        evrenApiKey,
-        evrenModel,
-        openaiApiKey,
-        openaiModel,
-        xaiApiKey,
-        xaiModel,
-        nvidiaApiKey,
-        nvidiaModel,
-        geminiApiKey,
-        geminiModel,
-      },
     });
 
     res.json({
@@ -700,11 +671,10 @@ router.post('/api/ai/parse-bank-statement', authMiddleware, async (req, res) => 
       rows: result.rows,
       pageCount: result.pageCount,
       method: result.method,
-      provider: result.provider,
     });
   } catch (err) {
     console.error('[ParseBankStatement] Hata:', err);
-    res.status(500).json({
+    res.status(400).json({
       success: false,
       message: err.message || 'Banka ekstresi ayrıştırılırken hata oluştu.',
     });
