@@ -468,7 +468,62 @@ export function KesilecekFaturalar() {
     endDate: new Date().toISOString().split('T')[0]
   });
   const [isGibFetching, setIsGibFetching] = useState(false);
+  const [gibFetchProgress, setGibFetchProgress] = useState('');
   const [gibInvoices, setGibInvoices] = useState<any[]>([]);
+
+  const splitIsoDateRangeInto7DayChunks = (startStr: string, endStr: string) => {
+    const toUtcMs = (s: string) => {
+      const clean = String(s || '').trim().split('T')[0];
+      if (/^\d{4}-\d{1,2}-\d{1,2}$/.test(clean)) {
+        const [y, m, d] = clean.split('-').map(Number);
+        return Date.UTC(y, m - 1, d);
+      }
+      if (/^\d{1,2}[./-]\d{1,2}[./-]\d{4}$/.test(clean)) {
+        const [d, m, y] = clean.split(/[./-]/).map(Number);
+        return Date.UTC(y, m - 1, d);
+      }
+      return NaN;
+    };
+    const toIso = (ms: number) => {
+      const dt = new Date(ms);
+      const y = dt.getUTCFullYear();
+      const m = String(dt.getUTCMonth() + 1).padStart(2, '0');
+      const d = String(dt.getUTCDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    };
+    const toTrShort = (ms: number) => {
+      const dt = new Date(ms);
+      const d = String(dt.getUTCDate()).padStart(2, '0');
+      const m = String(dt.getUTCMonth() + 1).padStart(2, '0');
+      return `${d}.${m}.${dt.getUTCFullYear()}`;
+    };
+
+    let sMs = toUtcMs(startStr);
+    let eMs = toUtcMs(endStr);
+    if (Number.isNaN(sMs) || Number.isNaN(eMs)) {
+      return [{ startDate: startStr, endDate: endStr, label: `${startStr} - ${endStr}` }];
+    }
+    if (sMs > eMs) {
+      const tmp = sMs;
+      sMs = eMs;
+      eMs = tmp;
+    }
+
+    const DAY_MS = 86400000;
+    const MAX_SPAN_MS = 6 * DAY_MS; // 7 takvim günü (dahil)
+    const chunks: Array<{ startDate: string; endDate: string; label: string }> = [];
+    let cursor = sMs;
+    while (cursor <= eMs) {
+      const chunkEnd = Math.min(eMs, cursor + MAX_SPAN_MS);
+      chunks.push({
+        startDate: toIso(cursor),
+        endDate: toIso(chunkEnd),
+        label: `${toTrShort(cursor)} - ${toTrShort(chunkEnd)}`,
+      });
+      cursor = chunkEnd + DAY_MS;
+    }
+    return chunks;
+  };
 
   // Toplu GİB States
   const [selectedInvoiceIdsForGib, setSelectedInvoiceIdsForGib] = useState<string[]>([]);
@@ -1300,32 +1355,58 @@ export function KesilecekFaturalar() {
 
     setIsGibQuerying(true);
     try {
-      toast.info(`GİB e-Arşiv faturaları sorgulanıyor (${queryStart} - ${queryEnd})...`);
-
       const apiUrl = import.meta.env.DEV ? 'http://localhost:5000/api/gib/invoices' : '/api/gib/invoices';
-      const response = await fetch(apiUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${localStorage.getItem('token')}`
-        },
-        body: JSON.stringify({
-          credentials,
-          startDate: queryStart,
-          endDate: queryEnd
-        })
-      });
+      const chunks = splitIsoDateRangeInto7DayChunks(queryStart, queryEnd);
+      const mergedList: any[] = [];
+      const seenKeys = new Set<string>();
 
-      const result = await response.json();
-      if (!result.success) {
-        throw new Error(result.message || 'GİB faturaları alınamadı.');
+      toast.info(
+        chunks.length > 1
+          ? `GİB e-Arşiv faturaları 7 günlük ${chunks.length} dilim halinde sorgulanıyor...`
+          : `GİB e-Arşiv faturaları sorgulanıyor (${queryStart} - ${queryEnd})...`
+      );
+
+      for (let i = 0; i < chunks.length; i++) {
+        const ch = chunks[i];
+        const response = await fetch(apiUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${localStorage.getItem('token')}`
+          },
+          body: JSON.stringify({
+            credentials,
+            startDate: ch.startDate,
+            endDate: ch.endDate
+          })
+        });
+
+        const rawText = await response.text();
+        let result: any;
+        try {
+          result = JSON.parse(rawText);
+        } catch {
+          throw new Error(`GİB sunucu yanıtı okunamadı (${ch.label}).`);
+        }
+        if (!result.success) {
+          throw new Error(result.message || 'GİB faturaları alınamadı.');
+        }
+
+        const chunkItems: any[] = Array.isArray(result.data) ? result.data : [];
+        for (const inv of chunkItems) {
+          const key = inv?.ettn || inv?.uuid || inv?.faturaUuid || inv?.belgeNumarasi;
+          if (key) {
+            if (seenKeys.has(key)) continue;
+            seenKeys.add(key);
+          }
+          mergedList.push(inv);
+        }
       }
 
-      const gibList: any[] = result.data || [];
-      setGibInvoices(gibList);
-      toast.info(`GİB'den ${gibList.length} adet fatura alındı.`);
+      setGibInvoices(mergedList);
+      toast.info(`GİB'den ${mergedList.length} adet fatura alındı.`);
 
-      await matchAndApplyGibInvoices(gibList, targets, { startDate: queryStart, endDate: queryEnd });
+      await matchAndApplyGibInvoices(mergedList, targets, { startDate: queryStart, endDate: queryEnd });
     } catch (err: any) {
       console.error('GİB sorgulama hatası:', err);
       toast.error('GİB sorgulama hatası: ' + (err.message || 'Bilinmeyen hata'));
@@ -2320,33 +2401,68 @@ export function KesilecekFaturalar() {
       return;
     }
     setIsGibFetching(true);
+    setGibFetchProgress('');
     try {
       const apiUrl = import.meta.env.DEV ? 'http://localhost:5000/api/gib/invoices' : '/api/gib/invoices';
-      const response = await fetch(apiUrl, {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json', 
-          Authorization: `Bearer ${localStorage.getItem('token')}` 
-        },
-        body: JSON.stringify({
-          credentials: gibFetchCredentials,
-          startDate: gibDateRange.startDate,
-          endDate: gibDateRange.endDate,
-          includeDetails: true
-        })
-      });
-      const result = await response.json();
-      if (result.success) {
-        setGibInvoices(result.data || []);
-        toast.success(`${(result.data || []).length} fatura (Matrah, KDV ve Toplam tutarlarıyla) başarıyla getirildi.`);
-      } else {
-        toast.error(result.message || 'Faturalar getirilemedi.');
+      const chunks = splitIsoDateRangeInto7DayChunks(gibDateRange.startDate, gibDateRange.endDate);
+      const mergedList: any[] = [];
+      const seenKeys = new Set<string>();
+
+      for (let i = 0; i < chunks.length; i++) {
+        const ch = chunks[i];
+        if (chunks.length > 1) {
+          setGibFetchProgress(`Dilim ${i + 1}/${chunks.length} (${ch.label})`);
+        } else {
+          setGibFetchProgress('Sorgulanıyor...');
+        }
+
+        const response = await fetch(apiUrl, {
+          method: 'POST',
+          headers: { 
+            'Content-Type': 'application/json', 
+            Authorization: `Bearer ${localStorage.getItem('token')}` 
+          },
+          body: JSON.stringify({
+            credentials: gibFetchCredentials,
+            startDate: ch.startDate,
+            endDate: ch.endDate,
+            includeDetails: true
+          })
+        });
+
+        const rawText = await response.text();
+        let result: any;
+        try {
+          result = JSON.parse(rawText);
+        } catch {
+          throw new Error(`Sunucu yanıtı okunamadı (${ch.label}).`);
+        }
+
+        if (!result.success) {
+          throw new Error(result.message || 'Faturalar getirilemedi.');
+        }
+
+        const chunkItems: any[] = Array.isArray(result.data) ? result.data : [];
+        for (const inv of chunkItems) {
+          const key = inv?.ettn || inv?.uuid || inv?.faturaUuid || inv?.belgeNumarasi;
+          if (key) {
+            if (seenKeys.has(key)) continue;
+            seenKeys.add(key);
+          }
+          mergedList.push(inv);
+        }
+        // Bulunan faturaları anlık olarak ekranda göster
+        setGibInvoices([...mergedList]);
       }
-    } catch (err) {
+
+      setGibInvoices(mergedList);
+      toast.success(`${mergedList.length} fatura (${chunks.length} haftalık dilim taranarak) başarıyla getirildi.`);
+    } catch (err: any) {
       console.error(err);
-      toast.error('Sunucuya bağlanılamadı.');
+      toast.error(err?.message || 'Sunucuya bağlanılamadı.');
     } finally {
       setIsGibFetching(false);
+      setGibFetchProgress('');
     }
   };
 
@@ -4113,7 +4229,7 @@ export function KesilecekFaturalar() {
               </div>
               <Button type="submit" disabled={isGibFetching} className="bg-amber-600 hover:bg-amber-700 h-9 gap-1 text-xs font-bold text-white">
                 {isGibFetching ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
-                Sorgula & Detayları Getir
+                {isGibFetching && gibFetchProgress ? gibFetchProgress : 'Sorgula & Detayları Getir'}
               </Button>
             </div>
 

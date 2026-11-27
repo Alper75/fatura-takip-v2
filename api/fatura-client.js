@@ -467,46 +467,111 @@ export class FaturaClient {
         });
     }
 
-    async getAllInvoicesByDateRange(token, { startDate, endDate }) {
-        const norm = (d) => {
-            if (!d) return "";
-            const s = String(d).trim();
-            if (s.includes("-")) {
-                const p = s.split("T")[0].split("-");
-                if (p.length === 3 && p[0].length === 4) return `${p[2]}/${p[1]}/${p[0]}`;
+    _splitInto7DayGibWindows(startDate, endDate) {
+        const parseToUtcMs = (d) => {
+            if (!d) return NaN;
+            const s = String(d).trim().split("T")[0];
+            if (/^\d{4}-\d{1,2}-\d{1,2}$/.test(s)) {
+                const [y, m, day] = s.split("-").map(Number);
+                return Date.UTC(y, m - 1, day);
             }
-            return s;
+            if (/^\d{1,2}[./-]\d{1,2}[./-]\d{4}$/.test(s)) {
+                const [day, m, y] = s.split(/[./-]/).map(Number);
+                return Date.UTC(y, m - 1, day);
+            }
+            return NaN;
         };
-        const sDate = norm(startDate);
-        const eDate = norm(endDate);
-        const result = await this.runCommand(token, ...COMMANDS.getAllInvoicesByDateRange, { 
-            baslangic: sDate, 
-            bitis: eDate, 
-            hangiTip: "5000/30000", 
-            table: [] 
+
+        const formatUtcToGib = (ms) => {
+            const dt = new Date(ms);
+            const day = String(dt.getUTCDate()).padStart(2, "0");
+            const month = String(dt.getUTCMonth() + 1).padStart(2, "0");
+            const year = dt.getUTCFullYear();
+            return `${day}/${month}/${year}`;
+        };
+
+        let startMs = parseToUtcMs(startDate);
+        let endMs = parseToUtcMs(endDate);
+
+        if (Number.isNaN(startMs) || Number.isNaN(endMs)) {
+            const fallbackNorm = (d) => {
+                if (!d) return "";
+                const s = String(d).trim();
+                if (s.includes("-")) {
+                    const p = s.split("T")[0].split("-");
+                    if (p.length === 3 && p[0].length === 4) return `${p[2]}/${p[1]}/${p[0]}`;
+                }
+                return s;
+            };
+            return [{ baslangic: fallbackNorm(startDate), bitis: fallbackNorm(endDate) }];
+        }
+
+        if (startMs > endMs) {
+            const tmp = startMs;
+            startMs = endMs;
+            endMs = tmp;
+        }
+
+        const DAY_MS = 86400000;
+        // GİB e-Arşiv Portal en fazla 7 takvim günü (başlangıç + 6 gün dahil) aralığa izin verir
+        const MAX_SPAN_MS = 6 * DAY_MS;
+        const windows = [];
+        let cursor = startMs;
+
+        while (cursor <= endMs) {
+            const chunkEnd = Math.min(endMs, cursor + MAX_SPAN_MS);
+            windows.push({
+                baslangic: formatUtcToGib(cursor),
+                bitis: formatUtcToGib(chunkEnd),
+            });
+            cursor = chunkEnd + DAY_MS;
+        }
+
+        return windows;
+    }
+
+    async _queryChunkedByDateRange(token, commandTuple, { startDate, endDate }) {
+        const windows = this._splitInto7DayGibWindows(startDate, endDate);
+        const merged = [];
+        const seenKeys = new Set();
+
+        for (let i = 0; i < windows.length; i++) {
+            const win = windows[i];
+            if (i > 0) {
+                await new Promise((r) => setTimeout(r, 250));
+            }
+            const result = await this.runCommand(token, ...commandTuple, {
+                baslangic: win.baslangic,
+                bitis: win.bitis,
+                hangiTip: "5000/30000",
+                table: [],
+            });
+            const list = Array.isArray(result?.data) ? result.data : [];
+            for (const inv of list) {
+                const uniqueKey = inv?.ettn || inv?.uuid || inv?.faturaUuid || inv?.belgeNumarasi;
+                if (uniqueKey) {
+                    if (seenKeys.has(uniqueKey)) continue;
+                    seenKeys.add(uniqueKey);
+                }
+                merged.push(inv);
+            }
+        }
+
+        return merged;
+    }
+
+    async getAllInvoicesByDateRange(token, { startDate, endDate }) {
+        return this._queryChunkedByDateRange(token, COMMANDS.getAllInvoicesByDateRange, {
+            startDate,
+            endDate,
         });
-        return result.data;
     }
 
     async getAllInvoicesIssuedToMeByDateRange(token, { startDate, endDate }) {
-        const norm = (d) => {
-            if (!d) return "";
-            const s = String(d).trim();
-            if (s.includes("-")) {
-                const p = s.split("T")[0].split("-");
-                if (p.length === 3 && p[0].length === 4) return `${p[2]}/${p[1]}/${p[0]}`;
-            }
-            return s;
-        };
-        const sDate = norm(startDate);
-        const eDate = norm(endDate);
-        const result = await this.runCommand(token, ...COMMANDS.getAllInvoicesIssuedToMeByDateRange, { 
-            baslangic: sDate, 
-            bitis: eDate, 
-            hangiTip: "5000/30000", 
-            table: [] 
+        return this._queryChunkedByDateRange(token, COMMANDS.getAllInvoicesIssuedToMeByDateRange, {
+            startDate,
+            endDate,
         });
-        return result.data;
     }
 
     async getInvoiceHTML(token, uuid, { signed }) {
